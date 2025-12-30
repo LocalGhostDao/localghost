@@ -1,5 +1,10 @@
 # Security Model
 
+```
+█▀▀  █▀▀  █▀▀  █░█  █▀█  █  ▀█▀  █▄█
+▄▄█  █▄▄  █▄▄  █▄█  █▀▄  █  ░█░  ░█░
+```
+
 > *"Privacy is the power to selectively reveal oneself to the world."*  
 > — A Cypherpunk's Manifesto, 1993
 
@@ -24,7 +29,7 @@ The Sentinel supports two unlock paths — same key, different PIN:
 | **Real PIN** | Full system. Your actual data. |
 | **Duress PIN** | Shadow system. Plausible decoy data. No evidence the real system exists. |
 
-During initial setup, you configure both PINs on your FIDO2 key. They should be different enough that you'll never mix them up — but to someone watching you type, they can't tell which one you entered.
+During initial setup, you configure both PINs in the Sentinel software. The FIDO2 key proves physical possession — you must have it present to unlock. The PIN you enter determines which volume gets decrypted.
 
 **Example:**
 - Real PIN: `8472`
@@ -32,31 +37,57 @@ During initial setup, you configure both PINs on your FIDO2 key. They should be 
 
 You'll never accidentally type `0000` when you meant `8472`. But under coercion, you can "cooperate" and enter the duress PIN.
 
-### Unlock Flow
+### How Unlock Works
 
 ```
-┌─────────────────────────┐
-│   INSERT FIDO2 KEY      │
-│   ENTER PIN             │
-└───────────┬─────────────┘
-            │
-            ▼
-    ┌───────────────┐
-    │  Which PIN?   │
-    └───────┬───────┘
-            │
-   ┌────────┼────────┐
-   ▼        ▼        ▼
-┌──────┐ ┌──────┐ ┌──────┐
-│ 8472 │ │ 0000 │ │ 9999 │
-│ Real │ │Duress│ │Purge │
-└──┬───┘ └──┬───┘ └──┬───┘
-   │        │        │
-   ▼        ▼        ▼
-┌──────┐ ┌──────┐ ┌──────┐
-│ Real │ │Shadow│ │ WIPE │
-│ Data │ │ Data │ │ ALL  │
-└──────┘ └──────┘ └──────┘
+┌──────────────────────┐
+│  1. Insert FIDO2 Key │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│  2. Enter PIN        │
+│     (into Sentinel)  │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│  3. Sentinel derives │
+│     decryption key   │
+│     from PIN         │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│  4. FIDO2 key signs  │
+│     challenge        │
+│     (proves you      │
+│      have the key)   │
+└──────────┬───────────┘
+           ▼
+┌──────────────────────┐
+│  5. Volume unlocks   │
+└──────────────────────┘
+```
+
+The FIDO2 key doesn't store multiple PINs — it just verifies you're physically present. The Sentinel software decides which volume to decrypt based on which PIN you entered.
+
+### PIN Routing
+
+```
+           ┌─────────────┐
+           │  ENTER PIN  │
+           └──────┬──────┘
+                  │
+     ┌────────────┼────────────┐
+     ▼            ▼            ▼
+ ┌───────┐   ┌────────┐   ┌────────┐
+ │ 8472  │   │  0000  │   │  9999  │
+ │ Real  │   │ Duress │   │ Purge  │
+ └───┬───┘   └───┬────┘   └───┬────┘
+     │           │            │
+     ▼           ▼            ▼
+ ┌───────┐   ┌────────┐   ┌────────┐
+ │ Real  │   │ Shadow │   │  WIPE  │
+ │ Volume│   │ Volume │   │  ALL   │
+ └───────┘   └────────┘   └────────┘
 ```
 
 ---
@@ -199,7 +230,7 @@ We don't roll our own crypto. The hidden volume design builds on established, au
 ┌─────────────────────────────────────────────────────────┐
 │                    PHYSICAL DISK                        │
 ├─────────────────────────────────────────────────────────┤
-│  LUKS HEADER (detached, stored on FIDO2 key)           │
+│  LUKS HEADERS (detached)                               │
 ├─────────────────────────────────────────────────────────┤
 │  SHADOW VOLUME                    │   UNALLOCATED      │
 │  (Duress PIN decrypts this)       │   (looks random)   │
@@ -212,12 +243,15 @@ We don't roll our own crypto. The hidden volume design builds on established, au
 ```
 
 **How it works:**
-- LUKS2 with detached headers stored on FIDO2 secure element
+- LUKS2 with detached headers
+- FIDO2 key provides **presence verification** (proves physical possession)
+- PIN entered into Sentinel software, not stored on FIDO2 key
+- Sentinel derives decryption key from PIN using Argon2id
+- Different PINs → different derived keys → different volumes decrypt
 - Shadow volume is a normal encrypted filesystem
-- Real volume lives in "unallocated" space, encrypted with different key
-- Shadow volume's filesystem sees unallocated space as free — it won't write there unless it runs out of room
+- Real volume lives in "unallocated" space, encrypted with different derived key
+- Shadow volume's filesystem sees unallocated space as free — won't write there unless full
 - We reserve sufficient unallocated space during setup based on your storage needs
-- Real PIN decrypts the hidden header and mounts the real volume instead
 
 **Inspired by:** VeraCrypt hidden volumes, dm-crypt/LUKS detached headers, Tails persistent storage
 
@@ -239,7 +273,7 @@ On unlock, the Sentinel checks which PIN was entered and configures all daemons 
 | Disk encryption | LUKS2 | Industry standard, audited, supports detached headers |
 | Key derivation | Argon2id | Memory-hard, resists GPU attacks |
 | Symmetric encryption | AES-256-GCM | Fast, authenticated, hardware-accelerated |
-| Key storage | FIDO2 secure element | Hardware-bound, can't be extracted |
+| Presence verification | FIDO2 key | Proves physical possession, prevents remote attacks |
 | Secure wipe | `blkdiscard` + `shred` | TRIM-aware for SSDs |
 
 ### Limitations
@@ -274,6 +308,7 @@ On unlock, the Sentinel checks which PIN was entered and configures all daemons 
 | Feature | Purpose | Implementation |
 |---------|---------|----------------|
 | Encryption | Protects data at rest | LUKS2 + AES-256-GCM |
+| FIDO2 presence | Prevents remote attacks | Hardware key must be physically present |
 | Hidden volumes | Protects from compelled access | Detached headers, unallocated space |
 | Shadow system | Plausible deniability | Parallel data stores, same UI |
 | The Purge | Nuclear option | Secure wipe + key destruction |
