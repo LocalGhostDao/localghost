@@ -85,10 +85,10 @@ localghost/
 │   ├── sentinel/
 │   └── shadow/
 ├── internal/                 # Shared internal packages
-│   ├── config/
-│   ├── crypto/
-│   ├── storage/
-│   └── dht/
+│   ├── config/               # Configuration loading
+│   ├── crypto/               # Encryption, FIDO2, key management
+│   ├── storage/              # Local data storage
+│   └── dht/                  # The Mist: Kademlia DHT for P2P backup
 ├── releases/                 # Version configurations
 │   └── wisp/                 # v1 release
 │       ├── mini/
@@ -235,7 +235,7 @@ NO CENTRAL NODE. NO MASTER. JUST THE MESH.
 
 **The Pact:** Dedicate 20% of your drive to the network. Gain immortality for your data.
 
-Uses Reed-Solomon erasure coding (similar to Ethereum's PeerDAS). You only need ~50% of shards to reconstruct. Kademlia-style DHT for discovery.
+Uses Reed-Solomon erasure coding (similar to Ethereum's PeerDAS). You only need ~50% of shards to reconstruct. Kademlia-style DHT for discovery. Implementation lives in `internal/dht/`.
 
 ---
 
