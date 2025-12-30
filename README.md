@@ -62,22 +62,35 @@ NOTHING LEAVES THE BOX UNLESS YOU ENABLE THE MIST.
 
 ## Tech Stack
 
-We're keeping the stack simple and boring. Things we know work.
+We're keeping the stack simple and boring. Things we know work. We'll use the right tool for each job.
 
 | Layer | Technology | Notes |
 |-------|------------|-------|
-| Language | Go | Single binary, no runtime deps, battle-tested, boring, reliable |
+| Core Services | Go | Single binary, no runtime deps, battle-tested for networking and daemons |
+| Inference | Python / llama.cpp | AI ecosystem lives in Python and C++. We're not fighting that. |
 | OS | Debian (on our builds) | Stable, minimal, well-understood |
 | Database | Postgres + pgvector | Structured data + vector embeddings in one place |
 | Cache | Redis | Session state, pub/sub between daemons, job queue |
 | Web | Nginx | Reverse proxy, TLS termination, static assets |
 | Inference (v0.1) | External APIs or Ollama | Whatever works. Claude, OpenAI, local Ollama. Ship first, optimise later. |
-| Inference (v0.2) | Ollama / llama.cpp | Local-first as default |
-| Inference (v1.0+) | Direct model loading | No wrappers. Weights in RAM/VRAM via Go bindings. |
+| Inference (v0.2+) | Ollama / llama.cpp | Local-first as default. We talk to llama-server over localhost HTTP. Simple. |
 | IPC | Unix sockets + Redis pub/sub | Daemons talk locally. No network overhead. |
-| Notifications | Direct connection | Your phone connects directly to your box. No push servers, no Firebase, no relay. |
+| Notifications | Direct + Reminders | See below. |
 
 No third-party cloud services required. If you want to use external APIs early on while testing, that's fine. The architecture doesn't lock you in.
+
+### Notifications
+
+Your LocalGhost box needs to tell you things. Here's how:
+
+**Android / Desktop:** Direct connection. Your device connects to your box over local network or VPN. Real-time notifications via WebSocket or self-hosted ntfy.
+
+**iOS:** Apple doesn't allow persistent background connections to local servers. Instead:
+- Set a daily reminder on your phone (e.g., "Check LocalGhost" at 8am)
+- Your box runs analysis overnight and has the digest ready
+- Open the app when the reminder fires — your insights are waiting
+
+No push relay servers. No Firebase. The box prepares the data; you decide when to look at it.
 
 ---
 
@@ -89,14 +102,14 @@ Six daemons. Each has one job. All communicate over local Unix sockets.
 |--------|------|--------------|
 | THE SCRIBE | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
 | THE OBSERVER | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
-| THE AUDITOR | Metrics Collector | Imports bank CSVs, screen time logs, git history. Structured data into Postgres. |
+| THE AUDITOR | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. Community-contributed parsers. |
 | THE WEAVER | Correlation Engine | Runs inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
 | THE SENTINEL | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local backup to USB/NAS/S3-compatible. P2P backup via The Mist comes in v3.0. |
 | THE SHADOW | Query Interface | Web UI + API. Ask questions, get answers with citations to your own data. |
 
 ### Daily Digest
 
-The Weaver runs background analysis overnight and identifies interesting patterns in your data. Notifications go directly to your phone — your phone connects to your LocalGhost box over your local network or via VPN when you're away. No notification relay servers, no Firebase, no third parties. Just a direct connection between your devices.
+The Weaver runs background analysis overnight and identifies interesting patterns in your data. The digest is ready whenever you want it — set a daily reminder on your phone, open the app, and your insights are waiting. No notification servers, no third parties. Just your box, ready when you are.
 
 ---
 
@@ -115,8 +128,12 @@ localghost/
 │   ├── config/               # Configuration (YAML)
 │   ├── crypto/               # Encryption, FIDO2
 │   ├── storage/              # Postgres + Redis
-│   ├── inference/            # Model interface (external → Ollama → direct)
+│   ├── inference/            # Model interface (Ollama, external APIs)
 │   └── dht/                  # The Mist (v3.0+)
+├── plugins/                  # Auditor data parsers (community-contributed)
+│   ├── banks/                # Bank CSV parsers
+│   ├── health/               # Health data importers
+│   └── ...
 ├── migrations/               # Postgres schema
 ├── configs/                  # Per-tier defaults
 │   ├── mini.yaml
@@ -149,9 +166,9 @@ Named after ghosts, smallest to largest. Features ship incrementally.
 | Version | Codename | Focus | Target |
 |---------|----------|-------|--------|
 | v0.1 | Wisp | MVP: Scribe + Weaver + Shadow, external/Ollama inference, local backup | Month 3 |
-| v0.2 | Shade | Multimodal: Observer + Auditor, local-first inference, daily digest | Month 6 |
+| v0.2 | Shade | Multimodal: Observer + Auditor plugin system, local-first inference | Month 6 |
 | v0.3 | Specter | Hardware: Official kits ship, one-click install | Month 9 |
-| v1.0 | Phantom | Production: Stable APIs, direct model loading, security audit | Month 12 |
+| v1.0 | Phantom | Production: Stable APIs, security audit, full Sentinel | Month 12 |
 | v2.0 | Wraith | Scale: Multi-user, rack support | Month 15+ |
 | v3.0 | Poltergeist | The Mist: P2P backup, DHT | Month 18+ |
 
@@ -211,7 +228,7 @@ One-time payments. No subscriptions. You pay once, you get something.
 
 All donations go to development. No VC. No strings. Just code and hardware.
 
-Donate: [localghost.ai](https://localghost.ai/#economics) or send ETH to `zerocool.eth`
+Donate: [localghost.ai](https://www.localghost.ai/#economics) or send ETH to `zerocool.eth`
 
 Merch coming eventually. See [MERCH.md](MERCH.md) when it exists.
 
@@ -306,10 +323,10 @@ Tech: External APIs (Claude, OpenAI) or Ollama for inference. Whatever works. Po
 Goal: Multimodal inputs. See more than just text.
 
 Included:
-- The Auditor — bank CSVs, screen time, git history, health exports
+- The Auditor — plugin system for bank CSVs, screen time, git history, health exports. We provide the schema, community writes the parsers.
 - The Observer — camera/screen input, OCR, scene tagging (opt-in)
 - Cross-source correlation
-- Daily digest notifications (direct to phone)
+- Daily digest ready on demand
 - Local-first inference (Ollama/llama.cpp as default)
 - S3-compatible backup (R2, Backblaze, MinIO)
 
@@ -336,7 +353,6 @@ Goal: Production-ready. Stable. Documented. Supportable.
 
 Included:
 - The Sentinel — full key management, encrypted shards
-- Direct model loading (drop Ollama dependency)
 - `pro` and `rack` hardware tiers
 - Priority support infrastructure
 - API stability guarantees
@@ -367,7 +383,7 @@ P2P requires critical mass. Local backup solves the problem for years. The Mist 
 | First commit | Week 1 | Nothing (watch the repo) |
 | wisp-alpha | Month 2 | Text notes + basic RAG |
 | wisp (v0.1) | Month 3 | Full Scribe/Weaver/Shadow |
-| shade (v0.2) | Month 6 | Multimodal, daily digest |
+| shade (v0.2) | Month 6 | Multimodal, Auditor plugins |
 | specter (v0.3) | Month 9 | Hardware kits ship |
 | phantom (v1.0) | Month 12 | Production-ready |
 | wraith (v2.0) | Month 15+ | Multi-user, rack support |
@@ -456,7 +472,12 @@ If law enforcement comes with a warrant, compliance looks like:
 
 ## Contributing
 
-Contributions welcome. The codebase is Go.
+Contributions welcome. Core services are Go. Inference stays in Python/C++. We use what works.
+
+We especially welcome:
+- Auditor plugins (bank parsers, health data importers, screen time extractors)
+- Documentation and examples
+- Bug reports and fixes
 
 We prefer:
 - Standard library over external deps
@@ -477,8 +498,8 @@ Hardware designs: CC BY-SA 4.0
 
 ## Links
 
-- Website: [localghost.ai](https://localghost.ai)
-- Manifesto: [localghost.ai/manifesto](https://localghost.ai/manifesto)
+- Website: [localghost.ai](https://www.localghost.ai)
+- Manifesto: [localghost.ai/manifesto](https://www.localghost.ai/manifesto)
 - GitHub: [github.com/LocalGhostDao](https://github.com/LocalGhostDao)
 - Contact: info@localghost.ai
 
