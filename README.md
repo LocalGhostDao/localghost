@@ -58,18 +58,37 @@ NOTHING LEAVES THE BOX UNLESS YOU ENABLE THE MIST.
 
 ---
 
+## Tech Stack
+
+| Layer | Technology | Why |
+|-------|------------|-----|
+| **Language** | Go | Single binary deploys, no runtime deps, boring and reliable |
+| **OS** | Debian (our builds) | Stable, minimal, well-understood |
+| **Database** | Postgres + pgvector | Structured data + vector embeddings in one place |
+| **Cache** | Redis | Session state, pub/sub between daemons, queue for background jobs |
+| **Web** | Nginx | Reverse proxy, TLS termination, static assets |
+| **Inference** | Direct model loading | No Ollama, no wrappers. Model weights loaded directly into RAM/VRAM via Go bindings. Fastest path. |
+| **IPC** | Unix sockets + Redis pub/sub | Daemons talk locally. No network overhead. |
+| **Notifications** | Self-hosted push | ntfy, Matrix, or local WebSocket. No Firebase, no APNs relay. |
+
+**No middleware. No abstraction layers.** Your query goes from The Shadow → directly to model weights in memory → back to you. The only thing between you and inference is your own hardware.
+
+---
+
 ## The Fleet: Local Daemons
 
-Six specialized agents. Each has a single job. All run locally.
+Six daemons. Each has a single job. All communicate over local Unix sockets.
 
-| Daemon | Role | What It Does |
-|--------|------|--------------|
-| **THE SCRIBE** | Text & Context | Reads your journals. Maps your syntax. Preserves raw thoughts you self-censor. |
-| **THE OBSERVER** | Vision | Sees the bags under your eyes. Tracks the clutter. The only camera that works for you. |
-| **THE AUDITOR** | Hard Metrics | Bank logs. Screen time. Commit history. The undeniable baseline. |
-| **THE WEAVER** | Synthesis | Connects spending to sadness. Code to sleep. Builds a model of your psyche. |
-| **THE SENTINEL** | Security | Encrypts & shards your data. Distributes to the P2P mesh. The deadman switch. |
-| **THE SHADOW** | Interface | Brutally honest. If you lie to it, it cites the Auditor to correct you. |
+| Daemon | Technical Role | What It Does |
+|--------|----------------|--------------|
+| **THE SCRIBE** | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
+| **THE OBSERVER** | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
+| **THE AUDITOR** | Metrics Collector | Imports bank CSVs, screen time logs, git history. Structured data into Postgres. |
+| **THE WEAVER** | Correlation Engine | Runs local LLM inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
+| **THE SENTINEL** | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption, shard distribution to The Mist. |
+| **THE SHADOW** | Query Interface | Web UI + API. Ask questions, get answers with citations to your own data. |
+
+**Daily Digest:** The Weaver runs background analysis overnight and pushes notifications about interesting patterns — directly to your phone via self-hosted push (ntfy/Matrix) or local network. No third-party notification services.
 
 ---
 
@@ -78,36 +97,28 @@ Six specialized agents. Each has a single job. All run locally.
 ```
 localghost/
 ├── cmd/                      # Daemon entry points
-│   ├── scribe/
-│   ├── observer/
-│   ├── auditor/
-│   ├── weaver/
-│   ├── sentinel/
-│   └── shadow/
+│   ├── scribe/               # Text ingestion daemon
+│   ├── observer/             # Vision pipeline daemon
+│   ├── auditor/              # Metrics collector daemon
+│   ├── weaver/               # Correlation engine daemon
+│   ├── sentinel/             # Encryption & backup daemon
+│   └── shadow/               # Query interface daemon
 ├── internal/                 # Shared internal packages
-│   ├── config/               # Configuration loading
+│   ├── config/               # Configuration loading (YAML)
 │   ├── crypto/               # Encryption, FIDO2, key management
-│   ├── storage/              # Local data storage
+│   ├── storage/              # Postgres + Redis interfaces
+│   ├── inference/            # Direct model loading, inference runtime
 │   └── dht/                  # The Mist: Kademlia DHT for P2P backup
-├── releases/                 # Version configurations
-│   └── wisp/                 # v1 release
-│       ├── mini/
-│       ├── core/
-│       ├── pro/
-│       └── rack/
-├── hardware/                 # Bill of materials per tier
-│   ├── mini.md
-│   ├── core.md
-│   ├── pro.md
-│   └── rack.md
-├── docker/                   # Compose files per release/tier
-│   └── wisp/
-│       ├── mini/
-│       ├── core/
-│       ├── pro/
-│       └── rack/
+├── migrations/               # Postgres schema migrations
+├── configs/                  # Default configs per hardware tier
+│   ├── mini.yaml
+│   ├── core.yaml
+│   ├── pro.yaml
+│   └── rack.yaml
+├── docker/                   # Compose files per tier
 ├── scripts/                  # install.sh, upgrade.sh, backup.sh
 ├── docs/                     # Architecture, security, API
+├── hardware/                 # Bill of materials (may move to wiki)
 ├── SUPPORTERS.md             # The people who make this possible
 ├── go.mod
 ├── go.sum
@@ -115,37 +126,39 @@ localghost/
 └── README.md
 ```
 
-All tiers within a release share the same daemon code. Only resource allocations and Docker configs differ between tiers.
+All tiers run the same daemon binaries. Config files tune resource limits, model selection, and enabled features per tier.
 
 ---
 
 ## Releases
 
-Releases are named after ghosts, smallest to largest. Each release contains four hardware tiers.
+Software and hardware are versioned separately.
 
-### Release Codenames
+### Software Releases
 
-| Version | Codename | Meaning |
-|---------|----------|---------|
-| v1 | **Wisp** | Barely visible. First breath. |
-| v2 | **Shade** | Starting to take form. |
-| v3 | **Specter** | Gaining presence. |
-| v4 | **Phantom** | Fully formed. |
-| v5 | **Wraith** | Powerful. |
-| v6+ | **TBD** | Poltergeist, Revenant, Banshee... |
+Software versions are named after ghosts, smallest to largest.
 
-Current release: `wisp` (v1) — **PLANNED**
+| Version | Codename | Status |
+|---------|----------|--------|
+| v0.1 | **Wisp** | `PLANNED` — First breath |
+| v0.2 | **Shade** | Starting to take form |
+| v0.3 | **Specter** | Gaining presence |
+| v1.0 | **Phantom** | Fully formed |
+| v2.0 | **Wraith** | Powerful |
+| v3.0+ | **TBD** | Poltergeist, Revenant, Banshee... |
 
-### Hardware Tiers
+### Hardware Reference Designs
+
+Hardware tiers are independent of software version. Run any software version on any tier.
 
 | Tier | Hardware | Use Case |
 |------|----------|----------|
-| **mini** | RPi5 8GB, USB SSD, USB mic | Journal, basic voice |
-| **core** | ARM64 SBC + NPU, 16GB+, NVMe | Full daemon suite |
-| **pro** | x86/ARM + multi-GPU | Heavy inference, vision |
-| **rack** | 1U server, redundant storage | Family/org deployment |
+| **mini** | RPi5 8GB, USB SSD, USB mic | Journal, basic voice, small models (Phi-3, Gemma 2B) |
+| **core** | ARM64 SBC + NPU, 16GB+, NVMe | Full daemon suite, 7-8B models, real-time inference |
+| **pro** | x86/ARM + dedicated GPU | 70B+ models, vision models, parallel inference |
+| **rack** | 1U server, redundant storage, IPMI | Family/org deployment, multiple users |
 
-So your first install might be `wisp-core` or `wisp-mini`.
+**Example:** You might run `wisp` (v0.1) on a `core` box today, then upgrade to `shade` (v0.2) next month. Same hardware, new software.
 
 ---
 
@@ -196,7 +209,7 @@ All donations go to development. No VC. No strings. Just atoms and code.
 
 ---
 
-## Current Hardware Target (wisp-core)
+## Current Hardware Target (core tier)
 
 From the website — subject to change:
 
@@ -229,13 +242,29 @@ NO CENTRAL NODE. NO MASTER. JUST THE MESH.
 
 **How it works:**
 
-1. **SHARDING** — Your encrypted data is broken into thousands of meaningless pieces
-2. **DISTRIBUTION** — You store shards for others; they store shards for you  
-3. **ZERO-KNOWLEDGE** — They can't read yours. You can't read theirs.
+1. **SHARDING** — Your encrypted data is split into thousands of pieces using Reed-Solomon erasure coding
+2. **DISTRIBUTION** — You store shards for others; they store shards for you
+3. **ZERO-KNOWLEDGE** — Shards are encrypted before leaving your box. Hosts can't read them.
+4. **REDUNDANCY** — You only need ~50% of shards to reconstruct (tunable)
 
-**The Pact:** Dedicate 20% of your drive to the network. Gain immortality for your data.
+**The Pact:** Dedicate 20% of your drive to the network. Gain off-site backup for your data.
 
-Uses Reed-Solomon erasure coding (similar to Ethereum's PeerDAS). You only need ~50% of shards to reconstruct. Kademlia-style DHT for discovery. Implementation lives in `internal/dht/`.
+### The Cold Start Problem (Honest)
+
+P2P backup requires peers. If you're the only LocalGhost user in your area, The Mist doesn't help you.
+
+**Our approach:**
+
+| Network Size | Backup Strategy |
+|--------------|-----------------|
+| **Solo (1 node)** | Local-only. Use standard off-site backup (encrypted drive at a friend's house, bank vault). |
+| **Small (2-10 nodes)** | "Friends & Family" mode. Manually add trusted peers by IP/pubkey. You know who holds your shards. |
+| **Medium (10-100 nodes)** | Bootstrap nodes help discovery. Shards spread across the network. |
+| **Large (100+ nodes)** | Full DHT. Geographic distribution. Resilient to churn. |
+
+**The Mist is opt-in and disabled by default.** Your data works fine without it. Local backup to USB/NAS is always supported.
+
+Implementation lives in `internal/dht/`. Kademlia-style routing, QUIC transport, NAT traversal via STUN/relay fallback.
 
 ---
 
@@ -277,9 +306,8 @@ Uses Reed-Solomon erasure coding (similar to Ethereum's PeerDAS). You only need 
 git clone https://github.com/LocalGhostDao/localghost.git
 cd localghost
 
-# Choose your release and tier
-export GHOST_RELEASE=wisp
-export GHOST_TIER=core
+# Choose your hardware tier
+export GHOST_TIER=core  # mini | core | pro | rack
 
 # One-click install
 ./scripts/install.sh
