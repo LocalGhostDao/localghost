@@ -6,7 +6,7 @@
 ```
 
 > *"Privacy is the power to selectively reveal oneself to the world."*  
-> — A Cypherpunk's Manifesto, 1993
+> — [A Cypherpunk's Manifesto](https://www.localghost.ai/cypherpunk), 1993
 
 ---
 
