@@ -94,11 +94,13 @@ We solve this with **hidden volumes** and **duress mode**:
 | PIN | What Happens |
 |-----|--------------|
 | **Real PIN** | Full system. Your actual data. |
-| **Duress PIN** | Shadow system with plausible decoy data. No evidence the real system exists. |
+| **Duress PIN** | Shadow system. A different believable person — randomized patterns, bland content. |
 
-The shadow system looks like a boring person's data. Your real life stays hidden — indistinguishable from empty space. Forensic analysis finds nothing.
+The Observer generates shadow data daily — not a sanitized you, but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden — indistinguishable from empty space.
 
 A separate **Purge** function exists for when you need everything actually gone.
+
+*Shadow system planned for v1.0+. Basic hidden volumes in earlier releases.*
 
 **[Read the full security model →](docs/SECURITY.md)**
 
