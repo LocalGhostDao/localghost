@@ -5,8 +5,8 @@
 
 # THE ONLY CLOUD IS YOU
 
-> *"Privacy is the power to selectively reveal oneself to the world."*  
-> *— [A Cypherpunk's Manifesto](https://www.localghost.ai/cypherpunk), 1993*
+> *"If it can't run without their servers, you're a tenant."*  
+> — [Why We Build](https://www.localghost.ai/manifesto)
 
 Your data. Your hardware. Your ghost.
 
@@ -14,12 +14,22 @@ Read [why we build](https://www.localghost.ai/manifesto).
 
 ---
 
+## Status: Phase 0
+
+**Current state:** Website and vision. No code yet.
+
+- [x] Website live at [localghost.ai](https://www.localghost.ai)
+- [x] Manifesto published
+- [x] Architecture documented
+- [ ] First commit
+
+---
+
 ## What Is This?
 
-LocalGhost is a privacy-first, self-hosted AI system that runs entirely on your hardware. No cloud. No subscriptions. No surveillance. Just a black box that works for you.
+LocalGhost is a privacy-first, self-hosted AI system designed to run entirely on your hardware. No cloud. No subscriptions. No surveillance. Just a black box that works for you.
 
-This is the core repository — everything you need to run LocalGhost on your own machine:
-
+This repository will contain:
 - Hardware specifications and bill of materials
 - Daemon source code (six services that power the system)
 - Docker configurations for deployment
@@ -60,56 +70,127 @@ NOTHING LEAVES THE BOX UNLESS YOU ENABLE THE MIST.
 
 ---
 
-## Tech Stack
-
-We're keeping the stack simple and boring. Things we know work. We'll use the right tool for each job.
-
-| Layer | Technology | Notes |
-|-------|------------|-------|
-| Core Services | Go | Single binary, no runtime deps, battle-tested for networking and daemons |
-| Inference | Python / llama.cpp | AI ecosystem lives in Python and C++. We're not fighting that. |
-| OS | Debian (on our builds) | Stable, minimal, well-understood |
-| Database | Postgres + pgvector | Structured data + vector embeddings in one place |
-| Cache | Redis | Session state, pub/sub between daemons, job queue |
-| Web | Nginx | Reverse proxy, TLS termination, static assets |
-| Inference (v0.1) | External APIs or Ollama | Whatever works. Claude, OpenAI, local Ollama. Ship first, optimise later. |
-| Inference (v0.2+) | Ollama / llama.cpp | Local-first as default. We talk to llama-server over localhost HTTP. Simple. |
-| IPC | Unix sockets + Redis pub/sub | Daemons talk locally. No network overhead. |
-| Notifications | Direct + Reminders | See below. |
-
-No third-party cloud services required. If you want to use external APIs early on while testing, that's fine. The architecture doesn't lock you in.
-
-### Notifications
-
-Your LocalGhost box needs to tell you things. Here's how:
-
-**Android / Desktop:** Direct connection. Your device connects to your box over local network or VPN. Real-time notifications via WebSocket or self-hosted ntfy.
-
-**iOS:** Apple doesn't allow persistent background connections to local servers. Instead:
-- Set a daily reminder on your phone (e.g., "Check LocalGhost" at 8am)
-- Your box runs analysis overnight and has the digest ready
-- Open the app when the reminder fires — your insights are waiting
-
-No push relay servers. No Firebase. The box prepares the data; you decide when to look at it.
-
----
-
 ## The Daemons
 
 Six daemons. Each has one job. All communicate over local Unix sockets.
 
-| Daemon | Role | What It Does |
-|--------|------|--------------|
+| Daemon | Role | Description |
+|--------|------|-------------|
 | THE SCRIBE | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
 | THE OBSERVER | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
-| THE AUDITOR | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. Community-contributed parsers. |
+| THE AUDITOR | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. |
 | THE WEAVER | Correlation Engine | Runs inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
-| THE SENTINEL | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local backup to USB/NAS/S3-compatible. P2P backup via The Mist comes in v3.0. |
-| THE SHADOW | Query Interface | Web UI + API. Ask questions, get answers with citations to your own data. |
+| THE SENTINEL | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local and P2P backup. Duress mode. |
+| THE SHADOW | Query Interface | Web UI + API. Ask questions, get answers with citations to your own data. If you lie to it, it cites the Auditor to correct you. |
 
-### Daily Digest
+---
 
-The Weaver runs background analysis overnight and identifies interesting patterns in your data. The digest is ready whenever you want it — set a daily reminder on your phone, open the app, and your insights are waiting. No notification servers, no third parties. Just your box, ready when you are.
+## Security Model
+
+LocalGhost creates a searchable record of your life. Encryption protects data at rest — it doesn't protect you from a warrant, a wrench, or a border crossing.
+
+We solve this with **hidden volumes** and **duress mode**:
+
+| PIN | What Happens |
+|-----|--------------|
+| **Real PIN** | Full system. Your actual data. |
+| **Duress PIN** | Shadow system with plausible decoy data. No evidence the real system exists. |
+
+The shadow system looks like a boring person's data. Your real life stays hidden — indistinguishable from empty space. Forensic analysis finds nothing.
+
+A separate **Purge** function exists for when you need everything actually gone.
+
+**[Read the full security model →](docs/SECURITY.md)**
+
+---
+
+## Tech Stack
+
+Simple and boring. Things we know work.
+
+| Layer | Technology | Notes |
+|-------|------------|-------|
+| Core Services | Go | Single binary, no runtime deps |
+| Inference | Python / llama.cpp | AI ecosystem lives there. We're not fighting it. |
+| Database | Postgres + pgvector | Structured data + vector embeddings |
+| Cache | Redis | Session state, pub/sub between daemons |
+| Inference (v0.1) | External APIs or Ollama | Ship first, optimise later |
+| Inference (v0.2+) | Ollama / llama.cpp | Local-first as default |
+| IPC | Unix sockets + Redis pub/sub | Daemons talk locally |
+
+No third-party cloud services required.
+
+---
+
+## Roadmap
+
+Software releases named after ghosts, smallest to largest.
+
+### Phase 0: "Foundation" — Now
+
+Website and vision. This document.
+
+---
+
+### Phase 1: "Bones" — Months 1-3 → `wisp` (v0.1)
+
+**Goal:** Write notes, ask questions about your own data.
+
+- The Scribe — text ingestion, journaling
+- The Weaver — RAG pipeline (pgvector + inference)
+- The Shadow — web UI for queries
+- Basic encryption (FIDO2 key unlock)
+- Local backup to USB/NAS
+
+Not included: The Mist, The Observer, hardware sales.
+
+---
+
+### Phase 2: "Senses" — Months 4-6 → `shade` (v0.2)
+
+**Goal:** Multimodal inputs.
+
+- The Auditor — plugin system for imports
+- The Observer — camera/screen input, OCR (opt-in)
+- Cross-source correlation
+- Local-first inference default
+- Mobile app (photo/health/location sync)
+- Browser extension (bookmarks, reading history)
+- S3-compatible backup (R2, Backblaze, MinIO)
+
+---
+
+### Phase 3: "Shell" — Months 6-9 → `specter` (v0.3)
+
+**Goal:** Hardware ships after software is stable.
+
+- Official `mini` and `core` reference designs
+- Pre-built images for supported boards
+- One-click installer
+- Hardware validation test suite
+
+---
+
+### Phase 4: "Form" — Months 9-12 → `phantom` (v1.0)
+
+**Goal:** Production-ready.
+
+- The Sentinel — full key management
+- `pro` and `rack` hardware tiers
+- API stability guarantees
+- Security audit
+
+---
+
+### Phase 5: "Mist" — Month 18+ → `poltergeist` (v3.0)
+
+**Goal:** P2P backup for those who want it.
+
+- The Mist — DHT, shard distribution
+- Bootstrap node network
+- NAT traversal, QUIC transport
+
+P2P requires critical mass. Local backup works for years. The Mist is a long-term goal.
 
 ---
 
@@ -118,125 +199,45 @@ The Weaver runs background analysis overnight and identifies interesting pattern
 ```
 localghost/
 ├── cmd/                      # Daemon entry points
-│   ├── scribe/               # Text ingestion
-│   ├── observer/             # Vision pipeline
-│   ├── auditor/              # Metrics collector
-│   ├── weaver/               # Correlation engine
-│   ├── sentinel/             # Encryption & backup
-│   └── shadow/               # Query interface
+│   ├── scribe/
+│   ├── observer/
+│   ├── auditor/
+│   ├── weaver/
+│   ├── sentinel/
+│   └── shadow/
 ├── internal/                 # Shared packages
-│   ├── config/               # Configuration (YAML)
-│   ├── crypto/               # Encryption, FIDO2
-│   ├── storage/              # Postgres + Redis
-│   ├── inference/            # Model interface (Ollama, external APIs)
+│   ├── config/
+│   ├── crypto/
+│   ├── storage/
+│   ├── inference/
 │   └── dht/                  # The Mist (v3.0+)
-├── plugins/                  # Auditor data parsers (community-contributed)
-│   ├── banks/                # Bank CSV parsers
-│   ├── health/               # Health data importers
-│   └── ...
+├── plugins/                  # Auditor data parsers
 ├── migrations/               # Postgres schema
 ├── configs/                  # Per-tier defaults
 │   ├── mini.yaml
 │   ├── core.yaml
 │   ├── pro.yaml
 │   └── rack.yaml
-├── docker/                   # Compose files per tier
-├── scripts/                  # install.sh, upgrade.sh, backup.sh
-├── docs/                     # Architecture, security, API
+├── docker/
+├── scripts/
+├── docs/
+│   └── SECURITY.md           # Security model & duress mode
 ├── hardware/                 # Bill of materials
-├── SUPPORTERS.md
-├── go.mod
-├── go.sum
-├── Makefile
 └── README.md
 ```
 
-All tiers run the same binaries. Config files tune resource limits, model selection, and enabled features.
-
 ---
 
-## Releases
-
-Software and hardware are versioned separately.
-
-### Software Releases
-
-Named after ghosts, smallest to largest. Features ship incrementally.
-
-| Version | Codename | Focus | Target |
-|---------|----------|-------|--------|
-| v0.1 | Wisp | MVP: Scribe + Weaver + Shadow, external/Ollama inference, local backup | Month 3 |
-| v0.2 | Shade | Multimodal: Observer + Auditor plugin system, local-first inference | Month 6 |
-| v0.3 | Specter | Hardware: Official kits ship, one-click install | Month 9 |
-| v1.0 | Phantom | Production: Stable APIs, security audit, full Sentinel | Month 12 |
-| v2.0 | Wraith | Scale: Multi-user, rack support | Month 15+ |
-| v3.0 | Poltergeist | The Mist: P2P backup, DHT | Month 18+ |
-
-### Hardware Tiers
-
-Run any software version on any tier.
+## Hardware Tiers
 
 | Tier | Hardware | Use Case |
 |------|----------|----------|
-| mini | RPi5 8GB, USB SSD, USB mic | Journal, basic voice, small models (Phi-3, Gemma 2B) |
-| core | ARM64 SBC + NPU, 16GB+, NVMe | Full daemon suite, 7-8B models |
+| mini | RPi5 8GB, USB SSD | Journal, basic voice, small models |
+| core | ARM64 SBC + NPU, 16GB+ | Full daemon suite, 7-8B models |
 | pro | x86/ARM + dedicated GPU | 70B+ models, vision models |
-| rack | 1U server, redundant storage, IPMI | Family/org deployment, multiple users |
+| rack | 1U server, redundant storage | Family/org deployment |
 
-Example: Run `wisp` (v0.1) on a `core` box today, upgrade to `shade` (v0.2) next month. Same hardware, new software.
-
----
-
-## Pricing & Support
-
-Everything is free. The software doesn't call home. We can't stop you from using it. We wouldn't want to.
-
-But if LocalGhost is useful to you, you can support development and get something back.
-
-### Hardware Tiers
-
-| | mini | core | pro | rack |
-|---|------|------|-----|------|
-| Software | Full | Full | Full | Full |
-| Community support | ✓ | ✓ | ✓ | ✓ |
-| Air-gap kit | ✓ | ✓ | ✓ | ✓ |
-| Name in SUPPORTERS.md | — | — | ✓ | ✓ |
-| Priority support | — | — | — | ✓ |
-| Feature input | — | — | — | ✓ |
-| Setup assistance | — | — | — | ✓ |
-
-Air-gap kit = Ethernet port blockers + USB data blockers. Included free with every build. We don't charge for security.
-
-How it works:
-- Download and run any tier — free forever
-- Buy a pre-built `pro` or `rack` box — you're a supporter, name goes in the file
-- Buy `rack` — we help you set it up and provide priority support
-- We can't enforce any of this. If you use it commercially and find it valuable, pay what it's worth.
-
-### Donations
-
-Don't need hardware? You can still support the mission.
-
-| Amount | What You Get |
-|--------|--------------|
-| £50+ | Name in SUPPORTERS.md |
-| £200+ | Above + "Founding Ghost" badge |
-| £500+ | Above + dev call invite |
-| £1000+ | Above + one year priority support + feature input |
-
-One-time payments. No subscriptions. You pay once, you get something.
-
-All donations go to development. No VC. No strings. Just code and hardware.
-
-Donate: [localghost.ai](https://www.localghost.ai/#economics) or send ETH to `zerocool.eth`
-
-Merch coming eventually. See [MERCH.md](MERCH.md) when it exists.
-
----
-
-## Current Hardware Target (core tier)
-
-Subject to change as we test configurations:
+Current target (core tier):
 
 ```
 > COMPUTE:    ARM64 SBC w/ NPU
@@ -246,15 +247,13 @@ Subject to change as we test configurations:
 > CHASSIS:    Aluminum (Passive Cooling / Fanless)
 ```
 
-Bill of materials product. Standard parts you can source yourself.
+Bill of materials product. Standard parts.
 
 ---
 
 ## The Mist (P2P Backup) — v3.0
 
-P2P backup is a long-term goal, not a launch feature. For v0.1 through v1.0, use local encrypted backup: USB, NAS, or S3-compatible storage (R2, Backblaze, MinIO). This covers 99% of use cases.
-
-The Mist becomes relevant when we have enough users to form a resilient network. That takes time.
+Long-term goal, not a launch feature. For v0.1 through v1.0, use local encrypted backup.
 
 ```
 ┌──────┐     ┌──────┐     ┌──────┐
@@ -270,228 +269,54 @@ NO CENTRAL NODE. NO MASTER. JUST THE MESH.
 ```
 
 How it will work:
-
-1. SHARDING — Your encrypted data is split into pieces using Reed-Solomon erasure coding
-2. DISTRIBUTION — You store shards for others; they store shards for you
-3. ZERO-KNOWLEDGE — Shards are encrypted before leaving your box. Hosts can't read them.
-4. REDUNDANCY — You only need ~50% of shards to reconstruct (tunable)
+1. **Sharding** — Encrypted data split using Reed-Solomon erasure coding
+2. **Distribution** — You store shards for others; they store shards for you
+3. **Zero-Knowledge** — Shards encrypted before leaving your box
+4. **Redundancy** — Only need ~50% of shards to reconstruct
 
 The Pact: Dedicate 20% of your drive to the network. Gain off-site backup for your data.
 
 ### Cold Start Reality
 
-P2P backup requires peers. If you're the only LocalGhost user in your area, The Mist doesn't help.
-
 | Network Size | Backup Strategy |
 |--------------|-----------------|
-| Solo (1 node) | Local-only. Encrypted drive at a friend's house, bank vault, NAS. |
-| Small (2-10 nodes) | "Friends & Family" mode. Manually add trusted peers by IP/pubkey. |
-| Medium (10-100 nodes) | Bootstrap nodes help discovery. Shards spread across the network. |
-| Large (100+ nodes) | Full DHT. Geographic distribution. Resilient to churn. |
-
-The Mist is opt-in and disabled by default. Local backup always works.
-
-Implementation will live in `internal/dht/`. Kademlia-style routing, QUIC transport, NAT traversal.
+| Solo | Local-only. Encrypted drive at a friend's house, bank vault, NAS. |
+| Small (2-10) | "Friends & Family" mode. Manually add trusted peers. |
+| Medium (10-100) | Bootstrap nodes help discovery. |
+| Large (100+) | Full DHT. Geographic distribution. |
 
 ---
 
-## Development Roadmap
-
-This is an open-source project. we ship continuously. Tags mark stable releases.
-
----
-
-### Phase 1: "Bones" — Months 1-3 → `wisp` (v0.1)
-
-Goal: Write notes, ask questions about your own data.
-
-Included:
-- The Scribe — text ingestion, journaling
-- The Weaver — RAG pipeline (pgvector + inference)
-- The Shadow — web UI for queries
-- Basic encryption (FIDO2 key unlock)
-- Local backup to USB/NAS
-
-Not included: The Mist (P2P), The Observer (vision), hardware sales.
-
-Tech: External APIs (Claude, OpenAI) or Ollama for inference. Whatever works. Postgres + pgvector for embeddings. Redis for job queue.
-
----
-
-### Phase 2: "Senses" — Months 4-6 → `shade` (v0.2)
-
-Goal: Multimodal inputs. See more than just text.
-
-Included:
-- The Auditor — plugin system for bank CSVs, screen time, git history, health exports. We provide the schema, community writes the parsers.
-- The Observer — camera/screen input, OCR, scene tagging (opt-in)
-- Cross-source correlation
-- Daily digest ready on demand
-- Local-first inference (Ollama/llama.cpp as default)
-- S3-compatible backup (R2, Backblaze, MinIO)
-
----
-
-### Phase 3: "Shell" — Months 6-9 → `specter` (v0.3)
-
-Goal: Hardware ships only after software is stable.
-
-Included:
-- Official `mini` and `core` reference designs
-- Pre-built images for supported boards
-- One-click installer
-- Hardware validation test suite
-- SUPPORTERS.md for early buyers
-
-Why wait: Shipping broken hardware kills trust. Software-first means we can iterate without bricking anyone's box.
-
----
-
-### Phase 4: "Form" — Months 9-12 → `phantom` (v1.0)
-
-Goal: Production-ready. Stable. Documented. Supportable.
-
-Included:
-- The Sentinel — full key management, encrypted shards
-- `pro` and `rack` hardware tiers
-- Priority support infrastructure
-- API stability guarantees
-- Security audit
-
-Backup: Local + NAS + S3-compatible. Encrypted at rest.
-
----
-
-### Phase 5: "Mist" — Month 18+ → `poltergeist` (v3.0)
-
-Goal: P2P backup for those who want it.
-
-Included:
-- The Mist — DHT, shard distribution, Friends & Family mode
-- Bootstrap node network
-- NAT traversal, QUIC transport
-- Geographic redundancy
-
-P2P requires critical mass. Local backup solves the problem for years. The Mist is a long-term goal.
-
----
-
-### Timeline
-
-| Milestone | Target | What's Usable |
-|-----------|--------|---------------|
-| First commit | Week 1 | Nothing (watch the repo) |
-| wisp-alpha | Month 2 | Text notes + basic RAG |
-| wisp (v0.1) | Month 3 | Full Scribe/Weaver/Shadow |
-| shade (v0.2) | Month 6 | Multimodal, Auditor plugins |
-| specter (v0.3) | Month 9 | Hardware kits ship |
-| phantom (v1.0) | Month 12 | Production-ready |
-| wraith (v2.0) | Month 15+ | Multi-user, rack support |
-| poltergeist (v3.0) | Month 18+ | P2P backup |
-
-Star the repo. Watch the commits. Jump in when it's useful to you.
-
----
-
-## Getting Started
-
-Not implemented yet. When it is:
-
-```bash
-git clone https://github.com/LocalGhostDao/localghost.git
-cd localghost
-
-export GHOST_TIER=core  # mini | core | pro | rack
-
-./scripts/install.sh
-```
-
-The installer will:
-1. Check hardware compatibility
-2. Pull required model weights
-3. Configure Docker containers
-4. Generate encryption keys (requires your FIDO2 key)
-5. Start all daemons
-6. Open the Shadow interface at `http://ghost.local`
-
-Watch this repo for updates.
-
----
-
-## Development
-
-```bash
-make build          # Build all daemons
-make test           # Run tests
-make build-scribe   # Build specific daemon
-make lint           # Lint
-```
-
-Written in Go. Standard library preferred. Boring and reliable over clever.
-
----
-
-## Philosophy
-
-We make money selling convenience (pre-built hardware), merch, and support (setup assistance, priority response for businesses running rack deployments). The software is free. All of it. Forever.
+## Economics
 
 | What We Do | What We Cannot Do |
 |-----------|------------------|
 | Sell pre-built hardware (30% margin) | Sell your data (we don't have it) |
 | Sell merch and support | Charge a subscription (no server to cut off) |
 | Open-source everything | Force an update (unplug and we vanish) |
-| High-five DIY builders | Train AI on your life (we can't see it) |
 
-When you pay for something once, you own it.
+When you pay for something once, you own it.  
 When you pay for it monthly, it owns you.
 
-### Pragmatism
+---
 
-The [manifesto](https://www.localghost.ai/manifesto) describes where we're going, not where we start.
+## The Freehold Directory
 
-Day 1 won't be perfect. We'll ship with external API support before local inference is optimised. We'll have basic backup before The Mist exists. Some features will be rough. Some won't exist yet.
+We're also building a [registry](https://www.localghost.ai/directory) for the broader local-first ecosystem. Projects that run offline, export data cleanly, and have no kill switch can list themselves by hosting `/.well-known/freehold.json`.
 
-That's fine. We'd rather ship something useful today than wait for perfection. The architecture is sound. The direction is clear. We'll get there by shipping, not by planning.
-
-If you want the full vision on day 1, wait for v3.0. If you want to help build it, jump in now.
+LocalGhost will dogfood this when we have something to certify.
 
 ---
 
-## Security Model
+## Support Development
 
-- Air-gap capable — works fully offline
-- FIDO2 encryption — your hardware keys unlock your data
-- No phone-home — zero telemetry, zero analytics, zero beacons
-- Auditable — all code is open source
-- Architecture is the defense — we can't access what we can't see
-
-If law enforcement comes with a warrant, compliance looks like:
-*"We have no data. We have no logs. We don't know who uses the hardware. Here's the open-source code. Good luck."*
-
----
-
-## Contributing
-
-Contributions welcome. Core services are Go. Inference stays in Python/C++. We use what works.
-
-We especially welcome:
-- Auditor plugins (bank parsers, health data importers, screen time extractors)
-- Documentation and examples
-- Bug reports and fixes
-
-We prefer:
-- Standard library over external deps
-- Explicit over clever
-- Boring and reliable over exciting and fragile
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) when it exists.
+**Ethereum:** `zerocool.eth` / `0xc72C85BDd6584324619176618E86E5e3196C6b47`
 
 ---
 
 ## License
 
-Code: MIT — Do whatever you want.
-
+Code: MIT  
 Hardware designs: CC BY-SA 4.0
 
 ---
@@ -507,7 +332,5 @@ Hardware designs: CC BY-SA 4.0
 
 ```
 THE CAGE IS UNLOCKED. THE BARS ARE MADE OF HABIT.
-YOU ARE WAITING FOR A PERMISSION SLIP THAT WILL NEVER COME.
-
 THE EXIT IS OPEN.
 ```
