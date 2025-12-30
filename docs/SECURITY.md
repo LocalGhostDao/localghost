@@ -32,23 +32,95 @@ During initial setup, you configure both PINs on your FIDO2 key. They should be 
 
 You'll never accidentally type `0000` when you meant `8472`. But under coercion, you can "cooperate" and enter the duress PIN.
 
+### Unlock Flow
+
+```
+┌─────────────────────────┐
+│   INSERT FIDO2 KEY      │
+│   ENTER PIN             │
+└───────────┬─────────────┘
+            │
+            ▼
+    ┌───────────────┐
+    │  Which PIN?   │
+    └───────┬───────┘
+            │
+   ┌────────┼────────┐
+   ▼        ▼        ▼
+┌──────┐ ┌──────┐ ┌──────┐
+│ 8472 │ │ 0000 │ │ 9999 │
+│ Real │ │Duress│ │Purge │
+└──┬───┘ └──┬───┘ └──┬───┘
+   │        │        │
+   ▼        ▼        ▼
+┌──────┐ ┌──────┐ ┌──────┐
+│ Real │ │Shadow│ │ WIPE │
+│ Data │ │ Data │ │ ALL  │
+└──────┘ └──────┘ └──────┘
+```
+
 ---
 
 ## The Shadow System
 
-This isn't a wipe. It's a second reality.
+*This is aspirational. The shadow system is planned for v1.0+, not the initial release.*
 
-The shadow system is a complete, functional LocalGhost installation with its own:
-- Folder structures that mirror a real setup
-- Plausible journal entries (generated, bland, boring)
-- Photos, documents, notes — all fake but believable
-- Light Auditor data (a few bank transactions, nothing interesting)
-- No Observer recordings (you "never enabled that feature")
-- Weaver correlations that lead nowhere useful
+This isn't sanitization. It's transformation.
 
-The decoy is generated during setup and periodically refreshed. It looks like a real person's data — just not yours. Boring enough to be credible. Empty enough to disappoint.
+The shadow system doesn't preserve your patterns with sensitive bits removed — patterns themselves are identifying. Instead, The Observer generates a completely different but equally believable life.
 
-**There is no evidence the real system exists.** The shadow system uses all available disk space from its perspective. Forensic analysis shows a normal encrypted volume with normal data. The real volume is hidden within the "free space" — indistinguishable from random noise.
+### The Principle
+
+| Real You | Shadow You |
+|----------|------------|
+| Journals about your startup struggles | Journals about hobbies, weather, mild complaints |
+| Transactions showing your spending habits | Different spending patterns, different merchants |
+| Photos of your actual life | Stock-ish photos, generic moments |
+| Location patterns revealing your routine | Different routine, different places |
+| Health data showing your conditions | Healthy-normal baseline data |
+
+The shadow isn't you with secrets removed. It's a different boring person who happens to use the same device.
+
+### How It Works
+
+The Observer sees everything. Once daily, it spends compute time generating shadow data:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    THE OBSERVER                         │
+│                   (daily job)                           │
+│                                                         │
+│   Real data ──▶ Analyze patterns ──▶ Generate inverse   │
+│                                                         │
+│   Your routine?    ──▶  Different routine               │
+│   Your writing style? ──▶  Blander style                │
+│   Your spending?   ──▶  Different spending              │
+│   Your locations?  ──▶  Different locations             │
+│                                                         │
+│                      ▼                                  │
+│              SHADOW VOLUME                              │
+│         (believable stranger)                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+### What Gets Generated
+
+| Data Type | Shadow Version |
+|-----------|----------------|
+| Journals | Bland entries about nothing — weather, errands, "had a good day" |
+| Bank data | Random patterns, generic merchants, unremarkable amounts |
+| Photos | Pulled from safe pool or skipped — "sync issues" |
+| Location | Randomized routine, avoids your real places |
+| Observer | Disabled in shadow ("I turned that off for privacy") |
+| Health | Boring baseline — normal sleep, normal activity |
+
+### Covering Gaps
+
+Not everything will have a shadow equivalent. Missing data blames sync issues. Inconsistencies blame beta software. The goal isn't perfection — it's *plausible enough* that discrepancies look like bugs, not deception.
+
+**The best lie is the one that looks most like the truth.** And the truth is: software has bugs, syncs fail, and most people's lives are boring.
+
+**There is no evidence the real system exists.** The shadow system uses all visible disk space. Forensic analysis shows a normal encrypted volume with a consistent, unremarkable person. The real volume is hidden within unallocated space — indistinguishable from random noise to anyone without the real PIN.
 
 ---
 
@@ -68,16 +140,20 @@ Hidden volumes buy you time and preserve your data. Wipe is for when you genuine
 
 ---
 
-## Mobile: Biometric Duress
+## Mobile: Duress PIN
 
-On mobile, the same principle applies with fingerprints:
+iOS and Android biometric APIs don't expose which finger unlocked the device — the secure enclave returns a simple pass/fail. We can't distinguish thumbs.
 
-| Finger | What Happens |
-|--------|--------------|
-| **Right thumb** | Real system. Full access. |
-| **Left thumb** | Shadow system. Plausible decoy. |
+Instead, the mobile app uses the same PIN-based approach as the hardware:
 
-Different fingers, same phone, completely different realities. Under coercion, you unlock with your left hand. Natural, compliant, cooperative. They see a boring person's data. Your real life stays hidden.
+| PIN | What Happens |
+|-----|--------------|
+| **Real PIN** | Full system. Your actual data. |
+| **Duress PIN** | Shadow system. Plausible decoy. |
+
+After biometric unlock (for convenience), the app prompts for your LocalGhost PIN. Different PIN, different reality. Same screen, same flow — only you know which world you're entering.
+
+For maximum security, disable biometrics entirely and use PIN-only. Biometrics can be compelled; a PIN in your head cannot be seen.
 
 ---
 
@@ -113,33 +189,98 @@ We are not building a vault. We are building a room with a false wall.
 
 ---
 
-## Technical Notes
+## Technical Implementation
 
-- Single FIDO2 key with two PIN slots (real + duress)
-- Hidden volume design inspired by VeraCrypt — real data lives in "free space" of shadow volume
-- Shadow system generated during setup, refreshed periodically with plausible decoy data
-- Decoy data uses local LLM to generate believable but fictional journals, notes, metadata
-- Real volume encrypted with different key, only accessible with real PIN
-- Forensic analysis shows single encrypted volume with consistent data — no evidence of hidden volume
-- The Mist shards are encrypted per-volume — duress PIN only retrieves shadow shards
-- Purge wipe uses `shred` + random overwrites (TRIM-aware for SSDs)
-- Optional: auto-purge after N failed unlock attempts (configurable, off by default)
-- Optional: remote purge trigger via signed message (if you're separated from the box)
-- Mobile: iOS/Android app registers two biometric profiles during setup
+We don't roll our own crypto. The hidden volume design builds on established, audited tools:
+
+### Volume Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    PHYSICAL DISK                        │
+├─────────────────────────────────────────────────────────┤
+│  LUKS HEADER (detached, stored on FIDO2 key)           │
+├─────────────────────────────────────────────────────────┤
+│  SHADOW VOLUME                    │   UNALLOCATED      │
+│  (Duress PIN decrypts this)       │   (looks random)   │
+│                                   │                    │
+│  - Decoy Postgres                 │   ┌──────────────┐ │
+│  - Decoy Redis                    │   │ REAL VOLUME  │ │
+│  - Decoy daemon data              │   │ (Real PIN)   │ │
+│                                   │   └──────────────┘ │
+└───────────────────────────────────┴────────────────────┘
+```
+
+**How it works:**
+- LUKS2 with detached headers stored on FIDO2 secure element
+- Shadow volume is a normal encrypted filesystem
+- Real volume lives in "unallocated" space, encrypted with different key
+- Shadow volume's filesystem sees unallocated space as free — it won't write there unless it runs out of room
+- We reserve sufficient unallocated space during setup based on your storage needs
+- Real PIN decrypts the hidden header and mounts the real volume instead
+
+**Inspired by:** VeraCrypt hidden volumes, dm-crypt/LUKS detached headers, Tails persistent storage
+
+### Data Separation
+
+The Sentinel manages two parallel data paths in Go:
+
+- Separate Postgres instances (different ports, different data dirs)
+- Separate Redis instances
+- Separate encryption keys derived from real/duress PIN
+- The Mist (if enabled) maintains separate shard sets per volume
+
+On unlock, the Sentinel checks which PIN was entered and configures all daemons to point at the corresponding data stores. The daemons themselves are identical — only the storage paths change.
+
+### What We Use
+
+| Component | Tool | Why |
+|-----------|------|-----|
+| Disk encryption | LUKS2 | Industry standard, audited, supports detached headers |
+| Key derivation | Argon2id | Memory-hard, resists GPU attacks |
+| Symmetric encryption | AES-256-GCM | Fast, authenticated, hardware-accelerated |
+| Key storage | FIDO2 secure element | Hardware-bound, can't be extracted |
+| Secure wipe | `blkdiscard` + `shred` | TRIM-aware for SSDs |
+
+### Limitations
+
+- Shadow volume must have enough "free" space to hide the real volume
+- If you fill the shadow volume completely, you risk overwriting real data
+- Setup wizard calculates safe boundaries and warns you
+- Real volume size is fixed at setup (can't grow into shadow space)
+
+---
+
+## Mobile Technical Notes
+
+- PIN entry handled in-app, not by OS biometric API
+- Local SQLCipher database with two encryption keys
+- Duress PIN decrypts decoy database
+- Real PIN decrypts real database  
+- Same app, same UI, different content
+
+---
+
+## Optional Features
+
+- **Auto-purge:** Trigger full wipe after N failed unlock attempts (configurable, off by default)
+- **Remote purge:** Signed message triggers destruction if you're separated from the box
+- **Dead man's switch:** If not unlocked within N days, auto-purge (for worst-case scenarios)
 
 ---
 
 ## Summary
 
-| Feature | Purpose |
-|---------|---------|
-| Encryption | Protects data at rest |
-| Hidden volumes | Protects you from compelled access |
-| Shadow system | Plausible deniability under inspection |
-| The Purge | Nuclear option when data must be destroyed |
+| Feature | Purpose | Implementation |
+|---------|---------|----------------|
+| Encryption | Protects data at rest | LUKS2 + AES-256-GCM |
+| Hidden volumes | Protects from compelled access | Detached headers, unallocated space |
+| Shadow system | Plausible deniability | Parallel data stores, same UI |
+| The Purge | Nuclear option | Secure wipe + key destruction |
 
 Privacy isn't just about keeping secrets. It's about maintaining control over what you reveal, and when, and to whom — even under duress.
 
 ```
 THE ARCHITECTURE IS THE DEFENSE.
+WE DON'T ROLL OUR OWN CRYPTO.
 ```
