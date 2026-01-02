@@ -12,7 +12,7 @@
 
 ## The Honeypot Problem
 
-LocalGhost creates a searchable, correlated record of your entire life. Journals. Bank transactions. Health metrics. Screen recordings. Location history. Everything the Weaver has ever connected.
+LocalGhost creates a searchable, correlated record of your entire life. Journals. Bank transactions. Health metrics. Screen recordings. Location history. Everything `ghost.synthd` has ever connected.
 
 If law enforcement seizes your hardware and compels you to unlock it, encryption alone doesn't help — you've just handed them a perfectly indexed database of your existence.
 
@@ -22,14 +22,14 @@ Encryption protects data at rest. It doesn't protect you from a warrant, a wrenc
 
 ## Duress Mode
 
-The Sentinel supports two unlock paths — same key, different PIN:
+`ghost.mistd` supports two unlock paths — same key, different PIN:
 
 | PIN | What Happens |
 |-----|--------------|
 | **Real PIN** | Full system. Your actual data. |
 | **Duress PIN** | Shadow system. Plausible decoy data. No evidence the real system exists. |
 
-During initial setup, you configure both PINs in the Sentinel software. The FIDO2 key proves physical possession — you must have it present to unlock. The PIN you enter determines which volume gets decrypted.
+During initial setup, you configure both PINs in the `ghost.mistd` software. The FIDO2 key proves physical possession — you must have it present to unlock. The PIN you enter determines which volume gets decrypted.
 
 **Example:**
 - Real PIN: `8472`
@@ -46,11 +46,11 @@ You'll never accidentally type `0000` when you meant `8472`. But under coercion,
            ▼
 ┌──────────────────────┐
 │  2. Enter PIN        │
-│     (into Sentinel)  │
+│     (into mistd)     │
 └──────────┬───────────┘
            ▼
 ┌──────────────────────┐
-│  3. Sentinel derives │
+│  3. mistd derives    │
 │     decryption key   │
 │     from PIN         │
 └──────────┬───────────┘
@@ -67,7 +67,7 @@ You'll never accidentally type `0000` when you meant `8472`. But under coercion,
 └──────────────────────┘
 ```
 
-The FIDO2 key doesn't store multiple PINs — it just verifies you're physically present. The Sentinel software decides which volume to decrypt based on which PIN you entered.
+The FIDO2 key doesn't store multiple PINs — it just verifies you're physically present. `ghost.mistd` decides which volume to decrypt based on which PIN you entered.
 
 ### PIN Routing
 
@@ -98,7 +98,7 @@ The FIDO2 key doesn't store multiple PINs — it just verifies you're physically
 
 This isn't sanitization. It's transformation.
 
-The shadow system doesn't preserve your patterns with sensitive bits removed — patterns themselves are identifying. Instead, The Observer generates a completely different but equally believable life.
+The shadow system doesn't preserve your patterns with sensitive bits removed — patterns themselves are identifying. Instead, `ghost.framed` generates a completely different but equally believable life.
 
 ### The Principle
 
@@ -114,11 +114,11 @@ The shadow isn't you with secrets removed. It's a different boring person who ha
 
 ### How It Works
 
-The Observer sees everything. Once daily, it spends compute time generating shadow data:
+`ghost.framed` sees everything. Once daily, it spends compute time generating shadow data:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    THE OBSERVER                         │
+│                    ghost.framed                         │
 │                   (daily job)                           │
 │                                                         │
 │   Real data ──▶ Analyze patterns ──▶ Generate inverse   │
@@ -142,7 +142,7 @@ The Observer sees everything. Once daily, it spends compute time generating shad
 | Bank data | Random patterns, generic merchants, unremarkable amounts |
 | Photos | Pulled from safe pool or skipped — "sync issues" |
 | Location | Randomized routine, avoids your real places |
-| Observer | Disabled in shadow ("I turned that off for privacy") |
+| `ghost.framed` | Disabled in shadow ("I turned that off for privacy") |
 | Health | Boring baseline — normal sleep, normal activity |
 
 ### Covering Gaps
@@ -190,13 +190,13 @@ For maximum security, disable biometrics entirely and use PIN-only. Biometrics c
 
 ## The Purge (Manual Wipe)
 
-When you genuinely need everything gone — not hidden, *gone* — the Sentinel provides a separate destruction sequence. This is deliberate, not accidental.
+When you genuinely need everything gone — not hidden, *gone* — `ghost.mistd` provides a separate destruction sequence. This is deliberate, not accidental.
 
 **Trigger:** Long-press power (3 sec) + Purge PIN + confirmation prompt
 
 When triggered:
 1. All encrypted volumes overwritten with random data
-2. All daemon data destroyed: Scribe journals, Observer recordings, Auditor imports, Weaver correlations
+2. All daemon data destroyed: `ghost.noted` journals, `ghost.framed` recordings, `ghost.tallyd` imports, `ghost.synthd` correlations
 3. Shadow system destroyed too — nothing remains
 4. Postgres dropped and overwritten — embeddings, indexes, everything
 5. Redis flushed — session state, job queues, cache
@@ -245,8 +245,8 @@ We don't roll our own crypto. The hidden volume design builds on established, au
 **How it works:**
 - LUKS2 with detached headers
 - FIDO2 key provides **presence verification** (proves physical possession)
-- PIN entered into Sentinel software, not stored on FIDO2 key
-- Sentinel derives decryption key from PIN using Argon2id
+- PIN entered into `ghost.mistd`, not stored on FIDO2 key
+- `ghost.mistd` derives decryption key from PIN using Argon2id
 - Different PINs → different derived keys → different volumes decrypt
 - Shadow volume is a normal encrypted filesystem
 - Real volume lives in "unallocated" space, encrypted with different derived key
@@ -257,14 +257,14 @@ We don't roll our own crypto. The hidden volume design builds on established, au
 
 ### Data Separation
 
-The Sentinel manages two parallel data paths in Go:
+`ghost.mistd` manages two parallel data paths in Go:
 
 - Separate Postgres instances (different ports, different data dirs)
 - Separate Redis instances
 - Separate encryption keys derived from real/duress PIN
 - The Mist (if enabled) maintains separate shard sets per volume
 
-On unlock, the Sentinel checks which PIN was entered and configures all daemons to point at the corresponding data stores. The daemons themselves are identical — only the storage paths change.
+On unlock, `ghost.mistd` checks which PIN was entered and configures all daemons to point at the corresponding data stores. The daemons themselves are identical — only the storage paths change.
 
 ### What We Use
 
