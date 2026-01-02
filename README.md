@@ -10,8 +10,6 @@
 
 Your data. Your hardware. Your ghost.
 
-Read [why we build](https://www.localghost.ai/manifesto).
-
 ---
 
 ## Status: Phase 0
@@ -45,24 +43,24 @@ The [website](https://github.com/LocalGhostDao/web) lives in a separate repo.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        YOUR HARDWARE                            │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐                        │
-│  │  SCRIBE  │ │ OBSERVER │ │ AUDITOR  │  ← INPUT DAEMONS       │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘                        │
-│       │            │            │                               │
-│       └────────────┼────────────┘                               │
-│                    ▼                                            │
-│             ┌──────────┐                                        │
-│             │  WEAVER  │  ← SYNTHESIS                           │
-│             └────┬─────┘                                        │
-│                  │                                              │
-│       ┌──────────┴──────────┐                                   │
-│       ▼                     ▼                                   │
-│  ┌──────────┐         ┌──────────┐                              │
-│  │ SENTINEL │         │  SHADOW  │  ← OUTPUT                    │
-│  └────┬─────┘         └──────────┘                              │
-│       │                    ▲                                    │
-│       ▼                    │                                    │
-│   THE MIST (P2P)      YOU (human)                               │
+│  ┌────────────┐ ┌────────────┐ ┌────────────┐                  │
+│  │ghost.noted │ │ghost.framed│ │ghost.tallyd│  ← INPUT         │
+│  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘                  │
+│        │              │              │                          │
+│        └──────────────┼──────────────┘                          │
+│                       ▼                                         │
+│               ┌────────────┐                                    │
+│               │ghost.synthd│  ← SYNTHESIS                       │
+│               └─────┬──────┘                                    │
+│                     │                                           │
+│       ┌─────────────┴─────────────┐                             │
+│       ▼                           ▼                             │
+│  ┌────────────┐           ┌────────────┐                        │
+│  │ghost.mistd │           │ghost.voiced│  ← OUTPUT              │
+│  └─────┬──────┘           └────────────┘                        │
+│        │                        ▲                               │
+│        ▼                        │                               │
+│    THE MIST (P2P)          YOU (human)                          │
 └─────────────────────────────────────────────────────────────────┘
 
 NOTHING LEAVES THE BOX UNLESS YOU ENABLE THE MIST.
@@ -76,12 +74,12 @@ Six daemons. Each has one job. All communicate over local Unix sockets.
 
 | Daemon | Role | Description |
 |--------|------|-------------|
-| THE SCRIBE | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
-| THE OBSERVER | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
-| THE AUDITOR | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. |
-| THE WEAVER | Correlation Engine | Runs inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
-| THE SENTINEL | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local and P2P backup. Duress mode. |
-| THE SHADOW | Query Interface | Web UI + API. Ask questions, get answers with citations to your own data. If you lie to it, it cites the Auditor to correct you. |
+| `ghost.noted` | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
+| `ghost.framed` | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
+| `ghost.tallyd` | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. |
+| `ghost.synthd` | Correlation Engine | Runs inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
+| `ghost.mistd` | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local and P2P backup. Duress mode. |
+| `ghost.voiced` | Query Interface | Web UI + API. Ask questions, get answers with citations to your own data. |
 
 ---
 
@@ -96,7 +94,7 @@ We solve this with **hidden volumes** and **duress mode**:
 | **Real PIN** | Full system. Your actual data. |
 | **Duress PIN** | Shadow system. A different believable person — randomized patterns, bland content. |
 
-The Observer generates shadow data daily — not a sanitized you, but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden — indistinguishable from empty space.
+`ghost.framed` generates shadow data daily — not a sanitized you, but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden — indistinguishable from empty space.
 
 A separate **Purge** function exists for when you need everything actually gone.
 
@@ -138,13 +136,13 @@ Website and vision. This document.
 
 **Goal:** Write notes, ask questions about your own data.
 
-- The Scribe — text ingestion, journaling
-- The Weaver — RAG pipeline (pgvector + inference)
-- The Shadow — web UI for queries
+- `ghost.noted` — text ingestion, journaling
+- `ghost.synthd` — RAG pipeline (pgvector + inference)
+- `ghost.voiced` — web UI for queries
 - Basic encryption (FIDO2 key unlock)
 - Local backup to USB/NAS
 
-Not included: The Mist, The Observer, hardware sales.
+Not included: The Mist, `ghost.framed`, hardware sales.
 
 ---
 
@@ -152,8 +150,8 @@ Not included: The Mist, The Observer, hardware sales.
 
 **Goal:** Multimodal inputs.
 
-- The Auditor — plugin system for imports
-- The Observer — camera/screen input, OCR (opt-in)
+- `ghost.tallyd` — plugin system for imports
+- `ghost.framed` — camera/screen input, OCR (opt-in)
 - Cross-source correlation
 - Local-first inference default
 - Mobile app (photo/health/location sync)
@@ -177,7 +175,7 @@ Not included: The Mist, The Observer, hardware sales.
 
 **Goal:** Production-ready.
 
-- The Sentinel — full key management
+- `ghost.mistd` — full key management
 - `pro` and `rack` hardware tiers
 - API stability guarantees
 - Security audit
@@ -201,19 +199,19 @@ P2P requires critical mass. Local backup works for years. The Mist is a long-ter
 ```
 localghost/
 ├── cmd/                      # Daemon entry points
-│   ├── scribe/
-│   ├── observer/
-│   ├── auditor/
-│   ├── weaver/
-│   ├── sentinel/
-│   └── shadow/
+│   ├── noted/
+│   ├── framed/
+│   ├── tallyd/
+│   ├── synthd/
+│   ├── mistd/
+│   └── voiced/
 ├── internal/                 # Shared packages
 │   ├── config/
 │   ├── crypto/
 │   ├── storage/
 │   ├── inference/
 │   └── dht/                  # The Mist (v3.0+)
-├── plugins/                  # Auditor data parsers
+├── plugins/                  # tallyd data parsers
 ├── migrations/               # Postgres schema
 ├── configs/                  # Per-tier defaults
 │   ├── mini.yaml
