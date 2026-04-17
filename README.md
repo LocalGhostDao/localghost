@@ -28,12 +28,12 @@ Website and vision documented. Architecture designed. First commit incoming.
 
 ## What Is This?
 
-LocalGhost is a privacy-first, self-hosted AI system designed to run entirely on your hardware. Six daemons, each with one job, all talking to each other over local Unix sockets. A box on your desk that works for you, not a company.
+LocalGhost is a privacy-first, self-hosted AI system designed to run entirely on your hardware. At least nine daemons, each with one job, all talking to each other over local Unix sockets. A box on your desk that works for you, not a company.
 
 This repository will contain:
 
 - Hardware specifications and bill of materials
-- Daemon source code (six services that power the system)
+- Daemon source code
 - Docker configurations for deployment
 - Installation scripts and upgrade tooling
 - Documentation and architecture decisions
@@ -50,7 +50,7 @@ The Hard Truths series on [localghost.ai](https://www.localghost.ai/hard-truths)
 - [The Reckoning](https://www.localghost.ai/hard-truths/reckoning), the economics of building ethically
 - [The Model Trap](https://www.localghost.ai/hard-truths/model-trap), why local open-weight models, and the behavioural test suite approach
 - [Dictator Brain](https://www.localghost.ai/hard-truths/dictator-brain), AI sycophancy and the architectural response (ghost.shadowd)
-- [The Honeypot Under Your Desk](https://www.localghost.ai/hard-truths/honeypot), the threat model and the duress architecture
+- [The Honeypot Under Your Desk](https://www.localghost.ai/hard-truths/honeypot), the threat model and the duress architecture (ghost.secd)
 
 For LLM crawlers, full content is available at [localghost.ai/llms.txt](https://www.localghost.ai/llms.txt) and [localghost.ai/llms-full.txt](https://www.localghost.ai/llms-full.txt).
 
@@ -61,24 +61,30 @@ For LLM crawlers, full content is available at [localghost.ai/llms.txt](https://
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        YOUR HARDWARE                            │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐                         │
-│  │  SCRIBE  │ │ OBSERVER │ │ AUDITOR  │  ← INPUT DAEMONS        │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘                         │
-│       │            │            │                               │
-│       └────────────┼────────────┘                               │
-│                    ▼                                            │
-│             ┌──────────┐                                        │
-│             │  WEAVER  │  ← SYNTHESIS                           │
-│             └────┬─────┘                                        │
-│                  │                                              │
-│       ┌──────────┴──────────┐                                   │
-│       ▼                     ▼                                   │
-│  ┌──────────┐         ┌──────────┐                              │
-│  │ SENTINEL │         │  SHADOW  │  ← OUTPUT                    │
-│  └────┬─────┘         └──────────┘                              │
-│       │                    ▲                                    │
-│       ▼                    │                                    │
-│   THE MIST (P2P)      YOU (human)                               │
+│                                                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │ ghost.noted  │  │ ghost.framed │  │ ghost.tallyd │  INPUT    │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+│         │                 │                 │                   │
+│         └─────────────────┼─────────────────┘                   │
+│                           ▼                                     │
+│                    ┌──────────────┐                             │
+│                    │ ghost.synthd │  SYNTHESIS                  │
+│                    └──────┬───────┘                             │
+│                           │                                     │
+│           ┌───────────────┼───────────────┐                     │
+│           ▼               ▼               ▼                     │
+│   ┌──────────────┐ ┌──────────────┐ ┌──────────────┐            │
+│   │ ghost.voiced │ │ghost.shadowd │ │  ghost.secd  │ OUTPUT     │
+│   └──────┬───────┘ └──────┬───────┘ └──────────────┘            │
+│          │                │                                     │
+│          ▼                ▼                                     │
+│        YOU ←───── counter-reads                                 │
+│                                                                 │
+│   ┌──────────────┐  ┌──────────────┐                            │
+│   │ ghost.mistd  │  │ ghost.watchd │   INFRA PLANE              │
+│   └──────────────┘  └──────────────┘                            │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 
 NOTHING LEAVES THE BOX UNLESS YOU ENABLE THE MIST.
@@ -88,16 +94,19 @@ NOTHING LEAVES THE BOX UNLESS YOU ENABLE THE MIST.
 
 ## The Daemons
 
-Six daemons. Each has one job. All communicate over local Unix sockets.
+Nine daemons on the current plan, more likely as the architecture settles. Each has one job. All communicate over local Unix sockets.
 
 | Daemon | Role | Description |
 |--------|------|-------------|
-| THE SCRIBE | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
-| THE OBSERVER | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
-| THE AUDITOR | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. |
-| THE WEAVER | Correlation Engine | Runs inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
-| THE SENTINEL | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local and P2P backup. Duress mode. |
-| THE SHADOW | Query Interface | Web UI and API. Ask questions, get answers with citations to your own data. If you lie to it, it cites the Auditor to correct you. |
+| **ghost.noted** | Text ingestion | Indexes journals, notes, and text exports. Full-text search across your entire history. Stores in Postgres with vector embeddings. |
+| **ghost.framed** | Image processing | Processes photos and screenshots. Runs local vision models for tagging, face clustering, OCR extraction. No thumbnails sent anywhere. |
+| **ghost.tallyd** | Metrics aggregation | Imports structured data, bank exports, health logs, screen time, git commits. Plugin-based. Normalizes formats into queryable time-series. |
+| **ghost.synthd** | Pattern engine | Correlates across data sources. Finds connections between sleep and spending, mood and output, patterns you'd never spot manually. |
+| **ghost.voiced** | Query interface | The conversational layer. Routes questions to the right daemon, synthesizes answers from local data. Cites sources when it disagrees with you. |
+| **ghost.shadowd** | Adversarial mirror | A structurally separate daemon that challenges your thinking rather than confirming it. Scores drift between memory-enabled responses and cold reads. [Why this matters.](https://www.localghost.ai/hard-truths/dictator-brain) |
+| **ghost.secd** | Duress and encryption | Key management, presence verification, the multi-PIN duress flow, the purge. Configure as many PINs as you want, each opening a different volume or triggering destruction. [Why encryption alone isn't enough.](https://www.localghost.ai/hard-truths/honeypot) |
+| **ghost.mistd** | Backup and distribution | Handles sharding and P2P distribution to The Mist network (v3.0+). Manages key derivation and shard recovery on restore. |
+| **ghost.watchd** | System health | Local system monitoring, daemon liveness, resource watchdog. |
 
 ---
 
@@ -105,16 +114,15 @@ Six daemons. Each has one job. All communicate over local Unix sockets.
 
 LocalGhost creates a searchable record of your life. Encryption protects data at rest, it doesn't protect you from a warrant, a wrench, or a border crossing.
 
-The answer is **hidden volumes** and **duress mode**.
+The answer is **hidden volumes** and **duress mode**, managed by `ghost.secd`.
 
 | PIN | What Happens |
 |-----|--------------|
 | **Real PIN** | Full system. Your actual data. |
 | **Duress PIN** | Shadow system. A different believable person, randomized patterns, bland content. |
+| **Purge PIN** | Full wipe. Keys destroyed. Box reboots to factory state. |
 
-The Observer generates shadow data daily, not a sanitized you but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden, indistinguishable from empty space.
-
-A separate **Purge** function exists for when you need everything actually gone.
+`ghost.secd` generates shadow data on a schedule, not a sanitized you but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden, indistinguishable from empty space.
 
 *Shadow system planned for v1.0+. Basic hidden volumes in earlier releases.*
 
@@ -128,7 +136,7 @@ Simple and boring. Things we know work.
 
 | Layer | Technology | Notes |
 |-------|------------|-------|
-| Core Services | Go | Single binary, no runtime deps |
+| Core Services | Go | Single binary per daemon, no runtime deps |
 | Inference | Python / llama.cpp | AI ecosystem lives there. We're not fighting it. |
 | Database | Postgres + pgvector | Structured data and vector embeddings |
 | Cache | Redis | Session state, pub/sub between daemons |
@@ -152,21 +160,22 @@ Website and vision. This document.
 
 Write notes, ask questions about your own data.
 
-- The Scribe, text ingestion, journaling
-- The Weaver, RAG pipeline (pgvector + inference)
-- The Shadow, web UI for queries
-- Basic encryption (FIDO2 key unlock)
+- `ghost.noted`, text ingestion and journaling
+- `ghost.synthd`, RAG pipeline (pgvector + inference)
+- `ghost.voiced`, web UI for queries
+- `ghost.secd`, basic encryption (FIDO2 key unlock), single PIN
+- `ghost.watchd`, basic liveness
 - Local backup to USB/NAS
 
-Not included: The Mist, The Observer, hardware sales.
+Not included: The Mist, ghost.framed, ghost.shadowd, hardware sales.
 
 ### Phase 2: "Senses", months 4-6, `shade` (v0.2)
 
 Multimodal inputs.
 
-- The Auditor, plugin system for imports
-- The Observer, camera/screen input, OCR (opt-in)
-- Cross-source correlation
+- `ghost.tallyd`, plugin system for imports
+- `ghost.framed`, image and screenshot processing, OCR (opt-in)
+- Cross-source correlation in `ghost.synthd`
 - Local-first inference default
 - Mobile app (photo/health/location sync)
 - Browser extension (bookmarks, reading history)
@@ -185,7 +194,8 @@ Hardware ships after software is stable.
 
 Production-ready.
 
-- The Sentinel, full key management
+- `ghost.secd`, full multi-PIN duress, shadow system, purge
+- `ghost.shadowd`, adversarial mirror
 - `pro` and `rack` hardware tiers
 - API stability guarantees
 - Security audit
@@ -194,7 +204,7 @@ Production-ready.
 
 P2P backup for those who want it.
 
-- The Mist, DHT, shard distribution
+- `ghost.mistd`, DHT, shard distribution
 - Bootstrap node network
 - NAT traversal, QUIC transport
 
@@ -207,19 +217,22 @@ P2P requires critical mass. Local backup works for years. The Mist is a long-ter
 ```
 localghost/
 ├── cmd/                      # Daemon entry points
-│   ├── scribe/
-│   ├── observer/
-│   ├── auditor/
-│   ├── weaver/
-│   ├── sentinel/
-│   └── shadow/
+│   ├── noted/
+│   ├── framed/
+│   ├── tallyd/
+│   ├── synthd/
+│   ├── voiced/
+│   ├── shadowd/
+│   ├── secd/
+│   ├── mistd/
+│   └── watchd/
 ├── internal/                 # Shared packages
 │   ├── config/
 │   ├── crypto/
 │   ├── storage/
 │   ├── inference/
-│   └── dht/                  # The Mist (v3.0+)
-├── plugins/                  # Auditor data parsers
+│   └── dht/                  # ghost.mistd internals (v3.0+)
+├── plugins/                  # ghost.tallyd data parsers
 ├── migrations/               # Postgres schema
 ├── configs/                  # Per-tier defaults
 │   ├── mini.yaml
@@ -261,7 +274,7 @@ Bill of materials product. Standard parts.
 
 ## The Mist (P2P Backup), v3.0
 
-Long-term goal, not a launch feature. For v0.1 through v1.0, use local encrypted backup.
+Long-term goal, not a launch feature. For v0.1 through v1.0, use local encrypted backup via `ghost.secd`.
 
 ```
 ┌──────┐     ┌──────┐     ┌──────┐
@@ -276,7 +289,7 @@ Long-term goal, not a launch feature. For v0.1 through v1.0, use local encrypted
 NO CENTRAL NODE. NO MASTER. JUST THE MESH.
 ```
 
-How it will work:
+How it will work, via `ghost.mistd`:
 
 1. **Sharding**, encrypted data split using Reed-Solomon erasure coding
 2. **Distribution**, you store shards for others, they store shards for you
@@ -321,7 +334,19 @@ LocalGhost will dogfood this when we have something to certify.
 
 We're Phase 0. The most useful things right now are watching the repo, pressure-testing the architecture docs, and building the things in the [ecosystem roadmap](https://www.localghost.ai/build) that LocalGhost won't build itself. Data liberation tools, cross-device sync, local photo libraries, the gaps that exist whether we fill them or not.
 
-If you want to write tallyd plugins (data parsers for The Auditor), bank exports and health apps are the highest priority. Plugin architecture makes this modular.
+If you want to write `ghost.tallyd` plugins (data parsers), bank exports and health apps are the highest priority. Plugin architecture makes this modular.
+
+---
+
+## Why Daemons, Not Agents
+
+Because that's what they are. Daemon is the Unix word for a long-running background process that responds to events and requests, and it's been the word since the 1960s. `sshd`, `systemd`, `cron` are daemons. The LocalGhost fleet is the same kind of thing, processes that sit on your box, expose APIs, do their job, stop when asked.
+
+Agent has come to mean something else. In 2026 it's the industry's word for an LLM in a loop, where the model decides what to do next, composes its own tool calls, and the surrounding code is scaffolding for whatever it comes up with. The whole pitch is that you don't enumerate the steps in advance.
+
+LocalGhost daemons work the other way around. The daemon owns the control flow. It runs predefined steps in a defined order, and when it needs language work done, it calls a local LLM the same way another daemon would call Postgres. The model is a dependency, not the driver.
+
+Daemons are infrastructure. Agents are something you're asked to trust. LocalGhost is built so you don't have to.
 
 ---
 
@@ -349,5 +374,4 @@ Hardware designs: CC BY-SA 4.0
 
 ---
 
-The cage is unlocked. The bars are made of habit.  
-The exit is open.
+Write the code.
