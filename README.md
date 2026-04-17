@@ -50,7 +50,7 @@ The Hard Truths series on [localghost.ai](https://www.localghost.ai/hard-truths)
 - [The Reckoning](https://www.localghost.ai/hard-truths/reckoning), the economics of building ethically
 - [The Model Trap](https://www.localghost.ai/hard-truths/model-trap), why local open-weight models, and the behavioural test suite approach
 - [Dictator Brain](https://www.localghost.ai/hard-truths/dictator-brain), AI sycophancy and the architectural response (ghost.shadowd)
-- [The Honeypot Under Your Desk](https://www.localghost.ai/hard-truths/honeypot), the threat model and the duress architecture (ghost.secd)
+- [The Honeypot Under Your Desk](https://www.localghost.ai/hard-truths/honeypot), the threat model, the multi-PIN duress flow, and the purge (ghost.secd)
 
 For LLM crawlers, full content is available at [localghost.ai/llms.txt](https://www.localghost.ai/llms.txt) and [localghost.ai/llms-full.txt](https://www.localghost.ai/llms-full.txt).
 
@@ -114,17 +114,17 @@ Nine daemons on the current plan, more likely as the architecture settles. Each 
 
 LocalGhost creates a searchable record of your life. Encryption protects data at rest, it doesn't protect you from a warrant, a wrench, or a border crossing.
 
-The answer is **hidden volumes** and **duress mode**, managed by `ghost.secd`.
+The answer is the multi-PIN architecture, managed by `ghost.secd`. Every PIN derives a key, every key opens a volume, and what's inside the volume determines what happens next. There is no metadata anywhere on the box recording how many PINs exist, or what each one does.
 
-| PIN | What Happens |
+| PIN type | What happens |
 |-----|--------------|
-| **Real PIN** | Full system. Your actual data. |
-| **Duress PIN** | Shadow system. A different believable person, randomized patterns, bland content. |
-| **Purge PIN** | Full wipe. Keys destroyed. Box reboots to factory state. |
+| Real | Opens your real volume. |
+| Duress | Opens a decoy volume. A different believable person, a fresh-looking system, or a populated decoy you built. |
+| Purge | Opens an almost-empty volume containing a marker that tells ghost.secd to destroy everything. |
 
-`ghost.secd` generates shadow data on a schedule, not a sanitized you but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden, indistinguishable from empty space.
+You configure as many PINs as you want, any combination of real, decoy, and purge. An attacker who demands every PIN you have can't verify they got them all, can't distinguish a duress PIN from a real one without typing it, and can't tell from the outside which PIN unlocks a volume and which one wipes the box.
 
-*Shadow system planned for v1.0+. Basic hidden volumes in earlier releases.*
+*Automatic decoy generation is aspirational and substantially harder than the duress architecture itself. v1.0 ships the multi-PIN architecture and fresh-looking or manually-populated decoy volumes. Convincing auto-generated decoy lives come later.*
 
 **[Read the full security model →](docs/SECURITY.md)** or the [Honeypot post](https://www.localghost.ai/hard-truths/honeypot) for the thinking behind it.
 
@@ -194,7 +194,7 @@ Hardware ships after software is stable.
 
 Production-ready.
 
-- `ghost.secd`, full multi-PIN duress, shadow system, purge
+- `ghost.secd`, full multi-PIN architecture, duress volumes, purge
 - `ghost.shadowd`, adversarial mirror
 - `pro` and `rack` hardware tiers
 - API stability guarantees
@@ -242,7 +242,7 @@ localghost/
 ├── docker/
 ├── scripts/
 ├── docs/
-│   └── SECURITY.md           # Security model and duress mode
+│   └── SECURITY.md           # Security model, multi-PIN, decoy volumes
 ├── hardware/                 # Bill of materials
 └── README.md
 ```
