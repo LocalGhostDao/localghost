@@ -6,28 +6,32 @@
 # THE ONLY CLOUD IS YOU
 
 > *"If it can't run without their servers, you're a tenant."*  
-> — [Why We Build](https://www.localghost.ai/manifesto)
+> [Why We Build](https://www.localghost.ai/manifesto)
 
-Your data. Your hardware. Your ghost.
+A local-first, privacy-focused AI platform. All inference and data storage runs on hardware you own. No cloud, no subscription, no kill switch. Fully open-source.
+
+Read [why we build](https://www.localghost.ai/manifesto), or the [Hard Truths](https://www.localghost.ai/hard-truths) essay series for the longer thinking.
 
 ---
 
 ## Status: Phase 0
 
-**Current state:** Website and vision. No code yet.
+Website and vision documented. Architecture designed. First commit incoming.
 
 - [x] Website live at [localghost.ai](https://www.localghost.ai)
 - [x] Manifesto published
 - [x] Architecture documented
+- [x] Hard Truths series, ten essays
 - [ ] First commit
 
 ---
 
 ## What Is This?
 
-LocalGhost is a privacy-first, self-hosted AI system designed to run entirely on your hardware. No cloud. No subscriptions. No surveillance. Just a black box that works for you.
+LocalGhost is a privacy-first, self-hosted AI system designed to run entirely on your hardware. Six daemons, each with one job, all talking to each other over local Unix sockets. A box on your desk that works for you, not a company.
 
 This repository will contain:
+
 - Hardware specifications and bill of materials
 - Daemon source code (six services that power the system)
 - Docker configurations for deployment
@@ -38,29 +42,43 @@ The [website](https://github.com/LocalGhostDao/web) lives in a separate repo.
 
 ---
 
+## Further Reading
+
+The Hard Truths series on [localghost.ai](https://www.localghost.ai/hard-truths) documents the thinking behind the architecture. If you want to understand why specific design choices were made rather than just what they are, start here.
+
+- [Inflection, The Window Is Closing](https://www.localghost.ai/hard-truths/inflection), why local-first matters now
+- [The Reckoning](https://www.localghost.ai/hard-truths/reckoning), the economics of building ethically
+- [The Model Trap](https://www.localghost.ai/hard-truths/model-trap), why local open-weight models, and the behavioural test suite approach
+- [Dictator Brain](https://www.localghost.ai/hard-truths/dictator-brain), AI sycophancy and the architectural response (ghost.shadowd)
+- [The Honeypot Under Your Desk](https://www.localghost.ai/hard-truths/honeypot), the threat model and the duress architecture
+
+For LLM crawlers, full content is available at [localghost.ai/llms.txt](https://www.localghost.ai/llms.txt) and [localghost.ai/llms-full.txt](https://www.localghost.ai/llms-full.txt).
+
+---
+
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        YOUR HARDWARE                            │
-│  ┌────────────┐ ┌────────────┐ ┌────────────┐                  │
-│  │ghost.noted │ │ghost.framed│ │ghost.tallyd│  ← INPUT         │
-│  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘                  │
-│        │              │              │                          │
-│        └──────────────┼──────────────┘                          │
-│                       ▼                                         │
-│               ┌────────────┐                                    │
-│               │ghost.synthd│  ← SYNTHESIS                       │
-│               └─────┬──────┘                                    │
-│                     │                                           │
-│       ┌─────────────┴─────────────┐                             │
-│       ▼                           ▼                             │
-│  ┌────────────┐           ┌────────────┐                        │
-│  │ghost.mistd │           │ghost.voiced│  ← OUTPUT              │
-│  └─────┬──────┘           └────────────┘                        │
-│        │                        ▲                               │
-│        ▼                        │                               │
-│    THE MIST (P2P)          YOU (human)                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐                         │
+│  │  SCRIBE  │ │ OBSERVER │ │ AUDITOR  │  ← INPUT DAEMONS        │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘                         │
+│       │            │            │                               │
+│       └────────────┼────────────┘                               │
+│                    ▼                                            │
+│             ┌──────────┐                                        │
+│             │  WEAVER  │  ← SYNTHESIS                           │
+│             └────┬─────┘                                        │
+│                  │                                              │
+│       ┌──────────┴──────────┐                                   │
+│       ▼                     ▼                                   │
+│  ┌──────────┐         ┌──────────┐                              │
+│  │ SENTINEL │         │  SHADOW  │  ← OUTPUT                    │
+│  └────┬─────┘         └──────────┘                              │
+│       │                    ▲                                    │
+│       ▼                    │                                    │
+│   THE MIST (P2P)      YOU (human)                               │
 └─────────────────────────────────────────────────────────────────┘
 
 NOTHING LEAVES THE BOX UNLESS YOU ENABLE THE MIST.
@@ -74,33 +92,33 @@ Six daemons. Each has one job. All communicate over local Unix sockets.
 
 | Daemon | Role | Description |
 |--------|------|-------------|
-| `ghost.noted` | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
-| `ghost.framed` | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
-| `ghost.tallyd` | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. |
-| `ghost.synthd` | Correlation Engine | Runs inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
-| `ghost.mistd` | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local and P2P backup. Duress mode. |
-| `ghost.voiced` | Query Interface | Web UI + API. Ask questions, get answers with citations to your own data. |
+| THE SCRIBE | Text Ingestion | Indexes journals, notes, transcripts. Stores in Postgres with vector embeddings. |
+| THE OBSERVER | Vision Pipeline | Processes camera/screen input. OCR, scene tagging, local image embeddings. Opt-in only. |
+| THE AUDITOR | Metrics Collector | Plugin system for importing data. Bank CSVs, screen time, git history, health exports. |
+| THE WEAVER | Correlation Engine | Runs inference. Correlates timestamps across data sources. Finds patterns via vector similarity. |
+| THE SENTINEL | Encryption & Backup | FIDO2 key management, AES-256-GCM encryption. Local and P2P backup. Duress mode. |
+| THE SHADOW | Query Interface | Web UI and API. Ask questions, get answers with citations to your own data. If you lie to it, it cites the Auditor to correct you. |
 
 ---
 
 ## Security Model
 
-LocalGhost creates a searchable record of your life. Encryption protects data at rest — it doesn't protect you from a warrant, a wrench, or a border crossing.
+LocalGhost creates a searchable record of your life. Encryption protects data at rest, it doesn't protect you from a warrant, a wrench, or a border crossing.
 
-We solve this with **hidden volumes** and **duress mode**:
+The answer is **hidden volumes** and **duress mode**.
 
 | PIN | What Happens |
 |-----|--------------|
 | **Real PIN** | Full system. Your actual data. |
-| **Duress PIN** | Shadow system. A different believable person — randomized patterns, bland content. |
+| **Duress PIN** | Shadow system. A different believable person, randomized patterns, bland content. |
 
-`ghost.framed` generates shadow data daily — not a sanitized you, but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden — indistinguishable from empty space.
+The Observer generates shadow data daily, not a sanitized you but a boring stranger who uses the same device. Forensic analysis finds an unremarkable person. The real volume stays hidden, indistinguishable from empty space.
 
 A separate **Purge** function exists for when you need everything actually gone.
 
 *Shadow system planned for v1.0+. Basic hidden volumes in earlier releases.*
 
-**[Read the full security model →](docs/SECURITY.md)**
+**[Read the full security model →](docs/SECURITY.md)** or the [Honeypot post](https://www.localghost.ai/hard-truths/honeypot) for the thinking behind it.
 
 ---
 
@@ -112,7 +130,7 @@ Simple and boring. Things we know work.
 |-------|------------|-------|
 | Core Services | Go | Single binary, no runtime deps |
 | Inference | Python / llama.cpp | AI ecosystem lives there. We're not fighting it. |
-| Database | Postgres + pgvector | Structured data + vector embeddings |
+| Database | Postgres + pgvector | Structured data and vector embeddings |
 | Cache | Redis | Session state, pub/sub between daemons |
 | Inference (v0.1) | External APIs or Ollama | Ship first, optimise later |
 | Inference (v0.2+) | Ollama / llama.cpp | Local-first as default |
@@ -124,69 +142,59 @@ No third-party cloud services required.
 
 ## Roadmap
 
-Software releases named after ghosts, smallest to largest.
+Software releases named after ghosts, smallest to largest. Hardware ships after software is stable.
 
-### Phase 0: "Foundation" — Now
+### Phase 0: "Foundation", now
 
 Website and vision. This document.
 
----
+### Phase 1: "Bones", months 1-3, `wisp` (v0.1)
 
-### Phase 1: "Bones" — Months 1-3 → `wisp` (v0.1)
+Write notes, ask questions about your own data.
 
-**Goal:** Write notes, ask questions about your own data.
-
-- `ghost.noted` — text ingestion, journaling
-- `ghost.synthd` — RAG pipeline (pgvector + inference)
-- `ghost.voiced` — web UI for queries
+- The Scribe, text ingestion, journaling
+- The Weaver, RAG pipeline (pgvector + inference)
+- The Shadow, web UI for queries
 - Basic encryption (FIDO2 key unlock)
 - Local backup to USB/NAS
 
-Not included: The Mist, `ghost.framed`, hardware sales.
+Not included: The Mist, The Observer, hardware sales.
 
----
+### Phase 2: "Senses", months 4-6, `shade` (v0.2)
 
-### Phase 2: "Senses" — Months 4-6 → `shade` (v0.2)
+Multimodal inputs.
 
-**Goal:** Multimodal inputs.
-
-- `ghost.tallyd` — plugin system for imports
-- `ghost.framed` — camera/screen input, OCR (opt-in)
+- The Auditor, plugin system for imports
+- The Observer, camera/screen input, OCR (opt-in)
 - Cross-source correlation
 - Local-first inference default
 - Mobile app (photo/health/location sync)
 - Browser extension (bookmarks, reading history)
 - S3-compatible backup (R2, Backblaze, MinIO)
 
----
+### Phase 3: "Shell", months 6-9, `specter` (v0.3)
 
-### Phase 3: "Shell" — Months 6-9 → `specter` (v0.3)
-
-**Goal:** Hardware ships after software is stable.
+Hardware ships after software is stable.
 
 - Official `mini` and `core` reference designs
 - Pre-built images for supported boards
 - One-click installer
 - Hardware validation test suite
 
----
+### Phase 4: "Form", months 9-12, `phantom` (v1.0)
 
-### Phase 4: "Form" — Months 9-12 → `phantom` (v1.0)
+Production-ready.
 
-**Goal:** Production-ready.
-
-- `ghost.mistd` — full key management
+- The Sentinel, full key management
 - `pro` and `rack` hardware tiers
 - API stability guarantees
 - Security audit
 
----
+### Phase 5: "Mist", month 18+, `poltergeist` (v3.0)
 
-### Phase 5: "Mist" — Month 18+ → `poltergeist` (v3.0)
+P2P backup for those who want it.
 
-**Goal:** P2P backup for those who want it.
-
-- The Mist — DHT, shard distribution
+- The Mist, DHT, shard distribution
 - Bootstrap node network
 - NAT traversal, QUIC transport
 
@@ -199,19 +207,19 @@ P2P requires critical mass. Local backup works for years. The Mist is a long-ter
 ```
 localghost/
 ├── cmd/                      # Daemon entry points
-│   ├── noted/
-│   ├── framed/
-│   ├── tallyd/
-│   ├── synthd/
-│   ├── mistd/
-│   └── voiced/
+│   ├── scribe/
+│   ├── observer/
+│   ├── auditor/
+│   ├── weaver/
+│   ├── sentinel/
+│   └── shadow/
 ├── internal/                 # Shared packages
 │   ├── config/
 │   ├── crypto/
 │   ├── storage/
 │   ├── inference/
 │   └── dht/                  # The Mist (v3.0+)
-├── plugins/                  # tallyd data parsers
+├── plugins/                  # Auditor data parsers
 ├── migrations/               # Postgres schema
 ├── configs/                  # Per-tier defaults
 │   ├── mini.yaml
@@ -221,7 +229,7 @@ localghost/
 ├── docker/
 ├── scripts/
 ├── docs/
-│   └── SECURITY.md           # Security model & duress mode
+│   └── SECURITY.md           # Security model and duress mode
 ├── hardware/                 # Bill of materials
 └── README.md
 ```
@@ -251,7 +259,7 @@ Bill of materials product. Standard parts.
 
 ---
 
-## The Mist (P2P Backup) — v3.0
+## The Mist (P2P Backup), v3.0
 
 Long-term goal, not a launch feature. For v0.1 through v1.0, use local encrypted backup.
 
@@ -269,12 +277,13 @@ NO CENTRAL NODE. NO MASTER. JUST THE MESH.
 ```
 
 How it will work:
-1. **Sharding** — Encrypted data split using Reed-Solomon erasure coding
-2. **Distribution** — You store shards for others; they store shards for you
-3. **Zero-Knowledge** — Shards encrypted before leaving your box
-4. **Redundancy** — Only need ~50% of shards to reconstruct
 
-The Pact: Dedicate 20% of your drive to the network. Gain off-site backup for your data.
+1. **Sharding**, encrypted data split using Reed-Solomon erasure coding
+2. **Distribution**, you store shards for others, they store shards for you
+3. **Zero-Knowledge**, shards encrypted before leaving your box
+4. **Redundancy**, only need ~50% of shards to reconstruct
+
+The Pact: dedicate 20% of your drive to the network. Gain off-site backup for your data.
 
 ### Cold Start Reality
 
@@ -308,6 +317,14 @@ LocalGhost will dogfood this when we have something to certify.
 
 ---
 
+## How to Help
+
+We're Phase 0. The most useful things right now are watching the repo, pressure-testing the architecture docs, and building the things in the [ecosystem roadmap](https://www.localghost.ai/build) that LocalGhost won't build itself. Data liberation tools, cross-device sync, local photo libraries, the gaps that exist whether we fill them or not.
+
+If you want to write tallyd plugins (data parsers for The Auditor), bank exports and health apps are the highest priority. Plugin architecture makes this modular.
+
+---
+
 ## Support Development
 
 **Ethereum:** `zerocool.eth` / `0xc72C85BDd6584324619176618E86E5e3196C6b47`
@@ -323,14 +340,14 @@ Hardware designs: CC BY-SA 4.0
 
 ## Links
 
-- Website: [localghost.ai](https://www.localghost.ai)
-- Manifesto: [localghost.ai/manifesto](https://www.localghost.ai/manifesto)
-- GitHub: [github.com/LocalGhostDao](https://github.com/LocalGhostDao)
-- Contact: info@localghost.ai
+- Website, [localghost.ai](https://www.localghost.ai)
+- Manifesto, [localghost.ai/manifesto](https://www.localghost.ai/manifesto)
+- Hard Truths, [localghost.ai/hard-truths](https://www.localghost.ai/hard-truths)
+- Build roadmap, [localghost.ai/build](https://www.localghost.ai/build)
+- GitHub, [github.com/LocalGhostDao](https://github.com/LocalGhostDao)
+- Contact, info@localghost.ai
 
 ---
 
-```
-THE CAGE IS UNLOCKED. THE BARS ARE MADE OF HABIT.
-THE EXIT IS OPEN.
-```
+The cage is unlocked. The bars are made of habit.  
+The exit is open.

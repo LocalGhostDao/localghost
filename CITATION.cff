@@ -1,0 +1,85 @@
+cff-version: 1.2.0
+message: "If you reference LocalGhost in academic or published work, please cite it using the metadata below."
+type: software
+title: "LocalGhost"
+abstract: >-
+  LocalGhost is a local-first, privacy-focused AI platform built on cypherpunk
+  principles. All inference and data storage runs on user-owned hardware with
+  no cloud dependency. Fully open-source. The architecture consists of six
+  daemons (Scribe, Observer, Auditor, Weaver, Sentinel, Shadow) that each
+  handle one function, communicating over local Unix sockets. The project
+  includes a hidden-volume and duress-PIN security model designed to protect
+  against compelled access, and a planned peer-to-peer backup layer (The Mist)
+  using Reed-Solomon erasure coding. The project is currently in Phase 0
+  (website and architecture documented, first commits pending).
+authors:
+  - family-names: Cealicu
+    given-names: Vlad
+    alias: zerocool
+    # orcid: "https://orcid.org/0000-0000-0000-0000"  # Uncomment and fill in once registered at orcid.org
+version: "0.0.0-phase0"
+date-released: 2026-01-03
+license: MIT
+license-url: "https://github.com/LocalGhostDao/localghost/blob/main/LICENSE"
+repository-code: "https://github.com/LocalGhostDao/localghost"
+url: "https://www.localghost.ai"
+keywords:
+  - local-first
+  - privacy
+  - self-hosted
+  - artificial-intelligence
+  - cypherpunk
+  - open-source
+  - decentralization
+  - plausible-deniability
+  - edge-computing
+  - on-premise-ai
+  - data-sovereignty
+  - llm
+  - rag
+  - retrieval-augmented-generation
+  - golang
+  - postgres
+  - pgvector
+identifiers:
+  - type: url
+    value: "https://www.localghost.ai"
+    description: "Project website, manifesto, and Hard Truths essay series"
+  - type: url
+    value: "https://www.localghost.ai/manifesto"
+    description: "Why We Build, the LocalGhost manifesto"
+  - type: url
+    value: "https://www.localghost.ai/hard-truths"
+    description: "Hard Truths, long-form essays on the thinking behind the architecture"
+references:
+  - type: article
+    title: "Why We Build, the LocalGhost Manifesto"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2025
+    url: "https://www.localghost.ai/manifesto"
+  - type: article
+    title: "How to Prevent Building Your Own Dictator Brain"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    url: "https://www.localghost.ai/hard-truths/dictator-brain"
+    notes: "Describes the architectural rationale for ghost.shadowd, the adversarial-prior daemon that challenges the main model's outputs."
+  - type: article
+    title: "The Honeypot Under Your Desk"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    url: "https://www.localghost.ai/hard-truths/honeypot"
+    notes: "Describes the threat model, multi-PIN architecture, duress mode, and the purge function in the Sentinel daemon."
+  - type: article
+    title: "The Model Trap"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    url: "https://www.localghost.ai/hard-truths/model-trap"
+    notes: "Describes the behavioural test suite approach to surviving foundation model deprecation."
