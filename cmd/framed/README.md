@@ -1,3 +1,5 @@
+# FULLY AI GENERATED NOT YET REVIEWD
+
 # ghost.framed
 
 Image ingestion, archival, and description. Pulls from upstream image sources (or accepts pushes from external agents), stores canonical copies in its own archive, runs a local vision model against each image, produces structured descriptions, and pushes those descriptions through ghost.noted's inbox endpoint so the rest of the fleet sees them as text.

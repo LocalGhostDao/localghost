@@ -1,3 +1,4 @@
+# FULLY AI GENERATED NOT YET REVIEWD
 # ghost.noted
 
 Text ingestion, archival, and journal-entry extraction. Pulls from upstream sources (or accepts pushes from external agents), stores canonical copies in its own archive, runs extraction against the archive, produces journal entries and raw mentions that ghost.synthd consumes.

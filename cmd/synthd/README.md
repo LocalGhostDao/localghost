@@ -1,3 +1,4 @@
+# FULLY AI GENERATED NOT YET REVIEWD
 # ghost.synthd
 
 The memory layer. Consumes journal entries from ghost.noted, resolves mentions into canonical entities, clusters entries into memories, rolls memories into episodes at any time granularity, maintains the queue of user decisions the system cannot make on its own, and serves the app layer and ghost.cued with memories and episodes ranked for the moment.

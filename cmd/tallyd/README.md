@@ -1,3 +1,4 @@
+# FULLY AI GENERATED NOT YET REVIEWD
 # ghost.tallyd
 
 Structured-data ingestion, archival, and time-series aggregation. Imports bank exports, health logs, git commits, and other structured sources through a plugin system. Stores canonical copies in its own archive, parses them into time-series tables, exposes a query API for structured analysis, and pushes narrative summaries of notable events through ghost.noted's inbox so they become memories alongside everything else.

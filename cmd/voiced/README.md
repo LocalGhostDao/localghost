@@ -1,3 +1,4 @@
+# FULLY AI GENERATED NOT YET REVIEWD
 # ghost.voiced
 
 Audio ingestion, archival, and transcription. Pulls from upstream audio sources (or accepts pushes from external agents), stores canonical copies in its own archive, runs a local transcription model against each recording, produces transcripts with speaker separation and timestamp markers where available, and pushes those transcripts through ghost.noted's inbox so the rest of the fleet sees them as text.
