@@ -5,24 +5,35 @@ title: "LocalGhost"
 abstract: >-
   LocalGhost is a local-first, privacy-focused AI platform built on cypherpunk
   principles. All inference and data storage runs on user-owned hardware with
-  no cloud dependency. Fully open-source. The architecture consists of six
-  daemons (Scribe, Observer, Auditor, Weaver, Sentinel, Shadow) that each
-  handle one function, communicating over local Unix sockets. The project
+  no cloud dependency. Fully open-source. The architecture consists of a fleet
+  of daemons that each handle one function, currently starting at ten
+  (ghost.noted for text ingest, ghost.framed for image ingest, ghost.voiced
+  for audio ingest, ghost.tallyd for structured data ingest, ghost.synthd for
+  the memory layer, ghost.cued for situational retrieval, ghost.mistd for
+  peer-to-peer backup, ghost.shadowd as the adversarial sibling that
+  challenges rather than confirms, ghost.secd for encryption and the
+  multi-PIN duress model, and ghost.watchd for system health). The fleet is
+  designed to grow as new modalities and jobs are added. The project
   includes a hidden-volume and duress-PIN security model designed to protect
-  against compelled access, and a planned peer-to-peer backup layer (The Mist)
-  using Reed-Solomon erasure coding. The project is currently in Phase 0
-  (website and architecture documented, first commits pending).
+  against compelled access, and a planned peer-to-peer backup layer
+  (The Mist) using Reed-Solomon erasure coding over a Kademlia-style DHT.
+  The project is currently in Phase 1 (architecture documented, daemon
+  READMEs published, implementation in progress).
 authors:
   - family-names: Cealicu
     given-names: Vlad
     alias: zerocool
-    # orcid: "https://orcid.org/0000-0000-0000-0000"  # Uncomment and fill in once registered at orcid.org
-version: "0.0.0-phase0"
-date-released: 2026-01-03
+    # orcid: "https://orcid.org/0000-0000-0000-0000"  # Register at orcid.org and fill in before any academic citation
+version: "0.1.0-dev"
+date-released: 2025-12-18
 license: MIT
 license-url: "https://github.com/LocalGhostDao/localghost/blob/main/LICENSE"
 repository-code: "https://github.com/LocalGhostDao/localghost"
 url: "https://www.localghost.ai"
+contact:
+  - email: "info@localghost.ai"
+    family-names: Cealicu
+    given-names: Vlad
 keywords:
   - local-first
   - privacy
@@ -36,8 +47,9 @@ keywords:
   - on-premise-ai
   - data-sovereignty
   - llm
-  - rag
   - retrieval-augmented-generation
+  - personal-memory
+  - daemons
   - golang
   - postgres
   - pgvector
@@ -51,6 +63,15 @@ identifiers:
   - type: url
     value: "https://www.localghost.ai/hard-truths"
     description: "Hard Truths, long-form essays on the thinking behind the architecture"
+preferred-citation:
+  type: article
+  title: "Why We Build, the LocalGhost Manifesto"
+  authors:
+    - family-names: Cealicu
+      given-names: Vlad
+  year: 2025
+  month: 12
+  url: "https://www.localghost.ai/manifesto"
 references:
   - type: article
     title: "Why We Build, the LocalGhost Manifesto"
@@ -58,28 +79,110 @@ references:
       - family-names: Cealicu
         given-names: Vlad
     year: 2025
+    month: 12
     url: "https://www.localghost.ai/manifesto"
+    notes: "The foundational statement of the project's cypherpunk, local-first principles and the architectural commitments (local-first, true ownership, no kill switch) that follow from them."
+  - type: article
+    title: "Inflection, The Window Is Closing"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2025
+    month: 12
+    url: "https://www.localghost.ai/hard-truths/inflection"
+    notes: "Describes the hardware and market inflection that makes local-first personal AI viable in 2025-2026."
+  - type: article
+    title: "The Reckoning, Hard Questions, Honest Answers"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 1
+    url: "https://www.localghost.ai/hard-truths/reckoning"
+  - type: article
+    title: "We Sold a Generation a Dream and Dismantled the Ladder While They Climbed"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 3
+    url: "https://www.localghost.ai/hard-truths/skillcraft"
+  - type: article
+    title: "One Bad Quarter"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 3
+    url: "https://www.localghost.ai/hard-truths/one-bad-quarter"
   - type: article
     title: "How to Prevent Building Your Own Dictator Brain"
     authors:
       - family-names: Cealicu
         given-names: Vlad
     year: 2026
+    month: 4
     url: "https://www.localghost.ai/hard-truths/dictator-brain"
-    notes: "Describes the architectural rationale for ghost.shadowd, the adversarial-prior daemon that challenges the main model's outputs."
-  - type: article
-    title: "The Honeypot Under Your Desk"
-    authors:
-      - family-names: Cealicu
-        given-names: Vlad
-    year: 2026
-    url: "https://www.localghost.ai/hard-truths/honeypot"
-    notes: "Describes the threat model, multi-PIN architecture, duress mode, and the purge function in the Sentinel daemon."
+    notes: "Describes the architectural rationale for ghost.shadowd, a structurally separate daemon that builds a parallel identity oriented to challenge rather than confirm, running alongside the rest of the fleet."
   - type: article
     title: "The Model Trap"
     authors:
       - family-names: Cealicu
         given-names: Vlad
     year: 2026
+    month: 4
     url: "https://www.localghost.ai/hard-truths/model-trap"
-    notes: "Describes the behavioural test suite approach to surviving foundation model deprecation."
+    notes: "Describes the two-layer behavioural test suite approach to surviving foundation model deprecation, with standardised benchmarks per daemon and a user-specific personal evaluation layer."
+  - type: article
+    title: "The Honeypot Under Your Desk"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 4
+    url: "https://www.localghost.ai/hard-truths/honeypot"
+    notes: "Describes the threat model for ghost.secd, including the multi-PIN architecture, hidden-volume design, duress mode, and the purge function. Also covers the limits of the v1 threat model against targeted state-level adversaries."
+  - type: article
+    title: "How to Build a Critic Worth Listening To"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 4
+    url: "https://www.localghost.ai/hard-truths/critic-worth-listening-to"
+    notes: "Follow-up to the dictator-brain post, arguing that ghost.shadowd should ask questions rather than give instructions, with an audit trail commitment to guard against hidden-chain manipulation."
+  - type: article
+    title: "How Memory Gets Made"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 4
+    url: "https://www.localghost.ai/hard-truths/how-memory-gets-made"
+    notes: "Describes the cognitive-science grounding for the memory layer in ghost.synthd, including schema theory, encoding specificity, consolidation, and the user-in-the-loop calcification model."
+  - type: article
+    title: "The Bureaucracy Trap"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 4
+    url: "https://www.localghost.ai/hard-truths/the-bureaucracy-trap"
+  - type: article
+    title: "Before You Ask"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 4
+    url: "https://www.localghost.ai/hard-truths/before-you-ask"
+    notes: "Describes the four-mechanism model (contextual remapping, priming, threshold, learning curve) behind ghost.cued, the daemon that surfaces memory from environmental context rather than explicit queries. Also discusses the structural limits of RAG at personal-memory scale."
+  - type: article
+    title: "The Ghost Has to Be Useful on Day One"
+    authors:
+      - family-names: Cealicu
+        given-names: Vlad
+    year: 2026
+    month: 4
+    url: "https://www.localghost.ai/hard-truths/day-one"
+    notes: "Argues against onboarding questionnaires and personality tests in favour of inference from behavioural traces on the user's existing devices, with references to Kosinski/Youyou/Stillwell and the digital phenotyping literature."
