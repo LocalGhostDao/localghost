@@ -44,6 +44,7 @@ android {
         compose = true
         buildConfig = true
     }
+    buildToolsVersion = "36.0.0"
 }
 dependencies {
     implementation(platform(libs.androidx.compose.bom))
