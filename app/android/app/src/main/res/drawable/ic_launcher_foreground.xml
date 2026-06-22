@@ -1,28 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-
-    <!-- Ghost body: domed top, zigzag bottom edge (analog waveform). -->
     <path
-        android:fillColor="#FF33FF00"
-        android:pathData="M32,76 L32,50 C32,38 42,30 54,30 C66,30 76,38 76,50 L76,76 L69,70 L62,76 L55,70 L48,76 L41,70 L34,76 Z" />
-
-    <!-- Eyes: void cutouts. -->
-    <path
-        android:fillColor="#FF111111"
-        android:pathData="M43,49 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
-    <path
-        android:fillColor="#FF111111"
-        android:pathData="M57,49 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0 Z" />
-
-    <!-- Smile: minimal, friendly. -->
-    <path
-        android:strokeColor="#FF111111"
-        android:strokeWidth="2.5"
-        android:strokeLineCap="round"
-        android:fillColor="#00000000"
-        android:pathData="M48,60 Q54,66 60,60" />
+        android:fillColor="#33FF00"
+        android:fillType="evenOdd"
+        android:pathData="M54,30 C44,30 36,38 36,48 L36,78 L42,73 L48,78 L54,73 L60,78 L66,73 L72,78 L72,48 C72,38 64,30 54,30 Z M47,46 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z M61,46 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0 Z" />
 </vector>

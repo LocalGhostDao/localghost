@@ -1,0 +1,295 @@
+package com.localghost.app.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import com.localghost.app.R
+import com.localghost.app.chat.Attachment
+import com.localghost.app.chat.Message
+import com.localghost.app.net.DaemonStatus
+import com.localghost.app.net.LifeContext
+import com.localghost.app.net.MemoryEntry
+import com.localghost.app.net.DeviceInfo
+import com.localghost.app.net.PinBehaviour
+import com.localghost.app.net.PinEntry
+import com.localghost.app.net.ChatCapabilities
+import com.localghost.app.net.PhoneModel
+import com.localghost.app.net.Connector
+import com.localghost.app.net.PendingNotification
+import com.localghost.app.ui.theme.*
+import kotlinx.coroutines.launch
+
+enum class Dest(val label: String, val glyph: String) {
+    CHAT("CHAT", "›_"),
+    MEMORIES("MEMORIES", "◇"),
+    NOTIFICATIONS("NOTIFICATIONS", "△"),
+    HARNESS("HARNESS", "◉"),
+    SYNC("SYNC", "⇅"),
+    CODES("CODES", "⚿"),
+    SETTINGS("SETTINGS", "⚙"),
+    GLOSSARY("GLOSSARY", "≣"),
+    CONNECTORS("CONNECTORS", "⊹"),
+    MODELS("MODELS", "▢"),
+    ABOUT("ABOUT", "?"),
+}
+
+@Composable
+fun MainShell(
+    messages: List<Message>,
+    streaming: Boolean,
+    onSend: (String) -> Unit,
+    onStopChat: () -> Unit,
+    pendingAttachments: List<Attachment>,
+    onClearAttachment: (Attachment) -> Unit,
+    chatCaps: ChatCapabilities,
+    onChatCaps: (ChatCapabilities) -> Unit,
+    localModeActive: Boolean,
+    forceLocal: Boolean,
+    onForceLocal: (Boolean) -> Unit,
+    localModelPresent: Boolean,
+    catalogModels: List<PhoneModel>,
+    modelRowState: (String) -> ModelRowState,
+    onDownloadModel: (String) -> Unit,
+    onCancelModel: (String) -> Unit,
+    onActivateModel: (String) -> Unit,
+    onDeleteModel: (String) -> Unit,
+    availableDaemons: List<String>,
+    onCamera: () -> Unit,
+    onPhotos: () -> Unit,
+    onFiles: () -> Unit,
+    onVoice: () -> Unit,
+    connectors: Loadable<List<Connector>>,
+    onConnect: (String) -> Unit,
+    onDisconnect: (String) -> Unit,
+    permState: PermState,
+    onPermAction: () -> Unit,
+    pending: Loadable<List<PendingNotification>>,
+    lifeContext: LifeContext?,
+    memories: Loadable<List<MemoryEntry>>,
+    daemons: Loadable<List<DaemonStatus>>,
+    sync: SyncUiState,
+    onSync: () -> Unit,
+    onRequestFullAccess: () -> Unit,
+    onTestNotification: () -> Unit,
+    allowMobileSync: Boolean,
+    onToggleMobileSync: (Boolean) -> Unit,
+    onToggleMute: (Boolean) -> Unit,
+    boxConnected: Boolean,
+    onLock: () -> Unit,
+    onExport: () -> Unit,
+    exportState: String?,
+    onChangeCode: (old: String, new: String) -> Unit,
+    onWipe: () -> Unit,
+    pins: Loadable<List<PinEntry>>,
+    devices: Loadable<List<DeviceInfo>>,
+    onAddPin: (String, PinBehaviour, String) -> Unit,
+    onRemovePin: (String) -> Unit,
+) {
+    var dest by rememberSaveable { mutableStateOf(Dest.CHAT) }
+    var showWipe by remember { mutableStateOf(false) }
+    var showChangeCode by remember { mutableStateOf(false) }
+    var showAddSheet by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+    fun close() = scope.launch { drawerState.close() }
+    fun open() = scope.launch { drawerState.open() }
+
+    BackHandler(enabled = drawerState.isOpen || dest != Dest.CHAT) {
+        if (drawerState.isOpen) close() else dest = Dest.CHAT
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            DrawerPanel(
+                current = dest,
+                boxConnected = boxConnected,
+                onSelect = { dest = it; close() },
+                onLock = { close(); onLock() },
+            )
+        },
+    ) {
+        GhostScaffold { pad ->
+            Column(Modifier.fillMaxSize().padding(top = pad.calculateTopPadding())) {
+                TopBar(title = dest.label, onMenu = { open() })
+
+                PermissionBanner(permState, onPermAction)
+
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (dest) {
+                        Dest.CHAT -> ChatScreen(messages, streaming, localModeActive, pendingAttachments,
+                            onSend, onStopChat, { showAddSheet = true }, onClearAttachment)
+                        Dest.MEMORIES -> MemoriesScreen(lifeContext, memories)
+                        Dest.NOTIFICATIONS -> NotificationsScreen(pending)
+                        Dest.HARNESS -> HarnessScreen(daemons)
+                        Dest.SYNC -> SyncScreen(sync, onSync, onRequestFullAccess, onTestNotification)
+                        Dest.CODES -> PinManagementScreen(pins, devices, onAddPin, onRemovePin)
+                        Dest.SETTINGS -> SettingsScreen(
+                            allowMobileSync = allowMobileSync,
+                            onToggleMobileSync = onToggleMobileSync,
+                            notificationsMuted = sync.notificationsMuted,
+                            onToggleMute = onToggleMute,
+                            onExport = onExport,
+                            exportState = exportState,
+                            onChangeCode = { showChangeCode = true },
+                            onWipe = { showWipe = true },
+                        )
+                        Dest.GLOSSARY -> GlossaryScreen()
+                        Dest.CONNECTORS -> ConnectorsScreen(connectors, onConnect, onDisconnect)
+                        Dest.MODELS -> ModelsScreen(catalogModels, modelRowState,
+                            onDownloadModel, onCancelModel, onActivateModel, onDeleteModel)
+                        Dest.ABOUT -> AboutScreen()
+                    }
+                }
+
+                if (sync.busy) {
+                    val total = sync.photoTotal + sync.videoTotal
+                    val done = sync.photoDone + sync.videoDone
+                    val frac = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+                    Column(Modifier.fillMaxWidth().background(Void)
+                        .padding(horizontal = 14.dp).padding(bottom = pad.calculateBottomPadding(), top = 4.dp)) {
+                        Text("▶ syncing $done/$total · ${sync.curName.ifBlank { "…" }}",
+                            color = TerminalDim, style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(3.dp))
+                        LinearProgressIndicator(progress = { frac }, color = TerminalGreen,
+                            trackColor = VoidLighter, strokeCap = StrokeCap.Butt,
+                            modifier = Modifier.fillMaxWidth().height(2.dp))
+                    }
+                }
+
+                if (showWipe) {
+                    ConfirmDialog(
+                        title = "WIPE EVERYTHING",
+                        body = "Crypto-erase on the box. The wrapping key is destroyed; the " +
+                            "data becomes noise. Nobody reverses this, including you.",
+                        requireWord = "WIPE",
+                        confirmLabel = "WIPE EVERYTHING",
+                        onConfirm = { showWipe = false; onWipe() },
+                        onDismiss = { showWipe = false },
+                    )
+                }
+                if (showAddSheet) {
+                    AddToChatSheet(
+                        caps = chatCaps,
+                        availableDaemons = availableDaemons,
+                        onCaps = onChatCaps,
+                        forceLocal = forceLocal,
+                        onForceLocal = onForceLocal,
+                        localModelPresent = localModelPresent,
+                        onManageModels = { showAddSheet = false; dest = Dest.MODELS },
+                        onCamera = { showAddSheet = false; onCamera() },
+                        onPhotos = { showAddSheet = false; onPhotos() },
+                        onFiles = { showAddSheet = false; onFiles() },
+                        onVoice = { showAddSheet = false; onVoice() },
+                        onOpenConnectors = { showAddSheet = false; dest = Dest.CONNECTORS },
+                        onDismiss = { showAddSheet = false },
+                    )
+                }
+                if (showChangeCode) {
+                    ChangeCodeDialog(
+                        onConfirm = { o, n -> showChangeCode = false; onChangeCode(o, n) },
+                        onDismiss = { showChangeCode = false },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TopBar(title: String, onMenu: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("≡", color = TerminalGreen, style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier.clickable { onMenu() }.padding(end = 16.dp))
+        Image(
+            painter = painterResource(R.drawable.ic_ghost),
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(22.dp).padding(end = 8.dp),
+        )
+        Text(title, color = GhostText, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+@Composable
+private fun DrawerPanel(
+    current: Dest,
+    boxConnected: Boolean,
+    onSelect: (Dest) -> Unit,
+    onLock: () -> Unit,
+) {
+    ModalDrawerSheet(
+        drawerContainerColor = Void,
+        drawerContentColor = GhostText,
+        modifier = Modifier.fillMaxWidth(0.82f),
+    ) {
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Image(
+                    painter = painterResource(R.drawable.ic_ghost),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.size(32.dp).padding(end = 12.dp),
+                )
+                Text("LOCALGHOST", color = TerminalGreen, style = MaterialTheme.typography.titleLarge)
+            }
+            Spacer(Modifier.height(8.dp))
+            // connection status — at the TOP, under the wordmark
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(if (boxConnected) "●" else "○",
+                    color = if (boxConnected) TerminalGreen else GhostTextDim,
+                    style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(8.dp))
+                Text(if (boxConnected) "connected to the box" else "not connected",
+                    color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            }
+
+            Spacer(Modifier.height(28.dp))
+            listOf(Dest.CHAT, Dest.MEMORIES, Dest.HARNESS, Dest.NOTIFICATIONS, Dest.SYNC, Dest.CODES).forEach {
+                DrawerRow(it, it == current) { onSelect(it) }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = GhostBorder)
+            Spacer(Modifier.height(16.dp))
+
+            listOf(Dest.SETTINGS, Dest.CONNECTORS, Dest.MODELS, Dest.GLOSSARY, Dest.ABOUT).forEach {
+                DrawerRow(it, it == current) { onSelect(it) }
+            }
+            DrawerRowRaw(glyph = "⏻", label = "LOCK", selected = false, onClick = onLock)
+        }
+    }
+}
+
+@Composable
+private fun DrawerRow(dest: Dest, selected: Boolean, onClick: () -> Unit) =
+    DrawerRowRaw(dest.glyph, dest.label, selected, onClick)
+
+@Composable
+private fun DrawerRowRaw(glyph: String, label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val tint = if (selected) TerminalGreen else GhostText
+        Text(glyph, color = tint, style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.width(36.dp))
+        Text(label, color = tint, style = MaterialTheme.typography.bodyLarge)
+    }
+}

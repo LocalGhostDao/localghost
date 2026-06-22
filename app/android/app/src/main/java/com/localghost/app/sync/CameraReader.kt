@@ -1,0 +1,94 @@
+package com.localghost.app.sync
+
+import android.content.ContentUris
+import android.content.Context
+import android.net.Uri
+import android.provider.MediaStore
+import java.io.InputStream
+
+object CameraReader {
+
+    data class Item(val uri: Uri, val name: String, val dateTaken: Long, val id: Long, val size: Long)
+
+    private data class Cols(val collection: Uri, val id: String, val name: String,
+                            val date: String, val bucket: String, val size: String)
+
+    private fun cols(kind: MediaKind) = when (kind) {
+        MediaKind.PHOTO -> Cols(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI, MediaStore.Images.Media._ID,
+            MediaStore.Images.Media.DISPLAY_NAME, MediaStore.Images.Media.DATE_TAKEN,
+            MediaStore.Images.Media.BUCKET_DISPLAY_NAME, MediaStore.Images.Media.SIZE)
+        MediaKind.VIDEO -> Cols(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI, MediaStore.Video.Media._ID,
+            MediaStore.Video.Media.DISPLAY_NAME, MediaStore.Video.Media.DATE_TAKEN,
+            MediaStore.Video.Media.BUCKET_DISPLAY_NAME, MediaStore.Video.Media.SIZE)
+    }
+
+    private fun selectionArgs(c: Cols, after: Cursor) =
+        "${c.bucket} = ? AND (${c.date} > ? OR (${c.date} = ? AND ${c.id} > ?))" to
+        arrayOf("Camera", after.dateTaken.toString(), after.dateTaken.toString(), after.id.toString())
+
+    fun count(ctx: Context, kind: MediaKind, after: Cursor): Int {
+        val c = cols(kind)
+        val (sel, args) = selectionArgs(c, after)
+        ctx.contentResolver.query(c.collection, arrayOf(c.id), sel, args, null)?.use { return it.count }
+        return 0
+    }
+
+    fun syncFrom(
+        ctx: Context,
+        kind: MediaKind,
+        after: Cursor,
+        send: (Item, InputStream) -> Boolean,
+        onItemStart: (Item) -> Unit,
+        onBytes: (read: Long) -> Unit,
+        onProgress: (sent: Int) -> Unit,
+    ): CommandResult {
+        val c = cols(kind)
+        val projection = arrayOf(c.id, c.name, c.date, c.size)
+        val (sel, args) = selectionArgs(c, after)
+        val sort = "${c.date} ASC, ${c.id} ASC"
+
+        var sent = 0
+        var bytes = 0L
+        try {
+            ctx.contentResolver.query(c.collection, projection, sel, args, sort)?.use { cur ->
+                val idCol = cur.getColumnIndexOrThrow(c.id)
+                val nameCol = cur.getColumnIndexOrThrow(c.name)
+                val dateCol = cur.getColumnIndexOrThrow(c.date)
+                val sizeCol = cur.getColumnIndexOrThrow(c.size)
+                while (cur.moveToNext()) {
+                    val id = cur.getLong(idCol)
+                    val base = ContentUris.withAppendedId(c.collection, id)
+                    val uri = if (kind == MediaKind.PHOTO) MediaStore.setRequireOriginal(base) else base
+                    val item = Item(uri, cur.getString(nameCol) ?: "unknown",
+                        cur.getLong(dateCol), id, cur.getLong(sizeCol))
+
+                    onItemStart(item)
+                    val ok = ctx.contentResolver.openInputStream(item.uri)?.use { stream ->
+                        val counting = CountingStream(stream, onBytes)
+                        val confirmed = send(item, counting)
+                        if (confirmed) bytes += counting.count
+                        confirmed
+                    } ?: false
+
+                    if (ok) { sent++; onProgress(sent) } else break
+                }
+            }
+        } catch (e: Exception) {
+            return CommandResult(Stream.CAMERA, kind, sent, bytes, error = e.message)
+        }
+        return CommandResult(Stream.CAMERA, kind, sent, bytes)
+    }
+
+    private class CountingStream(
+        private val inner: InputStream,
+        private val onBytes: (Long) -> Unit,
+    ) : InputStream() {
+        var count = 0L; private set
+        override fun read(): Int = inner.read().also { if (it >= 0) { count++; onBytes(count) } }
+        override fun read(b: ByteArray, off: Int, len: Int): Int =
+            inner.read(b, off, len).also { if (it > 0) { count += it; onBytes(count) } }
+        override fun close() = inner.close()
+    }
+}

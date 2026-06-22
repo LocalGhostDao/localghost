@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="lg_void">#FF111111</color>
-    <color name="lg_terminal">#FF33FF00</color>
-    <color name="ic_launcher_background">#FF111111</color>
+    <color name="lg_green">#FF33FF00</color>
 </resources>
