@@ -533,3 +533,127 @@ CHAT HISTORY (conversations live on the box / synthd; phone lists + loads, holds
 - BoxSettings: imported and the two inline fully-qualified uses shortened (redundant-qualifier).
 - The "Typo" warnings (msgs, atts, mems, dedups, fileprovider) are IDE spellchecker noise on
   intentional identifiers — not errors; add to dictionary to silence.
+
+## Update — pin scroll, landscape drawer, model picker
+1. PIN SCREEN SCROLL: the keypad column was Arrangement.Center with no scroll, so on short/
+   landscape screens 7/8/9/OK fell below the fold and were unreachable. Now verticalScroll
+   (rememberScrollState), top-aligned with padding — fully reachable in any orientation.
+2. LANDSCAPE AUTO-OPENED DRAWER: ModalNavigationDrawer could re-settle open on a rotation
+   (config change retained via configChanges). Added LaunchedEffect(orientation) { drawerState
+   .close() } to force it shut on rotation; drawer width capped at 360dp so it doesn't dominate
+   landscape.
+3. MODEL PILL: label was wrapping to two lines (long model names). Now single line with
+   maxLines=1 + ellipsis, max 240dp. Dropdown redesigned with ON THE BOX / ON THIS PHONE
+   section labels, leading glyphs, and sublabels.
+4. FULL BOX MODEL LIST: the pill now shows the FULL set the box (ghost.secd/ghost.synthd)
+   advertises, not just installed ones. phoneModels is now Triple(id, name, installed); each
+   row shows "downloaded" or "tap to download" (the latter routes to MODELS to fetch it).
+   availableModels stub expanded to a realistic list (Gemma 4 E2B, Qwen2.5 1.5B/3B, Phi-4 mini,
+   Llama 3.2 3B).
+
+## Update — portrait lock + build verifiability
+PORTRAIT: app locked to portrait (android:screenOrientation="portrait" on MainActivity).
+Sidesteps landscape layout issues entirely. configChanges kept (harmless now). The PIN-scroll
+and drawer-close-on-rotation fixes remain but simply never trigger.
+
+VERIFIABILITY (prove the APK was built by us from an unmodified GitHub commit):
+- NEW ui/VerifyScreen.kt + Dest.VERIFY ("VERIFY BUILD" in the drawer). Shows: source commit
+  (full + short), working-tree-clean flag (DIRTY shown in warning red), build time UTC, version,
+  and the signing cert SHA-256 (read live via PackageManager). Button opens the source at that
+  exact commit on GitHub. Includes a 4-step "how to verify" and links to VERIFY.md.
+- NEW GRADLE_VERIFY_ADDITIONS.md: drop-in Gradle (Kotlin DSL) to inject BuildConfig fields from
+  git at build time — GIT_COMMIT, GIT_COMMIT_SHORT, GIT_TREE_CLEAN, BUILD_TIME_UTC, GITHUB_REPO
+  (+ requires buildFeatures.buildConfig = true). Also notes reproducible-build hygiene
+  (dependenciesInfo off) and the build flow (commit -> assembleRelease -> sha256sum the APK).
+- NEW VERIFY.md: human guide — 3 independent checks (what the app claims, that source matches
+  what you read, that the binary reproduces from source), plus signing-fingerprint comparison.
+
+IMPORTANT BUILD ORDER: VerifyScreen references BuildConfig.GIT_COMMIT etc., so the app will NOT
+compile until the GRADLE_VERIFY_ADDITIONS.md fields are added to app/build.gradle.kts. That is
+step one of the build. Set GITHUB_REPO to the real public repo path.
+
+Build flow on the build machine:
+  git add -A && git commit -m "build: ..."   # clean tree so GIT_TREE_CLEAN=true
+  ./gradlew assembleRelease                   # stamps commit/build into BuildConfig
+  sha256sum app/build/outputs/apk/release/app-release.apk   # publish in release notes
+
+## Update — full verifiability runbook + source manifest signing
+The VERIFY BUILD screen is now a complete, followable runbook (the verifier needs nothing else):
+- Shows: built (UTC), version, source commit (full), working-tree-clean flag, SOURCE MANIFEST
+  ROOT, and the live signing cert SHA-256. Every value is tap-to-copy.
+- Three link buttons: source at the commit, the signed MANIFEST.sha256, and the release.
+- "VERIFY ON YOUR PC": 5 numbered steps, each with a tap-to-copy command block —
+  (1) clone+checkout+clean-check, (2) gpg --verify the manifest + tools/verify_manifest.sh,
+  (3) assembleRelease + sha256sum the APK, (4) adb pull the phone APK + sha256sum,
+  (5) apksigner verify --print-certs. Horizontal-scroll so long commands aren't clipped.
+
+NEW source-manifest signing layer (deepest provenance):
+- tools/gen_manifest.sh — writes MANIFEST.sha256 (sha256 of every tracked source file, stable
+  LC_ALL=C sort) + MANIFEST.root (sha256 of the manifest). You then GPG detached-sign it
+  (MANIFEST.sha256.asc).
+- tools/verify_manifest.sh — verifier side: checks the GPG signature, prints the root hash,
+  re-hashes every file against the manifest.
+- BuildConfig gains MANIFEST_ROOT (read from MANIFEST.root at build; GRADLE_VERIFY_ADDITIONS.md
+  updated). The app displays it so the verifier can match it to verify_manifest.sh output.
+- VERIFY.md rewritten: the 3-link provenance chain (signed source → reproducible binary →
+  signed APK), full PC steps, and the releaser steps (gen_manifest → gpg sign → commit →
+  assembleRelease → publish hashes).
+
+Releaser publishes per release: commit SHA, APK SHA-256, signing cert SHA-256, manifest root.
+
+## Update — verify wiring merged into real build.gradle.kts + website-convention signing
+- app/build.gradle.kts: merged the provenance wiring into the user's actual Gradle (version
+  catalog style). Adds git reads (commit/short/clean/buildTime) + MANIFEST.root read, injects
+  BuildConfig GIT_COMMIT/GIT_COMMIT_SHORT/GIT_TREE_CLEAN/BUILD_TIME_UTC/MANIFEST_ROOT/GITHUB_REPO,
+  and dependenciesInfo includeInApk/Bundle=false for reproducibility. Original NAS_BASE_URL /
+  DEVICE_TOKEN buildConfigFields kept.
+- PUBLIC build reproducibility: release leaves NAS_BASE_URL/DEVICE_TOKEN EMPTY in local.properties.
+  The app reads box URL + device token from its OWN ENCRYPTED STORAGE (written at setup); empty
+  at runtime = unconfigured = show setup, else use. So the public APK has no machine-specific
+  data baked in and is byte-reproducible. (The encrypted BoxConfig store + setup-vs-use routing
+  is part of the ghost.secd enrollment work — noted, not yet built; BoxClient still stubbed.)
+- tools/sign_source.sh + tools/verify_source.sh: match the WEBSITE deploy-manifest convention —
+  header (# LocalGhost App Source Manifest / # Build / # Signed), sha256sum sorted by path,
+  gpg --batch --yes --armor --local-user info@localghost.ai --detach-sign. Output under ghost/
+  (source-manifest.txt + .asc) plus MANIFEST.root. Verify screen + VERIFY.md updated to these
+  paths and the info@localghost.ai key.
+- GRADLE_VERIFY_ADDITIONS.md slimmed to a pointer (wiring now lives in build.gradle.kts).
+
+ghost.secd note: enrollment writes NAS_BASE_URL + DEVICE_TOKEN (+ other user settings) into the
+app's encrypted storage. The app's unconfigured/configured state is the setup-vs-use signal.
+
+## Update — Linux (Debian) release build path
+Confirmed the app builds headlessly on Debian (no Android Studio). Dev stays on Windows/Android
+Studio; release happens on the Debian box (same one as the website).
+- Requirements (per current AGP/Gradle): JDK 17, Android cmdline-tools, platforms;android-36,
+  build-tools;36.0.0 — matching compileSdk 36 / buildToolsVersion 36.0.0.
+- tools/debian_setup.sh — one-time: installs JDK 17 + cmdline-tools + the SDK packages, writes
+  ~/.localghost_android_env (JAVA_HOME/ANDROID_HOME/PATH). (cmdline-tools zip URL may need
+  refreshing from developer.android.com over time.)
+- tools/release.sh — clean-tree check → sign_source.sh (+ commit the manifest so the release
+  commit contains it) → write release local.properties (sdk.dir + EMPTY NAS_BASE_URL/DEVICE_TOKEN)
+  → gradlew clean assembleRelease → zipalign + apksigner sign with $LG_KEYSTORE/$LG_KEY_ALIAS →
+  prints commit, APK sha-256, manifest root, signing cert to publish.
+- BUILD_LINUX.md — the dev-vs-release split, setup, build, publish-to-GitHub flow, and the
+  toolchain-pinning caveat for reproducibility.
+- Ordering verified: sign_source.sh writes MANIFEST.root → release.sh commits it → assembleRelease
+  reads it at configure time into BuildConfig.MANIFEST_ROOT. Self-consistent (manifest excludes
+  itself + MANIFEST.root).
+
+Flow: dev local builds from Windows; when ready, build the signed release on Debian and attach
+the APK + the four hashes to a GitHub release. Users verify via VERIFY BUILD / VERIFY.md.
+
+## Update — GPG detached signature over the APK (one identity)
+The APK now carries TWO signatures: the mandatory Android keystore signature (v2/v3, apksigner —
+what lets Android install it and proves the binary is ours) AND a detached GPG signature by
+info@localghost.ai (the same key as the website + source manifest), tying the exact binary to one
+identity. GPG cannot replace the keystore signature — Android only accepts apksigner/keystore —
+so this is additive.
+- release.sh: after apksigner, runs `gpg --batch --yes --armor --local-user info@localghost.ai
+  --detach-sign app-release.apk` → app-release.apk.asc. Publishes the .asc alongside the APK.
+- VerifyScreen: step 6 — `gpg --verify app-release.apk.asc app-release.apk`.
+- VERIFY.md: provenance link 3 now covers keystore + GPG-over-APK; verify step 6 added; releaser
+  steps gpg-sign the APK and attach the .asc to the release.
+
+Signature summary: source manifest = GPG (info@localghost.ai); APK = keystore (apksigner,
+Android-required) + GPG (info@localghost.ai, identity tie). Three checks, one identity.

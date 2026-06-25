@@ -48,6 +48,7 @@ enum class Dest(val label: String, val glyph: String) {
     CONNECTORS("CONNECTORS", "⊹"),
     MODELS("MODELS", "▢"),
     ABOUT("ABOUT", "?"),
+    VERIFY("VERIFY BUILD", "✓"),
 }
 
 @Composable
@@ -185,6 +186,7 @@ fun MainShell(
                         Dest.MODELS -> ModelsScreen(catalogModels, modelRowState,
                             onDownloadModel, onCancelModel, onActivateModel, onDeleteModel)
                         Dest.ABOUT -> AboutScreen()
+                        Dest.VERIFY -> VerifyScreen()
                     }
                 }
 
@@ -345,7 +347,7 @@ private fun DrawerPanel(
             HorizontalDivider(color = GhostBorder)
             Spacer(Modifier.height(16.dp))
 
-            listOf(Dest.SETTINGS, Dest.CONNECTORS, Dest.MODELS, Dest.GLOSSARY, Dest.ABOUT).forEach {
+            listOf(Dest.SETTINGS, Dest.CONNECTORS, Dest.MODELS, Dest.GLOSSARY, Dest.ABOUT, Dest.VERIFY).forEach {
                 DrawerRow(it, it == current) { onSelect(it) }
             }
             DrawerRowRaw(glyph = "⏻", label = "LOCK", selected = false, onClick = onLock)

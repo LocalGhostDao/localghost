@@ -168,6 +168,7 @@ private fun EmptyState(modifier: Modifier) {
 }
 
 @Composable
+@Composable
 private fun MessageBubble(msg: Message) {
     val isUser = msg.role == Message.Role.USER
     var memOpen by remember { mutableStateOf(false) }
