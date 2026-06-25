@@ -61,7 +61,7 @@ class ModelDownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWor
                     }
                 }
             }
-            if (sha != null && !verify(part, sha)) { part.delete(); return Result.failure() }
+            if (sha != null && !ModelVerifier.matches(part.inputStream(), sha)) { part.delete(); return Result.failure() }
             if (!part.renameTo(out)) return Result.failure()
             if (ModelStore.activeId(applicationContext) == null) ModelStore.setActive(applicationContext, id)
             Result.success()
@@ -85,14 +85,8 @@ class ModelDownloadWorker(ctx: Context, params: WorkerParameters) : CoroutineWor
         else ForegroundInfo(NOTIF_ID, notif)
     }
 
-    private fun verify(file: java.io.File, sha256: String): Boolean {
-        val md = java.security.MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { ins ->
-            val buf = ByteArray(1 shl 16)
-            while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
-        }
-        return md.digest().joinToString("") { "%02x".format(it) }.equals(sha256, ignoreCase = true)
-    }
+    private fun verify(file: java.io.File, sha256: String): Boolean =
+        ModelVerifier.matches(file.inputStream(), sha256)
 
     companion object {
         const val KEY_ID = "id"; const val KEY_NAME = "name"; const val KEY_SIZE = "size"; const val KEY_SHA = "sha"

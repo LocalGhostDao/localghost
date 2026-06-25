@@ -120,7 +120,7 @@ private fun Keypad(
                     row.forEach { ch -> DigitKey(ch.toString(), enabled, keyW) { onDigit(ch) } }
                 }
             }
-            // bottom row: CLEAR (left) · 0 (center) · DEL (right) — symmetric, small labels
+            // bottom row: CLEAR (left) · 0 (center) · DEL (right), symmetric, small labels
             Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                 ActionKey("CLEAR", enabled, keyW, onClear)
                 DigitKey("0", enabled, keyW) { onDigit('0') }

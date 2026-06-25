@@ -14,7 +14,7 @@ import com.localghost.app.ui.theme.*
 
 /**
  * A destructive-action gate. The user must type [requireWord] exactly to enable proceed.
- * No "are you sure?" hand-holding — a deliberate act, in the brand's no-excuses register.
+ * No "are you sure?" hand-holding, a deliberate act, in the brand's no-excuses register.
  */
 @Composable
 fun ConfirmDialog(

@@ -33,8 +33,8 @@ fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         toggleRow(
             label = "sync over mobile data",
-            sub = if (allowMobileSync) "on — uses Wi-Fi and mobile (4G/5G)"
-                  else "off — Wi-Fi only (recommended)",
+            sub = if (allowMobileSync) "on, uses Wi-Fi and mobile (4G/5G)"
+                  else "off, Wi-Fi only (recommended)",
             checked = allowMobileSync, onChange = onToggleMobileSync,
         )
 
@@ -43,8 +43,8 @@ fun SettingsScreen(
         Spacer(Modifier.height(8.dp))
         toggleRow(
             label = "daemon notifications",
-            sub = if (notificationsMuted) "muted — daemons stay silent"
-                  else "active — daemons can notify you",
+            sub = if (notificationsMuted) "muted, daemons stay silent"
+                  else "active, daemons can notify you",
             checked = !notificationsMuted, onChange = { on -> onToggleMute(!on) },
         )
 
@@ -65,7 +65,7 @@ fun SettingsScreen(
         GhostButton("CHANGE CODE", onChangeCode, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(4.dp))
         Text("Changing the code re-keys the box. The old key is destroyed. The data goes " +
-             "with it. There is no recovery — that is the design.",
+             "with it. There is no recovery. That is the design.",
              color = Warning, style = MaterialTheme.typography.labelMedium)
 
         Spacer(Modifier.height(20.dp))

@@ -39,7 +39,7 @@ fun VerifyScreen() {
 
         SectionLabel("VERIFY THIS BUILD")
         Spacer(Modifier.height(8.dp))
-        Text("This app is open source. You don't have to trust us — you can check that the copy " +
+        Text("This app is open source. You don't have to trust us. You can check that the copy " +
              "on your phone was built from this exact source, by us, with nothing changed. " +
              "Everything you need is below; follow the steps on your PC.",
              color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
@@ -52,8 +52,8 @@ fun VerifyScreen() {
         Field(ctx, "version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         Field(ctx, "source commit", commit, mono = true)
         Field(ctx, "working tree at build",
-            if (BuildConfig.GIT_TREE_CLEAN) "clean — matches the commit exactly"
-            else "DIRTY — had uncommitted changes; does NOT match the commit",
+            if (BuildConfig.GIT_TREE_CLEAN) "clean, matches the commit exactly"
+            else "DIRTY, had uncommitted changes, does NOT match the commit",
             warn = !BuildConfig.GIT_TREE_CLEAN)
         Field(ctx, "source manifest root", BuildConfig.MANIFEST_ROOT.ifEmpty { "(not stamped)" }, mono = true)
         Field(ctx, "signing cert SHA-256", signingFp, mono = true)
@@ -64,6 +64,8 @@ fun VerifyScreen() {
         LinkButton("OPEN SIGNED SOURCE MANIFEST", manifestUrl, ctx)
         Spacer(Modifier.height(8.dp))
         LinkButton("OPEN THIS RELEASE", releaseUrl, ctx)
+        Spacer(Modifier.height(8.dp))
+        LinkButton("OUR PGP PUBLIC KEY", "https://www.localghost.ai/.well-known/pgp-key.asc", ctx)
 
         Spacer(Modifier.height(24.dp))
         SectionLabel("VERIFY ON YOUR PC")
@@ -100,19 +102,19 @@ fun VerifyScreen() {
                        "equal \"signing cert SHA-256\" above and the one in the release notes.")
         Cmd(ctx, "apksigner verify --print-certs phone.apk")
 
-        StepText("6", "Confirm our GPG identity vouches for this exact binary — the same key " +
+        StepText("6", "Confirm our GPG identity vouches for this exact binary, the same key " +
                        "(info@localghost.ai) that signs our website and source. Download the " +
                        ".asc from the release next to the APK.")
         Cmd(ctx, "gpg --verify app-release.apk.asc app-release.apk")
 
         Spacer(Modifier.height(16.dp))
         Text("If steps 2–5 all match, the app you are running is exactly this source, compiled " +
-             "and signed by us, with no changes. That is the whole claim — and you just checked " +
+             "and signed by us, with no changes. That is the whole claim, and you just checked " +
              "it yourself.",
              color = GhostText, style = MaterialTheme.typography.bodyMedium)
 
         Spacer(Modifier.height(16.dp))
-        Text("The only cloud is you. Trust is not asked for — it is checked.",
+        Text("The only cloud is you. Trust is not asked for. It is checked.",
             color = TerminalDim, style = MaterialTheme.typography.labelMedium,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }

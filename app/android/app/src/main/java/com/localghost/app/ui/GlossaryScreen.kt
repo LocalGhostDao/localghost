@@ -34,7 +34,7 @@ private val GLOSSARY = listOf(
             "Settings, codes, and persona state are box-owned and persona-scoped. The phone " +
             "reads them from ghost.secd and writes changes back; it caches only for offline " +
             "display. Every enrolled device therefore sees the same state.",
-            "Your settings aren't stored on the phone — they live on the box. So all your " +
+            "Your settings aren't stored on the phone. They live on the box, so all your " +
             "devices agree, and a new phone just picks up where you left off."),
         Term("On-phone model (offline)",
             "A small model your box serves to the phone, run locally via llama.cpp. Used only when the box is " +
@@ -43,12 +43,12 @@ private val GLOSSARY = listOf(
             "box's full-context RAG stays primary.",
             "Your box can hand the phone a small AI to keep on it. If the box goes offline, the phone " +
             "uses that for general questions. " +
-            "It can't see your life — that stays on the box — so it's a backup, not the real " +
+            "It can't see your life (that stays on the box), so it's a backup, not the real " +
             "thing. When the box is back, it takes over again."),
         Term("Why split it",
             "Privacy through architecture, not policy. The phone can be seized, lost, or " +
             "compromised; it holds nothing of value. The box is yours, in your home, behind " +
-            "your own keys. Nobody — including us — is in the loop.",
+            "your own keys. Nobody (including us) is in the loop.",
             "Phones get lost and stolen. So nothing important is kept on the phone. Everything " +
             "lives on the box at home, where only you can reach it. No company can see it, " +
             "because no company is involved."),
@@ -80,12 +80,12 @@ private val GLOSSARY = listOf(
             "Content-addressed dedup. Each ingested item is hashed; a hash already present is " +
             "linked, not re-extracted. The same photo from two devices is one memory, " +
             "attributed to both.",
-            "If two of your phones have the same photo, the box keeps it once, not twice — but " +
+            "If two of your phones have the same photo, the box keeps it once, not twice, but " +
             "remembers it came from both."),
     )),
     Section("DAEMONS", listOf(
         Term("Daemon",
-            "A background process on the box. Not an agent, not an assistant — a daemon serves " +
+            "A background process on the box. A daemon does one job and stays out of the way. It is " +
             "without surveillance. Each has one job and runs continuously.",
             "A small program on the box that runs on its own and does one job, quietly, all the " +
             "time. Like a helper that never sleeps and never reports to anyone."),
@@ -97,7 +97,7 @@ private val GLOSSARY = listOf(
             "Captures and transcribes voice notes.",
             "Records and writes out your voice notes."),
         Term("ghost.cued",
-            "Surfaces reflections — patterns worth your attention drawn from the index.",
+            "Surfaces reflections (patterns worth your attention drawn from the index).",
             "Notices patterns in your life and points them out when useful."),
         Term("ghost.shadowd",
             "Scans messages for manipulation patterns and flags them.",
@@ -122,7 +122,7 @@ private val GLOSSARY = listOf(
             "A two-way handshake so the phone and box each prove who they are before talking. " +
             "Stops anyone pretending to be either one."),
         Term("Code / PIN",
-            "Not authentication — the certificate is. The code selects which persona the box " +
+            "The code is not authentication (the certificate is). It selects which persona the box " +
             "mounts. It derives a key; the box tries to open a volume with it. Right key opens " +
             "the real persona; a decoy key opens a decoy.",
             "Your code doesn't unlock the app so much as choose which set of data the box opens. " +
@@ -131,17 +131,17 @@ private val GLOSSARY = listOf(
             "Each code carries a behaviour: MOUNT REAL opens the persona it belongs to, MOUNT " +
             "DECOY opens a fallback persona, WIPE is a GLOBAL panic erase that destroys the " +
             "master key-encrypting key so every persona's volume becomes noise at once, from " +
-            "any persona. \"Real\" is relative to the persona you are in — there is no absolute flag.",
+            "any persona. \"Real\" is relative to the persona you are in. There is no absolute flag.",
             "Each code does something: open your space, open a fake space, or wipe everything. " +
             "What counts as \"yours\" depends on which code you used. Decoy and wipe codes can be " +
             "changed but never deleted. A wipe code is global: entered from any persona it " +
             "erases everything, every persona at once."),
         Term("Codes are persona-scoped",
             "The code list you can see and manage belongs only to the mounted persona. The box " +
-            "cannot enumerate another persona's codes while this one is open — it lacks the " +
+            "cannot enumerate another persona's codes while this one is open. It lacks the " +
             "keys. No view aggregates across personas.",
             "You can only see the codes for the space you're currently in. The box genuinely " +
-            "can't show codes from another space — and nobody can prove other spaces exist."),
+            "can't show codes from another space, and nobody can prove other spaces exist."),
         Term("Persona / decoy",
             "Separate encrypted volumes on the box. A duress or decoy code mounts a plausible " +
             "alternative while your real data stays sealed. The number of personas is " +
@@ -152,11 +152,11 @@ private val GLOSSARY = listOf(
             "Wiping by destroying the key, not the bytes. Without the wrapping key the data is " +
             "noise. Instant, irreversible, complete.",
             "To erase, the box throws away the key. The data is still there but unreadable " +
-            "forever — like shredding the only translation of a locked book."),
+            "forever (like shredding the only translation of a locked book)."),
         Term("Change code = wipe",
             "Re-keying derives the persona key from a new code. The old wrapping key is " +
             "destroyed; the old data cannot be carried forward. Sovereignty means the data is " +
-            "bound to the key. There is no recovery — that is the design.",
+            "bound to the key. There is no recovery. That is the design.",
             "Changing your code makes a new key and destroys the old one. The old data goes " +
             "with it. This is on purpose: it means your code truly controls your data."),
     )),
@@ -172,7 +172,7 @@ fun GlossaryScreen() {
             Spacer(Modifier.height(12.dp))
             SectionLabel("GLOSSARY")
             Spacer(Modifier.height(8.dp))
-            Text("How everything works, and what every word means. Two readings — pick yours.",
+            Text("How everything works, and what every word means. Two readings, pick yours.",
                 color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(12.dp))
             Row {

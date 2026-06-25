@@ -1,5 +1,7 @@
 import java.util.Properties
-import java.io.ByteArrayOutputStream
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 plugins {
     alias(libs.plugins.android.application)
@@ -7,22 +9,20 @@ plugins {
 }
 
 // --- build provenance: read git + source manifest at configure time ---
+// Uses providers.exec (configuration-cache safe); falls back to "" if git isn't available.
 fun git(vararg args: String): String = try {
-    val out = ByteArrayOutputStream()
-    exec {
+    providers.exec {
         commandLine("git", *args)
-        standardOutput = out
         isIgnoreExitValue = true
-    }
-    out.toString().trim()
+    }.standardOutput.asText.get().trim()
 } catch (e: Exception) { "" }
 
 val gitCommit = git("rev-parse", "HEAD").ifEmpty { "unknown" }
 val gitCommitShort = git("rev-parse", "--short", "HEAD").ifEmpty { "unknown" }
 val gitTreeClean = git("status", "--porcelain").isEmpty()
-val buildTimeUtc: String = java.time.format.DateTimeFormatter.ISO_INSTANT
-    .withZone(java.time.ZoneOffset.UTC)
-    .format(java.time.Instant.now())
+val buildTimeUtc: String = DateTimeFormatter.ISO_INSTANT
+    .withZone(ZoneOffset.UTC)
+    .format(Instant.now())
 val manifestRoot = rootProject.file("MANIFEST.root")
     .let { if (it.exists()) it.readText().trim() else "" }
 
@@ -34,9 +34,7 @@ android {
 
     namespace = "com.localghost.app"
     compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
+        version = release(37)
     }
     defaultConfig {
         applicationId = "com.localghost.app"
@@ -95,7 +93,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation("androidx.work:work-runtime-ktx:2.10.1")
+    implementation(libs.androidx.work.runtime.ktx)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

@@ -20,7 +20,7 @@ fun CrashScreen(report: String, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     GhostScaffold { pad ->
         Column(Modifier.fillMaxSize().padding(pad).padding(24.dp)) {
-            SectionLabel("FATAL — LAST RUN")
+            SectionLabel("FATAL, LAST RUN")
             Spacer(Modifier.height(12.dp))
             Text("The previous session crashed. Trace below.", color = Warning,
                 style = MaterialTheme.typography.bodyMedium)

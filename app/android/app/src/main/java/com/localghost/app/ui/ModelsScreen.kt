@@ -44,7 +44,7 @@ fun ModelsScreen(
             Spacer(Modifier.height(8.dp))
             Text("Models your box offers for this phone to run, for when the box is " +
                  "unreachable. You download them from the box into this app's storage; delete " +
-                 "removes the local copy only — the box keeps it, so you can pull it again. " +
+                 "removes the local copy only. The box keeps it, so you can pull it again. " +
                  "They see none of your life-index; generic answers only.",
                  color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))

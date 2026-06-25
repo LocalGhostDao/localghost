@@ -1,4 +1,4 @@
-# Verifiability — Gradle wiring (DONE)
+# Verifiability, Gradle wiring (DONE)
 
 The verify wiring is already merged into `app/build.gradle.kts`. It:
 - reads git at configure time (gitCommit, gitCommitShort, gitTreeClean, buildTimeUtc),
@@ -8,7 +8,7 @@ The verify wiring is already merged into `app/build.gradle.kts`. It:
 - sets dependenciesInfo includeInApk/includeInBundle = false (reproducibility hygiene).
 
 NAS_BASE_URL / DEVICE_TOKEN stay as-is (dev convenience from local.properties). The PUBLIC
-release leaves them EMPTY in local.properties — the app reads box URL + token from its own
+release leaves them EMPTY in local.properties, the app reads box URL + token from its own
 encrypted storage, written during setup. Empty at runtime = unconfigured = show setup.
 
 Set GITHUB_REPO to the real public repo path (currently localghost-ai/localghost-app).

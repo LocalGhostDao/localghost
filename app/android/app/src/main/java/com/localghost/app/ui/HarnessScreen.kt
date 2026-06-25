@@ -23,7 +23,7 @@ fun HarnessScreen(daemons: Loadable<List<DaemonStatus>>) {
             SectionLabel("BOX STATUS")
             Spacer(Modifier.height(8.dp))
             Text("Processes running on your box. They read what you sync, build the local " +
-                 "index, and queue notifications. They run on the box only — this app polls " +
+                 "index, and queue notifications. They run on the box only. This app polls " +
                  "them, it does not run them.",
                  color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))

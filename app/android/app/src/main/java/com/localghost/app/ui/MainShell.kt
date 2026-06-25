@@ -122,7 +122,7 @@ fun MainShell(
     fun close() = scope.launch { drawerState.close() }
     fun open() = scope.launch { drawerState.open() }
 
-    // On rotation / size change, the drawer can re-settle open — force it closed.
+    // On rotation / size change, the drawer can re-settle open, force it closed.
     val orientation = LocalConfiguration.current.orientation
     LaunchedEffect(orientation) { drawerState.close() }
 
@@ -296,7 +296,7 @@ private fun DrawerPanel(
                 Text("LOCALGHOST", color = TerminalGreen, style = MaterialTheme.typography.titleLarge)
             }
             Spacer(Modifier.height(8.dp))
-            // connection status — at the TOP, under the wordmark
+            // connection status, at the TOP, under the wordmark
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (boxConnected) "●" else "○",
                     color = if (boxConnected) TerminalGreen else GhostTextDim,

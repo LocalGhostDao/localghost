@@ -36,12 +36,12 @@ fun PinManagementScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionLabel("CODES — THIS PERSONA")
+            SectionLabel("CODES, THIS PERSONA")
             Spacer(Modifier.height(8.dp))
             Text("These are the codes for the persona you are in. The box cannot show codes " +
-                 "from any other persona — it does not hold their keys while this one is open. " +
+                 "from any other persona. It does not hold their keys while this one is open. " +
                  "What you see is all there is, here. Decoy and wipe codes are permanent: you " +
-                 "can change them, never remove them. The wipe code is global — it erases " +
+                 "can change them, never remove them. The wipe code is global, it erases " +
                  "every persona at once, from wherever you enter it.",
                  color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))
@@ -87,14 +87,14 @@ private fun behaviourColor(b: PinBehaviour) = when (b) {
 }
 
 private fun behaviourLabel(b: PinBehaviour) = when (b) {
-    PinBehaviour.MOUNT_REAL -> "MOUNT REAL — opens this persona"
-    PinBehaviour.MOUNT_DECOY -> "MOUNT DECOY — opens a fallback"
-    PinBehaviour.WIPE -> "WIPE — erases EVERYTHING, all personas"
+    PinBehaviour.MOUNT_REAL -> "MOUNT REAL, opens this persona"
+    PinBehaviour.MOUNT_DECOY -> "MOUNT DECOY, opens a fallback"
+    PinBehaviour.WIPE -> "WIPE (erases EVERYTHING, all personas)"
 }
 
 @Composable
 private fun PinRow(p: PinEntry, onRemove: (String) -> Unit) {
-    // WIPE and decoy pins are permanent escape hatches — they can be re-keyed but never
+    // WIPE and decoy pins are permanent escape hatches, they can be re-keyed but never
     // removed, so a persona always keeps its panic options. Only plain MOUNT_REAL pins
     // (and never the last one) are removable.
     val removable = p.behaviour == PinBehaviour.MOUNT_REAL
@@ -111,7 +111,7 @@ private fun PinRow(p: PinEntry, onRemove: (String) -> Unit) {
                 style = MaterialTheme.typography.labelMedium)
             if (!removable) {
                 Spacer(Modifier.height(2.dp))
-                Text("permanent — change only", color = TerminalDim,
+                Text("permanent, change only", color = TerminalDim,
                     style = MaterialTheme.typography.labelMedium)
             }
         }
@@ -166,11 +166,11 @@ private fun AddPinDialog(
             Spacer(Modifier.height(14.dp))
             Text("BEHAVIOUR", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
-            BehaviourOption("MOUNT REAL — opens this persona", behaviour == PinBehaviour.MOUNT_REAL,
+            BehaviourOption("MOUNT REAL, opens this persona", behaviour == PinBehaviour.MOUNT_REAL,
                 TerminalGreen) { behaviour = PinBehaviour.MOUNT_REAL }
-            BehaviourOption("MOUNT DECOY — opens a fallback", behaviour == PinBehaviour.MOUNT_DECOY,
+            BehaviourOption("MOUNT DECOY, opens a fallback", behaviour == PinBehaviour.MOUNT_DECOY,
                 GhostText) { behaviour = PinBehaviour.MOUNT_DECOY }
-            BehaviourOption("WIPE — erases EVERYTHING, all personas", behaviour == PinBehaviour.WIPE,
+            BehaviourOption("WIPE (erases EVERYTHING, all personas)", behaviour == PinBehaviour.WIPE,
                 Warning) { behaviour = PinBehaviour.WIPE }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {

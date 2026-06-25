@@ -47,6 +47,7 @@ import com.localghost.app.notify.NotifyState
 import com.localghost.app.notify.Notifications
 import com.localghost.app.notify.PollWorker
 import com.localghost.app.security.AppLock
+import com.localghost.app.security.AuthGate
 import com.localghost.app.security.DeviceIdentity
 import com.localghost.app.settings.AppSettings
 import com.localghost.app.sync.CommandResult
@@ -95,7 +96,7 @@ class MainActivity : ComponentActivity() {
     private var chatJob: Job? = null
     private var pendingAttachments by mutableStateOf<List<Attachment>>(emptyList())
     private var permTick by mutableIntStateOf(0)   // bump to recompute PermState on resume
-    private var expectingResult = false   // true while an in-app picker/camera is foregrounded
+    private val authGate = AuthGate()     // testable lock-decision logic (see AuthGateTest)
     private var chatCaps by mutableStateOf(ChatCapabilities())
     private var forceLocalMode by mutableStateOf(false)   // manual override
     private var localModeActive by mutableStateOf(false)  // box-down or forced, shown in chat
@@ -248,8 +249,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        if (expectingResult) return            // picker/camera in foreground — keep session
-        if (screen !is Screen.Crash) {
+        // authGate decides: lock + tear down unless we launched a picker, or a crash is showing.
+        val mustTearDown = authGate.onStop(crashShowing = screen is Screen.Crash)
+        if (mustTearDown) {
             screen = Screen.Gate; busy = false; error = null; autoSyncTried = false
             tearDownCache()
         }
@@ -363,7 +365,7 @@ class MainActivity : ComponentActivity() {
 
     /** Launch something that backgrounds us briefly without triggering the lock. */
     private fun <I> launchForResult(launcher: androidx.activity.result.ActivityResultLauncher<I>, input: I) {
-        expectingResult = true
+        authGate.expectResult()
         launcher.launch(input)
     }
 
@@ -672,7 +674,7 @@ class MainActivity : ComponentActivity() {
     // --- grants ---
     private fun granted(p: String) =
         ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
-    override fun onResume() { super.onResume(); permTick++; expectingResult = false }
+    override fun onResume() { super.onResume(); permTick++; authGate.onResume() }
 
     private fun hasImages() = granted(Manifest.permission.READ_MEDIA_IMAGES)
     private fun hasVideo() = granted(Manifest.permission.READ_MEDIA_VIDEO)

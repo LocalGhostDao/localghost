@@ -1,6 +1,6 @@
 # Verifying a LocalGhost build
 
-LocalGhost is open source. You do not have to trust us — you can check. This proves the APK on
+LocalGhost is open source. You do not have to trust us, you can check. This proves the APK on
 your phone was built from a specific, unmodified commit, by us, and signed with our key.
 
 The app's **VERIFY BUILD** screen (menu → VERIFY BUILD) shows everything below and lets you copy
@@ -9,16 +9,17 @@ each value and command. You can follow it entirely from the app + your PC.
 ## The provenance chain
 Three independent links. Any one is useful; together they are conclusive.
 
-Signed by **info@localghost.ai** (same key as the website deploy manifest).
+Signed by **info@localghost.ai** (same key as the website deploy manifest). Public key:
+https://www.localghost.ai/.well-known/pgp-key.asc
 
-1. **Source integrity** — `ghost/source-manifest.txt` lists every source file and its SHA-256.
+1. **Source integrity**, `ghost/source-manifest.txt` lists every source file and its SHA-256.
    `MANIFEST.root` is the SHA-256 of that manifest (one value fixing the whole tree).
    `ghost/source-manifest.txt.asc` is our detached GPG signature over the manifest. → proves "these exact
    files, signed by us."
-2. **Source → binary** — the build is stamped with the git commit and is reproducible, so
+2. **Source → binary**, the build is stamped with the git commit and is reproducible, so
    rebuilding yields the same APK. → proves "this source produced this binary."
-3. **Binary authenticity** — the APK's v2/v3 signature (keystore, verified by `apksigner`) plus
-   a detached GPG signature over the APK by **info@localghost.ai** — the same key that signs the
+3. **Binary authenticity**, the APK's v2/v3 signature (keystore, verified by `apksigner`) plus
+   a detached GPG signature over the APK by **info@localghost.ai**, the same key that signs the
    website and the source manifest. → proves "we, one identity, signed this exact binary."
 
 ## What the app shows
@@ -39,12 +40,17 @@ git status --porcelain           # must print nothing (clean tree)
 ```
 
 ### 2. Verify the source matches our signed manifest
+Import our public key once (the same key used on the website):
+```
+curl https://www.localghost.ai/.well-known/pgp-key.asc | gpg --import
+```
+Then:
 ```
 gpg --verify ghost/source-manifest.txt.asc ghost/source-manifest.txt    # signature must be valid + our key
 tools/verify_source.sh                            # re-hashes every file
 ```
 The "root hash" printed must equal **source manifest root** in the app. A valid signature plus
-matching hashes means the source is exactly what we signed — not one byte changed.
+matching hashes means the source is exactly what we signed, not one byte changed.
 
 ### 3. Rebuild and compare the APK
 ```

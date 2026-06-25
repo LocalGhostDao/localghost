@@ -15,7 +15,7 @@ import com.localghost.app.net.ChatCapabilities
 import com.localghost.app.ui.theme.*
 
 /**
- * The "add to chat" sheet — sources to ingest, capabilities for the turn, and a route to
+ * The "add to chat" sheet, sources to ingest, capabilities for the turn, and a route to
  * box-side connectors. Everything here either feeds the box index or scopes what the chat
  * may do. The one capability that leaves the box (reach) is off by default and flagged.
  */
@@ -54,11 +54,11 @@ fun AddToChatSheet(
             SectionLabel("FOR THIS TURN")
             Spacer(Modifier.height(8.dp))
 
-            // reach beyond the box — the only boundary-crossing capability, off by default
+            // reach beyond the box, the only boundary-crossing capability, off by default
             ToggleRow(
                 label = "reach beyond the box",
                 sub = if (caps.reachBeyondBox) "this turn may fetch from the open web"
-                      else "off — answers stay on the box",
+                      else "off, answers stay on the box",
                 checked = caps.reachBeyondBox,
                 emphasis = caps.reachBeyondBox,
                 onChange = { onCaps(caps.copy(reachBeyondBox = it)) },
@@ -69,8 +69,8 @@ fun AddToChatSheet(
                 label = "use on-phone model",
                 sub = when {
                     !localModelPresent -> "no local model installed"
-                    forceLocal -> "forced — answers run on this phone, no life-index"
-                    else -> "off — uses the box (falls back automatically if unreachable)"
+                    forceLocal -> "forced, answers run on this phone, no life-index"
+                    else -> "off, uses the box (falls back automatically if unreachable)"
                 },
                 checked = forceLocal,
                 emphasis = forceLocal,

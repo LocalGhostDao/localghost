@@ -51,7 +51,7 @@ fun ChatScreen(
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         if (localModeActive) {
-            Text("◇ no box — on-phone model, limited context",
+            Text("◇ no box, on-phone model, limited context",
                 color = Warning, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp))
         }
@@ -92,7 +92,7 @@ fun ChatScreen(
             }
         }
 
-        // composer: one rounded container — pill on top, then + / field / send
+        // composer: one rounded container, pill on top, then + / field / send
         val canSend = input.isNotBlank() || pendingAttachments.isNotEmpty()
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
@@ -168,12 +168,11 @@ private fun EmptyState(modifier: Modifier) {
 }
 
 @Composable
-@Composable
 private fun MessageBubble(msg: Message) {
     val isUser = msg.role == Message.Role.USER
     var memOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
-        // injected memories — collapsed behind a green + toggle; white when expanded
+        // injected memories, collapsed behind a green + toggle; white when expanded
         if (msg.memoriesUsed.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.clickable { memOpen = !memOpen }.padding(bottom = 4.dp)) {
@@ -193,7 +192,7 @@ private fun MessageBubble(msg: Message) {
             }
         }
         if (msg.attachments.isNotEmpty()) {
-            Text("⊹ attached: ${msg.attachments.joinToString(" · ") { it.name }}", color = TerminalDim,
+            Text("⊹ attached  ${msg.attachments.joinToString(" · ") { it.name }}", color = TerminalDim,
                 style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 4.dp))
         }
         Box(Modifier

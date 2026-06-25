@@ -29,8 +29,11 @@ export PATH="$ANDROID_HOME/cmdline-tools/$CMDLINE_VER/bin:$ANDROID_HOME/platform
 
 echo "> Accepting licenses + installing SDK packages this project needs..."
 yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null
+# Note: API 37 installs as "platforms;android-37.0" (not android-37). compileSdk = release(37)
+# resolves against it. If a build ever fails "looking for android-37", that .0 naming is why.
 sdkmanager --sdk_root="$ANDROID_HOME" \
     "platform-tools" \
+    "platforms;android-37.0" \
     "platforms;android-36" \
     "build-tools;36.0.0"
 

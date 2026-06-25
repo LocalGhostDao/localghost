@@ -29,7 +29,7 @@ fun ConnectorsScreen(
             SectionLabel("CONNECTORS")
             Spacer(Modifier.height(8.dp))
             Text("External sources the box pulls into your index. The box holds the " +
-                 "credentials and does the syncing — this phone only starts the connection " +
+                 "credentials and does the syncing. This phone only starts the connection " +
                  "and never sees the tokens.",
                  color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))
@@ -64,7 +64,7 @@ private fun ConnectorRow(c: Connector, onConnect: (String) -> Unit, onDisconnect
         }
         if (c.connected) {
             Spacer(Modifier.height(4.dp))
-            Text("● connected — syncing on the box", color = TerminalDim,
+            Text("● connected, syncing on the box", color = TerminalDim,
                 style = MaterialTheme.typography.labelMedium)
         }
     }

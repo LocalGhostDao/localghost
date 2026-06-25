@@ -2,15 +2,15 @@
 
 Two paths that don't interfere. Same repo, same Gradle.
 
-## Dev loop — Windows + Android Studio (Quail)
+## Dev loop, Windows + Android Studio (Quail)
 Unchanged. Open the project, Run to your device over USB. Debug builds use the debug keystore;
 no signing pipeline, no manifest. `GIT_TREE_CLEAN` will usually show DIRTY in the VERIFY screen
-on dev builds — correct, since you're iterating on uncommitted changes. These are not releases.
+on dev builds, correct, since you're iterating on uncommitted changes. These are not releases.
 
 Your existing `local.properties` (with `sdk.dir` and any dev `NAS_BASE_URL`/`DEVICE_TOKEN`)
 stays on the Windows machine. It is gitignored and never shipped.
 
-## Release — Debian 13 (same box as the website)
+## Release, Debian 13 (same box as the website)
 Linux is the better release target: more deterministic builds, and your `info@localghost.ai`
 GPG key + `gpg --batch` workflow already live there.
 
@@ -20,10 +20,10 @@ tools/debian_setup.sh          # JDK 17 + Android cmdline-tools + platform-36 + 
 source ~/.localghost_android_env
 ```
 Requirements (installed by the script): JDK 17 (the Android Gradle Plugin requires it),
-`platforms;android-36`, `build-tools;36.0.0` — matching this project's compileSdk/buildToolsVersion.
+`platforms;android-36`, `build-tools;36.0.0`, matching this project's compileSdk 37 / targetSdk 36 / buildToolsVersion 36.0.0.
 No Android Studio, no emulator needed.
 
-You also need your release keystore on the box (the key the APK is signed with — its fingerprint
+You also need your release keystore on the box (the key the APK is signed with, its fingerprint
 is what users verify). Point the release script at it:
 ```
 export LG_KEYSTORE=/path/to/localghost-release.jks
@@ -53,7 +53,7 @@ confirm it matches the source at that commit and is signed by your key.
 
 ## Why the release APK is reproducible
 The release `local.properties` sets `NAS_BASE_URL=` and `DEVICE_TOKEN=` (empty). The app reads
-the real box URL + device token from its own encrypted storage, written during setup — so the
+the real box URL + device token from its own encrypted storage, written during setup, so the
 APK contains no machine-specific data and anyone rebuilding from the commit gets the same bytes.
 (`optimization { enable = false }` keeps R8 out of the build, which also helps determinism.)
 
