@@ -11,9 +11,12 @@ CMDLINE_VER="latest"
 # The required JDK major version is the single source of truth in ghost/build-env.txt (jdk.version).
 # Read it from there so this script, the manifest, and the release cannot drift to different JDKs.
 # Falls back to 21 (the version LocalGhost releases are built with on Trixie) if build-env is absent.
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
-BUILD_ENV="$REPO_ROOT/app/android/ghost/build-env.txt"
-[ -f "$BUILD_ENV" ] || BUILD_ENV="$REPO_ROOT/ghost/build-env.txt"
+# Anchor to the Android project root (this script lives in <project>/tools). The Android app is a
+# subdirectory of the localghost monorepo, so we use the script's own location, not git's top-level,
+# which would point at the monorepo root and make every project-relative path below wrong.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+BUILD_ENV="$PROJECT_ROOT/ghost/build-env.txt"
 JDK_MAJOR="21"
 if [ -f "$BUILD_ENV" ]; then
     v="$(grep -E '^jdk\.version' "$BUILD_ENV" 2>/dev/null | awk '{print $2}' | cut -d. -f1)"
@@ -60,24 +63,42 @@ fi
 
 export PATH="$ANDROID_HOME/cmdline-tools/$CMDLINE_VER/bin:$ANDROID_HOME/platform-tools:$PATH"
 
-echo "> Accepting licenses + installing SDK packages this project needs..."
-yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null
-# These ARE build-determining and are pinned exactly (see ghost/build-env.txt: buildTools/compileSdk).
-# Note: API 37 installs as "platforms;android-37.0" (not android-37). compileSdk = release(37)
-# resolves against it. If a build ever fails "looking for android-37", that .0 naming is why.
-sdkmanager --sdk_root="$ANDROID_HOME" \
-    "platform-tools" \
-    "platforms;android-37.0" \
-    "platforms;android-36" \
-    "build-tools;36.0.0"
-
-# Persist env for future shells.
+# Persist env for future shells NOW, before the SDK package install. Writing it early means that if a
+# later step fails, you are not stranded with no ANDROID_HOME — you can source this and finish by
+# hand. (It used to be written last, so a mid-script failure left no profile at all.)
 PROFILE="$HOME/.localghost_android_env"
 cat > "$PROFILE" <<ENV
 export JAVA_HOME="$JAVA_HOME"
 export ANDROID_HOME="$ANDROID_HOME"
 export PATH="\$ANDROID_HOME/cmdline-tools/$CMDLINE_VER/bin:\$ANDROID_HOME/platform-tools:\$ANDROID_HOME/build-tools/36.0.0:\$PATH"
 ENV
+echo "  wrote $PROFILE"
+
+echo "> Accepting licenses..."
+# sdkmanager --licenses reads 'y' for each prompt. Under 'set -o pipefail' a naive
+# 'yes | sdkmanager --licenses' makes the WHOLE script die: when sdkmanager stops reading, 'yes' gets
+# SIGPIPE and the pipeline reports failure, which set -e treats as fatal — silently, before the real
+# install runs. (That is exactly what stranded this setup.) Feed the y's without a pipe and never let
+# this step abort the script; a license decline shows up as the package install failing below, which
+# we DO surface.
+yes 2>/dev/null | sdkmanager --sdk_root="$ANDROID_HOME" --licenses >/dev/null 2>&1 || \
+    echo "  (license acceptance returned non-zero; continuing — the install below will report if anything is unaccepted)"
+
+echo "> Installing SDK packages this project needs..."
+# These ARE build-determining and are pinned exactly (see ghost/build-env.txt: buildTools/compileSdk).
+# Note: API 37 installs as "platforms;android-37.0" (not android-37). compileSdk = release(37)
+# resolves against it. If a build ever fails "looking for android-37", that .0 naming is why.
+# This one we DO want to fail loudly if it fails, so it is not silenced.
+if ! sdkmanager --sdk_root="$ANDROID_HOME" \
+    "platform-tools" \
+    "platforms;android-37.0" \
+    "platforms;android-36" \
+    "build-tools;36.0.0"; then
+    echo "  ERROR: SDK package install failed. The profile at $PROFILE is already written, so once"
+    echo "         you resolve the cause you can re-run just the sdkmanager line above by hand."
+    exit 1
+fi
+
 echo
 echo "Done. Add this to your shell rc (or 'source' it before building):"
 echo "    source $PROFILE"
@@ -87,9 +108,9 @@ echo
 # CMakeLists.txt (LLAMA_CPP_TAG + LLAMA_CPP_COMMIT). This step pre-clones at that commit so the
 # native build runs offline and the exact source is part of the deploy, verifies it, resolves the
 # full SHA for the tag if the pin still has the placeholder, and checks GitHub for a newer release.
-CMAKE="$REPO_ROOT/app/src/main/cpp/CMakeLists.txt"
+CMAKE="$PROJECT_ROOT/app/src/main/cpp/CMakeLists.txt"
 LLAMA_REPO="https://github.com/ggml-org/llama.cpp"
-LLAMA_DIR="$REPO_ROOT/.cache/llama.cpp"
+LLAMA_DIR="$PROJECT_ROOT/.cache/llama.cpp"
 LLAMA_TAG="$(grep -oE 'LLAMA_CPP_TAG[^"]*"[^"]+"' "$CMAKE" 2>/dev/null | grep -oE '"[^"]+"$' | tr -d '"')"
 LLAMA_COMMIT="$(grep -oE 'LLAMA_CPP_COMMIT[^"]*"[^"]+"' "$CMAKE" 2>/dev/null | grep -oE '"[^"]+"$' | tr -d '"')"
 
@@ -139,7 +160,7 @@ if [ -n "$LLAMA_TAG" ]; then
     # Inform about a newer release (does NOT bump).
     LATEST="$(curl -fsSL https://api.github.com/repos/ggml-org/llama.cpp/releases/latest 2>/dev/null \
         | grep -oE '"tag_name"[^,]*' | grep -oE 'b[0-9]+' | head -1)"
-    STAMP="$REPO_ROOT/.cache/llama-version-check.txt"; mkdir -p "$REPO_ROOT/.cache"
+    STAMP="$PROJECT_ROOT/.cache/llama-version-check.txt"; mkdir -p "$PROJECT_ROOT/.cache"
     if [ -n "$LATEST" ]; then
         echo "pinned_tag=$LLAMA_TAG pinned_commit=$LLAMA_COMMIT latest_tag=$LATEST checked=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STAMP"
         if [ "$LATEST" != "$LLAMA_TAG" ]; then

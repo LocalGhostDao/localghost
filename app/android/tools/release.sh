@@ -14,7 +14,14 @@
 # Reproducibility requires a fixed build clock and locale, or the APK's zip entry timestamps vary and
 # the bytes never match. We pin SOURCE_DATE_EPOCH (from the release commit), TZ, and LC_ALL up front.
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+# Anchor to the Android project root (this script lives in <project>/tools). We do NOT use the git
+# top-level, because the Android app is a subdirectory of the localghost monorepo and the manifest,
+# build-env, and APK paths are all relative to the app, not the monorepo root. git commands still
+# work from here (git operates from any subdir); git ls-files run from here lists only this app's
+# files, app-relative, which is exactly the manifest scope we want.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 : "${ANDROID_HOME:?source ~/.localghost_android_env first}"
 KEYSTORE="${LG_KEYSTORE:?set LG_KEYSTORE to your release keystore path}"

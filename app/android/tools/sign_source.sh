@@ -15,7 +15,14 @@
 # wall clock. The detached .asc signature is allowed to vary (GPG embeds its own signing time); we
 # hash the manifest, never the signature, so that does not affect reproducibility.
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+# Anchor to the Android project root (this script lives in <project>/tools). We do NOT use the git
+# top-level, because the Android app is a subdirectory of the localghost monorepo and the manifest,
+# build-env, and APK paths are all relative to the app, not the monorepo root. git commands still
+# work from here (git operates from any subdir); git ls-files run from here lists only this app's
+# files, app-relative, which is exactly the manifest scope we want.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 GPG_USER="${LG_GPG_USER:-info@localghost.ai}"
 BUILD_ID="$(git rev-parse HEAD)"

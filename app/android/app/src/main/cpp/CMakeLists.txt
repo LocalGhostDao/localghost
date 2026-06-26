@@ -11,7 +11,7 @@ project("localghost_llm")
 # LLAMA_CPP_TAG is the human-readable build number; LLAMA_CPP_COMMIT is what's actually fetched
 # and verified. Keep both pointing at the same release when you bump.
 set(LLAMA_CPP_TAG    "b9788" CACHE STRING "llama.cpp release tag (for humans)")
-set(LLAMA_CPP_COMMIT "e9fb3b3REPLACE_WITH_FULL_40_CHAR_SHA" CACHE STRING "llama.cpp pinned commit (verified)")
+set(LLAMA_CPP_COMMIT "e9fb3b3fc0300501179b0ce61e907be767e8c859" CACHE STRING "llama.cpp pinned commit (verified)")
 
 set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

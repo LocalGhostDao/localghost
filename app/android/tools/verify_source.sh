@@ -8,7 +8,14 @@
 # tracked source file is missing from the manifest (so nothing can be added without detection).
 # Any failure exits non-zero, so CI / automation can trust the exit code, not just the printout.
 set -euo pipefail
-cd "$(git rev-parse --show-toplevel)"
+# Anchor to the Android project root (this script lives in <project>/tools). We do NOT use the git
+# top-level, because the Android app is a subdirectory of the localghost monorepo and the manifest,
+# build-env, and APK paths are all relative to the app, not the monorepo root. git commands still
+# work from here (git operates from any subdir); git ls-files run from here lists only this app's
+# files, app-relative, which is exactly the manifest scope we want.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
 
 MANIFEST_FILE="ghost/source-manifest.txt"
 MANIFEST_SIG="ghost/source-manifest.txt.asc"

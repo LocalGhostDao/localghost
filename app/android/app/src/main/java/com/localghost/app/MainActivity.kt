@@ -39,6 +39,7 @@ import com.localghost.app.net.DaemonStatus
 import com.localghost.app.net.LifeContext
 import com.localghost.app.net.MemoryEntry
 import com.localghost.app.net.DeviceInfo
+import com.localghost.app.net.DeviceCert
 import com.localghost.app.net.PendingNotification
 import com.localghost.app.net.UnlockSnapshot
 import com.localghost.app.notify.ForegroundPoller
@@ -56,6 +57,7 @@ import com.localghost.app.sync.SyncEngine
 import com.localghost.app.sync.SyncWorker
 import com.localghost.app.ui.CrashScreen
 import com.localghost.app.ui.QrScanScreen
+import com.localghost.app.ui.SetupScreen
 import com.localghost.app.ui.Loadable
 import com.localghost.app.ui.PermState
 import com.localghost.app.net.ChatCapabilities
