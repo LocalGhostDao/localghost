@@ -110,6 +110,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		name = "device"
 	}
 	var certPEM, keyPEM string
+	var err error
 	if issuer != nil {
 		certPEM, keyPEM, err = issuer.DeviceIdentity(name)
 		if err != nil {
