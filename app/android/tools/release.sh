@@ -41,14 +41,14 @@ export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct "$COMMIT")"
 echo "  determinism: SOURCE_DATE_EPOCH=$SOURCE_DATE_EPOCH TZ=$TZ LC_ALL=$LC_ALL"
 
 # --- Preflight: fail early on missing signing material, not after a long build. -----------------
-echo "> 0/6  Preflight checks..."
+echo "> 0/7  Preflight checks..."
 [ -f "$KEYSTORE" ] || { echo "  ERROR: keystore not found at $KEYSTORE"; exit 1; }
 if ! gpg --list-secret-keys "$GPG_USER" >/dev/null 2>&1; then
     echo "  ERROR: no GPG secret key for $GPG_USER; the APK GPG-signing step would fail at the end."
     exit 1
 fi
 
-echo "> 1/6  Checking the tree is clean..."
+echo "> 1/7  Checking the tree is clean..."
 if [ -n "$(git status --porcelain)" ]; then
     echo "  ERROR: working tree is dirty. Commit everything first — releases must be clean-tree."
     git status --short
@@ -56,7 +56,7 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 echo "  commit: $COMMIT"
 
-echo "> 2/6  Writing build environment + signing the source manifest..."
+echo "> 2/7  Writing build environment + signing the source manifest..."
 ./gradlew --no-daemon --no-configuration-cache writeBuildEnv
 git add ghost/build-env.txt                 # track it first so the manifest hashes it
 tools/sign_source.sh
@@ -70,7 +70,7 @@ COMMIT="$(git rev-parse HEAD)"
 export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct "$COMMIT")"
 echo "  manifest committed, release commit: $COMMIT (epoch re-pinned: $SOURCE_DATE_EPOCH)"
 
-echo "> 3/6  Writing release local.properties (SDK path + EMPTY box values)..."
+echo "> 3/7  Writing release local.properties (SDK path + EMPTY box values)..."
 # Public release bakes in NO box URL/token — the app reads them from encrypted storage at setup.
 # local.properties is gitignored and machine-specific; writing it here does not dirty the tree.
 cat > local.properties <<PROPS
@@ -79,7 +79,36 @@ NAS_BASE_URL=
 DEVICE_TOKEN=
 PROPS
 
-echo "> 4/6  Building release APK (clean, deterministic clock)..."
+# --- Test gate: run the JVM unit tests against the committed tree BEFORE the long build. ---------
+# Runs by default; the prompt asks whether to SKIP, not whether to run, so the safe path is the
+# no-effort path. A test failure stops the release here (set -e), before the expensive build. This
+# is deliberate: a release with failing tests is never something to wave through.
+echo "> 4/7  Running unit tests against the release tree..."
+RUN_TESTS=1
+if [ "${LG_SKIP_TESTS:-0}" = "1" ]; then
+    RUN_TESTS=0
+    echo "  LG_SKIP_TESTS=1 set — skipping tests (explicit override)."
+elif [ "${CI:-0}" = "1" ] || [ ! -t 0 ]; then
+    RUN_TESTS=1
+    echo "  non-interactive — running tests."
+else
+    printf "  Run unit tests before building? [Y/skip]: "
+    read -r answer
+    case "$answer" in
+        skip|SKIP|s|S) RUN_TESTS=0; echo "  skipping tests at your request." ;;
+        *) RUN_TESTS=1 ;;
+    esac
+fi
+if [ "$RUN_TESTS" = "1" ]; then
+    # testReleaseUnitTest matches the variant this script builds. A failure exits non-zero and,
+    # under set -e, stops the whole release. That is the point.
+    ./gradlew --no-daemon --no-configuration-cache testReleaseUnitTest
+    echo "  all unit tests passed."
+else
+    echo "  WARNING: unit tests were skipped for this release build."
+fi
+
+echo "> 5/7  Building release APK (clean, deterministic clock)..."
 ./gradlew --no-daemon --no-configuration-cache clean assembleRelease
 
 UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
@@ -90,7 +119,7 @@ APK_IN="$([ -f "$UNSIGNED" ] && echo "$UNSIGNED" || echo "$SIGNED")"
 # rebuilds from the release commit with the same toolchain (see ghost/build-env.txt) and the same
 # SOURCE_DATE_EPOCH should get THIS hash. We zipalign first so the comparison is against the aligned
 # layout, which is what a reproducer also produces.
-echo "> 5/6  Zipalign, hash the reproducible artifact, then sign..."
+echo "> 6/7  Zipalign, hash the reproducible artifact, then sign..."
 ZIPALIGN="$ANDROID_HOME/build-tools/36.0.0/zipalign"
 APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
 
@@ -106,7 +135,7 @@ echo "  GPG-signing the APK with $GPG_USER (ties it to the website/source identi
 gpg --batch --yes --armor --local-user "$GPG_USER" \
     --output "$SIGNED.asc" --detach-sign "$SIGNED"
 
-echo "> 6/6  Hashes to publish in the GitHub release..."
+echo "> 7/7  Hashes to publish in the GitHub release..."
 SIGNED_SHA="$(sha256sum "$SIGNED" | awk '{print $1}')"
 # Grab the CERTIFICATE digest specifically (apksigner prints several SHA-256 lines: the cert digest
 # and the public-key digest). Match the cert line so verifiers compare the right field.
