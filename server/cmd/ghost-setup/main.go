@@ -225,6 +225,24 @@ func main() {
 
 	sys := debian.NewSystem(diskVal, *caDir, hostVal, *execDir, *stateDir, *tpmDevice, mainPIN, wipePIN)
 
+	// Wire the sole-tenant confirmation to a tty y/N. Without this the check fails closed on a
+	// shared TPM (which is what happened the first time: the box already held owner-hierarchy
+	// objects at 0x81000001/2, an existing SRK/EK). Answering y accepts that LocalGhost's GLOBAL
+	// DA lockout will also govern those objects and that a later resetup's `tpm2 clear` destroys
+	// them. Default is No: a bare Enter, EOF, or non-terminal stdin declines rather than proceeds.
+	sys.Confirm = func(prompt string) (bool, error) {
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			return false, nil // no human to ask -> decline, never auto-accept a destructive share
+		}
+		fmt.Print(prompt)
+		line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+		if err != nil {
+			return false, nil
+		}
+		a := strings.ToLower(strings.TrimSpace(line))
+		return a == "y" || a == "yes", nil
+	}
+
 	// nginx config + systemd units the plan installs.
 	ghostSecdAddr := fmt.Sprintf("127.0.0.1:%d", *port)
 	var nginxConf string
