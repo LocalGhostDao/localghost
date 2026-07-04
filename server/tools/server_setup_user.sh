@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # LocalGhost server: USER check. Run as the SERVICE USER (the one you passed to server_setup_root.sh,
-# e.g. coder). No root. Pure inspection , safe to run any time. Confirms the box is ready and that
+# e.g. a chosen service user). No root. Pure inspection , safe to run any time. Confirms the box is ready and that
 # the access root granted actually works for you.
 #
 #   tools/server_setup_user.sh

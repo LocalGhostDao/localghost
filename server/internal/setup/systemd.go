@@ -49,56 +49,43 @@ func SystemdUnits(execDir string, cfg DaemonConfig) []SystemdUnit {
 }
 
 func renderUnit(name, execDir string, cfg DaemonConfig) string {
-	isSecd := name == "ghost.secd"
-	var after, requires string
-	if !isSecd {
-		// Backing daemons start after and depend on the front door.
-		after = "ghost.secd.service"
-		requires = "ghost.secd.service"
-	} else {
-		after = "network-online.target"
-	}
-
+	// Only ghost.secd is ever rendered as a unit (the ghost.*d daemons are supervised by secd, not
+	// systemd). It waits for the network so nginx can proxy to it once it is up.
 	var b strings.Builder
 	fmt.Fprintf(&b, "[Unit]\n")
 	fmt.Fprintf(&b, "Description=LocalGhost %s\n", name)
-	fmt.Fprintf(&b, "After=%s\n", after)
-	if requires != "" {
-		fmt.Fprintf(&b, "Requires=%s\n", requires)
-	}
-	if isSecd {
-		fmt.Fprintf(&b, "Wants=network-online.target\n")
-	}
+	fmt.Fprintf(&b, "After=network-online.target\n")
+	fmt.Fprintf(&b, "Wants=network-online.target\n")
 
 	fmt.Fprintf(&b, "\n[Service]\n")
 	fmt.Fprintf(&b, "Type=notify\n")
 	// ghost.secd's flags: box identity + state + the raw disk it mounts on unlock. No enrolment env
 	// , the QR carries the device cert directly, so there is no pairing code or enroll.env. (This is
 	// the only unit now; the ghost.*d daemons are supervised by ghost.secd, not systemd.)
-	fmt.Fprintf(&b, "ExecStart=%s/%s --host %s --ca %s --state %s --disk %s --addr 127.0.0.1:%d\n",
-		execDir, name, cfg.Host, cfg.CaDir, cfg.StateDir, cfg.Disk, cfg.Port)
-	fmt.Fprintf(&b, "User=ghost\nGroup=ghost\n")
+	// secd's flags: state dir + the raw disk it mounts on unlock + listen address. No --host/--ca ,
+	// device-cert issuance moved to QR render time (ghost-qr / ghost-setup), so the daemon needs
+	// neither the host nor the CA path.
+	fmt.Fprintf(&b, "ExecStart=%s/%s --state %s --disk %s --addr 127.0.0.1:%d\n",
+		execDir, name, cfg.StateDir, cfg.Disk, cfg.Port)
+	// ghost.secd runs as ROOT. This is deliberate and unavoidable: it opens dm-crypt (cryptsetup),
+	// mounts the encrypted volume (mount needs CAP_SYS_ADMIN), starts Postgres/Redis, and performs
+	// crypto-erase. A non-privileged user with NoNewPrivileges literally cannot mount. So the security
+	// boundary is NOT "secd is sandboxed" , it is "secd is the single small audited root component
+	// behind the appears-down edge, and everything it supervises runs with less". The daemons it
+	// spawns drop privileges themselves; secd stays root because its whole job is privileged.
+	fmt.Fprintf(&b, "User=root\n")
 	fmt.Fprintf(&b, "Restart=on-failure\nRestartSec=2\n")
-	// Hardening , a compromised daemon should not be able to roam.
-	fmt.Fprintf(&b, "NoNewPrivileges=yes\n")
-	fmt.Fprintf(&b, "ProtectSystem=strict\n")
+	// Hardening that does NOT conflict with mounting + supervising: no new privileges beyond root's,
+	// no home access, a real /dev (needed for /dev/mapper, loop, the raw disk, and the TPM when
+	// present). We deliberately do NOT set ProtectSystem=strict or a DeviceAllow whitelist , the first
+	// blocks the mount syscall and /run writes, the second denies /dev/mapper which cryptsetup needs.
 	fmt.Fprintf(&b, "ProtectHome=yes\n")
-	fmt.Fprintf(&b, "PrivateTmp=yes\n")
-	// ghost.secd needs REAL device nodes (TPM, the raw disk, dm-crypt) to unseal and mount, so it
-	// cannot have a private /dev. DeviceAllow below scopes what it may touch.
 	fmt.Fprintf(&b, "PrivateDevices=no\n")
 	fmt.Fprintf(&b, "ProtectKernelTunables=yes\n")
-	fmt.Fprintf(&b, "ProtectControlGroups=yes\n")
 	fmt.Fprintf(&b, "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX\n")
-	fmt.Fprintf(&b, "MemoryDenyWriteExecute=yes\n")
 	fmt.Fprintf(&b, "LockPersonality=yes\n")
-	// State dir under /var/lib/ghost, owned by the ghost user.
+	// State dir under /var/lib/ghost. Root-owned; the mount lives at <state>/mnt/slot<N>.
 	fmt.Fprintf(&b, "StateDirectory=ghost\n")
-	// ghost.secd needs TPM + the container devices; the others do not.
-	if isSecd {
-		fmt.Fprintf(&b, "DeviceAllow=/dev/tpmrm0 rw\n")
-		fmt.Fprintf(&b, "SupplementaryGroups=tss disk\n")
-	}
 
 	fmt.Fprintf(&b, "\n[Install]\n")
 	fmt.Fprintf(&b, "WantedBy=multi-user.target\n")

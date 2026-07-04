@@ -1,7 +1,6 @@
 package pair
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
@@ -10,22 +9,6 @@ import (
 	"os"
 	"strings"
 )
-
-// NewPairingCode mints a short, high-entropy one-time code. Crockford-ish base32 without the
-// ambiguous letters, grouped for readability (e.g. "K7QF-2M9X"). The box keeps it live until it is
-// used once or it expires; that lifecycle lives in the daemon, not here.
-func NewPairingCode() (string, error) {
-	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ" // no I L O U
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	out := make([]byte, 8)
-	for i, b := range buf {
-		out[i] = alphabet[int(b)%len(alphabet)]
-	}
-	return fmt.Sprintf("%s-%s", out[:4], out[4:]), nil
-}
 
 // CertFingerprint reads a PEM cert file and returns the SHA-256 of its DER, as uppercase
 // colon-separated hex. This is the value the phone pins. It must be computed over the exact cert

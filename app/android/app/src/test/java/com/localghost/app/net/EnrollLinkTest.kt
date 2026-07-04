@@ -13,13 +13,13 @@ class EnrollLinkTest {
 
     @Test fun parsesFullLink() {
         val link = EnrollLink.parse(
-            "localghost://enroll?host=192.168.1.20&port=8443&code=ABCD-1234&fp=ab:cd:ef&name=xyntai")
+            "localghost://enroll?host=192.168.1.20&port=8443&code=ABCD-1234&fp=ab:cd:ef&name=box")
         assertNotNull(link)
         link!!
         assertEquals("192.168.1.20", link.host)
         assertEquals(8443, link.port)
         assertEquals("ABCD-1234", link.code)
-        assertEquals("xyntai", link.boxName)
+        assertEquals("box", link.boxName)
         assertEquals("https://192.168.1.20:8443", link.baseUrl())
     }
 

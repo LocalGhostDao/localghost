@@ -43,7 +43,7 @@ androidx.work (WorkManager), kotlinx-coroutines. No ExifInterface, no Firebase, 
 ## Update, navigation drawer (Claude-app style)
 - **Top bar** with a hamburger (≡) on the left + the current screen title.
 - **Left slide-in drawer** (ModalNavigationDrawer): `LOCALGHOST` wordmark, then the
-  **connection status at the TOP** (● connected to xyntai), destinations as icon+label
+  **connection status at the TOP** (● connected to your box), destinations as icon+label
   rows (Chat, Memories, Notifications, Sync), a divider, then Settings, About, Lock.
   Nothing anchored at the bottom.
 - **No bottom navigation**, the drawer is the single nav system.
@@ -84,15 +84,15 @@ DaemonStatus stubs, all become real with the box.
 ## Update, copy rewrite (plain technical, not marketing)
 Reworded every surface to be concrete and reassuring through honesty, naming the box generically ("the box", "LocalGhost")
 and where data lives, rather than vendor-speak:
-- Chat empty state: "Local model on xyntai. Runs on your box… The prompt and the index never
-  leave xyntai." Placeholder "query your index…", thinking "◇ retrieving from index…",
+- Chat empty state: "Local model on your box. Runs on your box… The prompt and the index never
+  leave your box." Placeholder "query your index…", thinking "◇ retrieving from index…",
   replies "◇ retrieved: …".
-- Memories header: "EXTRACTED ON XYNTAI", "indexed on your box · stays on xyntai".
+- Memories header: "EXTRACTED ON YOUR BOX", "indexed on your box · stays on your box".
 - Harness: "DAEMONS ON XYNTAI, Processes running on your box… this app polls them, it does
   not run them."
 - Notifications: "QUEUED BY DAEMONS, the phone polls every 15 minutes. Nothing is pushed
   through a third party."
-- Sync: "New photos and videos are copied to xyntai every 15 minutes over Wi-Fi… Originals
+- Sync: "New photos and videos are copied to your box every 15 minutes over Wi-Fi… Originals
   stay on your phone; copies live on your box. Nothing is uploaded anywhere else."
 - About: thin-client description, no model/index on the phone.
 

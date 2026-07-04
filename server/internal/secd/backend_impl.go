@@ -11,6 +11,7 @@ package secd
 
 import (
 	"context"
+	"log"
 	"fmt"
 	"path/filepath"
 
@@ -118,14 +119,24 @@ func (b *backend) StartCache(slot int) error {
 			Stop:       func() error { return nil }, // SIGTERM via killProc handles shutdown
 		})
 	}
-	// A critical daemon failing to start returns an error; the unlock stage marks Errored and the box
-	// serves with that capability erroring , it does NOT block the mount or lock the box.
-	if err := sup.Start(context.Background()); err != nil {
-		b.sup = sup // keep it so Lock can still tear down whatever DID start
-		return fmt.Errorf("supervisor: %w", err)
+	// Start the supervisor. A CRITICAL daemon failing to start must NOT abort the unlock , the box
+	// stays mounted and serves, with that capability erroring, surfaced via /v1/status. So we ALWAYS
+	// keep the supervisor handle and ALWAYS return nil here; the unlock completes regardless. The
+	// failure is observable to the authenticated owner (Status shows the dead service), never to the
+	// appears-down edge. Logging happens inside the supervisor.
+	err := sup.Start(context.Background())
+	b.sup = sup // keep it either way: Status reads it, Lock tears down whatever started
+	if err != nil {
+		b.log("unlock: supervisor start reported a critical-service failure (box stays mounted, "+
+			"capability degraded): %v", err)
 	}
-	b.sup = sup
 	return nil
+}
+
+// log is a thin helper so the backend can note degraded states without pulling in a logger field
+// everywhere. Uses the standard logger; ghost.secd runs under journald.
+func (b *backend) log(format string, a ...any) {
+	log.Printf(format, a...)
 }
 
 // Supervisor exposes the running supervisor for /v1/status (nil when cold).

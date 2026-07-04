@@ -27,7 +27,6 @@ type System interface {
 	CAExists() (bool, error)
 	CreateCA() error           // box CA
 	IssueServerCert() error    // box's own https server cert, signed by the box CA
-	IssueDeviceCert() error    // the phone's client cert, delivered via the QR
 	ServerCertFingerprint() (string, error) // pinned by the phone
 
 	// nginx edge.
@@ -105,11 +104,13 @@ func DefaultPlan(sys System, withDomain bool, dnsCheck func() error, nginxConf s
 			Name:     "device cert capability",
 			Check:    func() (bool, error) { return sys.CAExists() },
 			Describe: func() (string, error) {
-				return "issue the phone's device cert from the box CA; it is delivered by the QR " +
-					"(the QR carries the device cert + key directly, so scanning it IS enrolment , " +
-					"there is no separate pairing step or one-time code)", nil
+				return "confirm the box CA can issue device certs; the actual phone cert is minted at " +
+					"QR render time (pair.Run -> IssueDeviceCertDER) and carried in the QR, its key " +
+					"never written to disk. Nothing to do here beyond the CA existing", nil
 			},
-			Do: sys.IssueDeviceCert,
+			// No-op: the device cert is issued when the QR is rendered, not during the plan. Issuing
+			// (and disk-persisting) one here would be a dead cert whose key defeats the DER model.
+			Do: func() error { return nil },
 		},
 		{
 			Name:     "nginx installed",

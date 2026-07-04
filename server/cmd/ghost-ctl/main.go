@@ -82,9 +82,6 @@ func migrate(args []string, target string) {
 		fatal("box is not provisioned (no seal mode in seal.env); run ghost-setup first")
 	}
 
-	// Build both sealers via the same runtime selector the daemon uses. The TARGET constructor for
-	// tpm probes the device (SelectSealer refuses an unusable TPM), so a migrate-to-tpm on a box
-	// whose TPM is still wedged fails HERE, before anything is written.
 	cur, err := hw.SelectSealer(mode, *tpmDevice, store, ghostSlot)
 	if err != nil {
 		fatal("current tier: %v", err)
@@ -105,24 +102,18 @@ func migrate(args []string, target string) {
 		fatal("read pin: %v", err)
 	}
 
-	// 1. re-wrap + verify , after this BOTH wrappings are valid.
 	if err := hw.ReWrap(cur, next, pin); err != nil {
 		fatal("migrate: %v", err)
 	}
-	// 2. commit: flip the mode. From here the daemon unseals via the target tier.
 	if err := store.SetMode(target); err != nil {
 		fatal("flip seal mode (the new wrapping IS in place; re-run to retry the flip): %v", err)
 	}
-	// 3. destroy the old wrapping. Failure here is non-fatal , the box is already migrated , but it
-	// leaves the old wrapping recoverable, so report it loudly for manual cleanup.
 	if err := cur.Destroy(); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: migrated, but destroying the old %s wrapping failed: %v\n", mode, err)
 		fmt.Fprintln(os.Stderr, "the old wrapping still exists and can recover the disk key; clean it up manually")
 	}
 	if target == hw.SealModeTPM {
-		// the software salt is dead weight on a tpm box; best-effort removal
 		_ = store.DeleteSalt()
-		// the TPM tier's brute-force wall: bind the DA lockout, exactly as provision does
 		if err := hw.SetupLockout(*tpmDevice, pin); err != nil {
 			fmt.Fprintf(os.Stderr, "WARNING: migrated, but setting the TPM lockout failed: %v\n", err)
 			fmt.Fprintln(os.Stderr, "the key is TPM-sealed but without the dictionary-attack policy; re-run ghost-tpmreset guidance")
@@ -133,7 +124,6 @@ func migrate(args []string, target string) {
 
 const ghostSlot = 0 // single-account model, matches setup + the daemon
 
-// promptPIN reads a PIN without echoing (mirrors ghost-setup's).
 func promptPIN(label string) (string, error) {
 	fmt.Print(label)
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -149,9 +139,9 @@ func fatal(format string, a ...any) {
 	os.Exit(1)
 }
 
-// enroll saves the device identity carried inside the link. Mirrors the app's rule: cert/key are
-// optional at parse time but REQUIRED to enrol, so a code-only link fails here with instructions
-// rather than half-enrolling. Files are PEM (openssl-inspectable) even though the link carries DER.
+// enroll saves the device identity carried inside the link. Cert/key are optional at parse time but
+// REQUIRED to enrol, so a code-only link fails here with instructions rather than half-enrolling.
+// Files are PEM (openssl-inspectable) even though the link carries DER.
 func enroll(link pair.EnrollLink) error {
 	if len(link.DeviceCertDER) == 0 || len(link.DeviceKeyDER) == 0 {
 		return fmt.Errorf("this link carries no device certificate , regenerate the enrolment QR on the box")

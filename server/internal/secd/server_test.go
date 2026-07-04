@@ -8,13 +8,6 @@ import (
 	"testing"
 )
 
-type fakeIssuer struct{}
-
-func (fakeIssuer) DeviceIdentity(name string) (string, string, error) {
-	return "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
-		"-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----", nil
-}
-
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	s, err := New(Config{StateDir: t.TempDir()})
@@ -46,47 +39,6 @@ func TestInfoLockedBeforeUnlock(t *testing.T) {
 	json.Unmarshal(rr.Body.Bytes(), &body)
 	if body["locked"] != true {
 		t.Fatal("info should report locked before any unlock")
-	}
-}
-
-func TestEnrollRejectsBadPairingCode(t *testing.T) {
-	s := newTestServer(t)
-	s.enroll.SetPairingCode("RIGHT-CODE")
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/v1/enroll", strings.NewReader(`{"pairingCode":"WRONG","deviceName":"phone"}`))
-	s.Handler().ServeHTTP(rr, req)
-	var body enrollResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
-	if body.OK {
-		t.Fatal("a wrong pairing code must be rejected")
-	}
-}
-
-func TestEnrollAcceptsRightCodeOnce(t *testing.T) {
-	s := newTestServer(t)
-	s.enroll.SetPairingCode("RIGHT-CODE")
-	s.SetDeviceIssuer(fakeIssuer{})
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/v1/enroll", strings.NewReader(`{"pairingCode":"RIGHT-CODE","deviceName":"phone"}`))
-	s.Handler().ServeHTTP(rr, req)
-	var body enrollResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
-	if !body.OK || body.DeviceToken == "" {
-		t.Fatalf("right code should enroll and return a token: %+v", body)
-	}
-	if body.DeviceCertPem == "" || body.DeviceKeyPem == "" {
-		t.Fatal("enrol must return the issued device cert + key")
-	}
-
-	// Code is one-time: a second use fails.
-	rr2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest("POST", "/v1/enroll", strings.NewReader(`{"pairingCode":"RIGHT-CODE","deviceName":"phone2"}`))
-	s.Handler().ServeHTTP(rr2, req2)
-	var body2 enrollResponse
-	json.Unmarshal(rr2.Body.Bytes(), &body2)
-	if body2.OK {
-		t.Fatal("a spent one-time code must not enroll again")
 	}
 }
 

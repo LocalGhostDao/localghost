@@ -1,7 +1,6 @@
 package debian
 
 import (
-	"crypto/sha256"
 	"bytes"
 	"crypto/rand"
 	"fmt"
@@ -35,8 +34,8 @@ type System struct {
 	StateDir  string // /var/lib/ghost
 	TPMDevice string // e.g. /dev/tpmrm0, where the AMK is sealed
 	MainPIN   string // chosen at setup; seals the AMK and opens the container
-	SealMode  string // "tpm" (default) or "software"; which seal tier to provision
 	WipePIN   string // chosen at setup; crypto-erases everything (optional, "" to skip)
+	SealMode  string // "tpm" (default) or "software"; which seal tier to provision
 
 	// Confirm asks the operator a yes/no question during setup. It is used by the TPM sole-tenant
 	// check: if the box's TPM already holds objects LocalGhost did not create, setting the GLOBAL
@@ -122,8 +121,8 @@ func (s *System) CreatePartitions() error {
 
 // FormatContainers generates the AMK, seals it in the TPM under the main PIN, and LUKS-formats the
 // raw disk with it. This is the destructive, one-time provisioning of the encrypted store. The
-// seal step lives in sealAndFormat (seal.go), which selects the TPM or software tier at runtime
-// refusal in the simulation build (you cannot really provision encrypted storage without a TPM).
+// The seal step (sealAndFormat, in seal.go) selects the tier at RUNTIME from s.SealMode: TPM-sealed
+// AMK, or software (PIN-derived) for machines without a TPM. Not build-tagged.
 func (s *System) FormatContainers() error {
 	if !have("cryptsetup") {
 		return fmt.Errorf("cryptsetup not installed")
@@ -159,10 +158,8 @@ func (s *System) formatLUKS(amk []byte) error {
 		_ = run("cryptsetup", "close", s.mapperName())
 		return fmt.Errorf("mkfs.ext4: %w", err)
 	}
-	// Write services.conf into the fresh volume: mount it briefly, write the config (ports + generated
-	// pg/redis passwords + daemon health ports), unmount. This is the ONE place the credentials are
-	// generated and persisted , inside the encrypted volume, crypto-erased with the data. Done here
-	// because the mapper is already open from the format above.
+	// Write services.conf into the fresh volume (ports + generated pg/redis passwords + daemon health
+	// ports), the single operational config, crypto-erased with the data. Mapper is already open.
 	if err := s.writeServicesConfig(); err != nil {
 		_ = run("cryptsetup", "close", s.mapperName())
 		return fmt.Errorf("write services.conf: %w", err)
@@ -173,9 +170,8 @@ func (s *System) formatLUKS(amk []byte) error {
 	return nil
 }
 
-// writeServicesConfig mounts the freshly-formatted mapper, writes services.conf, and unmounts. The
-// config carries generated Postgres/Redis passwords, so this is the single provision-time credential
-// generation , DataStore later reads the same file to start the databases with these exact values.
+// writeServicesConfig mounts the freshly-formatted mapper, writes services.conf, unmounts. The single
+// provision-time credential generation , DataStore later reads the same file to start the databases.
 func (s *System) writeServicesConfig() error {
 	tmp, err := os.MkdirTemp("", "ghost-provision-mnt")
 	if err != nil {
@@ -255,11 +251,6 @@ func (s *System) CreateCA() error                    { return s.pki.CreateCA() }
 func (s *System) IssueServerCert() error             { return s.pki.IssueServerCert() }
 func (s *System) ServerCertFingerprint() (string, error) { return s.pki.ServerFingerprint() }
 
-// Device identity issuance is intentionally NOT on System: the QR path mints through
-// PKI.IssueDeviceCertDER (key never on disk) when pair.Run renders the enrolment QR. The old
-// provision-time "primary" identity and the DeviceIdentity adapter minted keys onto the disk,
-// which the QR-delivery model forbids.
-
 // --- nginx ---
 
 func (s *System) NginxInstalled() (bool, error) { return have("nginx"), nil }
@@ -338,12 +329,4 @@ func (s *System) HardenConsole() error {
 	// Best-effort; the operator's console policy is theirs, we just remove an obvious autologin.
 	_ = os.Remove("/etc/systemd/system/getty@tty1.service.d/autologin.conf")
 	return nil
-}
-
-// pinAuthBytes is the PIN reduced to a fixed 32 bytes, identical to hw's pinAuth (which
-// lives under //go:build tpm and is not linkable here). Both builds MUST agree on this so a container
-// keyed in one is openable by the matching unlock path. SHA-256 over the same domain-separated input.
-func pinAuthBytes(pin string) []byte {
-	h := sha256.Sum256([]byte("localghost/pin/" + pin))
-	return h[:]
 }

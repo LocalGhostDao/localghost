@@ -146,13 +146,15 @@ func TestQRRoundTrip(t *testing.T) {
 	// The real link the box emits, built through EnrollLink.String() so the test exercises exactly
 	// what ships (including the v= version field), not a hand-written approximation.
 	realLink := EnrollLink{
-		Host: "192.168.1.50", Port: 8443, Code: "ABCD-EFGH",
-		Fingerprint: "AB:12:CD:34", BoxName: "xyntai",
+		Host: "192.168.1.50", Port: 8443,
+		Fingerprint: "AB:12:CD:34", BoxName: "box",
+		DeviceCertDER: []byte("test-cert-der-stand-in-bytes"),
+		DeviceKeyDER:  []byte("test-key-der-stand-in-bytes"),
 	}.String()
 
 	payloads := []string{
 		realLink,
-		"localghost://enroll?host=192.168.1.50&port=8443&code=ABCD-EFGH&fp=AB12CD34&name=xyntai",
+		"localghost://enroll?host=192.168.1.50&port=8443&fp=AB12CD34&name=box",
 		"localghost://enroll?host=10.0.0.5&code=X",
 		"hello",
 		"a",
@@ -211,8 +213,8 @@ func TestEnrollLinkCarriesVersion(t *testing.T) {
 	if CurrentVersion != 1 {
 		t.Fatalf("CurrentVersion changed to %d , update the app's EnrollLink.CURRENT_VERSION in lockstep", CurrentVersion)
 	}
-	link := EnrollLink{Host: "10.0.0.1", Port: 8443, Code: "AB", Fingerprint: "CD"}.String()
-	want := "v=1"
+	link := EnrollLink{Host: "10.0.0.1", Port: 8443, Fingerprint: "CD"}.String()
+	want := "v=2"
 	if !strings.Contains(link, want) {
 		t.Fatalf("enroll link missing version: got %q, want it to contain %q", link, want)
 	}

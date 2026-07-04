@@ -1,7 +1,7 @@
 # First-time box setup, start to finish
 
 Who runs what, in order. Two users: `root` for anything that touches the system (packages, user
-grants, the disk, nginx, systemd) and the service user , `ghost` by default, `--user coder` for a
+grants, the disk, nginx, systemd) and the service user , `ghost` by default, or `--user <name>` for a
 dev box where you want the daemons under your own account. The data disk in these examples is
 `/dev/nvme1n1`, the clean NVMe with NO partitions in lsblk. Setup destroys whatever is on the disk
 you pass it. Read the plan output before apply.
@@ -20,7 +20,7 @@ flow is scan-immediately-and-clear-the-screen, not leave-it-on-screen-while-grad
 ## 1. System prep , root
 
     cd server
-    ./tools/server_setup_root.sh --user coder --host lgs.vladcealicu.com
+    ./tools/server_setup_root.sh --user <name> --host box.example.com
 
 Packages, TPM (tss) grant, scoped ghost.* sudo, and /etc/ghost/ghost.env owned by the service user
 with GHOST_HOST filled in. Idempotent, with one deliberate exception: an EXISTING ghost.env keeps
@@ -30,9 +30,9 @@ rewritten. The env PATH includes /usr/sbin, which the unlock path needs (cryptse
 ## 2. Check + build , service user, NEW login
 
 Group grants are stamped at login; the session that existed before step 1 does not have tss.
-`exec su - coder` or reconnect, then:
+`exec su - <name>` or reconnect, then:
 
-    ./tools/server_setup_user.sh --host lgs.vladcealicu.com   # --host optional if already set
+    ./tools/server_setup_user.sh --host box.example.com   # --host optional if already set
     make box TAGS=tpm                                          # the REAL backend; sim is default
 
 Expect all OK except a GHOST_HOST reachability WARN , nothing is listening yet, that is the
@@ -58,8 +58,8 @@ and VERIFY.md covers proving the APK matches the source.
 
 ## 4. Dry run , root
 
-    ./bin/ghost-setup --user coder --disk /dev/nvme1n1 \
-        --host lgs.vladcealicu.com --domain lgs.vladcealicu.com
+    ./bin/ghost-setup --user <name> --disk /dev/nvme1n1 \
+        --host box.example.com --domain box.example.com
 
 No flag needed: the dry run IS the default , provisioning requires the explicit --apply. Prints
 every step, touches nothing. Read the partition line twice: the empty NVMe, not the OS
@@ -81,7 +81,7 @@ finish, add the domain config after , enrolment never needed it.
 
 Scan the QR from step 5. Scanning IS enrolment , no code, no confirmation, no network call. Clear
 the terminal once the phone has it. Fresh QR any time (each mints a fresh identity; scan the
-newest): `./bin/ghost-qr --ca /etc/ghost/ca --host lgs.vladcealicu.com` as root. Then unlock with
+newest): `./bin/ghost-qr --ca /etc/ghost/ca --host box.example.com` as root. Then unlock with
 the main PIN. A wrong PIN looks exactly like a down box; that is the product, not a bug.
 
 ## 7. Models , root

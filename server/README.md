@@ -453,4 +453,4 @@ target, and the file size is identical for one real PIN or many.
 
 Honest limit, restated: the TPM and dm-crypt paths are built against the documented go-tpm and
 cryptsetup interfaces and are NOT validated in CI (no TPM, no root, no encrypted volumes in the build
-env). They must be exercised on xyntai.
+env). They must be exercised on real box hardware.

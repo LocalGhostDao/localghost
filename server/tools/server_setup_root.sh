@@ -2,11 +2,11 @@
 # LocalGhost server: ROOT setup. Run ONCE as root (via your keyfile session) on the box.
 #
 #   ./server_setup_root.sh                 # service user defaults to 'ghost'
-#   ./server_setup_root.sh --user coder    # run the daemons as coder instead
+#   ./server_setup_root.sh --user <name>   # run the daemons as a chosen user instead
 #
 # Detect-driven and NON-DESTRUCTIVE: this box already runs other sites/APIs, so the script only
 # installs what's missing, never reconfigures what's there, and does NOT touch existing nginx config
-# (the chosen user is assumed to already have its own nginx deploy path, as coder does here). It:
+# (the chosen user is assumed to already have its own nginx deploy path). It:
 #   - detects + installs missing packages (cryptsetup, postgres, redis, tpm2-tools, go if absent)
 #   - puts the postgres server binaries on PATH (Debian hides them)
 #   - loads dm_crypt (now + on boot)

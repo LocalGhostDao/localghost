@@ -4,7 +4,7 @@
 // With --nginx-out it also writes the appears-down nginx config for the given host, since ghost.secd
 // speaks plain loopback HTTP and the TLS/mTLS edge is nginx's job.
 //
-//	ghost-qr --ca ~/ghost/ca --host lgs.vladcealicu.com --port 8443 --nginx-out ~/ghost/nginx.conf
+//	ghost-qr --ca ~/ghost/ca --host box.example.com --port 8443 --nginx-out ~/ghost/nginx.conf
 package main
 
 import (

@@ -10,7 +10,7 @@ import (
 	"github.com/google/go-tpm/tpm2/transport"
 )
 
-// TPMSealedKey implements auth.SealedKey against a real TPM 2.0 (Intel PTT / fTPM on xyntai). It
+// TPMSealedKey implements auth.SealedKey against a real TPM 2.0 (e.g. Intel PTT / fTPM). It
 // seals each account's master key under a PIN-bound policy so that:
 //   - the key is non-extractable: it exists in the clear only briefly inside the TPM during unseal
 //   - the TPM enforces its OWN dictionary-attack lockout on wrong PINs, which root cannot reset

@@ -1,6 +1,8 @@
 package pair
 
 import (
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -21,10 +23,34 @@ func Parse(raw string) (EnrollLink, error) {
 		return EnrollLink{}, err
 	}
 	host := strings.TrimSpace(q.Get("host"))
-	code := strings.TrimSpace(q.Get("code"))
 	fp := strings.TrimSpace(q.Get("fp"))
-	if host == "" || code == "" || fp == "" {
-		return EnrollLink{}, fmt.Errorf("link missing host, code, or fingerprint")
+	if host == "" || fp == "" {
+		return EnrollLink{}, fmt.Errorf("link missing host or fingerprint")
+	}
+	// cert/key are optional AT PARSE (a link can be inspected without them), but REQUIRED to actually
+	// enrol , the caller checks. Decode if present.
+	var certDER, keyDER []byte
+	if c := strings.TrimSpace(q.Get("cert")); c != "" {
+		pemBytes, derr := base64.RawURLEncoding.DecodeString(c)
+		if derr != nil {
+			return EnrollLink{}, fmt.Errorf("bad cert encoding: %w", derr)
+		}
+		if blk, _ := pem.Decode(pemBytes); blk != nil {
+			certDER = blk.Bytes
+		} else {
+			return EnrollLink{}, fmt.Errorf("cert is not valid PEM")
+		}
+	}
+	if k := strings.TrimSpace(q.Get("key")); k != "" {
+		pemBytes, derr := base64.RawURLEncoding.DecodeString(k)
+		if derr != nil {
+			return EnrollLink{}, fmt.Errorf("bad key encoding: %w", derr)
+		}
+		if blk, _ := pem.Decode(pemBytes); blk != nil {
+			keyDER = blk.Bytes
+		} else {
+			return EnrollLink{}, fmt.Errorf("key is not valid PEM")
+		}
 	}
 	port := 8443
 	if p := strings.TrimSpace(q.Get("port")); p != "" {
@@ -35,10 +61,11 @@ func Parse(raw string) (EnrollLink, error) {
 		port = n
 	}
 	return EnrollLink{
-		Host:        host,
-		Port:        port,
-		Code:        code,
-		Fingerprint: normaliseFp(fp),
-		BoxName:     strings.TrimSpace(q.Get("name")),
+		Host:          host,
+		Port:          port,
+		Fingerprint:   normaliseFp(fp),
+		BoxName:       strings.TrimSpace(q.Get("name")),
+		DeviceCertDER: certDER,
+		DeviceKeyDER:  keyDER,
 	}, nil
 }

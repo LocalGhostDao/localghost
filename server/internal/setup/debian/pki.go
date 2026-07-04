@@ -58,7 +58,9 @@ func (p PKI) CreateCA() error {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial(),
-		Subject:               pkix.Name{CommonName: "LocalGhost Box CA"},
+		// CN is a bare "ca", not a product name: the issuer field travels in the TLS handshake, and a
+		// product-identifying CN would let a scanner fingerprint every box running this software.
+		Subject:               pkix.Name{CommonName: "ca"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().AddDate(20, 0, 0), // long-lived; the box owns it
 		IsCA:                  true,
@@ -125,7 +127,9 @@ func (p PKI) IssueDeviceCert(name string) (certPEM, keyPEM string, err error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial(),
-		Subject:      pkix.Name{CommonName: "device:" + name},
+		// bare name, no "device:" scheme prefix , client certs are only seen by the box itself over
+		// mTLS, but keeping the CN generic avoids leaking the enrolment scheme if one is ever inspected.
+		Subject:      pkix.Name{CommonName: name},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().AddDate(10, 0, 0),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -145,6 +149,43 @@ func (p PKI) IssueDeviceCert(name string) (certPEM, keyPEM string, err error) {
 	_ = writeCertPEM(filepath.Join(p.caDir, "device-"+name+".pem"), der)
 	_ = os.WriteFile(filepath.Join(p.caDir, "device-"+name+"-key.pem"), []byte(keyPEM), 0o600)
 	return certPEM, keyPEM, nil
+}
+
+// IssueDeviceCertDER signs a client cert for a device and returns the cert + key as raw DER, WITHOUT
+// writing the private key to disk. This is the QR-carries-the-cert model: the key exists only long
+// enough to embed in the enrol link, then it is the phone's , the box keeps no copy. The cert DER is
+// recorded (public, useful for revocation lists); the key DER is never persisted here.
+func (p PKI) IssueDeviceCertDER(name string) (certDER, keyDER []byte, err error) {
+	ca, caKey, err := p.loadCA()
+	if err != nil {
+		return nil, nil, err
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: serial(),
+		// bare name, no "device:" scheme prefix , client certs are only seen by the box itself over
+		// mTLS, but keeping the CN generic avoids leaking the enrolment scheme if one is ever inspected.
+		Subject:      pkix.Name{CommonName: name},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().AddDate(10, 0, 0),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	cder, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	kder, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, nil, err
+	}
+	// record the cert (public) for reference; the key is deliberately NOT written , it leaves only
+	// in the QR.
+	_ = writeCertPEM(filepath.Join(p.caDir, "device-"+name+".pem"), cder)
+	return cder, kder, nil
 }
 
 // ServerFingerprint returns the SHA-256 of the server cert DER as uppercase colon-hex, the value the

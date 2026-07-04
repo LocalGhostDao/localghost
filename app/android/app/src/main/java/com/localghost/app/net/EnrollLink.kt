@@ -7,7 +7,7 @@ import java.net.URLDecoder
  * discovery or trust: the QR carries everything the phone needs to reach the box on the LAN and
  * to pin its identity on first contact.
  *
- *   localghost://enroll?v=2&host=192.168.1.20&port=8443&code=ABCD-1234&fp=AB:CD:...&name=xyntai&cert=<b64url>&key=<b64url>
+ *   localghost://enroll?v=2&host=192.168.1.20&port=8443&fp=AB:CD:...&name=box&cert=<b64url>&key=<b64url>
  *
  * - v     : format version. Absent means 1 (the original code-only links). The phone understands up
  *           to CURRENT_VERSION; a higher number means the box is newer than the app, and parse
