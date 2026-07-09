@@ -356,11 +356,31 @@ func (s *System) ReloadNginx() error {
 // --- systemd ---
 
 func (s *System) ServicesInstalled() (bool, error) {
-	_, err := os.Stat("/etc/systemd/system/ghost.secd.service")
+	// BOTH the unit file AND the staged binary must exist , a partial run can leave the unit without
+	// the binary (or vice versa), and reporting "done" then skips the staging that makes it runnable.
+	if _, err := os.Stat("/etc/systemd/system/ghost.secd.service"); err != nil {
+		return false, nil
+	}
+	_, err := os.Stat(filepath.Join(setup.SystemBinDir, "ghost.secd"))
 	return err == nil, nil
 }
 
 func (s *System) InstallServices(units []setup.SystemdUnit) error {
+	// Stage each unit's binary into SystemBinDir , a stable system path the hardened unit can execute
+	// (ProtectHome=yes hides /home, so the build dir under the user's home is not usable as ExecStart).
+	// Source is s.ExecDir, where make built the binaries as ghost-setup's siblings.
+	if err := os.MkdirAll(setup.SystemBinDir, 0o755); err != nil {
+		return fmt.Errorf("create %s: %w", setup.SystemBinDir, err)
+	}
+	for _, u := range units {
+		src := filepath.Join(s.ExecDir, u.Name)
+		if _, err := os.Stat(src); err != nil {
+			return fmt.Errorf("service binary %s not found in %s (run make box first): %w", u.Name, s.ExecDir, err)
+		}
+		if err := copyFile(src, filepath.Join(setup.SystemBinDir, u.Name), 0o755); err != nil {
+			return fmt.Errorf("stage %s into %s: %w", u.Name, setup.SystemBinDir, err)
+		}
+	}
 	for _, u := range units {
 		path := filepath.Join("/etc/systemd/system", u.Name+".service")
 		if err := os.WriteFile(path, []byte(u.Unit), 0o644); err != nil {

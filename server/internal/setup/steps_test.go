@@ -98,6 +98,15 @@ func TestSystemdUnitsHardenedAndOrdered(t *testing.T) {
 	if !strings.Contains(secd.Unit, "User=root") {
 		t.Fatal("ghost.secd must run as root , it mounts dm-crypt and needs CAP_SYS_ADMIN")
 	}
+	// ExecStart must live under SystemBinDir, NOT the build/exec dir: the unit sets ProtectHome=yes,
+	// so a /home path would be invisible to the service (exit 203). This is the regression guard for
+	// exactly that bug.
+	if !strings.Contains(secd.Unit, "ExecStart="+SystemBinDir+"/ghost.secd") {
+		t.Fatalf("ExecStart must run from %s (ProtectHome=yes hides /home), unit:\n%s", SystemBinDir, secd.Unit)
+	}
+	if !strings.Contains(secd.Unit, "ProtectHome=yes") {
+		t.Fatal("ghost.secd unit must keep ProtectHome=yes")
+	}
 	// ghost.secd does not depend on itself.
 	if strings.Contains(secd.Unit, "Requires=ghost.secd.service") {
 		t.Fatal("ghost.secd must not require itself")

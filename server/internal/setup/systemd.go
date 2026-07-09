@@ -41,6 +41,12 @@ type DaemonConfig struct {
 // a small blast radius.
 //
 // DaemonConfig supplies ghost.secd's flags.
+// SystemBinDir is where provisioning stages the systemd-launched binary (ghost.secd). It must be
+// outside /home: the unit runs with ProtectHome=yes, so a binary under a user's home is invisible to
+// the service (exit 203, EXEC). The volume-seeded cohort still comes from the build dir; only the one
+// bootstrap binary systemd itself launches needs a hardening-compatible home.
+const SystemBinDir = "/opt/localghost/bin"
+
 func SystemdUnits(execDir string, cfg DaemonConfig) []SystemdUnit {
 	// Exactly ONE unit: ghost.secd. The ghost.*d daemons live on the encrypted volume and are
 	// supervised by ghost.watchd after unlock (internal/watchd), NOT by systemd , a boot
@@ -78,8 +84,10 @@ func renderUnit(name, execDir string, cfg DaemonConfig) string {
 	// whole box verbose without a rebuild. slog drops sub-level lines cheaply, so debug is safe to
 	// leave off in production and flip on when a box misbehaves.
 	fmt.Fprintf(&b, "Environment=GHOST_LOG_LEVEL=info\n")
+	// ExecStart runs from SystemBinDir (not execDir): see the const , ProtectHome=yes below would
+	// make a /home path unexecutable. InstallServices stages the binary there.
 	fmt.Fprintf(&b, "ExecStart=%s/%s --state %s --disk %s --addr 127.0.0.1:%d%s\n",
-		execDir, name, cfg.StateDir, cfg.Disk, cfg.Port, userArg)
+		SystemBinDir, name, cfg.StateDir, cfg.Disk, cfg.Port, userArg)
 	// ghost.secd runs as ROOT. This is deliberate and unavoidable: it opens dm-crypt (cryptsetup),
 	// mounts the encrypted volume (mount needs CAP_SYS_ADMIN), starts Postgres/Redis, and performs
 	// crypto-erase. A non-privileged user with NoNewPrivileges literally cannot mount. So the security
