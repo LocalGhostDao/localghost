@@ -166,7 +166,9 @@ func animateFrames(w io.Writer, frames []string, encodeQR func(string) (Matrix, 
 		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 		close(done)
 	}()
-	const hold = 2200 * time.Millisecond
+	// Field-tuned: 3.2s per frame. Long enough that a phone reliably locks, decodes, and registers
+	// each frame (with its success pulse) before the next appears, without the rotation dragging.
+	const hold = 3200 * time.Millisecond
 	// One full clear up front, cursor hidden for the duration (a blinking cursor inside the symbol
 	// helps nobody). Each frame then redraws from HOME with erase-to-end-of-line per line and
 	// erase-below at the end , no full clears in the loop, so there is no flicker, and frames of
