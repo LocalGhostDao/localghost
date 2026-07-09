@@ -4,6 +4,8 @@ import (
 	"io"
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -356,13 +358,38 @@ func (s *System) ReloadNginx() error {
 // --- systemd ---
 
 func (s *System) ServicesInstalled() (bool, error) {
-	// BOTH the unit file AND the staged binary must exist , a partial run can leave the unit without
-	// the binary (or vice versa), and reporting "done" then skips the staging that makes it runnable.
+	// Three conditions, all required: the unit file exists, the staged binary exists, AND the staged
+	// binary matches the freshly built one. The third is what makes re-provisioning after a code fix
+	// actually deploy the fix , without it, a stale staged binary reports "done" and the box keeps
+	// running yesterday's bug.
 	if _, err := os.Stat("/etc/systemd/system/ghost.secd.service"); err != nil {
 		return false, nil
 	}
-	_, err := os.Stat(filepath.Join(setup.SystemBinDir, "ghost.secd"))
-	return err == nil, nil
+	staged := filepath.Join(setup.SystemBinDir, "ghost.secd")
+	src := filepath.Join(s.ExecDir, "ghost.secd")
+	sh, err := fileSHA256(staged)
+	if err != nil {
+		return false, nil // not staged (or unreadable) , stage it
+	}
+	bh, err := fileSHA256(src)
+	if err != nil {
+		return true, nil // no fresh build to compare against; what is staged stands
+	}
+	return sh == bh, nil
+}
+
+// fileSHA256 hashes a file , used to detect a stale staged binary.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (s *System) InstallServices(units []setup.SystemdUnit) error {

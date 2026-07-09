@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -101,7 +102,14 @@ func main() {
 	}()
 
 	log.Printf("ghost.secd listening on %s (state %s, run-user %q)", *addr, *stateDir, *runUser)
-	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	// Listen FIRST, notify systemd READY, then serve. Type=notify blocks systemctl start until this
+	// datagram arrives , sent exactly when the socket is accepting, which is what "started" means.
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	secd.NotifyReady()
+	if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 	log.Printf("ghost.secd stopped")
