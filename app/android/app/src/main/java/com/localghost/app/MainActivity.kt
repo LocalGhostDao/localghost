@@ -238,7 +238,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onCancel = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Setup },
                     )
-                    Screen.Gate -> LockScreen(error, unlocking = lockProgress != null, progress = lockProgress, onLocalOnly = ::enterLocalOnly) { passBiometric() }
+                    Screen.Gate -> LockScreen(error, unlocking = lockProgress != null, progress = lockProgress, onLocalOnly = ::enterLocalOnly, onReenroll = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Scan }) { passBiometric() }
                     Screen.Pin -> PinScreen(busy, error, unlockProgress) { submit(it) }
                     Screen.Shell -> MainShell(
                         messages = messages, streaming = streaming, onSend = ::sendChat, onStopChat = ::stopChat,

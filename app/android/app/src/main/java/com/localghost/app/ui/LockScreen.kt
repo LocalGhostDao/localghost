@@ -34,6 +34,7 @@ fun LockScreen(
     unlocking: Boolean,
     progress: UnlockSnapshot?,
     onLocalOnly: () -> Unit = {},
+    onReenroll: () -> Unit = {},
     onUnlock: () -> Unit,
 ) {
     GhostScaffold { pad ->
@@ -74,6 +75,10 @@ fun LockScreen(
                 Text("CAN'T REACH YOUR BOX? USE ON-PHONE MODELS ONLY", color = GhostTextDim,
                     textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.fillMaxWidth().clickable { onLocalOnly() })
+                Spacer(Modifier.height(12.dp))
+                Text("RE-SCAN THE BOX QR (RE-ENROL THIS PHONE)", color = GhostTextDim,
+                    textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.fillMaxWidth().clickable { onReenroll() })
             }
         }
     }
