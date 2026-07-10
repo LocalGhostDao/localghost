@@ -89,7 +89,9 @@ func (m *DMCryptMounter) ensureMounted(slot int) (string, error) {
 	if err := os.MkdirAll(parent, 0o711); err != nil {
 		return "", err
 	}
-	_ = os.Chmod(parent, 0o711) // ensure traversable even if it pre-existed as 0700
+	if err := os.Chmod(parent, 0o711); err != nil { // traversable even if it pre-existed as 0700
+		return "", fmt.Errorf("chmod %s traversable: %w", parent, err)
+	}
 	if err := os.MkdirAll(mnt, 0o700); err != nil {
 		return "", err
 	}

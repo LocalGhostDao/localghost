@@ -171,12 +171,18 @@ func (d *DataStore) startPostgres(slot int, c ServicesConfig) error {
 		// leaf dir , which is exactly the failure this fixes.
 		mountRoot := d.mountPathFor(slot)
 		if cred := d.dbCredential(); cred != nil {
-			_ = os.Chown(data, int(cred.Uid), int(cred.Gid))
-			_ = os.Chown(filepath.Dir(data), int(cred.Uid), int(cred.Gid))
-			_ = os.Chown(mountRoot, int(cred.Uid), int(cred.Gid))
+			// These are load-bearing: if any fails, initdb (as the run user) WILL fail , so failing
+			// here with the real reason beats initdb failing later with a vaguer one.
+			for _, dir := range []string{data, filepath.Dir(data), mountRoot} {
+				if err := os.Chown(dir, int(cred.Uid), int(cred.Gid)); err != nil {
+					return fmt.Errorf("chown %s to run user before initdb: %w", dir, err)
+				}
+			}
 		}
 		// The volume root is 0700 from mkfs; 0711 lets the run user path through to its data dirs.
-		_ = os.Chmod(mountRoot, 0o711)
+		if err := os.Chmod(mountRoot, 0o711); err != nil {
+			return fmt.Errorf("chmod volume root %s traversable: %w", mountRoot, err)
+		}
 		if out, err := d.pgCmd(filepath.Dir(data), "initdb", "-D", data, "--auth=trust", "--encoding=UTF8").CombinedOutput(); err != nil {
 			return fmt.Errorf("initdb slot %d: %v: %s", slot, err, strings.TrimSpace(string(out)))
 		}
@@ -534,7 +540,9 @@ func (d *DataStore) startRedis(slot int, c ServicesConfig) error {
 	// Same as Postgres: secd (root) made this dir, but redis-server runs dropped to the service user
 	// and must own its data dir (rdb/aof writes, pid file). chown before starting.
 	if cred := d.dbCredential(); cred != nil {
-		_ = os.Chown(dir, int(cred.Uid), int(cred.Gid))
+		if err := os.Chown(dir, int(cred.Uid), int(cred.Gid)); err != nil {
+			return fmt.Errorf("chown redis dir %s to run user: %w", dir, err)
+		}
 	}
 	pidFile := filepath.Join(dir, "redis.pid")
 	// requirepass from services.conf: even loopback-only, an unauthenticated Redis lets any local

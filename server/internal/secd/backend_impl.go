@@ -43,6 +43,10 @@ type backend struct {
 	// control socket (start-cohort / stop-cohort / restart / status). watchProc is the watchd process
 	// secd spawned; watch is the socket client. Both nil until StartCache; both cleared on Lock.
 	watchProc *os.Process
+	// watchDone closes when the reaper goroutine (spawnWatchd) observes watchd exit. The lock path
+	// waits on THIS, never on Wait() directly , two concurrent Wait()s on one process race, and the
+	// loser gets ECHILD and can wrongly conclude the process died while it is still running.
+	watchDone chan struct{}
 	watch     *watchd.Client
 }
 
@@ -176,15 +180,44 @@ func (b *backend) StartCache(slot int) error {
 // watchd already runs as the user, it does NOT need to drop the daemons itself , they inherit its uid.
 func (b *backend) spawnWatchd(mount string) (*os.Process, error) {
 	bin := filepath.Join(mount, "bin", "ghost.watchd")
+	// Fail loudly if the binary is not there/executable , "exec then die silently" wastes a debugging
+	// round; "the volume has no ghost.watchd at <path>" is a one-glance diagnosis.
+	if fi, err := os.Stat(bin); err != nil {
+		return nil, fmt.Errorf("ghost.watchd binary not on the volume at %s: %w (was the volume bin/ staged?)", bin, err)
+	} else if fi.Mode().Perm()&0o111 == 0 {
+		return nil, fmt.Errorf("ghost.watchd at %s is not executable (mode %v)", bin, fi.Mode())
+	}
 	cmd := exec.Command(bin, "--mount", mount)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if cred := userCredential(b.runUser); cred != nil {
 		cmd.SysProcAttr.Credential = cred
 	}
+	// The child's own output goes to secd's stderr -> journald. Before this, watchd's dying words
+	// (missing conf, unwritable run dir, panic) went to /dev/null and it died invisibly.
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("spawn ghost.watchd: %w", err)
 	}
-	return cmd.Process, nil
+	// Reap. Without a Wait the child becomes a zombie on death (observed: [ghost.watchd] <defunct>)
+	// and its exit status , the WHY of the death , is thrown away. Log it instead.
+	proc := cmd.Process
+	done := make(chan struct{})
+	b.watchDone = done
+	go func() {
+		defer close(done)
+		state, werr := proc.Wait()
+		if werr != nil {
+			secdLog.Warn("ghost.watchd wait failed", "fn", "spawnWatchd", "err", werr)
+			return
+		}
+		if state.Success() {
+			secdLog.Info("ghost.watchd exited cleanly", "fn", "spawnWatchd")
+		} else {
+			secdLog.Error("ghost.watchd DIED", "fn", "spawnWatchd", "state", state.String())
+		}
+	}()
+	return proc, nil
 }
 
 // userCredential resolves a username to a syscall.Credential so secd (root) can spawn watchd as the
@@ -268,16 +301,26 @@ func (b *backend) stopWatchd() {
 	if b.watchProc == nil {
 		return
 	}
-	_ = b.watchProc.Signal(syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() { _, _ = b.watchProc.Wait(); close(done) }()
+	if err := b.watchProc.Signal(syscall.SIGTERM); err != nil {
+		secdLog.Warn("signal watchd for stop", "fn", "stopWatchd", "err", err)
+	}
+	// Wait on the reaper's channel (spawnWatchd owns the one-and-only Wait). A second concurrent
+	// Wait here would race the reaper and could conclude "exited" while watchd still runs.
+	done := b.watchDone
+	if done == nil { // defensive: no reaper (should not happen) , fall back to a bounded sleep
+		done = make(chan struct{})
+		go func() { time.Sleep(15 * time.Second); close(done) }()
+	}
 	select {
 	case <-done:
 	case <-time.After(15 * time.Second): // generous: watchd is tearing down the whole cohort
-		_ = b.watchProc.Kill()
+		if err := b.watchProc.Kill(); err != nil {
+			secdLog.Warn("kill watchd after stop timeout", "fn", "stopWatchd", "err", err)
+		}
 		<-done
 	}
 	b.watchProc = nil
+	b.watchDone = nil
 	b.watch = nil
 }
 
