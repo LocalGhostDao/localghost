@@ -81,6 +81,15 @@ func (m *DMCryptMounter) IsMounted(slot int) bool { return isMountpoint(m.mountP
 
 func (m *DMCryptMounter) ensureMounted(slot int) (string, error) {
 	mnt := m.mountPath(slot)
+	// The intermediate mnt/ dir must be TRAVERSABLE by the unprivileged service user , Postgres/Redis
+	// run dropped to that user and have to path through mnt/ to reach their data on the volume. 0711
+	// (traverse, no list) lets them pass without exposing what slots exist. The slotN dir and the
+	// volume root inside it are chowned to the run user by the DB layer after mount.
+	parent := filepath.Dir(mnt)
+	if err := os.MkdirAll(parent, 0o711); err != nil {
+		return "", err
+	}
+	_ = os.Chmod(parent, 0o711) // ensure traversable even if it pre-existed as 0700
 	if err := os.MkdirAll(mnt, 0o700); err != nil {
 		return "", err
 	}

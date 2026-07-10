@@ -68,7 +68,7 @@ func newDefaultBackend(cfg Config) UnlockBackend {
 		return s.Unseal(pin)
 	}
 	mounter := hw.NewDMCryptMounter(cfg.StateDir, cfg.Disk, keyFor)
-	store := hw.NewDataStore(func(slot int) string { return mounter.MountPath(slot) })
+	store := hw.NewDataStore(func(slot int) string { return mounter.MountPath(slot) }, cfg.RunUser)
 
 	reg, err := loadRegistry(cfg.StateDir)
 	if err != nil {
@@ -143,7 +143,23 @@ func (b *backend) StartCache(slot int) error {
 	b.watchProc = proc
 
 	// Wait briefly for watchd's socket to come up, then start the cohort. A timeout here is not fatal.
-	if err := b.waitWatchdReady(2 * time.Second); err != nil {
+	// 15s, not 2s: on a COLD first unlock watchd is exec'd fresh from the volume, sets up its control
+	// socket, and connects to the just-started Postgres/Redis , 2s was too tight and left the whole
+	// cohort down while the box reported "unlocked". If it still misses, log enough to tell WHY (is the
+	// process alive? did exec fail?) instead of a bare timeout.
+	if err := b.waitWatchdReady(15 * time.Second); err != nil {
+		alive := "unknown"
+		if b.watchProc != nil {
+			// Signal 0 probes liveness without affecting the process.
+			if perr := b.watchProc.Signal(syscall.Signal(0)); perr == nil {
+				alive = "process alive but socket never ready , watchd started then wedged (check its log on the volume)"
+			} else {
+				alive = "process NOT alive , watchd exec'd then died (missing binary, bad perms, or crash)"
+			}
+		} else {
+			alive = "no watchd process handle , spawn itself failed"
+		}
+		secdLog.Error("unlock: ghost.watchd did not become ready", "fn", "unlock", "within", "15s", "diag", alive, "err", err)
 		b.log("unlock: ghost.watchd did not become ready (daemons unavailable)", err)
 		return nil
 	}

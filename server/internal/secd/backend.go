@@ -1,6 +1,10 @@
 package secd
 
-import "github.com/LocalGhostDao/localghost/server/internal/profile"
+import (
+	"time"
+
+	"github.com/LocalGhostDao/localghost/server/internal/profile"
+)
 
 // UnlockBackend is what the unlock flow needs from the box to turn a PIN into a mounted, running
 // account. It is the single seam between the HTTP server and the hardware: the default build wires a
@@ -80,10 +84,18 @@ func runUnlock(b UnlockBackend, pin string, emit func(profile.Progress)) (openSl
 			return nil
 		}
 		emit(profile.Progress{Stage: stage, State: profile.Running})
+		// Log enter/exit + duration per stage. This makes the WHOLE unlock sequence visible in the
+		// journal , the recurring failure mode here has been a stage hanging or erroring silently, only
+		// surfacing (if at all) to the app. With this, one unlock attempt shows exactly which stage ran,
+		// how long it took, and where it stopped.
+		secdLog.Info("unlock stage begin", "fn", "unlock", "slot", slot, "stage", stage)
+		t0 := time.Now()
 		if err := do(); err != nil {
 			emit(profile.Progress{Stage: stage, State: profile.Errored})
+			secdLog.Error("unlock stage FAILED", "fn", "unlock", "slot", slot, "stage", stage, "after", time.Since(t0).String(), "err", err)
 			return err
 		}
+		secdLog.Info("unlock stage ok", "fn", "unlock", "slot", slot, "stage", stage, "took", time.Since(t0).String())
 		emit(profile.Progress{Stage: stage, State: profile.Complete})
 		return nil
 	}
@@ -112,15 +124,20 @@ func runUnlock(b UnlockBackend, pin string, emit func(profile.Progress)) (openSl
 	// runs, so the nil key on the warm path is never used).
 	if err := heavy(profile.StageMount, func() error { return b.Mount(slot, key) }); err != nil {
 		zeroise(key)
+		secdLog.Error("unlock failed at MOUNT", "fn", "unlock", "slot", slot, "err", err)
 		return profile.NoSlot, err
 	}
 	zeroise(key)
 
-	// START_DB, START_CACHE
+	// START_DB, START_CACHE. Log the real error here , it is otherwise only returned to the app, so
+	// the server-side journal shows NOTHING about why unlock failed (which made this exact failure
+	// invisible to journalctl and impossible to diagnose on the box).
 	if err := heavy(profile.StageStartDB, func() error { return b.StartDB(slot) }); err != nil {
+		secdLog.Error("unlock failed at START_DB", "fn", "unlock", "slot", slot, "err", err)
 		return profile.NoSlot, err
 	}
 	if err := heavy(profile.StageStartCache, func() error { return b.StartCache(slot) }); err != nil {
+		secdLog.Error("unlock failed at START_CACHE", "fn", "unlock", "slot", slot, "err", err)
 		return profile.NoSlot, err
 	}
 

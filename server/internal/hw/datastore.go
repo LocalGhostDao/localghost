@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/searchsql"
@@ -32,10 +35,31 @@ type Endpoints struct {
 type DataStore struct {
 	// mountPathFor returns where a slot's container is mounted (from the Mounter).
 	mountPathFor func(slot int) string
+	// runUser is the unprivileged account Postgres and Redis must run as. secd runs as root (it mounts
+	// dm-crypt), but Postgres REFUSES to run as root ("initdb: cannot be run as root"), so every DB
+	// process is dropped to this user. Empty means no drop , only valid in tests that never spawn a DB.
+	runUser string
 }
 
-func NewDataStore(mountPathFor func(slot int) string) *DataStore {
-	return &DataStore{mountPathFor: mountPathFor}
+func NewDataStore(mountPathFor func(slot int) string, runUser string) *DataStore {
+	return &DataStore{mountPathFor: mountPathFor, runUser: runUser}
+}
+
+// dbCredential returns the syscall.Credential to drop DB processes to runUser, or nil if unset/unknown.
+func (d *DataStore) dbCredential() *syscall.Credential {
+	if d.runUser == "" {
+		return nil
+	}
+	u, err := user.Lookup(d.runUser)
+	if err != nil {
+		return nil
+	}
+	uid, e1 := strconv.Atoi(u.Uid)
+	gid, e2 := strconv.Atoi(u.Gid)
+	if e1 != nil || e2 != nil {
+		return nil
+	}
+	return &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}
 }
 
 // cfg reads services.conf from the slot's mounted volume. Ports and passwords are the file's, not
@@ -139,15 +163,38 @@ func (d *DataStore) startPostgres(slot int, c ServicesConfig) error {
 		if err := os.MkdirAll(data, 0o700); err != nil {
 			return err
 		}
+		// secd runs as root, so MkdirAll just made this dir ROOT-owned , but initdb runs dropped to the
+		// service user (Postgres refuses root). initdb must be able to TRAVERSE from the mount root down
+		// to, and WRITE in, the data dir. So: make the mounted volume root traversable by the run user,
+		// and chown the postgres data dir (and its parent) to them, BEFORE initdb. Without the traversal
+		// chain, initdb-as-coder gets "could not access directory: Permission denied" even owning the
+		// leaf dir , which is exactly the failure this fixes.
+		mountRoot := d.mountPathFor(slot)
+		if cred := d.dbCredential(); cred != nil {
+			_ = os.Chown(data, int(cred.Uid), int(cred.Gid))
+			_ = os.Chown(filepath.Dir(data), int(cred.Uid), int(cred.Gid))
+			_ = os.Chown(mountRoot, int(cred.Uid), int(cred.Gid))
+		}
+		// The volume root is 0700 from mkfs; 0711 lets the run user path through to its data dirs.
+		_ = os.Chmod(mountRoot, 0o711)
 		if out, err := d.pgCmd(filepath.Dir(data), "initdb", "-D", data, "--auth=trust", "--encoding=UTF8").CombinedOutput(); err != nil {
 			return fmt.Errorf("initdb slot %d: %v: %s", slot, err, strings.TrimSpace(string(out)))
 		}
 	}
 	// start, bound to loopback on the config's port, socket inside the volume.
+	// -l logfile: capture Postgres's OWN startup output. Without it, a server that fails to come up
+	// leaves pg_ctl -w polling to timeout with no reason recorded anywhere , the "hangs at starting
+	// database" black box. With it, the failure reason lands in the volume where we can read it.
+	startLog := filepath.Join(data, "startup.log")
 	opts := fmt.Sprintf("-p %d -k %s -c listen_addresses=127.0.0.1", c.Postgres.Port, data)
-	cmd := d.pgCmd(filepath.Dir(data), "pg_ctl", "-D", data, "-o", opts, "-w", "-t", "30", "start")
+	cmd := d.pgCmd(filepath.Dir(data), "pg_ctl", "-D", data, "-l", startLog, "-o", opts, "-w", "-t", "30", "start")
 	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("pg_ctl start slot %d: %v: %s", slot, err, strings.TrimSpace(string(out)))
+		// Fold Postgres's own log into the error so the journal shows WHY it would not start.
+		pglog := ""
+		if b, rerr := os.ReadFile(startLog); rerr == nil {
+			pglog = strings.TrimSpace(string(b))
+		}
+		return fmt.Errorf("pg_ctl start slot %d: %v: %s | postgres log: %s", slot, err, strings.TrimSpace(string(out)), pglog)
 	}
 	// On first run only: apply the provisioned password to the ghost role and lay down the app config
 	// schema. Runs AFTER start (needs a live server) and is idempotent-guarded by firstRun.
@@ -338,25 +385,80 @@ func pgRuntimeBin(mount string) (string, string, bool) {
 	return bin, ld, true
 }
 
-// pgCmd builds a command for a Postgres binary, volume runtime first, PATH fallback.
-func (d *DataStore) pgCmd(mount, name string, args ...string) *exec.Cmd {
-	if bin, ld, ok := pgRuntimeBin(mount); ok {
-		cmd := exec.Command(filepath.Join(bin, name), args...)
-		cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+ld)
-		return cmd
+// runtimeUsable reports whether the volume bundle can actually be EXECUTED by the run user. A bundle
+// built by a sudo run without a chown is root-owned, and every parent dir up to the mount may be
+// root-only , so fork/exec as the dropped-to service user fails "permission denied". We check that the
+// binary is owned by the run user (or world-executable with a traversable path). If not, callers fall
+// back to OS packages, which are always world-executable. This is the guard that stops a broken
+// bundle from wedging unlock; the bundle script's own chown is the fix, this is the safety net.
+func (d *DataStore) runtimeUsable(bin string) bool {
+	cred := d.dbCredential()
+	if cred == nil {
+		return true // no privilege drop (tests): whatever secd can run is fine
 	}
-	return exec.Command(name, args...)
+	fi, err := os.Stat(filepath.Join(bin, "initdb"))
+	if err != nil {
+		return false
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	// Owned by the run user with an exec bit, OR world-executable. Ownership is the reliable signal for
+	// a correctly-bundled tree (the script chowns to the run user).
+	ownedAndExec := st.Uid == cred.Uid && fi.Mode().Perm()&0o100 != 0
+	worldExec := fi.Mode().Perm()&0o001 != 0
+	return ownedAndExec || worldExec
+}
+
+// osPgBin resolves the OS-package Postgres bin dir (e.g. /usr/lib/postgresql/18/bin), which is NOT on
+// the default PATH on Debian , so a bare exec.Command("initdb") fails "not found in $PATH". Highest
+// version wins, matching how the setup scripts pick it. Empty if none installed.
+func osPgBin() string {
+	globs, _ := filepath.Glob("/usr/lib/postgresql/*/bin")
+	if len(globs) == 0 {
+		return ""
+	}
+	sort.Strings(globs)
+	return globs[len(globs)-1]
+}
+
+// pgCmd builds a command for a Postgres binary, volume runtime first, OS package fallback.
+func (d *DataStore) pgCmd(mount, name string, args ...string) *exec.Cmd {
+	var cmd *exec.Cmd
+	if bin, ld, ok := pgRuntimeBin(mount); ok && d.runtimeUsable(bin) {
+		cmd = exec.Command(filepath.Join(bin, name), args...)
+		cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+ld)
+	} else if osbin := osPgBin(); osbin != "" {
+		// OS package fallback , resolve the real bin dir; initdb/pg_ctl are not on PATH on Debian.
+		cmd = exec.Command(filepath.Join(osbin, name), args...)
+	} else {
+		cmd = exec.Command(name, args...) // last resort: hope it is on PATH
+	}
+	// Drop to the unprivileged user , Postgres will not run as root. This is the fix for unlock's
+	// DB-start failing and rolling back the whole mount.
+	if cred := d.dbCredential(); cred != nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+	}
+	return cmd
 }
 
 // redisCmd is the same contract for redis-server / redis-cli.
 func (d *DataStore) redisCmd(mount, name string, args ...string) *exec.Cmd {
+	var cmd *exec.Cmd
 	bin := filepath.Join(mount, "runtime", "redis", "bin", name)
-	if _, err := os.Stat(bin); err == nil {
-		cmd := exec.Command(bin, args...)
+	if fi, err := os.Stat(bin); err == nil && fi.Mode().Perm()&0o111 != 0 {
+		cmd = exec.Command(bin, args...)
 		cmd.Env = append(os.Environ(), "LD_LIBRARY_PATH="+filepath.Join(mount, "runtime", "redis", "lib"))
-		return cmd
+	} else if p, err := exec.LookPath(name); err == nil {
+		cmd = exec.Command(p, args...) // OS package, absolute path (redis is usually /usr/bin, on PATH)
+	} else {
+		cmd = exec.Command(name, args...)
 	}
-	return exec.Command(name, args...)
+	if cred := d.dbCredential(); cred != nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: cred}
+	}
+	return cmd
 }
 
 // pgIdent admits only strict lower-case identifiers for role/database names sourced from
@@ -428,6 +530,11 @@ func (d *DataStore) startRedis(slot int, c ServicesConfig) error {
 	dir := d.redisDir(slot)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
+	}
+	// Same as Postgres: secd (root) made this dir, but redis-server runs dropped to the service user
+	// and must own its data dir (rdb/aof writes, pid file). chown before starting.
+	if cred := d.dbCredential(); cred != nil {
+		_ = os.Chown(dir, int(cred.Uid), int(cred.Gid))
 	}
 	pidFile := filepath.Join(dir, "redis.pid")
 	// requirepass from services.conf: even loopback-only, an unauthenticated Redis lets any local

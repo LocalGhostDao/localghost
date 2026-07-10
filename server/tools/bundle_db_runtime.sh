@@ -30,7 +30,16 @@ set -eu
 
 MOUNT="${1:-}"
 VERIFY=0
-[ "${2:-}" = "--verify" ] && VERIFY=1
+RUN_USER=""
+shift 2>/dev/null || true
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --verify) VERIFY=1; shift ;;
+        --user) RUN_USER="$2"; shift 2 ;;
+        --user=*) RUN_USER="${1#--user=}"; shift ;;
+        *) shift ;;
+    esac
+done
 if [ -z "$MOUNT" ] || [ ! -d "$MOUNT" ]; then
     echo "usage: $0 <mount-path> [--verify]     e.g. $0 /var/lib/ghost/mnt/slot0 --verify"
     exit 2
@@ -41,6 +50,17 @@ if [ ! -w "$MOUNT" ]; then
 fi
 
 RT="$MOUNT/runtime"
+
+# The service user owns the runtime: secd drops Postgres/Redis to this account at unlock, so a
+# root-owned bundle is unexecutable exactly when it matters. Detect from the volume's content dirs
+# (provisioning makes them service-user-owned; the mount root stays root). --user overrides.
+SVCUSER="$RUN_USER"
+if [ -z "$SVCUSER" ]; then
+    for d in bin conf run logs ai-models; do
+        owner="$(stat -c '%U' "$MOUNT/$d" 2>/dev/null || true)"
+        if [ -n "$owner" ] && [ "$owner" != "root" ]; then SVCUSER="$owner"; break; fi
+    done
+fi
 PGBIN_SRC="$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1 || true)"
 if [ -z "$PGBIN_SRC" ]; then
     echo "ERROR: no OS Postgres found to bundle from (install postgresql first; bundling copies FROM it)"
@@ -84,17 +104,42 @@ collect_libs "$RT/redis/lib"  "$RT/redis/bin/"*
 printf 'pg=%s\nbundled=%s\n' "$PGVER" "$(date -u +%FT%TZ)" > "$RT/VERSION"
 echo "  bundle written ($(du -sh "$RT" | cut -f1))"
 
+# Hand the whole runtime to the service user , it must be able to execute initdb/postgres/redis at
+# unlock. Without this the bundle is root-owned and the DBs (dropped to the service user) get
+# "Permission denied", which is both the verify failure and a real unlock failure waiting to happen.
+if [ -n "$SVCUSER" ] && [ "$SVCUSER" != "root" ]; then
+    chown -R "$SVCUSER":"$SVCUSER" "$RT" 2>/dev/null || true
+    echo "  runtime owned by $SVCUSER (the account secd runs the DBs as)"
+else
+    echo "  NOTE: could not determine the service user , runtime left root-owned; DBs may fail to start."
+    echo "        re-run with --user <name> so the bundle is owned by the account that runs the DBs."
+fi
+
 if [ "$VERIFY" = 1 ]; then
     echo "> Verifying: bundled initdb into a throwaway dir on the volume, OS packages not consulted..."
-    VD="$RT/.verify.$$"
-    if LD_LIBRARY_PATH="$RT/pgroot/usr/lib/postgresql/$PGVER/lib:$RT/pgroot/lib" \
-        "$RT/pgroot/usr/lib/postgresql/$PGVER/bin/initdb" -D "$VD" --auth=trust --encoding=UTF8 >/dev/null 2>&1; then
-        rm -rf "$VD"
+    # Postgres REFUSES to run as root (initdb: "cannot be run as root") , so verify must run as the
+    # unprivileged service user, exactly as secd does at real unlock. Default to the mount's owner,
+    # which provisioning set to the service user; --user overrides.
+    VUSER="$SVCUSER"
+    if [ -z "$VUSER" ] || [ "$VUSER" = "root" ]; then
+        echo "  could not auto-detect the service user from the volume (all dirs root-owned?)"
+        echo "  pass --user <name> once, e.g.:  sudo $0 $MOUNT --verify --user coder"
+        exit 1
+    fi
+    VD="$MOUNT/.verify.$$"           # under the mount (owned by VUSER), not under root-owned $RT
+    install -d -o "$VUSER" -g "$VUSER" "$VD.parent" 2>/dev/null || mkdir -p "$VD.parent"
+    chown "$VUSER" "$VD.parent" 2>/dev/null || true
+    echo "  running bundled initdb as user $VUSER ..."
+    if su - "$VUSER" -s /bin/sh -c \
+        "LD_LIBRARY_PATH='$RT/pgroot/usr/lib/postgresql/$PGVER/lib:$RT/pgroot/lib' '$RT/pgroot/usr/lib/postgresql/$PGVER/bin/initdb' -D '$VD.parent/data' --auth=trust --encoding=UTF8" >/tmp/ghost-verify.$$ 2>&1; then
+        rm -rf "$VD.parent"; rm -f /tmp/ghost-verify.$$
         echo "  VERIFIED , the volume runtime stands alone. The OS database packages are now removable:"
         echo "    apt-get remove postgresql 'postgresql-*' redis-server redis-tools"
     else
-        rm -rf "$VD"
-        echo "  VERIFY FAILED , keep the OS packages; the daemons fall back to them automatically."
+        echo "  VERIFY FAILED , initdb output:"
+        sed 's/^/    /' /tmp/ghost-verify.$$ 2>/dev/null | tail -15
+        rm -rf "$VD.parent"; rm -f /tmp/ghost-verify.$$
+        echo "  (the daemons fall back to OS packages automatically, so the box still works)"
         exit 1
     fi
 fi
