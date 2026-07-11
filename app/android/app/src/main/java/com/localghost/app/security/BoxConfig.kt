@@ -42,8 +42,15 @@ object BoxConfig {
 
     /** True once enrollment has stored a usable box URL + token. Drives setup vs use. */
     fun isConfigured(ctx: Context): Boolean {
-        val c = read(ctx) ?: return false
-        return c.baseUrl.isNotBlank() && c.deviceToken.isNotBlank()
+        val p = prefs(ctx)
+        // If the encrypted values are PRESENT on disk, the device was enrolled , full stop. Whether we
+        // can decrypt them THIS launch is a separate question: a transient keystore hiccup must NOT be
+        // read as "never enrolled" and bounce the user to re-scan (the reported bug). So configured =
+        // the ciphertext exists. read() still returns null if decryption fails, and callers that need
+        // the actual values handle that, but the ENROLLMENT decision keys off presence, not decryptability.
+        val hasUrl = !p.getString(K_URL, null).isNullOrBlank()
+        val hasToken = !p.getString(K_TOKEN, null).isNullOrBlank()
+        return hasUrl && hasToken
     }
 
     fun read(ctx: Context): Config? {
@@ -82,6 +89,11 @@ object BoxConfig {
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    // Synchronized so concurrent callers (the launch isConfigured() check racing the background sync
+    // and poll workers, all of which touch the box on startup) cannot both fall into the "generate"
+    // branch. A regenerated key makes ALL existing ciphertext undecryptable, which read()/isConfigured()
+    // would then misread as "never enrolled" and silently force a re-scan , the exact bug being fixed.
+    @Synchronized
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (ks.getKey(ALIAS, null) as? SecretKey)?.let { return it }

@@ -26,7 +26,7 @@ object CameraReader {
 
     private fun selectionArgs(c: Cols, after: Cursor) =
         "${c.bucket} = ? AND (${c.date} > ? OR (${c.date} = ? AND ${c.id} > ?))" to
-                arrayOf("Camera", after.dateTaken.toString(), after.dateTaken.toString(), after.id.toString())
+        arrayOf("Camera", after.dateTaken.toString(), after.dateTaken.toString(), after.id.toString())
 
     /** Returns (item count, total bytes) so the UI can show a real ETA, not just an item counter. */
     fun count(ctx: Context, kind: MediaKind, after: Cursor): Pair<Int, Long> {

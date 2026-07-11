@@ -358,7 +358,7 @@ class MainActivity : ComponentActivity() {
         if (!LocalModel.ensureLoaded(this@MainActivity)) {
             messages.add(Message(Message.Role.GHOST,
                 "No box, and no on-phone model installed. I can't answer right now. " +
-                        "Reconnect to your box, or install a local model for offline replies."))
+                "Reconnect to your box, or install a local model for offline replies."))
             streaming = false
             return
         }

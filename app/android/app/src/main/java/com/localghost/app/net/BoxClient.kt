@@ -253,7 +253,7 @@ object BoxClient {
         val att = if (attachments.isEmpty()) "" else "I can see your ${attachments.size} attachment(s) too. "
         val reach = if (caps.reachBeyondBox) "(reaching beyond the box for this one) " else ""
         val reply = reach + att + "Drawing on your memories: about \"$prompt\" — here is what I can piece " +
-                "together from your synced life. (Stubbed; ghost.synthd will retrieve and generate.)"
+            "together from your synced life. (Stubbed; ghost.synthd will retrieve and generate.)"
         for (word in reply.split(" ")) { emit(ChatChunk.Token("$word ")); delay(35) }
         emit(ChatChunk.Done)
     }
