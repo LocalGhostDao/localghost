@@ -284,9 +284,15 @@ CREATE TABLE IF NOT EXISTS frames (
   thumb_path   TEXT NOT NULL DEFAULT '',
   bytes        BIGINT NOT NULL DEFAULT 0,
   source       TEXT NOT NULL DEFAULT '',
-  received_at  BIGINT NOT NULL DEFAULT 0
+  received_at  BIGINT NOT NULL DEFAULT 0,
+  kind         TEXT NOT NULL DEFAULT 'unknown',
+  mime         TEXT NOT NULL DEFAULT ''
 );
+-- Older databases created before kind/mime existed: add the columns if missing (idempotent).
+ALTER TABLE frames ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'unknown';
+ALTER TABLE frames ADD COLUMN IF NOT EXISTS mime TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS frames_taken_at ON frames (taken_at);
+CREATE INDEX IF NOT EXISTS frames_kind ON frames (kind);
 -- location_points: watch/phone position samples, the raw material for the daily GeoJSON path. The
 -- box stores coordinates and NEVER contacts a map/tile service; rendering is the phone's job.
 CREATE TABLE IF NOT EXISTS location_points (
