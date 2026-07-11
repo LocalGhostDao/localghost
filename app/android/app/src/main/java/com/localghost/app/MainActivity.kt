@@ -647,7 +647,12 @@ class MainActivity : ComponentActivity() {
     private fun maybeAutoSync() {
         if (autoSyncTried) return
         autoSyncTried = true
-        if (hasImages() && hasLocation() && isUnmetered() && !sync.busy) runSync()
+        if (hasImages() && hasLocation() && isUnmetered() && !sync.busy) {
+            // Durable path , survives the user locking the phone right after the app opens.
+            sync = sync.copy(busy = true, status = "Syncing in the background , you can lock the phone")
+            com.localghost.app.sync.SyncWorker.syncNow(this)
+            observeSyncWork()
+        }
     }
 
     private fun isUnmetered(): Boolean {
@@ -864,20 +869,48 @@ class MainActivity : ComponentActivity() {
             hasLocation = hasLocation(), partial = isPartial())
     }
 
+    // Observe the one-shot background sync so the UI reflects its finish even though the upload runs in
+    // the worker, not here. WorkManager's LiveData survives config changes; when the work leaves RUNNING
+    // we clear busy and show a done/failed line. Progress detail lives in the foreground notification.
+    private fun observeSyncWork() {
+        val wm = androidx.work.WorkManager.getInstance(this)
+        wm.getWorkInfosForUniqueWorkLiveData("localghost.sync.now").observe(this) { infos ->
+            val info = infos?.firstOrNull() ?: return@observe
+            // Live counts published by the worker (setProgressAsync) , fills the on-screen bar with the
+            // same N/total the notification shows, so "54 / 2932" is visible in-app and off-screen alike.
+            val done = info.progress.getInt("done", -1)
+            val total = info.progress.getInt("total", -1)
+            if (total > 0) sync = sync.copy(photoDone = done, photoTotal = total)
+            when (info.state) {
+                androidx.work.WorkInfo.State.SUCCEEDED ->
+                    sync = sync.copy(busy = false, isError = false, status = "Sync complete , copies are on your box")
+                androidx.work.WorkInfo.State.FAILED ->
+                    sync = sync.copy(busy = false, isError = true, status = "Sync failed , it will retry automatically")
+                androidx.work.WorkInfo.State.CANCELLED ->
+                    sync = sync.copy(busy = false, status = "Sync cancelled")
+                else -> {} // ENQUEUED / RUNNING / BLOCKED: keep the "syncing in background" line
+            }
+        }
+    }
+
     // --- sync (manual; allowed on any network) ---
     private fun startSync() {
         sync = sync.copy(status = null, isError = false)
         if (!hasImages() || !hasVideo()) { AppSettings.setEverAskedMedia(this, true); mediaLauncher.launch(imagePerms); return }
         if (!hasLocation()) { locationLauncher.launch(Manifest.permission.ACCESS_MEDIA_LOCATION); return }
-        // Manual SYNC NOW means "reconcile everything I have with the box", so reset the local cursor:
-        // the box dedupes by content hash, so re-offering already-uploaded items is cheap and idempotent
-        // (they get 202'd and skipped), while a cursor left stale by an earlier run , which would make
-        // the whole roll invisible , can never strand photos. The 15-min background worker keeps its
-        // incremental cursor; only this explicit tap does a full reconcile.
-        com.localghost.app.sync.SyncCursor.reset(this, MediaKind.PHOTO)
-        com.localghost.app.sync.SyncCursor.reset(this, MediaKind.VIDEO)
-        android.util.Log.i("LocalGhost", "manual sync: cursor reset, reconciling full roll")
-        runSync()
+        // Do NOT reset the cursor here. It advances per CONFIRMED (202) upload, so a manual sync
+        // RESUMES from the last confirmed item , if 54 of 2932 are already on the box, this continues at
+        // 55 instead of re-streaming all 2932 (the box would dedup them by content hash, but re-sending
+        // hundreds of MB of already-stored video is pure waste). A genuinely stale cursor is handled by
+        // the box's hash dedup as a backstop, not by blowing away progress on every tap.
+        android.util.Log.i("LocalGhost", "manual sync: resuming from saved cursor")
+        // Run the actual upload in a FOREGROUND WORKER, not the Activity's lifecycleScope. The old path
+        // died the instant the screen locked (Activity coroutines are cancelled on background). The
+        // worker keeps going, promotes itself to a dataSync foreground service, and shows progress in
+        // the notification shade , so a 400MB video finishes whether or not the screen is on.
+        sync = sync.copy(busy = true, status = "Syncing in the background , you can lock the phone", isError = false)
+        com.localghost.app.sync.SyncWorker.syncNow(this)
+        observeSyncWork()
     }
 
     private fun afterGrants() {
