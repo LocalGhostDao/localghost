@@ -30,6 +30,20 @@ func main() {
 		os.Exit(2)
 	}
 
+	// Rendering the nginx config needs ONLY the hostname , it does not read or create any PKI. Do it
+	// first and exit, so `ghost-qr --nginx-out` can run as the unprivileged service user without any
+	// access to the root-owned CA dir (the CA check below would otherwise fail "permission denied" as
+	// coder and wrongly try to CreateCA). This is the path redeploy.sh uses to refresh the edge config.
+	if *nginxOut != "" {
+		conf := setup.DomainConfig{Domain: *host}.NginxConfig(*secd)
+		if err := os.WriteFile(*nginxOut, []byte(conf), 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "write nginx config:", err)
+			os.Exit(1)
+		}
+		fmt.Println("nginx config written to", *nginxOut)
+		return
+	}
+
 	pki := debian.NewPKI(*caDir, *host)
 	if !pki.Exists() {
 		if err := pki.CreateCA(); err != nil {
@@ -40,15 +54,6 @@ func main() {
 			fmt.Fprintln(os.Stderr, "issue server cert:", err)
 			os.Exit(1)
 		}
-	}
-
-	if *nginxOut != "" {
-		conf := setup.DomainConfig{Domain: *host}.NginxConfig(*secd)
-		if err := os.WriteFile(*nginxOut, []byte(conf), 0o644); err != nil {
-			fmt.Fprintln(os.Stderr, "write nginx config:", err)
-			os.Exit(1)
-		}
-		fmt.Println("nginx config written to", *nginxOut)
 	}
 
 	if err := pair.Run(os.Stdout, pair.Options{

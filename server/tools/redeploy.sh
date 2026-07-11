@@ -64,8 +64,20 @@ install -m755 "$REPO/bin/ghost.secd" "$SYSTEM_BIN/ghost.secd.new"
 mv "$SYSTEM_BIN/ghost.secd.new" "$SYSTEM_BIN/ghost.secd"
 echo "staged $(sha256sum "$SYSTEM_BIN/ghost.secd" | cut -c1-12) -> $SYSTEM_BIN/ghost.secd"
 
-say "3/4  reload nginx (harmless if unchanged)"
-nginx -t >/dev/null 2>&1 && systemctl reload nginx && echo "nginx reloaded" || echo "nginx config unchanged or test skipped"
+say "3/4  re-render + reload nginx"
+# RE-RENDER from the current template, then reload , a plain reload of a STALE config was the bug
+# that let a new client_max_body_size (needed for photo/video uploads) never reach disk while every
+# other part of the redeploy succeeded. Rendering here means a full redeploy can never leave the edge
+# running an old config again.
+su - "$SVC_USER" -c "cd '$REPO' && ./bin/ghost-qr --ca /etc/ghost/ca --host \"\$(sed -n 's/^GHOST_HOST=//p' /etc/ghost/ghost.env | cut -d: -f1)\" --nginx-out /tmp/ghost-secd.conf"
+cp /tmp/ghost-secd.conf /etc/nginx/sites-enabled/ghost-secd
+if nginx -t >/dev/null 2>&1; then
+    systemctl reload nginx
+    echo "nginx re-rendered and reloaded"
+else
+    echo "WARNING: nginx -t failed on the new config; NOT reloading. Check /etc/nginx/sites-enabled/ghost-secd"
+    nginx -t
+fi
 
 say "4/4  restart ghost.secd"
 # On SIGTERM secd does a clean lock (cohort down, DBs stopped, volume unmounted, LUKS closed), then
