@@ -50,7 +50,10 @@ func defaultConf(mount string) conf {
 	c := conf{
 		Base:       svcconf.DefaultBase(),
 		QueueDepth: 64,
-		LlamaBin:   "/usr/local/bin/llama-server",
+		// The engine lives ON THE ENCRYPTED VOLUME with everything else , seeded to <mount>/bin at
+		// provision (hw.ExtraSeeded), invisible when locked, dies with the mount. A host path here
+		// would also be a namespace trap: anything under /home does not exist inside secd's world.
+		LlamaBin:   filepath.Join(mount, "bin", "llama-server"),
 		ModelPath:  filepath.Join(mount, "ai-models", "gemma-4-12b-it-Q4_K_M.gguf"),
 		MmprojPath: filepath.Join(mount, "ai-models", "mmproj-F16.gguf"),
 		ModelName:  "gemma-4-12b",

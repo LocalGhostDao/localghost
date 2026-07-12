@@ -21,6 +21,10 @@ import (
 // without a box-issued device cert at the handshake (the access key), so every request that reaches
 // here is already from an enrolled device. The PIN (account selection) is then proven at /unlock.
 type Server struct {
+	// cached run-user credentials for spool-file handoff (see spoolCred in frames_http.go)
+	credOnce sync.Once
+	credUID  int
+	credGID  int
 	enrolFlagField // one-time "a verified device reached us" marker for provisioning's rotation loop
 	cfg      Config
 	models   *models.Registry

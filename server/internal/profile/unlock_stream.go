@@ -20,6 +20,7 @@ const (
 	StageStartDB                // start this account's Postgres
 	StageStartCache             // start this account's Redis
 	StageDaemons                // bring the ghost.<x>d daemons online for this account
+	StageModel                  // oracled loading the inference model (informational: never blocks done)
 	StageReady                  // account is open
 
 	// Teardown stages, mirroring the mount in reverse so a lock reads as a real cold spin-down and the
@@ -45,6 +46,8 @@ func (s Stage) Label() string {
 		return "starting cache"
 	case StageDaemons:
 		return "starting services"
+	case StageModel:
+		return "loading model"
 	case StageReady:
 		return "ready"
 	case StageStopServices:
@@ -82,7 +85,7 @@ type Progress struct {
 // unlockStages is the fixed ordered stage list every unlock walks. Fixed order + fixed labels are
 // what keep the stream uniform across accounts.
 var unlockStages = []Stage{
-	StageResolve, StageUnseal, StageMount, StageStartDB, StageStartCache, StageDaemons, StageReady,
+	StageResolve, StageUnseal, StageMount, StageStartDB, StageStartCache, StageDaemons, StageModel, StageReady,
 }
 
 // LockStages is the ordered teardown sequence a lock walks, the mount in reverse. Exported so the

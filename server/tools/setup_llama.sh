@@ -50,14 +50,24 @@ else
     git -C "$LLAMA_DIR" pull --ff-only || echo "-- pull failed (offline?), building what is checked out"
 fi
 if [ ! -x "$LLAMA_DIR/build/bin/llama-server" ]; then
-    # CPU build , this box has no GPU; -DGGML_NATIVE=ON tunes for THIS machine's instruction set.
-    cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" -DGGML_NATIVE=ON -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
+    # STATIC single-binary CPU build. Static matters: the binary is seeded onto the ENCRYPTED VOLUME
+    # (<mount>/bin/llama-server , everything except secd lives there and dies with the mount), and a
+    # dynamic build would need its .so files carried along. -DGGML_NATIVE=ON tunes to THIS machine.
+    cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" -DGGML_NATIVE=ON -DBUILD_SHARED_LIBS=OFF         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
     cmake --build "$LLAMA_DIR/build" --target llama-server -j"$(nproc)"
 else
     echo "-- llama-server already built, skipping (delete $LLAMA_DIR/build to force rebuild)"
 fi
-ln -sf "$LLAMA_DIR/build/bin/llama-server" /usr/local/bin/llama-server
-echo "-- $(/usr/local/bin/llama-server --version 2>&1 | head -1 || echo 'llama-server linked')"
+# Into the repo's bin/ (ExecDir): provisioning seeds everything there onto the volume's bin, so the
+# engine rides the same mechanism as the cohort daemons. NOT /usr/local , a host path is both outside
+# the volume (wrong place for the engine) and a trap under ProtectHome namespaces.
+REPO_BIN="$(pwd)/bin"
+mkdir -p "$REPO_BIN"
+install -m 0755 "$LLAMA_DIR/build/bin/llama-server" "$REPO_BIN/llama-server"
+echo "-- llama-server installed to $REPO_BIN (seeded to <mount>/bin at provision)"
+echo "-- EXISTING volume? Seed it now while unlocked:"
+echo "     sudo ./tools/ns.sh cp $REPO_BIN/llama-server /var/lib/ghost/mnt/slot0/bin/"
+echo "     sudo ./tools/ns.sh chown coder /var/lib/ghost/mnt/slot0/bin/llama-server"
 
 if [ "$BUILD_ONLY" -eq 1 ]; then
     echo "build-only requested , done. Stage models later with tools/stage_models.sh"

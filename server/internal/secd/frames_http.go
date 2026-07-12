@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -61,7 +62,8 @@ func (s *Server) handleFrameUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	dir := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "frames", "incoming")
 	t0 := time.Now()
-	n, err := spoolBody(dir, r, uploadMaxBytes)
+	uid, gid := s.spoolCred()
+	n, err := spoolBody(dir, r, uploadMaxBytes, uid, gid)
 	if err != nil {
 		secdLog.Warn("frame upload spool failed", "fn", "handleFrameUpload", "dir", dir, "err", err)
 		http.Error(w, "upload failed", http.StatusInsufficientStorage)
@@ -69,6 +71,24 @@ func (s *Server) handleFrameUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	secdLog.Info("frame spooled", "fn", "handleFrameUpload", "bytes", n, "took", time.Since(t0).String())
 	w.WriteHeader(http.StatusAccepted) // accepted for processing; framed does the rest asynchronously
+}
+
+// spoolCred resolves the run user's uid/gid once (cached) for spool-file handoff. (0,0) when no run
+// user is configured , spool files then stay with secd's owner, correct for single-user dev setups.
+func (s *Server) spoolCred() (int, int) {
+	s.credOnce.Do(func() {
+		if s.cfg.RunUser == "" {
+			return
+		}
+		u, err := user.Lookup(s.cfg.RunUser)
+		if err != nil {
+			secdLog.Warn("run user lookup failed , spool files will stay root-owned", "fn", "spoolCred", "user", s.cfg.RunUser, "err", err)
+			return
+		}
+		s.credUID, _ = strconv.Atoi(u.Uid)
+		s.credGID, _ = strconv.Atoi(u.Gid)
+	})
+	return s.credUID, s.credGID
 }
 
 // handleFramesLatest reports the newest taken_at per kind on the box , the app's "where was I". The
@@ -190,7 +210,8 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "frames", "incoming-locations")
-	n, err := spoolBody(dir, r, locationsMaxBytes)
+	uid, gid := s.spoolCred()
+	n, err := spoolBody(dir, r, locationsMaxBytes, uid, gid)
 	if err != nil {
 		secdLog.Warn("location spool failed", "fn", "handleLocations", "dir", dir, "err", err)
 		http.Error(w, "upload failed", http.StatusInsufficientStorage)
@@ -202,7 +223,7 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 
 // spoolBody streams the request body to a fresh .part file in dir, fsyncs, and renames it live. The
 // name is arrival-ordered (nanosecond timestamp) plus random hex so concurrent uploads never collide.
-func spoolBody(dir string, r *http.Request, maxBytes int64) (int64, error) {
+func spoolBody(dir string, r *http.Request, maxBytes int64, uid, gid int) (int64, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return 0, fmt.Errorf("create spool dir: %w", err)
 	}
@@ -246,8 +267,19 @@ func spoolBody(dir string, r *http.Request, maxBytes int64) (int64, error) {
 		_ = os.Remove(part)
 		return 0, fmt.Errorf("close: %w", err)
 	}
-	if err := os.Rename(part, filepath.Join(dir, name)); err != nil { // the commit
+	final := filepath.Join(dir, name)
+	if err := os.Rename(part, final); err != nil { // the commit
 		return 0, fmt.Errorf("commit rename: %w", err)
+	}
+	// Hand the file to the run user AT COMMIT. secd runs as ROOT; without this every spool file lands
+	// root:root 0640 and framed (the run user) cannot read a single one , the drain then retries the
+	// whole backlog every tick, flooding its log while archiving nothing (observed: 35GB stuck, 7.3GB
+	// of permission-denied lines). Root writes it, the cohort consumes it: ownership crosses here.
+	if uid > 0 {
+		if err := os.Chown(final, uid, gid); err != nil {
+			secdLog.Warn("spool chown failed , framed cannot read this file", "fn", "spoolBody", "path", final, "err", err)
+		}
+		_ = os.Chown(dir, uid, gid)
 	}
 	return n, nil
 }

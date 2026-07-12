@@ -77,8 +77,14 @@ func StartOrder() []string {
 	return out
 }
 
+// ExtraSeeded are non-daemon binaries that also live on the volume and die with the mount. The
+// inference engine is the canonical member: everything except secd belongs on the encrypted volume,
+// and llama-server doubly so , the engine binary reveals what the box runs. Seeded-if-present, never
+// required (a box without inference still archives).
+var ExtraSeeded = []string{"llama-server"}
+
 // SeededBinaries returns every binary name to copy to <mount>/bin at provision , the supervised
-// cohort plus seed-only entries like ghost.watchd.
+// cohort plus seed-only entries like ghost.watchd, plus non-daemon extras (the inference engine).
 func SeededBinaries() []string {
 	var out []string
 	for _, d := range daemonRegistry {
@@ -86,6 +92,7 @@ func SeededBinaries() []string {
 			out = append(out, d.Name)
 		}
 	}
+	out = append(out, ExtraSeeded...)
 	return out
 }
 

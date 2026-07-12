@@ -132,8 +132,54 @@ func (u *unlockService) run(pin string) {
 	} else {
 		u.done = true
 		u.openSlot = slot
+		// The MODEL stage is informational , done is already true, the gate opens, the box archives.
+		// This keeps reporting so the unlock screen (and anything polling) can show the 12B warming
+		// up instead of the model appearing ready-by-silence. oracled owns the actual load; we watch
+		// its health port and mirror the state into the stage map.
+		go u.watchModel(emit)
 	}
 	u.mu.Unlock()
+}
+
+// watchModel mirrors oracled's model-load state into the MODEL unlock stage. Running while loading,
+// Complete when oracled reports healthy, Failed with the detail if oracled never gets there. Bounded:
+// a 12B with mlock takes a couple of minutes; ten is a hard ceiling, not an expectation.
+func (u *unlockService) watchModel(emit func(profile.Progress)) {
+	emit(profile.Progress{Stage: profile.StageModel, State: profile.Running})
+	deadline := time.Now().Add(10 * time.Minute)
+	client := &http.Client{Timeout: 2 * time.Second}
+	lastDetail := "no response from ghost.oracled"
+	for time.Now().Before(deadline) {
+		resp, err := client.Get("http://127.0.0.1:9118/health")
+		if err == nil {
+			var body struct {
+				Code   int    `json:"code"`
+				Detail string `json:"detail"`
+			}
+			derr := json.NewDecoder(resp.Body).Decode(&body)
+			_ = resp.Body.Close()
+			if derr == nil {
+				if body.Code == 0 {
+					emit(profile.Progress{Stage: profile.StageModel, State: profile.Complete})
+					secdLog.Info("model ready", "fn", "watchModel")
+					return
+				}
+				if body.Detail != "" {
+					lastDetail = body.Detail
+				}
+			}
+		}
+		// A lock during the load ends the watch , no stage spam over a volume that is gone.
+		u.mu.Lock()
+		abandoned := u.openSlot == profile.NoSlot
+		u.mu.Unlock()
+		if abandoned {
+			return
+		}
+		time.Sleep(3 * time.Second)
+	}
+	secdLog.Warn("model did not become ready", "fn", "watchModel", "within", "10m", "last", lastDetail)
+	emit(profile.Progress{Stage: profile.StageModel, State: profile.Errored})
 }
 
 // handleUnlockPoll returns the current stage states, the shape the app's UnlockSnapshot.from expects.

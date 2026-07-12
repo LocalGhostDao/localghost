@@ -72,10 +72,17 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 	} else if fi.Size() < 1<<20 {
 		return fmt.Errorf("model file at %s is %d bytes , that is not a model (interrupted download?)", b.cfg.ModelPath, fi.Size())
 	}
-	if _, err := exec.LookPath(b.cfg.BinPath); err != nil {
-		if _, serr := os.Stat(b.cfg.BinPath); serr != nil {
-			return fmt.Errorf("llama-server binary not found at %s , install it or set llamaBin in conf: %w", b.cfg.BinPath, serr)
-		}
+	if bi, err := os.Stat(b.cfg.BinPath); err != nil {
+		return fmt.Errorf("llama-server binary not found at %s , install it or set llamaBin in conf: %w", b.cfg.BinPath, err)
+	} else if bi.Mode().Perm()&0o111 == 0 {
+		// Not just existence: no exec bit at all is a guaranteed fork/exec failure , name the fix.
+		return fmt.Errorf("llama-server at %s is mode %v , not executable (fix: chmod 755 %s)", b.cfg.BinPath, bi.Mode().Perm(), b.cfg.BinPath)
+	} else if bi.Mode().Perm()&0o001 == 0 {
+		// Some exec bits but not world-exec: fine when the owner/group matches this process, fatal
+		// when the binary was installed by a DIFFERENT user (the observed case: installed by the
+		// operator's account, run as the service user , stats fine, fork/exec dies with a bare
+		// "permission denied"). Warn with the likely fix and let fork/exec be the final judge.
+		slog.Warn("llama-server has no world-exec bit , if start fails with permission denied, chmod 755 it", "fn", "Start", "path", b.cfg.BinPath, "mode", bi.Mode().Perm().String())
 	}
 	args := []string{
 		"-m", b.cfg.ModelPath,

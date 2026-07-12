@@ -111,6 +111,7 @@ func (p *Pipeline) DrainIncoming() int {
 	// Oldest first so the archive order matches arrival order.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	done := 0
+	failed := 0
 	daysTouched := map[string]bool{}
 	for _, e := range entries {
 		if e.IsDir() {
@@ -130,14 +131,24 @@ func (p *Pipeline) DrainIncoming() int {
 		}
 		day, err := p.processOne(filepath.Join(p.dirs.Incoming, e.Name()))
 		if err != nil {
-			p.log.Warn("process failed, leaving in incoming for retry", "fn", "DrainIncoming",
-				"file", e.Name(), "err", err)
+			// Rate-limit failure logging: with a large stuck backlog (e.g. a systemic permission
+			// problem across thousands of files), one line per file per tick wrote GIGABYTES of
+			// identical warnings. First few get detail; the rest become one summary line below.
+			failed++
+			if failed <= 3 {
+				p.log.Warn("process failed, leaving in incoming for retry", "fn", "DrainIncoming",
+					"file", e.Name(), "err", err)
+			}
 			continue
 		}
 		if day != "" {
 			daysTouched[day] = true
 		}
 		done++
+	}
+	if failed > 3 {
+		p.log.Warn("drain failures suppressed", "fn", "DrainIncoming", "failedTotal", failed,
+			"note", "first 3 logged in detail; same root cause likely for all")
 	}
 	for day := range daysTouched {
 		p.RebuildDay(day)
@@ -350,6 +361,7 @@ func (p *Pipeline) DrainLocations() int {
 		return 0
 	}
 	done := 0
+	failed := 0
 	daysTouched := map[string]bool{}
 	for _, e := range entries {
 		if e.IsDir() || strings.HasSuffix(e.Name(), ".part") {
