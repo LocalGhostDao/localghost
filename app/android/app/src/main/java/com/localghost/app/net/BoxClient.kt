@@ -266,6 +266,21 @@ object BoxClient {
             emit(ChatChunk.Done)
             return@flow
         }
+        // TRANSPARENCY: the box tells us exactly what context it injected and why , show it before
+        // the answer, the way the old stub faked it, except now every line is real. Empty array =
+        // the model answered from its own knowledge alone, and we say nothing rather than pretend.
+        val ctxArr = resp.optJSONArray("context")
+        if (ctxArr != null && ctxArr.length() > 0) {
+            val memories = (0 until ctxArr.length()).mapNotNull { i ->
+                val o = ctxArr.optJSONObject(i) ?: return@mapNotNull null
+                val when_ = o.optString("when", "")
+                val src = o.optString("source", "archive")
+                val snip = o.optString("snippet", "")
+                if (snip.isBlank()) null
+                else (if (when_.isNotBlank()) "$when_ , " else "") + "$src: $snip"
+            }
+            if (memories.isNotEmpty()) emit(ChatChunk.Memories(memories))
+        }
         val out = resp.optString("output", "")
         if (out.isBlank()) {
             emit(ChatChunk.Token("The model returned nothing , check Box Status for ghost.oracled."))

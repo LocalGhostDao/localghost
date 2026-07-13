@@ -143,9 +143,10 @@ func main() {
 			// chat answers become grounded in the archive with no further change here or above.
 			// Retrieval is time-boxed and failure is SILENT-but-logged: a slow or dead searchd must
 			// never stall or fail a chat that the model alone could answer.
+			items := gatherContext(runDir, q.Prompt)
 			input := q.Prompt
-			if ctxBlock := retrieveContext(runDir, q.Prompt); ctxBlock != "" {
-				input = ctxBlock + "\n\nUsing the context above only where it is actually relevant, answer:\n" + q.Prompt
+			if block := formatContext(items); block != "" {
+				input = block + "\n\nUsing the context above only where it is actually relevant, answer:\n" + q.Prompt
 			}
 			resp, err := oc.Infer(oracle.Request{
 				Capability: "chat",
@@ -157,7 +158,11 @@ func main() {
 			if err != nil {
 				return ctlsock.Response{}, err
 			}
-			data, _ := json.Marshal(resp)
+			// TRANSPARENCY PROTOCOL: the reply carries exactly what was injected and why, so the app
+			// can show "answered using these memories" instead of the grounding being invisible. The
+			// context array is EMPTY (not absent) when nothing was injected , the app can rely on
+			// the field existing. secd passes this JSON through untouched.
+			data, _ := json.Marshal(chatReply{Output: resp.Output, Model: resp.Model, Context: items})
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
 		// index-stats: operator view of the corpus (empty today).
@@ -188,54 +193,139 @@ func envPort(key string) int {
 	return 0
 }
 
-// retrieveContext asks ghost.searchd for archive material matching the prompt and formats it as a
-// dated context block. Empty string when there is nothing (empty index, searchd down, timeout) , the
-// chat then proceeds exactly as a bare passthrough. 3s budget: retrieval must never hold a person's
-// question hostage. Capped small: six snippets is grounding, sixty is noise.
-func retrieveContext(runDir, prompt string) string {
-	c := ctlsock.NewClientTimeout("ghost.searchd", runDir, 3*time.Second)
-	resp, err := c.Call("search", map[string]any{"query": prompt, "limit": 6})
-	if err != nil {
-		slog.Debug("context retrieval unavailable, chat proceeds bare", "fn", "retrieveContext", "err", err)
-		return ""
+// --- context injection , sources, protocol, formatting ---------------------------------------
+//
+// A context SOURCE inspects the prompt and returns candidate items. Sources are consulted in order
+// with one shared time budget; empty answers are normal. PLACEHOLDERS below mark the planned ones ,
+// each lands as a function, gets appended to contextSources, and both the injection and the
+// transparency protocol pick it up with no other change.
+
+// ctxItem is one injected piece of context AND its transparency record , the same struct feeds the
+// model's prompt block and the app's "what I used and why" display, so they can never disagree.
+type ctxItem struct {
+	When    string  `json:"when,omitempty"`   // "2026-04-12" , the item's own date, not today's
+	Source  string  `json:"source"`           // "image", "note", "chat", "location"
+	Snippet string  `json:"snippet"`          // what the model actually saw (truncated, sanitised)
+	Why     string  `json:"why"`              // human-readable reason it was selected
+	Score   float64 `json:"score,omitempty"`  // retrieval score when the source has one
+}
+
+// chatReply is the chat command's wire shape: the answer plus the transparency record.
+type chatReply struct {
+	Output  string    `json:"output"`
+	Model   string    `json:"model,omitempty"`
+	Context []ctxItem `json:"context"`
+}
+
+type contextSource func(runDir, prompt string) []ctxItem
+
+var contextSources = []contextSource{
+	searchdSource,
+	// PLACEHOLDER recentChatsSource: last N turns of this conversation (needs chat storage first ,
+	//   see docs/context-injection-design.md phase 3).
+	// PLACEHOLDER locationDaySource: "where was I on <date>" prompts answered from framed's day
+	//   GeoJSON , cheap, no model, high precision for a narrow question class.
+	// PLACEHOLDER calendarish sources as noted/voiced start producing text.
+}
+
+// gatherContext runs the sources under one budget and caps the total. Order matters: earlier
+// sources get first claim on the cap.
+func gatherContext(runDir, prompt string) []ctxItem {
+	const maxItems = 6
+	var out []ctxItem
+	for _, src := range contextSources {
+		if len(out) >= maxItems {
+			break
+		}
+		for _, it := range src(runDir, prompt) {
+			if it.Snippet == "" {
+				continue
+			}
+			out = append(out, sanitize(it))
+			if len(out) >= maxItems {
+				break
+			}
+		}
 	}
-	var results []struct {
-		Label      string   `json:"label"`
-		CapturedAt int64    `json:"capturedAt"`
-		Snippets   []string `json:"snippets"`
-		OrigSource string   `json:"origSource"`
+	if len(out) > 0 {
+		slog.Info("context injected into chat", "fn", "gatherContext", "items", len(out))
 	}
-	if err := json.Unmarshal(resp.Data, &results); err != nil || len(results) == 0 {
+	if out == nil {
+		out = []ctxItem{} // protocol: empty, never absent
+	}
+	return out
+}
+
+// sanitize bounds what a stored chunk can do to the prompt: length-capped, newlines flattened , a
+// pathological caption must not be able to spend the token budget or fake structure in the block.
+func sanitize(it ctxItem) ctxItem {
+	s := strings.ReplaceAll(it.Snippet, "\n", " ")
+	if len(s) > 240 {
+		s = s[:240] + "…"
+	}
+	it.Snippet = s
+	return it
+}
+
+func formatContext(items []ctxItem) string {
+	if len(items) == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("Context from the user's personal archive (retrieved automatically, may be irrelevant):")
-	n := 0
+	for _, it := range items {
+		when := ""
+		if it.When != "" {
+			when = it.When + ", "
+		}
+		b.WriteString("\n- [" + when + it.Source + "] " + it.Snippet)
+	}
+	return b.String()
+}
+
+// searchdSource , the archive index via ghost.searchd. 3s budget: retrieval must never hold a
+// person's question hostage; on any failure the chat proceeds bare, logged at debug.
+func searchdSource(runDir, prompt string) []ctxItem {
+	c := ctlsock.NewClientTimeout("ghost.searchd", runDir, 3*time.Second)
+	resp, err := c.Call("search", map[string]any{"query": prompt, "limit": 6})
+	if err != nil {
+		slog.Debug("searchd unavailable, chat proceeds bare", "fn", "searchdSource", "err", err)
+		return nil
+	}
+	var results []struct {
+		Label      string   `json:"label"`
+		CapturedAt int64    `json:"capturedAt"`
+		Score      float64  `json:"score"`
+		Snippets   []string `json:"snippets"`
+		OrigSource string   `json:"origSource"`
+	}
+	if err := json.Unmarshal(resp.Data, &results); err != nil {
+		return nil
+	}
+	var out []ctxItem
 	for _, r := range results {
-		line := r.Label
+		text := r.Label
 		for _, sn := range r.Snippets {
 			if sn != "" {
-				line = sn
+				text = sn
 				break
 			}
 		}
-		if line == "" {
+		if text == "" {
 			continue
-		}
-		when := ""
-		if r.CapturedAt > 0 {
-			when = time.Unix(r.CapturedAt, 0).UTC().Format("2006-01-02") + ", "
 		}
 		src := r.OrigSource
 		if src == "" {
 			src = "archive"
 		}
-		b.WriteString("\n- [" + when + src + "] " + line)
-		n++
+		when := ""
+		if r.CapturedAt > 0 {
+			when = time.Unix(r.CapturedAt, 0).UTC().Format("2006-01-02")
+		}
+		out = append(out, ctxItem{
+			When: when, Source: src, Snippet: text, Score: r.Score,
+			Why: "matched your question in the archive index",
+		})
 	}
-	if n == 0 {
-		return ""
-	}
-	slog.Info("context injected into chat", "fn", "retrieveContext", "snippets", n)
-	return b.String()
+	return out
 }

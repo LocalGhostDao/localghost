@@ -88,6 +88,10 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 		"-m", b.cfg.ModelPath,
 		"--host", "127.0.0.1",
 		"--port", strconv.Itoa(b.cfg.Port),
+		// The embedded web chat UI is OFF unconditionally , hardcoded, not conf. This box's only
+		// chat surface is the app through secd's authenticated edge; a browser UI on the loopback
+		// would be an unauthenticated second door for anything that can reach localhost.
+		"--no-webui",
 	}
 	if b.cfg.MmprojPath != "" {
 		// Optional: a configured-but-missing projector degrades to TEXT-ONLY with a loud warning

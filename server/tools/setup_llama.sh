@@ -53,7 +53,10 @@ if [ ! -x "$LLAMA_DIR/build/bin/llama-server" ]; then
     # STATIC single-binary CPU build. Static matters: the binary is seeded onto the ENCRYPTED VOLUME
     # (<mount>/bin/llama-server , everything except secd lives there and dies with the mount), and a
     # dynamic build would need its .so files carried along. -DGGML_NATIVE=ON tunes to THIS machine.
-    cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" -DGGML_NATIVE=ON -DBUILD_SHARED_LIBS=OFF         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
+    # LLAMA_SERVER_WEBUI=OFF trims the embedded browser chat UI where the option exists (cmake
+    # ignores unknown -D vars, so this is safe across versions). Belt and braces: oracled ALSO
+    # passes --no-webui at runtime unconditionally , this box's only chat surface is the app.
+    cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" -DGGML_NATIVE=ON -DBUILD_SHARED_LIBS=OFF -DLLAMA_SERVER_WEBUI=OFF         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
     cmake --build "$LLAMA_DIR/build" --target llama-server -j"$(nproc)"
 else
     echo "-- llama-server already built, skipping (delete $LLAMA_DIR/build to force rebuild)"
