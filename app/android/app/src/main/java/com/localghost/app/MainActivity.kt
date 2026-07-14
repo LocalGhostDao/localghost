@@ -364,7 +364,19 @@ class MainActivity : ComponentActivity() {
     private suspend fun generateFromBox(text: String, atts: List<Attachment>) {
         var reply = ""
         var mems: List<String> = emptyList()
-        BoxClient.chat(incognito = incognitoState, chatId = if (incognitoState) 0L else currentChatId, messages.toList(), text, activeConvId, atts, chatCaps).collect { chunk ->
+        // First image attachment rides the stream as base64 , the box's projector (the same one
+        // captioning the archive) answers questions about what it sees. One image for now; the
+        // multimodal template takes one cleanly, a gallery takes protocol work.
+        val imageB64 = atts.firstOrNull { it.kind == com.localghost.app.chat.Attachment.Kind.IMAGE }?.let { att ->
+            try {
+                contentResolver.openInputStream(att.uri)?.use { input ->
+                    android.util.Base64.encodeToString(input.readBytes(), android.util.Base64.NO_WRAP)
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("LocalGhost", "attachment read failed: ${e.message}"); null
+            }
+        } ?: ""
+        BoxClient.chat(incognito = incognitoState, chatId = if (incognitoState) 0L else currentChatId, messages.toList(), text, activeConvId, atts, chatCaps, imageB64 = imageB64).collect { chunk ->
             when (chunk) {
                 is BoxClient.ChatChunk.Memories -> mems = chunk.ids
                 is BoxClient.ChatChunk.ChatId -> currentChatId = chunk.id

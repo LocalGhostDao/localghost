@@ -197,12 +197,13 @@ func main() {
 		var q struct {
 			Prompt string `json:"prompt"`
 			Think  string `json:"think"`
+			Image  string `json:"image,omitempty"` // base64 jpeg/png , flows to llama as a data URI
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		out, model, err := llama.StreamChat(r.Context(), q.Prompt, q.Think)
+		out, model, err := llama.StreamChat(r.Context(), q.Prompt, q.Think, q.Image)
 		if err != nil {
 			lg.Warn("chat stream start failed", "fn", "chat", "err", err)
 			http.Error(w, err.Error(), http.StatusBadGateway)

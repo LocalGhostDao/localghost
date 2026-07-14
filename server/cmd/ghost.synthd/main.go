@@ -162,6 +162,7 @@ func main() {
 			Think     string `json:"think"`
 			Incognito bool   `json:"incognito"`
 			ChatID    int64  `json:"chatId"`
+			Image     string `json:"image,omitempty"`
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -172,7 +173,7 @@ func main() {
 		if block := formatContext(items); block != "" {
 			input = block + "\n\nUsing the context above only where it is actually relevant, answer:\n" + q.Prompt
 		}
-		body, _ := json.Marshal(map[string]string{"prompt": input, "think": q.Think})
+		body, _ := json.Marshal(map[string]string{"prompt": input, "think": q.Think, "image": q.Image})
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
 			"http://ghost/chat", bytes.NewReader(body))
 		if err != nil {
@@ -206,7 +207,17 @@ func main() {
 		mount := filepath.Dir(runDir)
 		chatID := q.ChatID
 		if !q.Incognito {
-			chatID = chatPersist(mount, chatID, "user", q.Prompt)
+			// BOUNDED: persistence is a feature, the stream is the product. A slow or wedged DB
+			// connect must not hold a person's question , 800ms and we stream without it (logged;
+			// that conversation just does not persist).
+			persisted := make(chan int64, 1)
+			go func() { persisted <- chatPersist(mount, chatID, "user", q.Prompt) }()
+			select {
+			case id := <-persisted:
+				chatID = id
+			case <-time.After(800 * time.Millisecond):
+				lg.Warn("chat persist slow, streaming without it", "fn", "chat")
+			}
 		}
 		var answer strings.Builder
 		sc := bufio.NewScanner(resp.Body)
@@ -224,8 +235,14 @@ func main() {
 						answer.WriteString(tok.T)
 					}
 					if tok.Done {
-						if !q.Incognito {
-							chatID = chatPersist(mount, chatID, "assistant", answer.String())
+						if !q.Incognito && chatID != 0 {
+							// Fire and forget , the done event must not wait on the DB. chatID != 0
+							// guard: if the user-message persist failed or timed out, appending the
+							// assistant alone would CREATE a chat titled by the answer , worse than
+							// losing one exchange.
+							cid := chatID
+							text := answer.String()
+							go func() { chatPersist(mount, cid, "assistant", text) }()
 						}
 						var doneEv map[string]any
 						if err := json.Unmarshal([]byte(payload), &doneEv); err != nil || doneEv == nil {

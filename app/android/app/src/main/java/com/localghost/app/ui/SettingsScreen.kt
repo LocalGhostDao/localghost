@@ -16,6 +16,7 @@ import com.localghost.app.ui.theme.*
 
 @Composable
 fun SettingsScreen(
+    onOpenVerify: () -> Unit = {},
     allowMobileSync: Boolean,
     onToggleMobileSync: (Boolean) -> Unit,
     thinkLevel: String = "",
@@ -96,6 +97,15 @@ fun SettingsScreen(
         Spacer(Modifier.height(4.dp))
         Text("Spins the box down: stops the databases, unmounts the drive, and drops the key from " +
              "memory. The box goes dark until you enter your PIN again. Your data is untouched.",
+             color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+
+        Spacer(Modifier.height(20.dp))
+        SectionLabel("TRUST")
+        Spacer(Modifier.height(8.dp))
+        GhostButton("VERIFY BUILD ✓", onOpenVerify, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(4.dp))
+        Text("Checks that what the box is running matches the public source. An audit action, not " +
+             "a daily one , which is why it lives here instead of taking a menu slot.",
              color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
 
         Spacer(Modifier.height(20.dp))

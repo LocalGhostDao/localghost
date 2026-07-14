@@ -11,4 +11,8 @@ type ServiceStatus struct {
 	Restarts int    `json:"restarts"`
 	LastErr  string `json:"lastErr,omitempty"`
 	Code     uint8  `json:"code"`
+	// Live health, fetched from the daemon's own /health at status time. watchd says whether the
+	// process RUNS; the daemon itself says whether it is WELL ("model loading", "backlog: 2314
+	// frames", "pg unreachable"). Both truths belong on the status screen.
+	Detail string `json:"detail,omitempty"`
 }

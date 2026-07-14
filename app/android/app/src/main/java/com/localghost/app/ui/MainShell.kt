@@ -157,10 +157,11 @@ fun MainShell(
                 Box(Modifier.weight(1f).fillMaxWidth()
                     .padding(bottom = pad.calculateBottomPadding())) {
                     when (dest) {
-                        Dest.CHAT -> ChatScreen(incognito = incognito, onToggleIncognito = onToggleIncognito, messages, streaming, localModeActive, pendingAttachments,
+                        Dest.CHAT -> ChatScreen(messages, streaming, localModeActive, pendingAttachments,
                             onSend, onStopChat, { showAddSheet = true }, onClearAttachment,
                             brainLabel, brainIsBox, phoneModels, onPickBox, onPickPhoneModel,
-                            { dest = Dest.MODELS })
+                            { dest = Dest.MODELS },
+                            incognito = incognito, onToggleIncognito = onToggleIncognito)
                         Dest.CHATS -> ChatsScreen(conversations, activeConvId,
                             onSelect = { onSelectConversation(it); dest = Dest.CHAT },
                             onNew = { onNewConversation(); dest = Dest.CHAT },
@@ -182,6 +183,7 @@ fun MainShell(
                         Dest.GALLERY -> GalleryScreen()
                         Dest.CODES -> PinManagementScreen(devices)
                         Dest.SETTINGS -> SettingsScreen(
+                            onOpenVerify = { dest = Dest.VERIFY },
                             allowMobileSync = allowMobileSync,
                             onToggleMobileSync = onToggleMobileSync,
                             thinkLevel = thinkLevel,
@@ -313,9 +315,13 @@ private fun DrawerPanel(
             }
 
             Spacer(Modifier.height(28.dp))
-            listOf(Dest.CHAT, Dest.CHATS, Dest.MEMORIES, Dest.HARNESS, Dest.NOTIFICATIONS, Dest.SYNC, Dest.GALLERY, Dest.CODES).forEach {
-                DrawerRow(it, it == current) { onSelect(it) }
-            }
+            // The menu grew a destination at a time until fourteen flat rows made nothing findable.
+            // Organised by what the person is THINKING about, not by which daemon serves it:
+            //   CHAT , the product, first and alone (recent conversations live right under it)
+            //   YOUR ARCHIVE , the life being kept: pictures, memories, and the pipe feeding them
+            //   THE BOX , the machine: status, models, notifications, pairing and verification
+            //   the app-level tail (settings, glossary, about) stays below the divider as before
+            DrawerRow(Dest.CHAT, Dest.CHAT == current) { onSelect(Dest.CHAT) }
 
             if (conversations.isNotEmpty()) {
                 Spacer(Modifier.height(20.dp))
@@ -327,7 +333,11 @@ private fun DrawerPanel(
                         modifier = Modifier.clickable { onNewConversation() })
                 }
                 Spacer(Modifier.height(8.dp))
-                conversations.take(5).forEach { c ->
+                // Quick-switching lives HERE, not on the chats screen: 5 recents keep the drawer
+                // tight, "view more" doubles it in place for the deep-switch days, and only past
+                // ten do you leave the drawer at all.
+                var showMoreChats by remember { mutableStateOf(false) }
+                conversations.take(if (showMoreChats) 10 else 5).forEach { c ->
                     Row(Modifier.fillMaxWidth()
                         .clickable { onSelectConversation(c.id); onSelect(Dest.CHAT) }
                         .padding(vertical = 8.dp),
@@ -344,21 +354,45 @@ private fun DrawerPanel(
                     }
                 }
                 Spacer(Modifier.height(4.dp))
-                Text("see all chats →", color = TerminalDim,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable { onSelect(Dest.CHATS) }.padding(vertical = 4.dp))
+                if (!showMoreChats && conversations.size > 5) {
+                    Text("view more ▾", color = TerminalDim,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.clickable { showMoreChats = true }.padding(vertical = 4.dp))
+                } else if (showMoreChats || conversations.size > 10) {
+                    Text("see all chats →", color = TerminalDim,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.clickable { onSelect(Dest.CHATS) }.padding(vertical = 4.dp))
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("YOUR ARCHIVE")
+            listOf(Dest.GALLERY, Dest.MEMORIES, Dest.SYNC).forEach {
+                DrawerRow(it, it == current) { onSelect(it) }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            SectionLabel("THE BOX")
+            listOf(Dest.HARNESS, Dest.MODELS, Dest.NOTIFICATIONS, Dest.CONNECTORS, Dest.CODES).forEach {
+                DrawerRow(it, it == current) { onSelect(it) }
             }
 
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = GhostBorder)
             Spacer(Modifier.height(16.dp))
 
-            listOf(Dest.SETTINGS, Dest.CONNECTORS, Dest.MODELS, Dest.GLOSSARY, Dest.ABOUT, Dest.VERIFY).forEach {
+            listOf(Dest.SETTINGS, Dest.GLOSSARY, Dest.ABOUT).forEach {
                 DrawerRow(it, it == current) { onSelect(it) }
             }
             DrawerRowRaw(glyph = "⏻", label = "LOCK", selected = false, onClick = onLock)
         }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, color = TerminalDim, style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.padding(bottom = 6.dp))
 }
 
 @Composable

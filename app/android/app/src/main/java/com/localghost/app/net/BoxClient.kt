@@ -251,6 +251,7 @@ object BoxClient {
         @Suppress("UNUSED_PARAMETER") convId: String?,
         @Suppress("UNUSED_PARAMETER") attachments: List<Attachment> = emptyList(),
         @Suppress("UNUSED_PARAMETER") caps: ChatCapabilities = ChatCapabilities(),
+        imageB64: String = "",
     ): Flow<ChatChunk> = kotlinx.coroutines.flow.channelFlow {
         // REAL STREAMING end-to-end: app -> secd -> ghost.synthd (context injection + transparency)
         // -> ghost.oracled -> llama-server, tokens flowing back as they generate. Event protocol,
@@ -262,7 +263,8 @@ object BoxClient {
         try {
             BoxHttp.postStreamLines(ctx, "/v1/chat",
                 org.json.JSONObject().put("prompt", prompt).put("think", think)
-                    .put("incognito", incognito).put("chatId", chatId)) { line ->
+                    .put("incognito", incognito).put("chatId", chatId)
+                    .apply { if (imageB64.isNotBlank()) put("imageB64", imageB64) }) { line ->
                 if (!line.startsWith("data: ")) return@postStreamLines true
                 val o = try { org.json.JSONObject(line.removePrefix("data: ")) } catch (_: Exception) { return@postStreamLines true }
                 when {
@@ -360,13 +362,98 @@ object BoxClient {
             val state = s.optString("state", "")           // up / restarting / backoff / down
             val restarts = s.optInt("restarts", 0)
             val lastErr = s.optString("lastErr", "")
+            val liveDetail = s.optString("detail", "")
             out.add(
                 DaemonStatus(
                     id = name,
                     role = daemonRoles[name] ?: name,
                     state = mapDaemonState(code, state),
-                    detail = daemonDetail(code, restarts, lastErr),
+                    detail = listOf(liveDetail, daemonDetail(code, restarts, lastErr))
+                        .filter { it.isNotBlank() }.joinToString(" · "),
                     lastRun = "",   // watchd sample time will fill this once watchd writes metrics
+                )
+            )
+        }
+        // Datastores ride the same list. These are LIVE probes from the box (SELECT 1 / PING), so a
+        // Postgres that is wedged-but-running shows FAILED here with the actual error text , the
+        // named visibility that was previously only mystery query errors three screens away.
+        resp.optJSONObject("host")?.let { h ->
+            val cores = h.optInt("cores", 0)
+            val load1 = h.optDouble("load1", -1.0)
+            if (load1 >= 0 && cores > 0) out.add(DaemonStatus(
+                id = "cpu",
+                role = "load average vs $cores cores",
+                state = if (load1 > cores) DaemonStatus.State.ERROR else DaemonStatus.State.WORKING,
+                detail = "load %.1f / %d".format(load1, cores) + if (load1 > cores) " , saturated" else "",
+                lastRun = "",
+            ))
+            val memT = h.optDouble("memTotalGB", -1.0)
+            val memU = h.optDouble("memUsedGB", -1.0)
+            if (memT > 0 && memU >= 0) out.add(DaemonStatus(
+                id = "memory",
+                role = "system RAM",
+                state = if (memU / memT > 0.92) DaemonStatus.State.ERROR else DaemonStatus.State.WORKING,
+                detail = "%.1f GB used of %.1f".format(memU, memT),
+                lastRun = "",
+            ))
+            val gpu = h.optJSONObject("gpu")
+            if (gpu != null) {
+                val vu = gpu.optDouble("vramUsedGB", 0.0)
+                val vt = gpu.optDouble("vramTotalGB", 0.0)
+                val util = gpu.optDouble("util", 0.0)
+                out.add(DaemonStatus(
+                    id = "gpu",
+                    role = "the model's silicon",
+                    state = if (vt > 0 && vu / vt > 0.97) DaemonStatus.State.ERROR else DaemonStatus.State.WORKING,
+                    detail = "%.1f/%.1f GB VRAM · %d%% busy".format(vu, vt, util.toInt()),
+                    lastRun = "",
+                ))
+            } else {
+                // Absent means not visible , driver missing or exec failed , which on a box that
+                // SHOULD have a 4070 is itself a red flag worth a row, not silence.
+                out.add(DaemonStatus(
+                    id = "gpu",
+                    role = "the model's silicon",
+                    state = DaemonStatus.State.ERROR,
+                    detail = "not visible (driver? nvidia-smi missing?) , model likely on CPU",
+                    lastRun = "",
+                ))
+            }
+            val rootFree = h.optDouble("rootFreeGB", -1.0)
+            if (rootFree >= 0) out.add(DaemonStatus(
+                id = "system disk",
+                role = "the OS partition (/var lives here , logs die when it fills)",
+                state = if (rootFree < 2.0) DaemonStatus.State.ERROR else DaemonStatus.State.WORKING,
+                detail = "%.1f GB free".format(rootFree) + if (rootFree < 2.0) " , CRITICALLY LOW" else "",
+                lastRun = "",
+            ))
+        }
+        resp.optJSONObject("volume")?.let { v ->
+            val free = v.optDouble("freeGB", -1.0)
+            val total = v.optDouble("totalGB", -1.0)
+            if (free >= 0 && total > 0) out.add(
+                DaemonStatus(
+                    id = "volume",
+                    role = "the encrypted ground everything stands on",
+                    state = if (free < 2.0) DaemonStatus.State.ERROR else DaemonStatus.State.WORKING,
+                    detail = "%.1f GB free of %.1f".format(free, total) + if (free < 2.0) " , CRITICALLY LOW" else "",
+                    lastRun = "",
+                )
+            )
+        }
+        val stores = resp.optJSONArray("datastores")
+        if (stores != null) for (i in 0 until stores.length()) {
+            val d = stores.getJSONObject(i)
+            val name = d.optString("name")
+            val failed = d.optString("state") != "ok"
+            out.add(
+                DaemonStatus(
+                    id = name,
+                    role = if (name == "postgres") "the durable memory (frames, chats, cursors)"
+                           else "the fast memory (mirrors, queues)",
+                    state = if (failed) DaemonStatus.State.ERROR else DaemonStatus.State.WORKING,
+                    detail = if (failed) d.optString("detail", "unreachable") else "answering",
+                    lastRun = "",
                 )
             )
         }
@@ -488,6 +575,34 @@ object BoxClient {
     } catch (e: Exception) {
         android.util.Log.w("LocalGhost", "frames/list failed: ${e.message}")
         emptyList()
+    }
+
+    /** One tracked target's ring buffers: 10s samples (~100 min), minute samples (24h), day blob.
+     *  Series come newest-first as stored; the charts reverse for left-to-right time. */
+    data class StatPoint(val t: Long, val c: Int, val v: Double)
+    data class ServiceStats(val s10: List<StatPoint>, val s1m: List<StatPoint>, val day: String)
+    suspend fun serviceStats(ctx: Context, name: String): ServiceStats? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/services/detail?name=" + java.net.URLEncoder.encode(name, "UTF-8"))
+        fun arr(key: String): List<StatPoint> {
+            val a = r.optJSONArray(key) ?: return emptyList()
+            return (0 until a.length()).mapNotNull { i ->
+                val o = a.optJSONObject(i) ?: return@mapNotNull null
+                StatPoint(o.optLong("t"), o.optInt("c"), o.optDouble("v", 0.0))
+            }
+        }
+        val day = r.optJSONObject("day")?.let { d ->
+            buildString {
+                val up = d.optDouble("uptimePct", -1.0)
+                if (up >= 0) append("uptime %.1f%%".format(up))
+                val avg = d.optDouble("avgV", Double.NaN)
+                if (!avg.isNaN()) append("  ·  avg %.2f".format(avg))
+                val worst = d.optString("worstDetail", "")
+                if (worst.isNotBlank()) append("\nworst: $worst")
+            }
+        } ?: "(24h averages compute after 30 min of samples)"
+        ServiceStats(arr("s10"), arr("s1m"), day)
+    } catch (e: Exception) {
+        android.util.Log.w("LocalGhost", "service stats failed: ${e.message}"); null
     }
 
     /** A user tag correction. Removes become TOMBSTONES on the box , the model can never re-propose

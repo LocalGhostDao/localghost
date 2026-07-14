@@ -107,3 +107,19 @@ func RequiredBinaries() map[string]bool {
 	}
 	return req
 }
+
+// StatsTargets is the canonical set of observability targets , every name the SYSTEM HEALTH
+// sampler (ghost.watchd) writes ring buffers for, and the exact set secd's /v1/services/* endpoints
+// will answer about. One list, two consumers, no drift.
+func StatsTargets() map[string]bool {
+	names := map[string]bool{
+		"postgres": true, "redis": true,
+		"host.cpu": true, "host.mem": true, "host.gpu": true, "host.disk": true, "volume": true,
+	}
+	for name, port := range SupervisedDaemons() {
+		if port != 0 {
+			names[name] = true
+		}
+	}
+	return names
+}

@@ -56,7 +56,19 @@ if [ ! -x "$LLAMA_DIR/build/bin/llama-server" ]; then
     # LLAMA_SERVER_WEBUI=OFF trims the embedded browser chat UI where the option exists (cmake
     # ignores unknown -D vars, so this is safe across versions). Belt and braces: oracled ALSO
     # passes --no-webui at runtime unconditionally , this box's only chat surface is the app.
-    cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" -DGGML_NATIVE=ON -DBUILD_SHARED_LIBS=OFF -DLLAMA_SERVER_WEBUI=OFF         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
+    # GPU BUILD. The box carries an RTX 4070 (12GB, Ada = SM 8.9); building without -DGGML_CUDA=ON
+    # produces a CPU-only llama-server that runs a 12B at single-digit tokens/s while the GPU idles ,
+    # which is exactly the bug this line fixes (the first static build here made that mistake).
+    # Preflight nvcc: no CUDA toolkit = loud CPU-only warning, not a cryptic cmake failure.
+    CUDA_FLAGS=""
+    if command -v nvcc >/dev/null 2>&1; then
+        CUDA_FLAGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89"
+        echo "[setup_llama] nvcc found , building WITH CUDA (SM 8.9 for the 4070)"
+    else
+        echo "[setup_llama] WARNING: nvcc not found , building CPU-ONLY. A 12B on CPU is ~5 tok/s."
+        echo "[setup_llama]          install cuda-toolkit and rerun for the GPU build."
+    fi
+    cmake -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" -DGGML_NATIVE=ON -DBUILD_SHARED_LIBS=OFF -DLLAMA_SERVER_WEBUI=OFF $CUDA_FLAGS         -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON
     cmake --build "$LLAMA_DIR/build" --target llama-server -j"$(nproc)"
 else
     echo "-- llama-server already built, skipping (delete $LLAMA_DIR/build to force rebuild)"

@@ -167,6 +167,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/frames/exists", s.handleFramesExists) // pre-upload dedup by content hash
 	mux.HandleFunc("/v1/sync/cursor", s.handleSyncCursor)     // device sync position, survives reinstall
 	mux.HandleFunc("/v1/frames/tag", s.handleFrameTag)        // user tag corrections (tombstoned removes)
+	mux.HandleFunc("/v1/services/summary", s.handleServicesSummary) // latest sample + 24h blob per target
+	mux.HandleFunc("/v1/services/detail", s.handleServiceDetail)    // ring buffers for one target (sparklines)
 	mux.HandleFunc("/v1/chat", s.handleChat)                  // ask the box's model (via synthd's retrieval seam)
 	mux.HandleFunc("/v1/locations", s.handleLocations)
 	mux.HandleFunc("/v1/models", s.handleModels)

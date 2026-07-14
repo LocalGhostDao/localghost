@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/LocalGhostDao/localghost/server/internal/streamsock"
@@ -37,8 +38,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Prompt string `json:"prompt"`
 		Think  string `json:"think"`
+		// Optional base64 image (jpeg/png). Capped: a data URI of a full camera frame is ~12MB of
+		// base64, and anything larger is someone probing, not chatting.
+		ImageB64 string `json:"imageB64,omitempty"`
+		// Persistence controls. FOUND MISSING in review: the app sent these, this struct did not
+		// parse them, and the forward silently dropped them , incognito was decorative and every
+		// message opened a NEW chat because synthd always saw chatId 0. The edge must forward the
+		// whole conversation contract, not just the words.
+		Incognito bool  `json:"incognito"`
+		ChatID    int64 `json:"chatId"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Prompt == "" {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil || req.Prompt == "" {
 		s.appearsDown(w)
 		return
 	}
@@ -46,7 +56,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// app. secd adds authentication and appears-down; it does not touch the events. Cancellation
 	// flows: app hangs up -> this request context cancels -> synthd -> oracled -> llama stops
 	// generating, so an abandoned question stops burning CPU.
-	body, _ := json.Marshal(map[string]string{"prompt": req.Prompt, "think": req.Think})
+	body, _ := json.Marshal(map[string]any{
+		"prompt": req.Prompt, "think": req.Think, "image": req.ImageB64,
+		"incognito": req.Incognito, "chatId": req.ChatID,
+	})
 	runDir := fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)
 	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
 		"http://ghost/chat", bytes.NewReader(body))
@@ -71,6 +84,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	fl, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
+	// NGINX FRONTS THIS. nginx buffers proxied responses by default, which turns a token stream
+	// into wait-forever-then-everything-at-once , the model was streaming fine, the tokens were
+	// sitting in nginx's buffer. This header disables buffering for THIS response only; no nginx
+	// conf change, nothing loosened for any other route.
+	w.Header().Set("X-Accel-Buffering", "no")
 	buf := make([]byte, 4096)
 	for {
 		n, rerr := resp.Body.Read(buf)

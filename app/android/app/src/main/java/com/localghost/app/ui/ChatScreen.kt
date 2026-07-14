@@ -31,8 +31,6 @@ import com.localghost.app.ui.theme.*
 fun ChatScreen(
     messages: List<Message>,
     streaming: Boolean,
-    incognito: Boolean = false,
-    onToggleIncognito: () -> Unit = {},
     localModeActive: Boolean,
     pendingAttachments: List<Attachment>,
     onSend: (String) -> Unit,
@@ -45,6 +43,8 @@ fun ChatScreen(
     onPickBox: () -> Unit,                 // use the box (clear force-local)
     onPickPhoneModel: (String) -> Unit,    // force-local with this model id
     onGetModel: () -> Unit,                // no models installed -> go to MODELS
+    incognito: Boolean = false,
+    onToggleIncognito: () -> Unit = {},
 ) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()

@@ -403,15 +403,49 @@ fun QrScanScreen(
             LaunchedEffect(granted) {
                 while (granted) { geomTick++; kotlinx.coroutines.delay(80) }
             }
+            // Reticle stabiliser. Raw per-frame corners are honest but twitchy: a one-frame finder
+            // coincidence teleports the bracket across the screen, and even a solid lock breathes a
+            // few pixels frame to frame. Three rules make it feel locked-on instead:
+            //   REJECT , a quad whose corners jump more than a third of the frame within 400ms is a
+            //            misdetection; keep showing the last good one.
+            //   SMOOTH , accepted quads blend 40% toward the new position (EMA), absorbing breath.
+            //   HOLD   , when detection drops, the last quad lingers 350ms so a missed frame or two
+            //            does not blink the bracket while the person is holding perfectly still.
+            val smooth = remember { object {
+                var quad: List<com.localghost.app.qr.QrSampler.FinderPoint>? = null
+                var at = 0L
+            } }
             run {
                 geomTick // read so this recomposes on the tick
                 val corners = com.localghost.app.qr.QrSampler.ScanGeom.corners
+                val fw = com.localghost.app.qr.QrSampler.ScanGeom.frameW
+                val fh = com.localghost.app.qr.QrSampler.ScanGeom.frameH
+                val rot = com.localghost.app.qr.QrSampler.ScanGeom.rotation
+                val nowMs = System.currentTimeMillis()
                 if (foundLink == null && corners != null && corners.size == 4 && quadLooksSquare(corners)) {
-                    val fw = com.localghost.app.qr.QrSampler.ScanGeom.frameW
-                    val fh = com.localghost.app.qr.QrSampler.ScanGeom.frameH
-                    val rot = com.localghost.app.qr.QrSampler.ScanGeom.rotation
+                    val prev = smooth.quad
+                    val limit = (minOf(fw, fh) / 3f)
+                    val jumped = prev != null && nowMs - smooth.at < 400 && prev.zip(corners).any { (a, b) ->
+                        val dx = (a.x - b.x).toFloat(); val dy = (a.y - b.y).toFloat()
+                        dx * dx + dy * dy > limit * limit
+                    }
+                    if (!jumped) {
+                        smooth.quad = if (prev == null || prev.size != 4) corners
+                        else prev.zip(corners).map { (a, b) ->
+                            com.localghost.app.qr.QrSampler.FinderPoint(
+                                a.x + ((b.x - a.x) * 0.4f).toInt(),
+                                a.y + ((b.y - a.y) * 0.4f).toInt(),
+                            )
+                        }
+                        smooth.at = nowMs
+                    }
+                } else if (nowMs - smooth.at > 350) {
+                    smooth.quad = null
+                }
+                val q4 = smooth.quad
+                if (foundLink == null && q4 != null) {
                     Canvas(Modifier.fillMaxSize()) {
-                        val q = mapPointsToView(corners, fw, fh, rot, size.width, size.height)
+                        val q = mapPointsToView(q4, fw, fh, rot, size.width, size.height)
                         val pulse = 0.5f + 0.5f * kotlin.math.sin(geomTick * 0.25f)
                         drawReticle(q, TerminalGreen, pulse)
                     }

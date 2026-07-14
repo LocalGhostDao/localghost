@@ -308,12 +308,21 @@ func applyThink(level, input string, maxTokens int) (string, int) {
 // SSE body for the caller to translate. The chat template applies exactly as in the one-shot path;
 // applyThink shapes the prompt and budget the same way, so streamed and one-shot answers are the
 // same answer delivered differently.
-func (b *llamaBackend) StreamChat(ctx context.Context, prompt, think string) (io.ReadCloser, string, error) {
+func (b *llamaBackend) StreamChat(ctx context.Context, prompt, think, imageB64 string) (io.ReadCloser, string, error) {
 	// No separate ready gate: if llama-server is down or still loading, the POST below fails fast
 	// (refused connection / non-200) and the caller reports it , one truth source, no stale flag.
 	p, budget := applyThink(think, prompt, 0)
+	// Text-only stays a plain string; with an image the content becomes OpenAI-style parts , the
+	// SAME shape inferMultimodal uses for captions, so the projector path is already proven.
+	var content any = p
+	if imageB64 != "" {
+		content = []map[string]any{
+			{"type": "text", "text": p},
+			{"type": "image_url", "image_url": map[string]string{"url": "data:image/jpeg;base64," + imageB64}},
+		}
+	}
 	payload := map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": p}},
+		"messages": []map[string]any{{"role": "user", "content": content}},
 		"stream":   true,
 	}
 	if budget > 0 {

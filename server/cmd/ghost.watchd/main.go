@@ -74,6 +74,15 @@ func main() {
 	}
 	runDir := filepath.Join(*mount, "run")
 
+	// SYSTEM HEALTH's stats sampler , 10s ring buffers into the slot's Redis for every tracked
+	// target (cohort health, datastores, host vitals). Lives as long as watchd, which is as long
+	// as the volume is unlocked , exactly the window in which its Redis exists. secd only reads.
+	if sampler, serr := watchd.NewStatsSampler(*mount, jlog); serr != nil {
+		jlog.Warn("stats sampler unavailable", "fn", "main", "err", serr)
+	} else {
+		go sampler.Loop(context.Background())
+	}
+
 	// The Roller is the JANITOR: rotation happens in each writer itself; the roller gzips completed
 	// days into logs/archive, prunes, and runs the disk-guard (soft cap -> ask ghost.oracle; hard cap
 	// -> drop oldest archives). Runs for watchd's life.

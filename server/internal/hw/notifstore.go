@@ -207,6 +207,62 @@ func (s *NotifStore) TagSet(slot int, hash, tag, action string) error {
 	return nil
 }
 
+// Stats plumbing , thin, typed access to the per-service ring buffers in Redis. Three keys per
+// tracked target: stats:10s:<name> (600 entries), stats:1m:<name> (1440 = 24h), stats:24h:<name>
+// (one computed-averages blob). Lists are LPUSH+LTRIM ring buffers: newest first, bounded forever.
+
+func (s *NotifStore) StatsPush(slot int, key, entry string, max int) error {
+	r, err := s.rds(slot)
+	if err != nil {
+		return err
+	}
+	if err := r.LPush(key, entry); err != nil {
+		return err
+	}
+	return r.LTrim(key, 0, max-1)
+}
+
+func (s *NotifStore) StatsRange(slot int, key string, n int) ([]string, error) {
+	r, err := s.rds(slot)
+	if err != nil {
+		return nil, err
+	}
+	return r.LRange(key, 0, n-1)
+}
+
+func (s *NotifStore) StatsSet(slot int, key, val string) error {
+	r, err := s.rds(slot)
+	if err != nil {
+		return err
+	}
+	return r.Set(key, val)
+}
+
+func (s *NotifStore) StatsGet(slot int, key string) (string, bool, error) {
+	r, err := s.rds(slot)
+	if err != nil {
+		return "", false, err
+	}
+	return r.Get(key)
+}
+
+// DatastoreHealth pings both datastores on the mounted slot and returns what a status surface
+// should say. LIVE probes, not cached state: a wedged Postgres fails HERE, visibly, instead of
+// surfacing as mystery query errors three features away. Empty string = healthy.
+func (s *NotifStore) DatastoreHealth(slot int) (pgErr, redisErr string) {
+	if c, err := s.pg(slot); err != nil {
+		pgErr = err.Error()
+	} else if err := c.Ping(); err != nil {
+		pgErr = err.Error()
+	}
+	if r, err := s.rds(slot); err != nil {
+		redisErr = err.Error()
+	} else if err := r.Ping(); err != nil {
+		redisErr = err.Error()
+	}
+	return pgErr, redisErr
+}
+
 // CursorSet stores a device's sync position , the box remembering where the phone was, so an app
 // reinstall (which wipes the phone's local cursor) resumes instead of re-walking the whole roll.
 func (s *NotifStore) CursorSet(slot int, device, kind string, ts, id int64) error {
