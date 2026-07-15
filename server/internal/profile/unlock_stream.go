@@ -95,14 +95,14 @@ var LockStages = []Stage{
 }
 
 // StreamUnlock walks the stages and emits Progress for each. `warm` reports, per stage, whether that
-// work is already done (an already-mounted account skips unseal/mount/DB/cache); `run` performs the
-// stage when it is not warm. Resolve and Ready always run. The emitter (emit) is how ghost.secd
-// pushes each update to the client; it returns whichever account this unlock opened to the caller
-// unchanged , the stream is presentation, the decision was already made.
-//
-// Hot path: warm returns true for the heavy stages, so they emit Skipped and the unlock is fast
-// (skip, skip, skip, ready). Cold path: warm returns false, each heavy stage Runs and Completes, and
-// the app shows a genuine, honest loading sequence , the same sequence whatever account it is.
+// work is already done; only the KEY stages (Unseal, Mount) consult it , mounted is kernel state that
+// genuinely persists, so re-running them would be wasted TPM wear. Every other stage always runs,
+// because it CONVERGES rather than starts: a mounted volume proves nothing about what is alive on it
+// (a secd restart leaves the mount up with the datastores and cohort gone), so StartDB/StartCache
+// probe-then-repair at every unlock and are milliseconds against a genuinely warm box. Resolve and
+// Ready always run. The emitter (emit) is how ghost.secd pushes each update to the client; it returns
+// whichever account this unlock opened to the caller unchanged , the stream is presentation, the
+// decision was already made.
 func StreamUnlock(
 	warm func(Stage) bool,
 	run func(Stage) error,
@@ -118,7 +118,7 @@ func StreamUnlock(
 			emit(Progress{Stage: st, State: Complete})
 			continue
 		}
-		if warm(st) {
+		if (st == StageUnseal || st == StageMount) && warm(st) {
 			emit(Progress{Stage: st, State: Skipped})
 			continue
 		}

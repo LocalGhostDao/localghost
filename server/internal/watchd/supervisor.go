@@ -121,11 +121,21 @@ func (s *Supervisor) Register(svc Service) {
 // StartAll launches every registered service in order, then begins the poll loop. A CRITICAL service
 // that will not start is returned as an error (secd surfaces it via /v1/status; the box stays mounted
 // and serving). Non-critical start failures are logged and supervised for restart.
+//
+// IDEMPOTENT by rule: start-cohort now means "ensure the cohort is running", because secd re-issues
+// it at every unlock (the convergent-unlock rule). A service whose process is alive is skipped, and
+// the poll loop is started at most once , so re-issuing against a healthy cohort is a no-op, while a
+// half-dead cohort gets exactly its dead members respawned.
 func (s *Supervisor) StartAll(ctx context.Context) error {
 	s.mu.Lock()
 	var criticalErr error
 	for _, name := range s.order {
 		rt := s.services[name]
+		// Signal 0 probes liveness without touching the process. Alive means leave it alone ,
+		// spawning a second copy of a running daemon is strictly worse than any alternative.
+		if rt.proc != nil && rt.proc.Signal(syscall.Signal(0)) == nil {
+			continue
+		}
 		if err := s.startOne(rt); err != nil {
 			rt.lastErr = err.Error()
 			if rt.svc.Critical {
@@ -138,12 +148,15 @@ func (s *Supervisor) StartAll(ctx context.Context) error {
 			}
 		}
 	}
-	pctx, cancel := context.WithCancel(ctx)
-	s.stopPoll = cancel
+	// At most ONE poll loop, however many times start-cohort is issued. stopPoll is the marker: set
+	// while a loop runs, cleared by TeardownAll after the loop is confirmed gone.
+	if s.stopPoll == nil {
+		pctx, cancel := context.WithCancel(ctx)
+		s.stopPoll = cancel
+		s.wg.Add(1)
+		go s.pollLoop(pctx)
+	}
 	s.mu.Unlock()
-
-	s.wg.Add(1)
-	go s.pollLoop(pctx)
 	return criticalErr
 }
 
@@ -270,6 +283,7 @@ func (s *Supervisor) TeardownAll() error {
 	s.mu.Lock()
 	if s.stopPoll != nil {
 		s.stopPoll()
+		s.stopPoll = nil // cleared only here, after which StartAll may start a fresh loop
 	}
 	s.mu.Unlock()
 	s.wg.Wait()

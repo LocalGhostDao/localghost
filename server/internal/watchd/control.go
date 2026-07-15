@@ -41,7 +41,15 @@ type ControlServer struct {
 	sockPath string
 	ln       net.Listener
 	jlog     *slog.Logger
+	shutdown func()
 }
+
+// WithShutdown installs the process-exit hook the `shutdown` command triggers , the same teardown
+// path SIGTERM takes (cohort down, confirmed dead, then exit). It exists for the ORPHAN case: watchd
+// runs in its own process group so a secd restart does not kill it, which means a restarted secd can
+// find a live watchd it has no process handle for. The socket is then the only stop channel , without
+// this, lock cannot bring an adopted watchd down and the unmount wedges on its open volume files.
+func (c *ControlServer) WithShutdown(fn func()) { c.shutdown = fn }
 
 // NewControlServer prepares the server; call Serve to run it. sockPath is <mount>/run/watchd.sock.
 func NewControlServer(sup *Supervisor, sockPath string, jlog *slog.Logger) *ControlServer {
@@ -111,6 +119,15 @@ func (c *ControlServer) dispatch(req request) response {
 		if err := c.sup.TeardownAll(); err != nil {
 			return response{OK: false, Err: err.Error()}
 		}
+		return response{OK: true}
+	case "shutdown":
+		// Full stop: cohort down, then watchd itself exits. The hook runs in a goroutine and its
+		// teardown takes seconds, so the response encode all but always wins the race , but the
+		// caller must NOT trust this round trip: it polls ping-until-dead to confirm.
+		if c.shutdown == nil {
+			return response{OK: false, Err: "shutdown not wired"}
+		}
+		go c.shutdown()
 		return response{OK: true}
 	case "restart":
 		if req.Name == "" {

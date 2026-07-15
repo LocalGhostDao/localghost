@@ -168,6 +168,20 @@ func (b *backend) StartCache(slot int) error {
 	b.ingestStagedModels(mount)
 	b.ingestStagedBinaries(mount)
 
+	// ADOPT before spawn. watchd runs in its own process group precisely so a secd restart does not
+	// kill it , so finding one alive here is the EXPECTED post-deploy state, not an anomaly. If its
+	// socket answers, adopt the client (no process handle exists; the lock path stops an adopted
+	// watchd over the socket instead) and re-issue start-cohort, which is idempotent: daemons whose
+	// processes are alive are left alone, dead ones are respawned. This also covers the half-open
+	// case where a previous secd died between watchd-ready and start-cohort.
+	if err := b.watch.Ping(); err == nil {
+		secdLog.Info("unlock: adopted live ghost.watchd from a previous secd", "fn", "StartCache")
+		if _, err := b.watch.StartCohort(); err != nil {
+			b.log("unlock: ghost.watchd start-cohort reported trouble (box stays mounted, degraded)", err)
+		}
+		return nil
+	}
+
 	// Spawn watchd from the volume's bin dir. It runs as the run-user (or inherits secd's root if
 	// unset , but provisioning sets it). watchd opens its own log + socket.
 	proc, err := b.spawnWatchd(mount)
@@ -272,16 +286,29 @@ func (b *backend) ingestStagedBinaries(mount string) {
 		}
 		srcPath := filepath.Join(staging, e.Name())
 		dstPath := filepath.Join(dst, e.Name())
-		if err := copyFileSync(srcPath, dstPath); err != nil {
+		// Copy to a temp name, then rename over the destination. Writing the destination directly
+		// (O_TRUNC) is ETXTBSY against a binary that is RUNNING , which is now the normal case, since
+		// ingest also runs on warm unlocks where the cohort was adopted alive. The rename swaps the
+		// inode: running processes keep executing their old image, the next (re)start execs the new
+		// one, and there is never a half-written binary at the real path.
+		tmpPath := dstPath + ".ingest"
+		if err := copyFileSync(srcPath, tmpPath); err != nil {
 			secdLog.Error("binary ingest failed , volume keeps its previous build of this daemon",
 				"fn", "ingestStagedBinaries", "file", e.Name(), "err", err)
+			_ = os.Remove(tmpPath)
 			continue
 		}
-		if err := os.Chmod(dstPath, 0o755); err != nil {
+		if err := os.Chmod(tmpPath, 0o755); err != nil {
 			secdLog.Warn("binary ingest: chmod", "fn", "ingestStagedBinaries", "file", e.Name(), "err", err)
 		}
 		if cred != nil {
-			_ = os.Chown(dstPath, int(cred.Uid), int(cred.Gid))
+			_ = os.Chown(tmpPath, int(cred.Uid), int(cred.Gid))
+		}
+		if err := os.Rename(tmpPath, dstPath); err != nil {
+			secdLog.Error("binary ingest: rename into place failed , volume keeps its previous build",
+				"fn", "ingestStagedBinaries", "file", e.Name(), "err", err)
+			_ = os.Remove(tmpPath)
+			continue
 		}
 		_ = os.Remove(srcPath)
 		secdLog.Info("cohort binary refreshed on volume", "fn", "ingestStagedBinaries", "file", e.Name())
@@ -434,6 +461,30 @@ func (b *backend) log(msg string, a ...any) {
 // watchd are gone , the volume is safe to unmount. Falls back to KILL after a grace.
 func (b *backend) stopWatchd() {
 	if b.watchProc == nil {
+		// No process handle , either the box is cold (nothing to do) or this watchd was ADOPTED
+		// after a secd restart, in which case the control socket is the only stop channel. Send
+		// shutdown, then poll ping-until-dead: the shutdown response is written before the teardown
+		// finishes, so the round trip alone proves nothing. Bounded at 15s, matching the signal
+		// path's teardown allowance; a watchd still answering after that is logged loudly, because
+		// its open files on the volume are exactly what wedges the coming unmount.
+		if b.watch != nil {
+			if err := b.watch.Shutdown(); err != nil {
+				secdLog.Warn("adopted watchd shutdown command failed", "fn", "stopWatchd", "err", err)
+			}
+			deadline := time.Now().Add(15 * time.Second)
+			dead := false
+			for time.Now().Before(deadline) {
+				if b.watch.Ping() != nil {
+					dead = true
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			if !dead {
+				secdLog.Error("adopted watchd still alive after shutdown , unmount may wedge on its open volume files", "fn", "stopWatchd")
+			}
+			b.watch = nil
+		}
 		return
 	}
 	if err := b.watchProc.Signal(syscall.SIGTERM); err != nil {

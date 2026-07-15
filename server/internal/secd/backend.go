@@ -16,8 +16,10 @@ import (
 //   Unseal   ask the TPM to release the account's master key for the resolved slot (PIN-bound; the
 //            TPM enforces its own lockout, so a wrong PIN is punished in hardware)
 //   Mount    dm-crypt map + filesystem mount of that slot's container with the unsealed key
-//   StartDB  bring up the account's Postgres inside the mounted volume
-//   StartCache bring up the account's Redis inside the mounted volume
+//   StartDB  converge the account's Postgres inside the mounted volume (probe, start if dead,
+//            EnsureSchema either way)
+//   StartCache converge the account's Redis, then the watchd cohort (adopt a live watchd from a
+//            previous secd, spawn one otherwise)
 //
 // The wipe PIN triggers a global crypto-erase and then resolves to a reject; the backend performs
 // the erase during Resolve so the timing and response are identical to a wrong PIN (an onlooker
@@ -36,12 +38,16 @@ type UnlockBackend interface {
 	// ready. key is zeroised by the caller after this returns.
 	Mount(slot int, key []byte) error
 
-	// StartDB and StartCache bring up the per-account Postgres and Redis inside the mounted volume.
+	// StartDB and StartCache CONVERGE the per-account Postgres, Redis, and daemon cohort inside the
+	// mounted volume: each probes what is already alive and only starts what is not. They run at
+	// EVERY unlock, warm or cold , the repair path for mounted-but-dead (a secd restart leaves the
+	// mount live while everything on it is gone).
 	StartDB(slot int) error
 	StartCache(slot int) error
 
-	// Warm reports whether the slot is already mounted and running (a hot unlock), so the heavy
-	// stages report Skipped instead of re-running.
+	// Warm reports whether the slot is already mounted (a hot unlock), so the KEY stages , Unseal and
+	// Mount , report Skipped instead of re-running. It gates nothing else: mounted does not mean
+	// running, so the start stages converge regardless.
 	Warm(slot int) bool
 
 	// Lock spins the slot back down: stop its services, stop Redis and Postgres, unmount the container
@@ -129,14 +135,35 @@ func runUnlock(b UnlockBackend, pin string, emit func(profile.Progress)) (openSl
 	}
 	zeroise(key)
 
-	// START_DB, START_CACHE. Log the real error here , it is otherwise only returned to the app, so
-	// the server-side journal shows NOTHING about why unlock failed (which made this exact failure
-	// invisible to journalctl and impossible to diagnose on the box).
-	if err := heavy(profile.StageStartDB, func() error { return b.StartDB(slot) }); err != nil {
+	// START_DB, START_CACHE run at EVERY unlock, warm or cold , they CONVERGE rather than start.
+	// warm only ever gated the key stages (Unseal, Mount); gating these on it was the bug that made
+	// mounted-but-dead unrepairable: a secd restart leaves the dm-crypt mount live in the kernel
+	// while the datastores and cohort are gone, Warm read "mounted" as "running", and every unlock
+	// skipped the one thing that could bring the box back. Each stage probes before acting (pg_ctl
+	// status, authenticated redis ping, watchd socket ping), so against a genuinely warm box this is
+	// milliseconds , and EnsureSchema still runs, which is the every-unlock rule anyway.
+	//
+	// Log the real error here , it is otherwise only returned to the app, so the server-side journal
+	// shows NOTHING about why unlock failed (which made this exact failure invisible to journalctl
+	// and impossible to diagnose on the box).
+	converge := func(stage profile.Stage, do func() error) error {
+		emit(profile.Progress{Stage: stage, State: profile.Running})
+		secdLog.Info("unlock stage begin", "fn", "unlock", "slot", slot, "stage", stage)
+		t0 := time.Now()
+		if err := do(); err != nil {
+			emit(profile.Progress{Stage: stage, State: profile.Errored})
+			secdLog.Error("unlock stage FAILED", "fn", "unlock", "slot", slot, "stage", stage, "after", time.Since(t0).String(), "err", err)
+			return err
+		}
+		secdLog.Info("unlock stage ok", "fn", "unlock", "slot", slot, "stage", stage, "took", time.Since(t0).String())
+		emit(profile.Progress{Stage: stage, State: profile.Complete})
+		return nil
+	}
+	if err := converge(profile.StageStartDB, func() error { return b.StartDB(slot) }); err != nil {
 		secdLog.Error("unlock failed at START_DB", "fn", "unlock", "slot", slot, "err", err)
 		return profile.NoSlot, err
 	}
-	if err := heavy(profile.StageStartCache, func() error { return b.StartCache(slot) }); err != nil {
+	if err := converge(profile.StageStartCache, func() error { return b.StartCache(slot) }); err != nil {
 		secdLog.Error("unlock failed at START_CACHE", "fn", "unlock", "slot", slot, "err", err)
 		return profile.NoSlot, err
 	}

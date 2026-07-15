@@ -154,8 +154,23 @@ func (d *DataStore) StopDB(slot int) error {
 	return d.stopPostgres(slot, c)
 }
 
+// pgAlive reports whether this slot's Postgres is already up. pg_ctl status reads the postmaster.pid
+// in the data dir and probes the process: exit 0 means a live server. This is the convergence probe
+// that lets startPostgres run at EVERY unlock , alive means skip the start, converge the schema only.
+func (d *DataStore) pgAlive(slot int) bool {
+	data := d.pgData(slot)
+	return d.pgCmd(filepath.Dir(data), "pg_ctl", "-D", data, "status").Run() == nil
+}
+
 func (d *DataStore) startPostgres(slot int, c ServicesConfig) error {
 	data := d.pgData(slot)
+	// CONVERGE, not start: unlock now runs this every time, including when the volume stayed mounted
+	// across a secd restart (the mounted-but-dead state that used to be unrepairable , Warm meant
+	// "mounted", unlock skipped this stage, and a dead Postgres on a live mount stayed dead forever).
+	// A live server needs no start; it still gets EnsureSchema, the every-unlock rule.
+	if d.pgAlive(slot) {
+		return d.EnsureSchema(slot, c)
+	}
 	firstRun := false
 	// initdb on first run (the data dir lives in the encrypted volume).
 	if _, err := os.Stat(filepath.Join(data, "PG_VERSION")); os.IsNotExist(err) {
@@ -662,6 +677,11 @@ func (d *DataStore) stopPostgres(slot int, _ ServicesConfig) error {
 
 func (d *DataStore) startRedis(slot int, c ServicesConfig) error {
 	dir := d.redisDir(slot)
+	// CONVERGE, not start: same rule as Postgres. An authenticated ping answering means this slot's
+	// Redis survived whatever restarted secd; re-assert the service ACLs (cheap, idempotent) and done.
+	if d.redisCmd(filepath.Dir(dir), "redis-cli", "-p", fmt.Sprint(c.Redis.Port), "-a", c.Redis.Password, "ping").Run() == nil {
+		return d.ensureRedisACL(slot, c)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}

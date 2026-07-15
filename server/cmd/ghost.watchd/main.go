@@ -151,15 +151,23 @@ func main() {
 		}
 	}()
 
-	sigc := make(chan os.Signal, 1)
-	signal.Notify(sigc, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		s := <-sigc
-		jlog.Info("signal received, tearing down cohort", "fn", "main", "signal", s.String())
+	// ONE teardown path, two triggers: SIGTERM (secd stopping its child on lock) and the control
+	// socket's `shutdown` command (secd stopping an ADOPTED watchd it has no process handle for,
+	// after its own restart). Both end the same way: cohort confirmed dead, serve loop cancelled.
+	teardown := func(why string) {
+		jlog.Info("tearing down cohort", "fn", "main", "trigger", why)
 		if err := sup.TeardownAll(); err != nil {
 			jlog.Error("teardown error", "fn", "main", "err", err)
 		}
 		cancel()
+	}
+	ctrl.WithShutdown(func() { teardown("control socket shutdown") })
+
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		s := <-sigc
+		teardown("signal " + s.String())
 	}()
 
 	jlog.Info("control socket ready, waiting for secd", "fn", "main", "socket", sockPath)

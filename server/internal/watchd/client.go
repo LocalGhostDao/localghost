@@ -68,6 +68,14 @@ func (c *Client) StopCohort() error {
 	return err
 }
 
+// Shutdown tells watchd to tear the cohort down and EXIT. The stop channel for an ADOPTED watchd ,
+// one that outlived a secd restart (own process group), leaving the new secd with no process handle
+// to signal. The caller confirms death by polling Ping until it fails; this call alone is not proof.
+func (c *Client) Shutdown() error {
+	_, err := c.call(request{Cmd: "shutdown"})
+	return err
+}
+
 // Restart asks watchd to kill+respawn one daemon from its (updated) volume binary. The deploy path.
 func (c *Client) Restart(name string) ([]ServiceStatus, error) {
 	resp, err := c.call(request{Cmd: "restart", Name: name})
