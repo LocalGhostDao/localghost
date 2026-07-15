@@ -210,37 +210,20 @@ func (d *DataStore) startPostgres(slot int, c ServicesConfig) error {
 			return fmt.Errorf("init db auth/schema slot %d: %w", slot, err)
 		}
 	}
+	// EVERY unlock, not just the first: converge the live database to the current code , tables,
+	// roles, grants, search layer. Idempotent by rule; drift-proof by construction.
+	if err := d.EnsureSchema(slot, c); err != nil {
+		_ = d.stopPostgres(slot, c)
+		return fmt.Errorf("ensure schema slot %d: %w", slot, err)
+	}
 	return nil
 }
 
-// initPostgresAuthAndSchema applies the PROVISIONED password (from services.conf) to the ghost role
-// and creates the app config schema. Called once at first start, while the volume is mounted. The
-// password is generated at provision, not here, so services.conf remains the single source of truth.
-func (d *DataStore) initPostgresAuthAndSchema(slot int, c ServicesConfig) error {
-	data := d.pgData(slot)
-	port := fmt.Sprint(c.Postgres.Port)
-
-	// The password is PROVISIONED in services.conf (generated at setup), not made up here , that file
-	// is the single credential store, and it must match what gates TCP. Apply it to the ghost role
-	// over the trust-auth loopback socket.
-	if err := pgIdent(c.Postgres.User); err != nil {
-		return fmt.Errorf("services.conf postgres user: %w", err)
-	}
-	if err := pgIdent(c.Postgres.Name); err != nil {
-		return fmt.Errorf("services.conf postgres db name: %w", err)
-	}
-	stmts := []string{
-		fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD %s;", c.Postgres.User, pgLit(c.Postgres.Password)),
-		fmt.Sprintf("CREATE DATABASE %s OWNER %s;", c.Postgres.Name, c.Postgres.User),
-	}
-	for _, s := range stmts {
-		if out, err := d.pgCmd(filepath.Dir(data), "psql", "-h", data, "-p", port, "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", s).CombinedOutput(); err != nil {
-			return fmt.Errorf("psql %q: %v: %s", s, err, strings.TrimSpace(string(out)))
-		}
-	}
-
-	// app config schema, in the ghost database. Tables: settings (k/v), and the notification mute.
-	schema := `
+// appConfigSchema is the application schema , every statement idempotent (IF NOT EXISTS) BY RULE,
+// because it now runs at EVERY unlock via EnsureSchema, not just at provision. A new table added
+// here reaches live volumes on their next unlock; before this rule, weeks-old volumes silently
+// lacked every table added since their provision day (sync_cursors, chats, frame_tags , the lot).
+const appConfigSchema = `
 CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -347,6 +330,35 @@ CREATE TABLE IF NOT EXISTS location_points (
   PRIMARY KEY (ts, source)
 );
 `
+
+// initPostgresAuthAndSchema applies the PROVISIONED password (from services.conf) to the ghost role
+// and creates the app config schema. Called once at first start, while the volume is mounted. The
+// password is generated at provision, not here, so services.conf remains the single source of truth.
+func (d *DataStore) initPostgresAuthAndSchema(slot int, c ServicesConfig) error {
+	data := d.pgData(slot)
+	port := fmt.Sprint(c.Postgres.Port)
+
+	// The password is PROVISIONED in services.conf (generated at setup), not made up here , that file
+	// is the single credential store, and it must match what gates TCP. Apply it to the ghost role
+	// over the trust-auth loopback socket.
+	if err := pgIdent(c.Postgres.User); err != nil {
+		return fmt.Errorf("services.conf postgres user: %w", err)
+	}
+	if err := pgIdent(c.Postgres.Name); err != nil {
+		return fmt.Errorf("services.conf postgres db name: %w", err)
+	}
+	stmts := []string{
+		fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD %s;", c.Postgres.User, pgLit(c.Postgres.Password)),
+		fmt.Sprintf("CREATE DATABASE %s OWNER %s;", c.Postgres.Name, c.Postgres.User),
+	}
+	for _, s := range stmts {
+		if out, err := d.pgCmd(filepath.Dir(data), "psql", "-h", data, "-p", port, "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-c", s).CombinedOutput(); err != nil {
+			return fmt.Errorf("psql %q: %v: %s", s, err, strings.TrimSpace(string(out)))
+		}
+	}
+
+	// app config schema, in the ghost database. Tables: settings (k/v), and the notification mute.
+	schema := appConfigSchema
 	if out, err := d.pgCmd(filepath.Dir(data), "psql", "-h", data, "-p", port, "-d", c.Postgres.Name, "-v", "ON_ERROR_STOP=1", "-c", schema).CombinedOutput(); err != nil {
 		return fmt.Errorf("apply schema: %v: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -539,6 +551,72 @@ func pgIdent(name string) error {
 // are randHex by construction, so the escape is normally a no-op , it exists so a hand-edited
 // services.conf cannot turn provisioning into superuser SQL injection.
 func pgLit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// EnsureSchema converges a LIVE database to the current code: application tables, service roles,
+// grants, and the search layer , all idempotent, all at every unlock. This exists because the
+// original design ran schema only at provision (firstRun), so every volume older than a code
+// change was missing whatever that change added. Symptom set on a real box: ghost_rw "does not
+// exist", cursors resetting to zero, chats never persisting , one drift, many faces. Auth: the
+// owner role over scram (pg_hba is hardened by now), password from services.conf.
+func (d *DataStore) EnsureSchema(slot int, c ServicesConfig) error {
+	data := d.pgData(slot)
+	port := strconv.Itoa(c.Postgres.Port)
+	run := func(sql string) error {
+		cmd := d.pgCmd(filepath.Dir(data), "psql", "-h", data, "-p", port,
+			"-U", c.Postgres.User, "-d", c.Postgres.Name, "-v", "ON_ERROR_STOP=1", "-c", sql)
+		if cmd.Env == nil {
+			cmd.Env = os.Environ() // pgCmd's OS-fallback branch leaves Env nil = inherit; keep that
+		}
+		cmd.Env = append(cmd.Env, "PGPASSWORD="+c.Postgres.Password)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	if err := run(appConfigSchema); err != nil {
+		return fmt.Errorf("ensure app schema: %w", err)
+	}
+	// Service roles , create-if-missing, then ALTER unconditionally so the password always matches
+	// services.conf (the file is the single credential truth). Idents validated, literals escaped.
+	for _, ident := range []string{c.Postgres.ROUser, c.Postgres.RWUser} {
+		if err := pgIdent(ident); err != nil {
+			return fmt.Errorf("service role ident: %w", err)
+		}
+	}
+	roleEnsure := fmt.Sprintf(`
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%[1]s') THEN CREATE ROLE %[1]s; END IF;
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%[3]s') THEN CREATE ROLE %[3]s; END IF;
+END $$;
+ALTER ROLE %[1]s LOGIN PASSWORD %[2]s;
+ALTER ROLE %[3]s LOGIN PASSWORD %[4]s;
+GRANT CONNECT ON DATABASE %[5]s TO %[1]s, %[3]s;
+GRANT USAGE ON SCHEMA public TO %[1]s, %[3]s;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO %[1]s;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %[3]s;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %[3]s;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO %[1]s;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %[3]s;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %[3]s;`,
+		c.Postgres.ROUser, pgLit(c.Postgres.ROPass), c.Postgres.RWUser, pgLit(c.Postgres.RWPass), c.Postgres.Name)
+	if err := run(roleEnsure); err != nil {
+		return fmt.Errorf("ensure roles: %w", err)
+	}
+	// Search layer, same converge rule: core must apply; vector is best-effort with the documented
+	// FTS-only fallback , mirrors provision, authed for the hardened world.
+	if err := run(searchsql.SchemaCore); err != nil {
+		return fmt.Errorf("ensure search core: %w", err)
+	}
+	if err := run(searchsql.SchemaVector); err != nil {
+		if e2 := run(searchsql.SchemaNoVector + searchsql.HealthViewNoVector); e2 != nil {
+			return fmt.Errorf("ensure search no-vector fallback: %w", e2)
+		}
+	} else if err := run(searchsql.HealthView); err != nil {
+		return fmt.Errorf("ensure search health view: %w", err)
+	}
+	return nil
+}
 
 // applySearchSchema applies the search layer DDL (searchsql) as the owner. Core (FTS) must succeed;
 // the vector add-on is best-effort , if the pgvector extension is unavailable, the FTS-only schema and

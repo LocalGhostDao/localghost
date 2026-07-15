@@ -239,6 +239,7 @@ object BoxClient {
     sealed interface ChatChunk {
         data class Memories(val ids: List<String>) : ChatChunk
         data class ChatId(val id: Long) : ChatChunk
+        data class Reasoning(val text: String) : ChatChunk
         data class Token(val text: String) : ChatChunk
         data object Done : ChatChunk
     }
@@ -282,6 +283,7 @@ object BoxClient {
                         }
                         true
                     }
+                    o.has("r") -> { channel.trySendBlocking(ChatChunk.Reasoning(o.optString("r"))); true }
                     o.has("t") -> { channel.trySendBlocking(ChatChunk.Token(o.optString("t"))); true }
                     o.optBoolean("done") -> {
                         val cid = o.optLong("chatId", 0L)

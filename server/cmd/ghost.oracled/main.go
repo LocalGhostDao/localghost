@@ -228,11 +228,24 @@ func main() {
 				Choices []struct {
 					Delta struct {
 						Content string `json:"content"`
+						// Thinking models emit their reasoning HERE, not in content. The first
+						// translator only read content, so the entire thinking phase forwarded
+						// NOTHING , the app sat on its waiting label for minutes, and a budget
+						// exhausted mid-reasoning meant no answer at all. Reasoning now flows as
+						// its own event: visible thinking instead of invisible stalling.
+						Reasoning string `json:"reasoning_content"`
 					} `json:"delta"`
 				} `json:"choices"`
 			}
 			if json.Unmarshal([]byte(data), &ev) != nil || len(ev.Choices) == 0 {
 				continue
+			}
+			if r := ev.Choices[0].Delta.Reasoning; r != "" {
+				b, _ := json.Marshal(map[string]string{"r": r})
+				_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
+				if fl != nil {
+					fl.Flush()
+				}
 			}
 			if t := ev.Choices[0].Delta.Content; t != "" {
 				b, _ := json.Marshal(map[string]string{"t": t})

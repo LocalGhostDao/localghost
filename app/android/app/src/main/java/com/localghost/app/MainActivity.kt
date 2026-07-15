@@ -364,6 +364,7 @@ class MainActivity : ComponentActivity() {
 
     private suspend fun generateFromBox(text: String, atts: List<Attachment>) {
         var reply = ""
+        var reasoningChars = 0
         var mems: List<String> = emptyList()
         // First image attachment rides the stream as base64 , the box's projector (the same one
         // captioning the archive) answers questions about what it sees. One image for now; the
@@ -381,6 +382,19 @@ class MainActivity : ComponentActivity() {
             when (chunk) {
                 is BoxClient.ChatChunk.Memories -> mems = chunk.ids
                 is BoxClient.ChatChunk.ChatId -> currentChatId = chunk.id
+                is BoxClient.ChatChunk.Reasoning -> {
+                    // The model thinking, LIVE. Before this event existed the entire reasoning
+                    // phase was dead air , the screen sat on its waiting label for minutes and a
+                    // budget spent mid-think produced no answer at all. Until the first real token,
+                    // the placeholder shows thinking progress; the answer then replaces it.
+                    reasoningChars += chunk.text.length
+                    if (reply.isEmpty()) {
+                        val ind = "· thinking… ($reasoningChars)"
+                        if (messages.lastOrNull()?.role == Message.Role.GHOST)
+                            messages[messages.size - 1] = Message(Message.Role.GHOST, ind, mems)
+                        else messages.add(Message(Message.Role.GHOST, ind, mems))
+                    }
+                }
                 is BoxClient.ChatChunk.Token -> {
                     reply += chunk.text
                     if (messages.lastOrNull()?.role == Message.Role.GHOST)

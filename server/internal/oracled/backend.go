@@ -291,12 +291,15 @@ func applyThink(level, input string, maxTokens int) (string, int) {
 	switch level {
 	case "brief":
 		if maxTokens == 0 {
-			maxTokens = 768
+			maxTokens = 2048 // reasoning is billed against max_tokens , CPU-era 768 starved answers
 		}
 		return "Think through this briefly before answering , a few lines of reasoning, then a clear answer.\n\n" + input, maxTokens
 	case "deep":
 		if maxTokens == 0 {
-			maxTokens = 2048
+			// Reasoning tokens count INSIDE this cap: at 2048 a thorough think consumed the whole
+			// budget and the visible answer was EMPTY , the "no answer to my question" bug. The
+			// 4070 makes 8192 cheap; better a long think than a silent one.
+			maxTokens = 8192
 		}
 		return "Reason through this carefully and at length before answering. Work step by step, consider what could be wrong, then give your best answer.\n\n" + input, maxTokens
 	default:
