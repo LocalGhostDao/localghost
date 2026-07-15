@@ -31,6 +31,22 @@ type statusReporter interface {
 	SupervisorStatus() []ServiceStatus
 }
 
+// halter is optionally implemented by a backend that can stop every service while keeping the volume
+// mounted (the maintenance stop). Same seam pattern as statusReporter , UnlockBackend stays about
+// unlock, and a test double that never halts compiles unchanged.
+type halter interface {
+	Halt(slot int) error
+}
+
+// Halt passes the maintenance stop through to the backend. Unsupported backends report so plainly.
+func (u *unlockService) Halt(slot int) error {
+	h, ok := u.backend.(halter)
+	if !ok {
+		return errHaltUnsupported
+	}
+	return h.Halt(slot)
+}
+
 // Warm reports whether the slot's volume is already mounted (kernel state that survives a secd
 // restart). Used at startup to adopt an existing mount instead of falsely reporting locked.
 func (u *unlockService) Warm(slot int) bool { return u.backend.Warm(slot) }

@@ -71,6 +71,19 @@ func main() {
 		data, _ := json.Marshal(srv.Status())
 		return ctlsock.Response{OK: true, Data: data}, nil
 	})
+	// halt: the MAINTENANCE stop , everything down, volume stays mounted, resume by PIN unlock.
+	// Same opaque reply contract as off (a "wrong PIN" reply would make this socket a PIN oracle);
+	// confirm the halt with `status`. Do not unlock from the phone until the maintenance is done.
+	cli.Handle("halt", func(args json.RawMessage) (ctlsock.Response, error) {
+		var a struct {
+			PIN string `json:"pin"`
+		}
+		if len(args) > 0 {
+			_ = json.Unmarshal(args, &a)
+		}
+		srv.Halt(a.PIN)
+		return ctlsock.Response{OK: true, Text: "ok"}, nil
+	})
 	// off: lock the box NOW, authorized by the main PIN (not an app session). The border-crossing
 	// "make appears-down true" command. Option A , a lock, never a wipe. The reply is deliberately
 	// opaque: right PIN, wrong PIN, wipe PIN, already-locked all return the same "ok", because the only

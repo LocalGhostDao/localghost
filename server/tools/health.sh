@@ -44,10 +44,24 @@ dim()   { printf '\033[2m%s\033[0m'  "$1"; }
 # host mount table never shows the decrypted volume, and other host processes cannot casually see it.
 # So if the run dir is not visible here but secd is running, re-exec this script INSIDE secd's
 # namespace. Root can always enter deliberately; nothing enters casually.
+#
+# The re-exec must go THROUGH /tmp: /home is EMPTY inside the namespace (ProtectHome), and both this
+# script and ./bin/ghost-cli normally live under the repo there , nsenter with a /home path fails
+# "No such file or directory", the exact trap the setup notes warn about for ns.sh. /tmp is shared,
+# so stage the script and the CLI there, point GHOST_CLI at the staged copy, and clean up on exit.
+if [ -n "${GHOST_STAGE_DIR:-}" ]; then
+    trap 'rm -rf "$GHOST_STAGE_DIR"' EXIT
+fi
 if [ ! -d "$RUN_DIR" ]; then
     SECD_PID="$(pidof ghost.secd || true)"
     if [ -n "$SECD_PID" ] && [ -z "${GHOST_NS_ENTERED:-}" ]; then
-        exec env GHOST_NS_ENTERED=1 nsenter -t "$SECD_PID" -m "$0" "$@"
+        STAGE="$(mktemp -d /tmp/ghost-health.XXXXXX)"
+        cp "$0" "$STAGE/health.sh" && chmod 0755 "$STAGE/health.sh"
+        if [ -x "$CLI" ]; then
+            cp "$CLI" "$STAGE/ghost-cli" && chmod 0755 "$STAGE/ghost-cli"
+        fi
+        exec env GHOST_NS_ENTERED=1 GHOST_STAGE_DIR="$STAGE" GHOST_CLI="$STAGE/ghost-cli" \
+            nsenter -t "$SECD_PID" -m "$STAGE/health.sh" "$@"
     fi
     echo "run dir $RUN_DIR not present , is the box unlocked? (secd mounts the volume on unlock,"
     echo "inside its own mount namespace; this script auto-enters it when secd is running)"

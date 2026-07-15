@@ -10,6 +10,7 @@ package secd
 // documented go-tpm + cryptsetup interfaces and exercised on the box.
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -544,6 +545,37 @@ func (b *backend) RestartDaemon(name string) error {
 }
 
 func (b *backend) Warm(slot int) bool { return b.mounter.IsMounted(slot) }
+
+// Halt is the MAINTENANCE stop: the whole Lock teardown except the unmount. Cohort down, watchd
+// down, Redis down, Postgres down , the volume stays mounted so an operator can work on it directly:
+// refresh the DB runtime bundle, swap llama-server, take a Postgres upgrade, copy a backup out.
+// Resume is a plain unlock: the warm path skips Unseal/Mount and the convergent start stages bring
+// every service back. Errors are collected, not fatal per step , the operator wants each stop
+// attempted and the full list of what did not go quietly.
+//
+// This is a maintenance tool, not a duress primitive: it deliberately leaves the volume DECRYPTED
+// and open, which is the opposite of what `off` guarantees. Its one security property is shared with
+// off: the caller learns nothing about the PIN (see Server.Halt).
+func (b *backend) Halt(slot int) error {
+	var errs []error
+	if b.watch != nil {
+		if err := b.watch.StopCohort(); err != nil {
+			secdLog.Warn("halt: watchd stop-cohort", "fn", "Halt", "err", err)
+			errs = append(errs, fmt.Errorf("stop-cohort: %w", err))
+		}
+	}
+	b.stopWatchd()
+	if err := b.store.StopCache(slot); err != nil {
+		secdLog.Warn("halt: stop redis", "fn", "Halt", "err", err)
+		errs = append(errs, fmt.Errorf("stop redis: %w", err))
+	}
+	if err := b.store.StopDB(slot); err != nil {
+		secdLog.Warn("halt: stop postgres", "fn", "Halt", "err", err)
+		errs = append(errs, fmt.Errorf("stop postgres: %w", err))
+	}
+	secdLog.Info("halt complete: services down, volume still mounted , unlock to resume", "fn", "Halt", "slot", slot)
+	return errors.Join(errs...)
+}
 
 func (b *backend) Lock(slot int, emit func(profile.Progress)) error {
 	step := func(st profile.Stage, do func() error) error {

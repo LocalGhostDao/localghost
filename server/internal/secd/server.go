@@ -74,6 +74,36 @@ func (s *Server) Status() StatusView {
 // Indistinguishability: whatever the input, Off returns nothing an observer can read , a wrong PIN, a
 // wipe PIN, an already-locked box, and a successful lock all return with no error and no signal. The
 // only observable is the box being (or staying) down, which is the whole point.
+// Halt is the `halt` command: the MAINTENANCE stop, from the local control socket, authorized by the
+// main PIN. Everything Off tears down comes down , cohort, watchd, Redis, Postgres , but the volume
+// STAYS MOUNTED, so the operator can work on it directly (DB runtime bundle, engine swap, Postgres
+// upgrade). Resume is a plain PIN unlock, which converges every service back up.
+//
+// PIN-opaque like Off, and for the same reason: AuthorizesLock is deliberately unthrottled and
+// side-effect-free, so any command that reported "wrong PIN" would turn the local socket into a free
+// PIN oracle. Wrong PIN, wipe PIN, already-halted , the reply is the same silence; the operator
+// confirms with `status` or ps, which is one command away and leaks nothing to anyone else.
+//
+// The session is revoked so the phone's next deliberate action is a PIN unlock (the resume). Status
+// keeps reporting mounted , TRUE, and it is also what stops the app from auto-prompting an unlock
+// that would restart services mid-surgery. The remaining footgun is the operator themselves
+// unlocking from the phone before the surgery is done; halt cannot protect anyone from that.
+func (s *Server) Halt(pin string) {
+	if !s.unlock.AuthorizesLock(pin) {
+		return // wrong PIN or wipe PIN: nothing happens, indistinguishably. (Halt never erases.)
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		return // cold box: nothing to halt, and nothing to learn from the silence
+	}
+	if err := s.unlock.Halt(mounted); err != nil {
+		secdLog.Warn("halt: teardown reported trouble (volume still mounted)", "fn", "Halt", "err", err)
+	}
+	s.session.Revoke() // next phone action is a PIN unlock, which is the resume
+}
+
 func (s *Server) Off(pin string) {
 	if !s.unlock.AuthorizesLock(pin) {
 		return // wrong PIN or wipe PIN: off does nothing, indistinguishably. (No wipe: off never erases.)
