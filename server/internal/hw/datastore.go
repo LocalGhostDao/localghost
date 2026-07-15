@@ -618,15 +618,35 @@ func (d *DataStore) ensureOwnerAndDB(slot int, c ServicesConfig) error {
 		return strings.TrimSpace(string(out)), nil
 	}
 	owner := c.Postgres.User
-	// Owner role: create if missing, then ALTER unconditionally so LOGIN and the password always
-	// match services.conf (the single credential truth).
-	roleSQL := fmt.Sprintf(`
+	// Roles are a SUPERUSER concern, all of them: the owner, ghost_ro, ghost_rw. Creating a role or
+	// setting its password needs CREATEROLE, which the owner deliberately does not have , the
+	// owner-authed phase attempting CREATE ROLE was the second circle this bootstrap breaks (observed
+	// live: "permission denied to create role" on a volume that never had the service roles).
+	// Create-if-missing, then ALTER unconditionally so LOGIN and the password always match
+	// services.conf (the single credential truth).
+	roleDefs := []struct{ name, pass string }{
+		{owner, c.Postgres.Password},
+	}
+	if c.Postgres.ROUser != "" && c.Postgres.RWUser != "" {
+		for _, ident := range []string{c.Postgres.ROUser, c.Postgres.RWUser} {
+			if err := pgIdent(ident); err != nil {
+				return fmt.Errorf("services.conf service role: %w", err)
+			}
+		}
+		roleDefs = append(roleDefs,
+			struct{ name, pass string }{c.Postgres.ROUser, c.Postgres.ROPass},
+			struct{ name, pass string }{c.Postgres.RWUser, c.Postgres.RWPass},
+		)
+	}
+	for _, rd := range roleDefs {
+		roleSQL := fmt.Sprintf(`
 DO $$ BEGIN
   IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%[1]s') THEN CREATE ROLE %[1]s; END IF;
 END $$;
-ALTER ROLE %[1]s LOGIN PASSWORD %[2]s;`, owner, pgLit(c.Postgres.Password))
-	if _, err := super("postgres", roleSQL); err != nil {
-		return fmt.Errorf("ensure owner role: %w", err)
+ALTER ROLE %[1]s LOGIN PASSWORD %[2]s;`, rd.name, pgLit(rd.pass))
+		if _, err := super("postgres", roleSQL); err != nil {
+			return fmt.Errorf("ensure role %s: %w", rd.name, err)
+		}
 	}
 	// Database: CREATE DATABASE cannot run inside a DO block, so existence is checked first.
 	exists, err := super("postgres", fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = %s", pgLit(c.Postgres.Name)))
@@ -696,31 +716,26 @@ func (d *DataStore) EnsureSchema(slot int, c ServicesConfig) error {
 	if err := run(appConfigSchema); err != nil {
 		return fmt.Errorf("ensure app schema: %w", err)
 	}
-	// Service roles , create-if-missing, then ALTER unconditionally so the password always matches
-	// services.conf (the file is the single credential truth). Idents validated, literals escaped.
+	// Service-role GRANTS , the owner may grant on what it owns (everything, post-bootstrap), and
+	// ONLY grant: role creation and passwords are CREATEROLE work, done in ensureOwnerAndDB as the
+	// superuser. The roles are guaranteed to exist by the time this runs.
 	for _, ident := range []string{c.Postgres.ROUser, c.Postgres.RWUser} {
 		if err := pgIdent(ident); err != nil {
 			return fmt.Errorf("service role ident: %w", err)
 		}
 	}
 	roleEnsure := fmt.Sprintf(`
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%[1]s') THEN CREATE ROLE %[1]s; END IF;
-  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%[3]s') THEN CREATE ROLE %[3]s; END IF;
-END $$;
-ALTER ROLE %[1]s LOGIN PASSWORD %[2]s;
-ALTER ROLE %[3]s LOGIN PASSWORD %[4]s;
-GRANT CONNECT ON DATABASE %[5]s TO %[1]s, %[3]s;
-GRANT USAGE ON SCHEMA public TO %[1]s, %[3]s;
+GRANT CONNECT ON DATABASE %[3]s TO %[1]s, %[2]s;
+GRANT USAGE ON SCHEMA public TO %[1]s, %[2]s;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO %[1]s;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %[3]s;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %[3]s;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %[2]s;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %[2]s;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO %[1]s;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %[3]s;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %[3]s;`,
-		c.Postgres.ROUser, pgLit(c.Postgres.ROPass), c.Postgres.RWUser, pgLit(c.Postgres.RWPass), c.Postgres.Name)
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %[2]s;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %[2]s;`,
+		c.Postgres.ROUser, c.Postgres.RWUser, c.Postgres.Name)
 	if err := run(roleEnsure); err != nil {
-		return fmt.Errorf("ensure roles: %w", err)
+		return fmt.Errorf("ensure grants: %w", err)
 	}
 	// Search layer, same converge rule: core must apply; vector is best-effort with the documented
 	// FTS-only fallback , mirrors provision, authed for the hardened world.

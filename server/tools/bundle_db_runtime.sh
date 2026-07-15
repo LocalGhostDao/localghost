@@ -44,6 +44,32 @@ if [ -z "$MOUNT" ] || [ ! -d "$MOUNT" ]; then
     echo "usage: $0 <mount-path> [--verify]     e.g. $0 /var/lib/ghost/mnt/slot0 --verify"
     exit 2
 fi
+
+# THE NAMESPACE TRAP, defended twice. The volume is mounted inside ghost.secd's PRIVATE mount
+# namespace , from the root namespace, $MOUNT is an empty directory on the OS DISK, and a bundle
+# written there is 74MB of unencrypted junk secd will never see (observed live). Defence one:
+# if $MOUNT does not look like a mounted volume (no services.conf) but secd is running, re-exec this
+# script INSIDE secd's namespace , staged through /tmp, because /home (where the repo lives) is EMPTY
+# in there. Defence two, below: refuse to write anywhere that still does not look mounted.
+if [ ! -e "$MOUNT/services.conf" ]; then
+    SECD_PID="$(pidof ghost.secd || true)"
+    if [ -n "$SECD_PID" ] && [ -z "${GHOST_NS_ENTERED:-}" ]; then
+        STAGE="$(mktemp /tmp/ghost-bundle.XXXXXX.sh)"
+        cp "$0" "$STAGE" && chmod 0755 "$STAGE"
+        ARGS="$MOUNT"
+        [ "$VERIFY" = 1 ] && ARGS="$ARGS --verify"
+        [ -n "$RUN_USER" ] && ARGS="$ARGS --user $RUN_USER"
+        # shellcheck disable=SC2086
+        exec env GHOST_NS_ENTERED=1 GHOST_STAGE_FILE="$STAGE" nsenter -t "$SECD_PID" -m "$STAGE" $ARGS
+    fi
+    echo "ERROR: $MOUNT does not look like a mounted volume (no services.conf) and no running"
+    echo "       ghost.secd namespace to enter. Unlock the box first , bundling writes ONTO the"
+    echo "       encrypted volume; writing here would put DB binaries on the OS disk instead."
+    exit 1
+fi
+if [ -n "${GHOST_STAGE_FILE:-}" ]; then
+    trap 'rm -f "$GHOST_STAGE_FILE"' EXIT
+fi
 if [ ! -w "$MOUNT" ]; then
     echo "ERROR: $MOUNT not writable (volume locked, or wrong user?)"
     exit 1
