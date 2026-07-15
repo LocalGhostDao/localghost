@@ -577,6 +577,37 @@ object BoxClient {
         emptyList()
     }
 
+    /** Conversations persisted on the box , list, search, keyset paging. */
+    data class BoxChat(val id: Long, val title: String, val updatedAt: Long, val messages: Long)
+    suspend fun boxChats(ctx: Context, q: String = "", beforeUpdated: Long = 0L, limit: Int = 20): List<BoxChat>? = try {
+        var path = "/v1/chats?limit=$limit"
+        if (beforeUpdated > 0) path += "&before=$beforeUpdated"
+        if (q.isNotBlank()) path += "&q=" + java.net.URLEncoder.encode(q, "UTF-8")
+        val r = BoxHttp.getJson(ctx, path)
+        val a = r.optJSONArray("chats") ?: return emptyList()
+        (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            BoxChat(o.optLong("id"), o.optString("title"), o.optLong("updatedAt"), o.optLong("messages"))
+        }
+    } catch (e: Exception) {
+        android.util.Log.w("LocalGhost", "chats list failed: ${e.message}"); null
+    }
+
+    data class BoxChatMsg(val id: Long, val role: String, val content: String)
+    /** One conversation's history, newest first as served; callers reverse for display. */
+    suspend fun boxChatMessages(ctx: Context, chatId: Long, beforeId: Long = 0L, limit: Int = 100): List<BoxChatMsg>? = try {
+        var path = "/v1/chats/messages?id=$chatId&limit=$limit"
+        if (beforeId > 0) path += "&before=$beforeId"
+        val r = BoxHttp.getJson(ctx, path)
+        val a = r.optJSONArray("messages") ?: return emptyList()
+        (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            BoxChatMsg(o.optLong("id"), o.optString("role"), o.optString("content"))
+        }
+    } catch (e: Exception) {
+        android.util.Log.w("LocalGhost", "chat load failed: ${e.message}"); null
+    }
+
     /** One tracked target's ring buffers: 10s samples (~100 min), minute samples (24h), day blob.
      *  Series come newest-first as stored; the charts reverse for left-to-right time. */
     data class StatPoint(val t: Long, val c: Int, val v: Double)

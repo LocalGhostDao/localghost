@@ -246,6 +246,119 @@ func (s *NotifStore) StatsGet(slot int, key string) (string, bool, error) {
 	return r.Get(key)
 }
 
+// Chat reads , the API side of what ghost.synthd persists. Keyset pagination on (updated_at, id):
+// stable under concurrent writes, no OFFSET scans. Search matches the title OR any message body ,
+// parametrised, never spliced.
+
+// ChatRow is one conversation in the list.
+type ChatRow struct {
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	CreatedAt int64  `json:"createdAt"`
+	UpdatedAt int64  `json:"updatedAt"`
+	Messages  int64  `json:"messages"`
+}
+
+// ChatsList returns up to limit chats, newest-updated first, strictly older than beforeUpdated
+// (0 = from the top). q filters by title or content, case-insensitive.
+func (s *NotifStore) ChatsList(slot int, limit int, beforeUpdated int64, q string) ([]ChatRow, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if beforeUpdated <= 0 {
+		beforeUpdated = 1 << 62
+	}
+	sql := `SELECT c.id, c.title, c.created_at, c.updated_at,
+	               (SELECT count(*) FROM chat_messages m WHERE m.chat_id = c.id) AS msgs
+	        FROM chats c WHERE c.updated_at < $1`
+	args := []any{strconv.FormatInt(beforeUpdated, 10)}
+	if q != "" {
+		sql += ` AND (c.title ILIKE $2 OR EXISTS (
+		            SELECT 1 FROM chat_messages m WHERE m.chat_id = c.id AND m.content ILIKE $2))`
+		args = append(args, "%"+q+"%")
+	}
+	sql += ` ORDER BY c.updated_at DESC, c.id DESC LIMIT ` + strconv.Itoa(limit)
+	rows, err := c.Query(sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChatRow, 0, len(rows.Vals))
+	for _, v := range rows.Vals {
+		if len(v) < 5 || v[0] == nil {
+			continue
+		}
+		var r ChatRow
+		r.ID, _ = strconv.ParseInt(*v[0], 10, 64)
+		if v[1] != nil {
+			r.Title = *v[1]
+		}
+		if v[2] != nil {
+			r.CreatedAt, _ = strconv.ParseInt(*v[2], 10, 64)
+		}
+		if v[3] != nil {
+			r.UpdatedAt, _ = strconv.ParseInt(*v[3], 10, 64)
+		}
+		if v[4] != nil {
+			r.Messages, _ = strconv.ParseInt(*v[4], 10, 64)
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+// ChatMsg is one message in a conversation.
+type ChatMsg struct {
+	ID      int64  `json:"id"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	TS      int64  `json:"ts"`
+}
+
+// ChatMessages returns up to limit messages for a chat, NEWEST first, strictly older than beforeID
+// (0 = from the newest). The app reverses for display and passes the smallest id back to page.
+func (s *NotifStore) ChatMessages(slot int, chatID int64, limit int, beforeID int64) ([]ChatMsg, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	if beforeID <= 0 {
+		beforeID = 1 << 62
+	}
+	rows, err := c.Query(
+		`SELECT id, role, content, ts FROM chat_messages WHERE chat_id = $1 AND id < $2
+		 ORDER BY id DESC LIMIT `+strconv.Itoa(limit),
+		strconv.FormatInt(chatID, 10), strconv.FormatInt(beforeID, 10))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ChatMsg, 0, len(rows.Vals))
+	for _, v := range rows.Vals {
+		if len(v) < 4 || v[0] == nil {
+			continue
+		}
+		var m ChatMsg
+		m.ID, _ = strconv.ParseInt(*v[0], 10, 64)
+		if v[1] != nil {
+			m.Role = *v[1]
+		}
+		if v[2] != nil {
+			m.Content = *v[2]
+		}
+		if v[3] != nil {
+			m.TS, _ = strconv.ParseInt(*v[3], 10, 64)
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
 // DatastoreHealth pings both datastores on the mounted slot and returns what a status surface
 // should say. LIVE probes, not cached state: a wedged Postgres fails HERE, visibly, instead of
 // surfacing as mystery query errors three features away. Empty string = healthy.

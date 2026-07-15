@@ -98,6 +98,7 @@ fun MainShell(
     onToggleMobileSync: (Boolean) -> Unit,
     thinkLevel: String = "",
     onCycleThink: () -> Unit = {},
+    onOpenBoxChat: (Long) -> Unit = {},
     incognito: Boolean = false,
     onToggleIncognito: () -> Unit = {},
     onToggleMute: (Boolean) -> Unit,
@@ -165,7 +166,8 @@ fun MainShell(
                         Dest.CHATS -> ChatsScreen(conversations, activeConvId,
                             onSelect = { onSelectConversation(it); dest = Dest.CHAT },
                             onNew = { onNewConversation(); dest = Dest.CHAT },
-                            onDelete = onDeleteConversation)
+                            onDelete = onDeleteConversation,
+                            onOpenBoxChat = { id -> onOpenBoxChat(id); dest = Dest.CHAT })
                         Dest.MEMORIES -> MemoriesScreen(lifeContext, memories)
                         Dest.NOTIFICATIONS -> {
                             val nctx = androidx.compose.ui.platform.LocalContext.current

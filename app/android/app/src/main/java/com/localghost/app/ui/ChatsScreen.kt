@@ -10,6 +10,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.localghost.app.net.BoxClient
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,8 +30,27 @@ fun ChatsScreen(
     onSelect: (String) -> Unit,
     onNew: () -> Unit,
     onDelete: (String) -> Unit,
+    onOpenBoxChat: (Long) -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
+    // THE BOX'S conversations , everything synthd persisted, searched server-side (titles AND
+    // message bodies), keyset-paged. The local list above it is this device's in-flight state;
+    // the box list is the archive. Search debounces 350ms so typing does not strafe the API.
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var boxChats by remember { mutableStateOf<List<BoxClient.BoxChat>>(emptyList()) }
+    var boxLoading by remember { mutableStateOf(false) }
+    var boxExhausted by remember { mutableStateOf(false) }
+    var boxFailed by remember { mutableStateOf(false) }
+    LaunchedEffect(query) {
+        kotlinx.coroutines.delay(350)
+        boxLoading = true; boxFailed = false
+        val page = BoxClient.boxChats(ctx, q = query.trim())
+        boxLoading = false
+        if (page == null) { boxFailed = true; return@LaunchedEffect }
+        boxChats = page
+        boxExhausted = page.size < 20
+    }
     val filtered = remember(conversations, query) {
         if (query.isBlank()) conversations
         else conversations.filter { it.title.contains(query.trim(), ignoreCase = true) }
@@ -74,17 +96,80 @@ fun ChatsScreen(
         Spacer(Modifier.height(12.dp))
 
         when {
-            conversations.isEmpty() ->
+            conversations.isEmpty() && boxChats.isEmpty() && !boxLoading && !boxFailed ->
                 EmptyLine("no chats yet. start one with ＋ new.")
-            filtered.isEmpty() ->
-                EmptyLine("no chats match \"${query.trim()}\".")
             else -> LazyColumn(Modifier.fillMaxSize()) {
-                items(filtered, key = { it.id }) { c ->
-                    ChatRow(c, c.id == activeConvId, onSelect, onDelete)
+                if (filtered.isNotEmpty()) {
+                    items(filtered, key = { "local-" + it.id }) { c ->
+                        ChatRow(c, c.id == activeConvId, onSelect, onDelete)
+                    }
+                }
+                item(key = "box-header") {
+                    Spacer(Modifier.height(12.dp))
+                    SectionLabel("ON THE BOX")
+                    Spacer(Modifier.height(8.dp))
+                }
+                when {
+                    boxFailed -> item(key = "box-failed") {
+                        EmptyLine("box unreachable , the archive list needs a connection.")
+                    }
+                    boxLoading && boxChats.isEmpty() -> item(key = "box-loading") {
+                        EmptyLine("reading from the box…")
+                    }
+                    boxChats.isEmpty() -> item(key = "box-empty") {
+                        EmptyLine(if (query.isBlank()) "nothing persisted yet , non-incognito chats land here."
+                                  else "nothing on the box matches \"${query.trim()}\".")
+                    }
+                    else -> {
+                        items(boxChats, key = { "box-" + it.id }) { c ->
+                            BoxChatRow(c) { onOpenBoxChat(c.id) }
+                        }
+                        if (!boxExhausted) item(key = "box-more") {
+                            Text(if (boxLoading) "loading…" else "LOAD MORE ▾",
+                                color = TerminalDim, style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.fillMaxWidth()
+                                    .clickable(enabled = !boxLoading) {
+                                        boxLoading = true
+                                        scope.launch {
+                                            val page = BoxClient.boxChats(ctx, q = query.trim(),
+                                                beforeUpdated = boxChats.last().updatedAt)
+                                            boxLoading = false
+                                            if (page == null) { boxFailed = true; return@launch }
+                                            boxChats = boxChats + page
+                                            if (page.size < 20) boxExhausted = true
+                                        }
+                                    }
+                                    .padding(vertical = 10.dp))
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun BoxChatRow(c: BoxClient.BoxChat, onOpen: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .border(1.dp, GhostBorder, RectangleShape)
+            .background(Void)
+            .clickable { onOpen() }
+            .padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(c.title.ifBlank { "(untitled)" }, color = GhostText,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(2.dp))
+            Text(java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.US)
+                    .format(java.util.Date(c.updatedAt)) + " · ${c.messages} msgs",
+                color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        }
+        Text("→", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+    }
+    Spacer(Modifier.height(8.dp))
 }
 
 @Composable

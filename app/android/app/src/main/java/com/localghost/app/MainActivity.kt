@@ -288,6 +288,7 @@ class MainActivity : ComponentActivity() {
                         onTestNotification = ::testNotification,
                         allowMobileSync = allowMobileSyncState,
                         thinkLevel = thinkLevelState,
+                        onOpenBoxChat = { id -> openBoxChat(id) },
                         incognito = incognitoState,
                         onToggleIncognito = {
                             incognitoState = !incognitoState
@@ -800,6 +801,24 @@ class MainActivity : ComponentActivity() {
     }
 
     // --- auth ---
+    /** Load a persisted conversation from the box into the chat view. Messages arrive newest-first;
+     *  reversed for display. Adopting the chatId means the next question APPENDS to this chat on
+     *  the box , continuation, not a fork. Incognito switches off: you are inside a saved chat. */
+    private fun openBoxChat(id: Long) {
+        lifecycleScope.launch {
+            val msgs = BoxClient.boxChatMessages(this@MainActivity, id) ?: run {
+                android.util.Log.w("LocalGhost", "box chat $id failed to load"); return@launch
+            }
+            messages.clear()
+            msgs.asReversed().forEach { m ->
+                messages.add(Message(
+                    if (m.role == "user") Message.Role.USER else Message.Role.GHOST, m.content))
+            }
+            currentChatId = id
+            incognitoState = false
+        }
+    }
+
     private fun passBiometric() {
         error = null
         BiometricPrompt.Builder(this)
