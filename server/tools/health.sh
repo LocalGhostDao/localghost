@@ -69,10 +69,16 @@ if [ ! -d "$RUN_DIR" ]; then
 fi
 
 # Discover any extra sockets not in the roster (hand-added daemons), so nothing is missed.
+# *.stream sockets are EXCLUDED by name: they are streamsock endpoints (unix-socket HTTP for token
+# streaming), not control sockets , they will never answer a ctlsock ping, so including them reads
+# as two permanently-STALE daemons and poisons the DEGRADED count on a perfectly healthy box.
 EXTRA=""
 for sock in "$RUN_DIR"/*.sock; do
     [ -e "$sock" ] || continue
     name="$(basename "$sock" .sock)"
+    case "$name" in
+        *.stream) continue ;;
+    esac
     case " $ROSTER ghost.secd " in
         *" $name "*) : ;;
         *) EXTRA="$EXTRA $name" ;;

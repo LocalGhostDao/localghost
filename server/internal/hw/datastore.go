@@ -749,6 +749,13 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %[
 	} else if err := run(searchsql.HealthView); err != nil {
 		return fmt.Errorf("ensure search health view: %w", err)
 	}
+	// Search-schema GRANTS , the piece the provision path runs last and this converge previously
+	// never ran at all: the public-schema grants above do not reach schema search, so the service
+	// roles could see the search tables exist and touch none of them (observed live: ghost_rw,
+	// "permission denied for schema search", one warn per ingest, forever).
+	if err := run(searchsql.Grants); err != nil {
+		return fmt.Errorf("ensure search grants: %w", err)
+	}
 	return nil
 }
 

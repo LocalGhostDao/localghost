@@ -33,8 +33,13 @@ enum class UnlockStage(val label: String) {
     LOCKED("locked");
 
     companion object {
-        /** The fixed order every unlock walks. Same for all accounts. */
-        val order = listOf(RESOLVE, UNSEAL, MOUNT, START_DB, START_CACHE, DAEMONS, READY)
+        /**
+         * The fixed order every unlock walks. Same for all accounts. MODEL sits before READY and
+         * BLOCKS it: the box holds done until oracled reports the model live, so the app lands on a
+         * box whose chat answers immediately. Cold unlocks pay the load time here, visibly, once;
+         * warm unlocks tick MODEL off in one poll.
+         */
+        val order = listOf(RESOLVE, UNSEAL, MOUNT, START_DB, START_CACHE, DAEMONS, MODEL, READY)
 
         /** The teardown order a lock walks , the mount in reverse. */
         val teardownOrder = listOf(STOP_SERVICES, STOP_CACHE, STOP_DB, UNMOUNT, LOCKED)
@@ -47,6 +52,7 @@ enum class UnlockStage(val label: String) {
             "START_DB" -> START_DB
             "START_CACHE" -> START_CACHE
             "DAEMONS" -> DAEMONS
+            "MODEL" -> MODEL
             "READY" -> READY
             "STOP_SERVICES" -> STOP_SERVICES
             "STOP_CACHE" -> STOP_CACHE
