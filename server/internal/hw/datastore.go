@@ -430,14 +430,34 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %[
 // what makes the ghost_ro / ghost_rw split real: ghost_ro cannot present ghost_rw's password it does
 // not have. The socket is still loopback/volume-local; scram is defence in depth on top of that, not
 // a replacement for it.
+//
+// The run user keeps PEER auth on the socket , first match wins, so its line comes first. That user
+// is the initdb superuser, and it is the BOOTSTRAP identity EnsureSchema uses to create the owner
+// role and database on volumes that predate them. Without this line, scram-everything locks the
+// superuser out entirely (it has no password), and a box whose owner role is missing or broken has
+// no identity left that can repair it. Peer is not a hole: it authenticates by OS uid over the
+// volume-local socket, the same trust the whole run-user model already stands on.
+//
+// Idempotent (same bytes, cheap reload), so EnsureSchema converges it at every unlock , old volumes
+// hardened before this line existed pick it up on their next unlock.
 func (d *DataStore) hardenPgHBA(slot int, c ServicesConfig) error {
 	data := d.pgData(slot)
-	hba := "# ghost: scram-sha-256 on the volume-local socket and loopback. Rewritten at first start.\n" +
+	peer := ""
+	if d.runUser != "" && !strings.ContainsAny(d.runUser, " \t\n\"") {
+		peer = fmt.Sprintf("local   all   %s   peer\n", d.runUser)
+	}
+	hba := "# ghost: scram-sha-256 on the volume-local socket and loopback; peer for the run user\n" +
+		"# (the initdb superuser , the bootstrap identity). Converged at every unlock.\n" +
+		peer +
 		"local   all   all                  scram-sha-256\n" +
 		"host    all   all   127.0.0.1/32   scram-sha-256\n" +
 		"host    all   all   ::1/128        scram-sha-256\n"
 	if err := os.WriteFile(filepath.Join(data, "pg_hba.conf"), []byte(hba), 0o600); err != nil {
 		return err
+	}
+	// The file must be readable by the server process (the run user); secd writes as root.
+	if cred := d.dbCredential(); cred != nil {
+		_ = os.Chown(filepath.Join(data, "pg_hba.conf"), int(cred.Uid), int(cred.Gid))
 	}
 	out, err := d.pgCmd(filepath.Dir(data), "pg_ctl", "-D", data, "reload").CombinedOutput()
 	if err != nil {
@@ -567,6 +587,79 @@ func pgIdent(name string) error {
 // services.conf cannot turn provisioning into superuser SQL injection.
 func pgLit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
+// ensureOwnerAndDB is EnsureSchema's BOOTSTRAP phase, run as the SUPERUSER (the run user initdb
+// created) over the volume-local socket with peer auth. It exists because the rest of EnsureSchema
+// authenticates as the owner role , which is circular on any volume where that role is missing or
+// broken: the converger could not log in as the role it was supposed to create (observed live:
+// FATAL "role ghost does not exist", every unlock, forever). This phase converges the things only a
+// superuser can: the owner role exists with the provisioned password, the database exists, and
+// every app object in it , database, schema public, tables, sequences, views , is OWNED by the owner
+// role, so the owner-authed phase that follows can always apply schema and grants. Ownership matters
+// on pre-role volumes: their objects belong to the superuser, and an owner role that owns nothing
+// cannot CREATE in public (PG15+) or GRANT on tables it does not own. Everything here is idempotent.
+func (d *DataStore) ensureOwnerAndDB(slot int, c ServicesConfig) error {
+	data := d.pgData(slot)
+	port := strconv.Itoa(c.Postgres.Port)
+	if err := pgIdent(c.Postgres.User); err != nil {
+		return fmt.Errorf("services.conf postgres user: %w", err)
+	}
+	if err := pgIdent(c.Postgres.Name); err != nil {
+		return fmt.Errorf("services.conf postgres db name: %w", err)
+	}
+	// No -U: psql defaults to the OS user, and pgCmd drops the process to the run user , which is the
+	// initdb superuser and matches the peer line in pg_hba. That identity needs no password, which is
+	// the whole point of a bootstrap identity.
+	super := func(db, sql string) (string, error) {
+		out, err := d.pgCmd(filepath.Dir(data), "psql", "-h", data, "-p", port, "-d", db, "-tA",
+			"-v", "ON_ERROR_STOP=1", "-c", sql).CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	owner := c.Postgres.User
+	// Owner role: create if missing, then ALTER unconditionally so LOGIN and the password always
+	// match services.conf (the single credential truth).
+	roleSQL := fmt.Sprintf(`
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '%[1]s') THEN CREATE ROLE %[1]s; END IF;
+END $$;
+ALTER ROLE %[1]s LOGIN PASSWORD %[2]s;`, owner, pgLit(c.Postgres.Password))
+	if _, err := super("postgres", roleSQL); err != nil {
+		return fmt.Errorf("ensure owner role: %w", err)
+	}
+	// Database: CREATE DATABASE cannot run inside a DO block, so existence is checked first.
+	exists, err := super("postgres", fmt.Sprintf("SELECT 1 FROM pg_database WHERE datname = %s", pgLit(c.Postgres.Name)))
+	if err != nil {
+		return fmt.Errorf("check database: %w", err)
+	}
+	if exists != "1" {
+		if _, err := super("postgres", fmt.Sprintf("CREATE DATABASE %s OWNER %s;", c.Postgres.Name, owner)); err != nil {
+			return fmt.Errorf("create database: %w", err)
+		}
+	}
+	// Ownership converge inside the database. ALTER ... OWNER TO the current owner is a no-op, so on
+	// a healthy box this whole block costs one round trip and changes nothing.
+	ownSQL := fmt.Sprintf(`
+ALTER DATABASE %[1]s OWNER TO %[2]s;
+ALTER SCHEMA public OWNER TO %[2]s;
+DO $$ DECLARE r record; BEGIN
+  FOR r IN SELECT tablename AS n FROM pg_tables WHERE schemaname = 'public' LOOP
+    EXECUTE format('ALTER TABLE public.%%I OWNER TO %[2]s', r.n);
+  END LOOP;
+  FOR r IN SELECT sequencename AS n FROM pg_sequences WHERE schemaname = 'public' LOOP
+    EXECUTE format('ALTER SEQUENCE public.%%I OWNER TO %[2]s', r.n);
+  END LOOP;
+  FOR r IN SELECT viewname AS n FROM pg_views WHERE schemaname = 'public' LOOP
+    EXECUTE format('ALTER VIEW public.%%I OWNER TO %[2]s', r.n);
+  END LOOP;
+END $$;`, c.Postgres.Name, owner)
+	if _, err := super(c.Postgres.Name, ownSQL); err != nil {
+		return fmt.Errorf("converge ownership: %w", err)
+	}
+	return nil
+}
+
 // EnsureSchema converges a LIVE database to the current code: application tables, service roles,
 // grants, and the search layer , all idempotent, all at every unlock. This exists because the
 // original design ran schema only at provision (firstRun), so every volume older than a code
@@ -576,6 +669,17 @@ func pgLit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'
 func (d *DataStore) EnsureSchema(slot int, c ServicesConfig) error {
 	data := d.pgData(slot)
 	port := strconv.Itoa(c.Postgres.Port)
+	// PHASE 0, as the superuser: converge pg_hba FIRST (so the run user's peer line exists , without
+	// it, a scram-everything hba from an earlier hardening locks the bootstrap identity out), then
+	// bootstrap the owner role, database, and object ownership. Only after this can the owner-authed
+	// phase below be relied on , the observed failure mode was this exact circle: EnsureSchema
+	// authenticating as an owner role that its own later steps were supposed to create.
+	if err := d.hardenPgHBA(slot, c); err != nil {
+		return fmt.Errorf("converge pg_hba: %w", err)
+	}
+	if err := d.ensureOwnerAndDB(slot, c); err != nil {
+		return fmt.Errorf("bootstrap owner/db: %w", err)
+	}
 	run := func(sql string) error {
 		cmd := d.pgCmd(filepath.Dir(data), "psql", "-h", data, "-p", port,
 			"-U", c.Postgres.User, "-d", c.Postgres.Name, "-v", "ON_ERROR_STOP=1", "-c", sql)
