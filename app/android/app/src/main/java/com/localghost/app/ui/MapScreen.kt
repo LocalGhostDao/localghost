@@ -2,6 +2,7 @@ package com.localghost.app.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -142,7 +143,7 @@ fun MapScreen() {
                     }
                 }
                 .pointerInput(points) {
-                    androidx.compose.foundation.gestures.detectTapGestures { tap ->
+                    detectTapGestures { tap ->
                         val sw = size.width.toFloat(); val sh = size.height.toFloat()
                         val pxz = (minOf(sw, sh) / WORLD) * zoom
                         var best: BoxClient.GeoPoint? = null; var bestD = 40f * 40f

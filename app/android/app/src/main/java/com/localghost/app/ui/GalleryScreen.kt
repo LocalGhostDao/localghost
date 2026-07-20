@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -104,7 +105,7 @@ fun GalleryScreen() {
 
         val shown = results ?: frames
         if (results != null) {
-            Text("${shown.size} result${if (shown.size == 1) "" else "s"} for "${query.trim()}"",
+            Text("${shown.size} result${if (shown.size == 1) "" else "s"} for \"${query.trim()}\"",
                 color = TerminalDim, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
         }
