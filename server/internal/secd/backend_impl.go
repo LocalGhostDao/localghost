@@ -46,6 +46,10 @@ type backend struct {
 	// control socket (start-cohort / stop-cohort / restart / status). watchProc is the watchd process
 	// secd spawned; watch is the socket client. Both nil until StartCache; both cleared on Lock.
 	watchProc *os.Process
+	// watchStopping marks a DELIBERATE watchd stop (lock/halt/shutdown): superviseWatchd's Wait
+	// returning is then a planned event, not a death to respawn from. Set at stop, cleared only at
+	// the NEXT spawn , never defer-cleared (that raced the supervisor into respawning on a locked box).
+	watchStopping atomic.Bool
 	// watchDone closes when the reaper goroutine (spawnWatchd) observes watchd exit. The lock path
 	// waits on THIS, never on Wait() directly , two concurrent Wait()s on one process race, and the
 	// loser gets ECHILD and can wrongly conclude the process died while it is still running.

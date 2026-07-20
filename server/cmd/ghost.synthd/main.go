@@ -726,11 +726,7 @@ func distillPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (
 			Priority:   oracle.PriorityBackground,
 			Input: "From this journal entry, extract up to 3 durable facts, preferences, plans, or events about the USER worth remembering long-term. " +
 				"One per line, format exactly: TITLE | one-sentence body. Only genuinely durable things , a single routine photo or a pleasantry is usually NOTHING. " +
-				"If nothing is worth remembering, reply with exactly: NONE
-
-" + title + "
-
-" + body,
+				"If nothing is worth remembering, reply with exactly: NONE\n\n" + title + "\n\n" + body,
 		})
 		if ierr != nil {
 			lg.Warn("distill inference failed, entry left for a later pass", "fn", "distillPass", "ref", ref, "err", ierr)
@@ -741,8 +737,7 @@ func distillPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (
 		if strings.HasPrefix(ref, "chat:") {
 			srcChat, _ = strconv.ParseInt(strings.TrimPrefix(ref, "chat:"), 10, 64)
 		}
-		for _, line := range strings.Split(resp.Output, "
-") {
+		for _, line := range strings.Split(resp.Output, "\n") {
 			line = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(line), "-*0123456789. "))
 			if line == "" || strings.EqualFold(line, "NONE") {
 				continue

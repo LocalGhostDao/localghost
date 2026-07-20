@@ -558,8 +558,7 @@ func (s *System) provisionVolumeInterior(mount string) error {
 		fetcher := filepath.Join(s.RepoDir(), "tools", "fetch_geo.sh")
 		if fileReadable(fetcher) {
 			if err := run(fetcher, geoDir); err != nil {
-				fmt.Printf("  note: geo fetch reported trouble (%v) , geocoding stays off until geo-import
-", err)
+				fmt.Printf("  note: geo fetch reported trouble (%v) , geocoding stays off until geo-import\n", err)
 			}
 		} else {
 			fmt.Println("  note: fetch_geo.sh not found , geocoding stays off until the operator provides data")
@@ -586,11 +585,9 @@ func (s *System) provisionVolumeInterior(mount string) error {
 			gs := framed.NewStore(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 			pts, nm, ierr := gs.ImportGeo(geoDir, slog.Default())
 			if ierr != nil {
-				fmt.Printf("  note: geo import failed after %d rows (%v) , run geo-import later
-", pts, ierr)
+				fmt.Printf("  note: geo import failed after %d rows (%v) , run geo-import later\n", pts, ierr)
 			} else {
-				fmt.Printf("  geo imported: %d points, %d names , the geocoder is live from first unlock
-", pts, nm)
+				fmt.Printf("  geo imported: %d points, %d names , the geocoder is live from first unlock\n", pts, nm)
 			}
 		}
 	}
