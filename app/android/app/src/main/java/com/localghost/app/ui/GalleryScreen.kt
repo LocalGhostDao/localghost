@@ -190,9 +190,12 @@ private fun FrameDetailDialog(
                 .verticalScroll(rememberScrollState())
         ) {
             var full by remember(frame.hash) { mutableStateOf(false) }
-            if (full) ImageViewer(frame.hash,
-                caption = if (frame.description.isNotBlank()) frame.description else frame.name,
-                onDismiss = { full = false })
+            if (full) {
+                if (frame.kind == "video") VideoPlayer(frame.hash, onDismiss = { full = false })
+                else ImageViewer(frame.hash,
+                    caption = if (frame.description.isNotBlank()) frame.description else frame.name,
+                    onDismiss = { full = false })
+            }
             // Tap the thumb for the real thing: box's preview JPEG, pinch to zoom, double-tap 3x.
             Box(Modifier.fillMaxWidth().aspectRatio(1f).background(VoidLighter)
                     .clickable { full = true },
@@ -202,7 +205,8 @@ private fun FrameDetailDialog(
                     contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 else Text(if (frame.kind == "video") "▶" else "·", color = TerminalGreen)
             }
-            Text("tap the photo to open it full screen · pinch to zoom", color = TerminalDim,
+            Text(if (frame.kind == "video") "tap to play , fetched from your box, cached only while open"
+                 else "tap the photo to open it full screen · pinch to zoom", color = TerminalDim,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(12.dp))

@@ -76,6 +76,23 @@ of DONE (reverse chronological); open items live in TO DO until they move.
 
 ## DONE
 
+- [x] **72. ffmpeg joins the volume** (2026-07-21): tools/bundle_ffmpeg.sh , same philosophy as
+      the DB bundle (binary + full ldd closure onto the encrypted volume, --verify runs the
+      bundled copy with ONLY bundled libs, then the OS package is removable). framed prefers the
+      volume's copy (SetFFmpeg, LD_LIBRARY_PATH at the bundle's lib dir), PATH only as fallback.
+      Docker considered and rejected: the setup IS the container. Map verdict from the field: DB
+      aggregation healthy (3308 points, 29 world cells) , the fix is the item-65 APK, pending
+      rebuild.
+
+- [x] **71. Videos become citizens** (2026-07-21): frame-grab thumbnails , ffmpeg (best effort:
+      absent = play glyph as before, present = grab at t=1s falling back to t=0, fed through the
+      SAME makePreviews path so preview + thumb + upright all apply) at archive AND at reprocess
+      (the 161 existing videos gain thumbs on the next pass). Playback: VideoPlayer.kt , the box
+      speaks mTLS + bearer which no stock player can, so bytes come through the authenticated
+      channel into cache and play as a local file (VideoView, zero new deps); the cache file dies
+      with the dialog , the phone stays a window, not a second archive. Gallery routes video taps
+      to the player, photo taps to the pinch viewer.
+
 - [x] **70. pgvector path + idempotent image reimport** (2026-07-21): pgvector needs no code ,
       the bundle already carries vector.so when Debian's package is present and the schema
       self-upgrades on CREATE EXTENSION success; documented the activation (install pkg,

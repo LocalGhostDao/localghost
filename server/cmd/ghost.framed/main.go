@@ -230,6 +230,11 @@ func main() {
 	// NIGHTLY BACKUPS , sealed to the operator's public key (opt-in: no /var/lib/ghost/backup.pub,
 	// no backups, one log line, silence). Sunday full, other nights incremental since the last run.
 	backupCfg := framed.BackupConfig{Dir: "/var/lib/ghost/backup", PubFile: "/var/lib/ghost/backup.pub"}
+	// Bundled ffmpeg outranks the OS copy , the volume carries its own media runtime.
+	if ffb := filepath.Join(*mount, "runtime", "ffmpeg", "bin", "ffmpeg"); fileOK(ffb) {
+		pipe.SetFFmpeg(ffb, filepath.Join(*mount, "runtime", "ffmpeg", "lib"))
+		lg.Info("using bundled ffmpeg from the volume", "fn", "main")
+	}
 	framedRoot := filepath.Join(*mount, "framed")
 	runBackup := func(force bool) string {
 		full := force || time.Now().Weekday() == time.Sunday
@@ -355,4 +360,9 @@ func envPort(key string) int {
 		}
 	}
 	return 0
+}
+
+func fileOK(p string) bool {
+	st, err := os.Stat(p)
+	return err == nil && !st.IsDir()
 }

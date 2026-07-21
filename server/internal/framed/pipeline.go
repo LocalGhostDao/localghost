@@ -83,6 +83,10 @@ type Pipeline struct {
 	dirs  Dirs
 	store *Store
 	log   *slog.Logger
+	// Bundled ffmpeg (tools/bundle_ffmpeg.sh): binary + its private library closure ON the
+	// volume, so the OS disk carries no media software. Empty = fall back to PATH.
+	ffmpegBin string
+	ffmpegLib string
 	// mu serializes drains: the poll tick and an operator's `ghost-cli ghost.framed drain` can fire
 	// concurrently, and two goroutines processing the same spool file double-read it, collide on the
 	// archive rename, and write duplicate previews. Hash dedup makes it harmless to the DATA, but the
@@ -279,7 +283,15 @@ func (p *Pipeline) processOne(path string) (string, error) {
 		}
 	case KindVideo:
 		kindStr = "video"
-		p.log.Info("video archived (no still preview)", "fn", "processOne", "hash", hash, "mime", sniff.MIME)
+		// FRAME GRAB , one second in, one frame out, through ffmpeg if the box has it. Best
+		// effort by design: no ffmpeg means videos keep their play glyph and everything else
+		// works; with it, the gallery and map treat videos as first-class citizens. The grab
+		// feeds the SAME makePreviews path as photos, so preview + thumb + upright all apply.
+		if jpg, gerr := p.grabVideoFrame(archPath); gerr != nil {
+			p.log.Info("video archived (no still preview)", "fn", "processOne", "hash", hash, "mime", sniff.MIME, "note", gerr.Error())
+		} else {
+			prevPath, thumbPath = p.makePreviews(jpg, hash, 1)
+		}
 	default:
 		p.log.Warn("archived unrecognised media type", "fn", "processOne", "hash", hash, "ext", ext)
 	}
@@ -625,6 +637,29 @@ func (p *Pipeline) Reprocess(forcePreviews bool) (scanned, recorded, previewed, 
 			}
 		case KindVideo:
 			kindStr = "video"
+			existingThumb := fileExists(filepath.Join(p.dirs.Thumb, hash+".jpg")) ||
+				fileExists(filepath.Join(p.dirs.Thumb, hash+".webp"))
+			if forcePreviews || !existingThumb {
+				if jpg, gerr := p.grabVideoFrame(path); gerr == nil {
+					prevPath, thumbPath = p.makePreviews(jpg, hash, 1)
+					if thumbPath != "" {
+						previewed++
+					}
+				}
+			} else {
+				tj, tw := filepath.Join(p.dirs.Thumb, hash+".jpg"), filepath.Join(p.dirs.Thumb, hash+".webp")
+				if fileExists(tw) {
+					thumbPath = tw
+				} else if fileExists(tj) {
+					thumbPath = tj
+				}
+				pj, pw := filepath.Join(p.dirs.Preview, hash+".jpg"), filepath.Join(p.dirs.Preview, hash+".webp")
+				if fileExists(pw) {
+					prevPath = pw
+				} else if fileExists(pj) {
+					prevPath = pj
+				}
+			}
 		}
 
 		place := ""
@@ -679,4 +714,33 @@ func (p *Pipeline) Reprocess(forcePreviews bool) (scanned, recorded, previewed, 
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// SetFFmpeg points the pipeline at a bundled ffmpeg (binary + private lib dir). Set when the
+// bundle exists; the volume's copy always outranks whatever the OS happens to have.
+func (p *Pipeline) SetFFmpeg(bin, lib string) { p.ffmpegBin, p.ffmpegLib = bin, lib }
+
+// grabVideoFrame pulls one frame (t=1s, falling back to t=0 for sub-second clips) as JPEG bytes.
+// Bundled ffmpeg first (with ITS libraries via LD_LIBRARY_PATH); PATH as the fallback.
+func (p *Pipeline) grabVideoFrame(videoPath string) ([]byte, error) {
+	ff, env := p.ffmpegBin, []string(nil)
+	if ff != "" {
+		env = append(os.Environ(), "LD_LIBRARY_PATH="+p.ffmpegLib)
+	} else {
+		var err error
+		ff, err = exec.LookPath("ffmpeg")
+		if err != nil {
+			return nil, fmt.Errorf("no ffmpeg (bundle one: tools/bundle_ffmpeg.sh <mount>)")
+		}
+	}
+	for _, seek := range []string{"1", "0"} {
+		cmd := exec.Command(ff, "-hide_banner", "-loglevel", "error",
+			"-ss", seek, "-i", videoPath, "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "pipe:1")
+		cmd.Env = env
+		out, cerr := cmd.Output()
+		if cerr == nil && len(out) > 0 {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("ffmpeg produced no frame")
 }
