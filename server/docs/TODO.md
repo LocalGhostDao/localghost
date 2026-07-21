@@ -76,6 +76,15 @@ of DONE (reverse chronological); open items live in TO DO until they move.
 
 ## DONE
 
+- [x] **73. Field triage two: the text lane thinks, the embedder pools** (2026-07-21): the
+      reasoning disease's second organ , tags (and all one-shot TEXT inference) never got
+      enable_thinking:false, only the multimodal caption path did; ~470 reasoning chars, no
+      content, every tag job. Suppressed now; StreamChat keeps its deliberate <think> handling.
+      Embeds: llama-server 500s on /v1/embeddings for nomic-style models without an explicit
+      pooling mode , --pooling mean (+ -c 2048 -ub 1024) added to the spawn. Post-deploy:
+      ghost.searchd revive refunds the attempts both storms burned. Meanwhile the log sang:
+      day episodes 98+83 built, video previews growing, vector=true embedder=true.
+
 - [x] **72. ffmpeg joins the volume** (2026-07-21): tools/bundle_ffmpeg.sh , same philosophy as
       the DB bundle (binary + full ldd closure onto the encrypted volume, --verify runs the
       bundled copy with ONLY bundled libs, then the OS package is removable). framed prefers the

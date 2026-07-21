@@ -163,6 +163,11 @@ func (b *llamaBackend) Infer(ctx context.Context, req oracle.Request) (oracle.Re
 	// prefixes, minutes-long answers). /v1/chat/completions applies the template from the GGUF.
 	payload := map[string]any{
 		"messages": []map[string]any{{"role": "user", "content": prompt}},
+		// Same disease, second organ: the TEXT one-shot path (tags, distillation) was still
+		// letting this natively-thinking gemma burn its whole budget on reasoning and return
+		// empty content , the caption fix only covered the multimodal path. One-shot tasks do
+		// not want a monologue; chat (StreamChat) keeps its deliberate <think> handling.
+		"chat_template_kwargs": map[string]any{"enable_thinking": false},
 	}
 	if budget > 0 {
 		payload["max_tokens"] = budget
