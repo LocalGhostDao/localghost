@@ -138,7 +138,6 @@ func (w *Worker) doCaption(ctx context.Context, job *Job) error {
 		return err
 	}
 	_, sha, meta, captured, err := w.Store.OriginalByID("image", p.OrigID)
-	_ = sha
 	if err != nil {
 		return err
 	}
@@ -149,8 +148,8 @@ func (w *Worker) doCaption(ctx context.Context, job *Job) error {
 	if scene := captionSection(caption, "SCENE:"); scene != "" {
 		if err := w.Store.db.Exec(
 			`UPDATE frames SET description = $1 WHERE hash = $2 AND (description IS NULL OR description = '')`,
-			scene, hash); err != nil {
-			w.Log.Warn("description write failed", "fn", "doCaption", "hash", hash, "err", err)
+			scene, sha); err != nil {
+			w.Log.Warn("description write failed", "fn", "doCaption", "hash", sha, "err", err)
 		}
 	}
 	chunks := ChunkText(header, caption)
