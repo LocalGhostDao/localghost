@@ -160,6 +160,7 @@ fun SyncScreen(
             // are skipped, so the cost is time, never duplicates. A partner's phone has its own
             // cursor and is untouched.
             val rctx = androidx.compose.ui.platform.LocalContext.current
+            val rscope = rememberCoroutineScope()
             var armed by remember { mutableStateOf(false) }
             var msg by remember { mutableStateOf("") }
             Spacer(Modifier.height(8.dp))
@@ -173,7 +174,7 @@ fun SyncScreen(
                         msg = "rewinds THIS phone's cursor; the box skips what it already holds"
                     } else {
                         armed = false
-                        scope.launch {
+                        rscope.launch {
                             msg = if (com.localghost.app.net.BoxClient.resetSync(rctx))
                                 "cursor rewound , tap SYNC NOW to walk the whole library"
                             else "! reset failed (box unreachable?)"

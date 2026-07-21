@@ -24,11 +24,32 @@ object BoxHttp {
 
     class NotEnrolled : Exception("device is not enrolled")
 
+    // THE HANDSHAKE CACHE , the 40k-photo discovery. Building a fresh SSLContext per request does
+    // not just cost the build (an Android Keystore round-trip each time): a NEW factory instance
+    // defeats HTTP keep-alive entirely , the connection pool keys on the factory , so EVERY photo
+    // paid a full mTLS handshake, and a LAN that could move the file in 200ms spent seconds
+    // shaking hands. One factory, built once, invalidated only when enrolment changes: one
+    // handshake per session, keep-alive for the other 39,999.
+    @Volatile private var cachedFactory: javax.net.ssl.SSLSocketFactory? = null
+    @Volatile private var cachedKey: String = ""
+
+    private fun factoryFor(ctx: Context, cfg: BoxConfig.Config): javax.net.ssl.SSLSocketFactory {
+        val key = cfg.baseUrl + "|" + cfg.certFingerprint
+        cachedFactory?.let { if (cachedKey == key) return it }
+        synchronized(this) {
+            cachedFactory?.let { if (cachedKey == key) return it }
+            val km = DeviceCert.keyManager(ctx) ?: throw NotEnrolled()
+            val f = BoxTrust.socketFactory(cfg.certFingerprint, km)
+            cachedFactory = f
+            cachedKey = key
+            return f
+        }
+    }
+
     private fun open(ctx: Context, path: String, method: String): HttpsURLConnection {
         val cfg = BoxConfig.read(ctx) ?: throw NotEnrolled()
-        val km = DeviceCert.keyManager(ctx) ?: throw NotEnrolled()
         val conn = URL(cfg.baseUrl.trimEnd('/') + path).openConnection() as HttpsURLConnection
-        conn.sslSocketFactory = BoxTrust.socketFactory(cfg.certFingerprint, km)
+        conn.sslSocketFactory = factoryFor(ctx, cfg)
         // The fingerprint pin is the ENTIRE trust decision (BoxTrust): hostname/SAN checking against a
         // self-signed pinned cert adds nothing , no CA exists to mis-issue for a different host , and it
         // actively breaks the moment the box's LAN address changes (DHCP hands it a new IP, or the user
