@@ -1308,8 +1308,12 @@ func (s *NotifStore) FramesGeoLOD(slot, level int, minLat, maxLat, minLon, maxLo
 	if err != nil {
 		return nil, err
 	}
-	if limit <= 0 || limit > 6000 {
-		limit = 3000
+	// HARD CEILING 500 , the two-person archive froze the phone: 43k points into a Compose
+	// canvas is not a map, it is a hang. Clusters are ordered biggest-first so the 500 you get
+	// are the 500 that matter; raw tier keeps newest-first. The app never needs its own guard
+	// because the API is incapable of flooding it.
+	if limit <= 0 || limit > 500 {
+		limit = 500
 	}
 	prec := geoLevelPrecision(level)
 	if prec == 0 {

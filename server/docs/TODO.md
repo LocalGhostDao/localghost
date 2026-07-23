@@ -87,6 +87,43 @@ of DONE (reverse chronological); open items live in TO DO until they move.
 
 ## DONE
 
+- [x] **87. Field triage three** (2026-07-22): (a) MAP , 43k points froze the phone; FramesGeoLOD
+      hard-ceilings every tier at 500 (clusters biggest-first, raw newest-first): the app needs
+      no guard because the API cannot flood it. (b) VIDEOS were flowing into the IMAGE ingest
+      lane -> caption jobs the vision model 400s forever (the immortal job 10135 decoded);
+      notifySearch now skips kind=video , archived, played, thumbed, unindexed until a real
+      video lane (ffmpeg keyframe -> caption) exists. Operator cleanup: DELETE FROM search.jobs
+      WHERE kind='caption' AND id IN (stuck video jobs) , or just revive+let them exhaust.
+      (c) SYNC health row rendered one-letter-per-line (unweighted label squeeze). (d) QR: tap
+      auto-refocus already present at bind; added periodic centre refocus.
+
+- [x] **86b. Auto-torch** (2026-07-22): the remaining lever was light, not logic , subsampled
+      mean luma off the Y plane (1 pixel in 64), 15 dark frames lights the torch, 15 bright ones
+      puts it out; hysteresis, not flicker. Backlog pass = the item-70 paved paths: revive then
+      reingest (idempotent, catches exactly the unprocessed gap); undecodable formats (webp/heic
+      strays) may need an ffmpeg-transcode bridge in the caption path if their count proves
+      meaningful , queued as the small evening item it is.
+- [x] **86. QR round five: the OSS audit** (2026-07-22): compared against what the open-source
+      scanners actually do , the honest finding is how much was already covered: our
+      binariseLocal IS a HybridBinarizer sibling (per-tile min/max midpoint, 5x5 tile
+      neighbourhood, low-contrast fallback to global) PLUS a close-up refinement ZXing lacks;
+      both scan orientations exist; quirc's flood-fill and BoofCV's contour chase are different
+      paradigms, not upgrades. The one true gap, now ported: ZXing's crossCheckHorizontal , the
+      row-scan's run midpoint was a coarse X (one scanline can clip a finder's shoulder); after
+      the vertical walk confirms Y, a horizontal walk at that row refines X, then one more
+      vertical pass converges. Tighter clusters -> truer triples -> homography that survives
+      steeper angles. Failed horizontal check keeps the coarse X (decoder judges, as ever).
+
+- [x] **85. The 5G bill** (2026-07-22): uploads continued on mobile data , WorkManager's
+      UNMETERED constraint gates when a run STARTS, and a run begun on Wi-Fi keeps its blocking
+      upload I/O alive after the phone walks onto 5G (cancellation only lands at suspension
+      points; a streaming POST has none mid-file). Enforcement moved into the DATA PATH:
+      NetGuard , uploadsAllowed (Wi-Fi/ethernet always, mobile only with the explicit setting)
+      joins shouldAbort for clean between-item pauses, and GuardedInputStream re-checks the
+      network every 2MB of reads so the largest video leaks at most 2MB before dying. The
+      cursor's contiguity rule turns every such death into a clean Wi-Fi resume. Worker also
+      self-gates at start against expedited/OEM quirks.
+
 - [x] **84. The idle 4070** (2026-07-22): htop confessed , oracled's llama-server spawn had NO
       -ngl flag, and llama.cpp with a CUDA build still runs PURE CPU unless told to offload
       (opt-in per run, not baked at compile). Eleven CPU-hours through four threads, shared with

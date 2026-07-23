@@ -261,7 +261,8 @@ private fun grantLine(label: String, value: String, ok: Boolean, warn: Boolean,
             Text(if (ok) "[+] " else if (warn) "[~] " else "[ ] ",
                 color = if (ok) TerminalGreen else if (warn) Warning else GhostTextDim,
                 style = MaterialTheme.typography.bodyMedium)
-            Text("$label  ", color = GhostText, style = MaterialTheme.typography.bodyMedium)
+            Text("$label  ", color = GhostText, style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f))
             Text(value, color = if (ok) TerminalGreen else if (warn) Warning else GhostTextDim,
                 style = MaterialTheme.typography.bodyMedium)
             if (fixable) Text("  [ fix ]", color = TerminalGreen,

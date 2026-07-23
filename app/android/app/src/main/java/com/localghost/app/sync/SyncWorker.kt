@@ -139,7 +139,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 // Belt to the constraint's braces: WorkManager should not have started us on
                 // metered without the setting, but expedited paths and OEM quirks exist. A run
                 // that begins gated ends immediately, shipping nothing.
-                return@withContext Result.success()
+                return Result.success()
             }
             coroutineScope {
                 val p = async { engine.runCamera(MediaKind.PHOTO, progress) }

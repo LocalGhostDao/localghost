@@ -330,7 +330,10 @@ func (p *Pipeline) processOne(path string) (string, error) {
 	}
 	p.log.Info("archived", "fn", "processOne", "hash", hash, "day", day, "gps", meta.HasGPS,
 		"bytes", len(raw))
-	if p.notifySearch != nil {
+	if p.notifySearch != nil && kindStr != "video" {
+		// Videos do NOT enter the image ingest lane , they were flowing into caption jobs the
+		// vision model 400s on forever (the immortal job 10135). A video lane (ffmpeg keyframe
+		// -> caption) is future work; until then videos are archived, played, thumbed, unindexed.
 		p.notifySearch(archPath, taken.UTC().Unix())
 	}
 	if meta.HasGPS {
