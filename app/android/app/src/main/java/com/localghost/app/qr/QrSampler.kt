@@ -423,10 +423,20 @@ object QrSampler {
                         val centreXi = centreXd.toInt()
                         // Confirm it is a real finder via the vertical cross-check, or , for finders
                         // rotated enough to break the vertical scan , via a diagonal cross-check.
-                        val centreYd = verticalCentre(bin, w, h, centreXi, y)
+                        var centreYd = verticalCentre(bin, w, h, centreXi, y)
+                        var refinedX = centreXd
+                        if (!centreYd.isNaN()) {
+                            val hx = horizontalCentre(bin, w, h, centreXi, centreYd.toInt())
+                            if (!hx.isNaN()) {
+                                refinedX = hx
+                                // One more vertical pass at the refined X converges the centre.
+                                val vy2 = verticalCentre(bin, w, h, hx.toInt(), centreYd.toInt())
+                                if (!vy2.isNaN()) centreYd = vy2
+                            }
+                        }
                         if (!centreYd.isNaN()) {
                             val mod = runs.sum() / 7.0
-                            candidates.add(Pt(centreXd, centreYd, mod))
+                            candidates.add(Pt(refinedX, centreYd, mod))
                         } else {
                             val d = diagonalFinder(bin, w, h, centreXi, y, 1)
                                 ?: diagonalFinder(bin, w, h, centreXi, y, -1)
@@ -461,7 +471,7 @@ object QrSampler {
                         val centreXd = horizontalCentre(bin, w, h, x, centreYd.toInt())
                         if (!centreXd.isNaN()) {
                             val mod = runs.sum() / 7.0
-                            candidates.add(Pt(centreXd, centreYd, mod))
+                            candidates.add(Pt(refinedX, centreYd, mod))
                         } else {
                             val d = diagonalFinder(bin, w, h, x, centreYd.toInt(), 1)
                                 ?: diagonalFinder(bin, w, h, x, centreYd.toInt(), -1)
@@ -650,6 +660,35 @@ object QrSampler {
         if (!matches11311(runs)) return Double.NaN
         // sub-pixel centre of the middle dark bar: midpoint of [up, down].
         return (up + down) / 2.0
+    }
+
+    // The ZXing lesson (crossCheckHorizontal): after the vertical walk confirms and refines Y,
+    // walk HORIZONTALLY at that refined row to confirm and refine X. The row-scan's run midpoint
+    // is a coarse X (it came from one scanline that may have clipped the finder's shoulder);
+    // re-centring in both axes tightens every cluster, and tighter clusters mean truer triples,
+    // truer homography, and decodes that survive steeper angles.
+    private fun horizontalCentre(bin: BooleanArray, w: Int, h: Int, cx: Int, cy: Int): Double {
+        if (cy < 0 || cy >= h) return Double.NaN
+        if (!dark(bin, w, cx, cy)) return Double.NaN
+        val runs = IntArray(5)
+        var left = cx; while (left > 0 && dark(bin, w, left - 1, cy)) left--
+        var right = cx; while (right < w - 1 && dark(bin, w, right + 1, cy)) right++
+        runs[2] = right - left + 1
+        var a = left - 1; var lightL = 0
+        while (a >= 0 && !dark(bin, w, a, cy)) { lightL++; a-- }
+        runs[1] = lightL
+        var darkL = 0
+        while (a >= 0 && dark(bin, w, a, cy)) { darkL++; a-- }
+        runs[0] = darkL
+        var b = right + 1; var lightR = 0
+        while (b < w && !dark(bin, w, b, cy)) { lightR++; b++ }
+        runs[3] = lightR
+        var darkR = 0
+        while (b < w && dark(bin, w, b, cy)) { darkR++; b++ }
+        runs[4] = darkR
+        if (runs.any { it == 0 }) return Double.NaN
+        if (!matches11311(runs)) return Double.NaN
+        return (left + right) / 2.0
     }
 
     private fun matches11311(r: IntArray): Boolean {

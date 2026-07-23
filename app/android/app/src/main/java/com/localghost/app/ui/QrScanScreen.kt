@@ -60,6 +60,17 @@ fun QrScanScreen(
         )
     }
     var status by remember { mutableStateOf("point at the QR on the box") }
+    // Detection tick , flashes on EVERY successful decode, repeats included. "I saw it" and
+    // "I did something about it" are different facts; the scanner now reports both.
+    var tickAt by remember { mutableStateOf(0L) }
+    var tickShow by remember { mutableStateOf(false) }
+    LaunchedEffect(tickAt) {
+        if (tickAt > 0L) {
+            tickShow = true
+            kotlinx.coroutines.delay(650)
+            tickShow = false
+        }
+    }
     // Live decode diagnostic, surfaced on screen. ScanDiag.last is written by the analyser thread each
     // frame with the exact stage reached (finder count, grid size, "no candidate decoded", "decoded N
     // chars"), so polling it here shows WHERE a code is getting stuck instead of failing silently.
@@ -178,6 +189,13 @@ fun QrScanScreen(
         val previewView = remember { PreviewView(context) }
         // The bound Camera, kept so the tap-to-focus gesture below can drive its CameraControl.
         var camera by remember { mutableStateOf<androidx.camera.core.Camera?>(null) }
+        // AUTO-TORCH , after five rounds the detector is algorithm-complete; what defeats it now
+        // is a dim hallway, same as every scanner. Mean luma below the floor for ~15 frames
+        // lights the torch; comfortably bright for as long puts it out. Hysteresis, not a
+        // flicker; the person can always cover the lens if they disagree.
+        var darkFrames by remember { mutableStateOf(0) }
+        var brightFrames by remember { mutableStateOf(0) }
+        var torchOn by remember { mutableStateOf(false) }
         // Tap-to-focus feedback ring: where the last tap landed and its fade clock. tapTick (not the
         // offset) keys the animation so tapping the same spot twice still replays the ring.
         var focusRingAt by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
@@ -211,7 +229,11 @@ fun QrScanScreen(
             val resolutionSelector = androidx.camera.core.resolutionselector.ResolutionSelector.Builder()
                 .setResolutionStrategy(
                     androidx.camera.core.resolutionselector.ResolutionStrategy(
-                        android.util.Size(1920, 1080),
+                        // 720p, not 1080p , detection cost scales with pixels and the sampler
+                        // binarises up to twice a frame (sticky + probe); 2.25x less work per
+                        // pass means 2.25x more attempts per second, and the small-module
+                        // leniency already covers what the resolution gives up at range.
+                        android.util.Size(1280, 720),
                         androidx.camera.core.resolutionselector.ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER,
                     )
                 )
@@ -221,6 +243,24 @@ fun QrScanScreen(
                 .setResolutionSelector(resolutionSelector)
                 .build()
             analysis.setAnalyzer(analysisExecutor) { proxy ->
+                run {
+                    // Subsampled mean luma straight off the Y plane , 1 pixel in 64, pennies.
+                    val plane = proxy.planes[0]
+                    val buf = plane.buffer.duplicate()
+                    var sum = 0L; var n = 0
+                    var i = 0
+                    val lim = buf.limit()
+                    while (i < lim) { sum += buf.get(i).toInt() and 0xFF; n++; i += 64 }
+                    val mean = if (n > 0) (sum / n).toInt() else 128
+                    if (mean < 55) { darkFrames++; brightFrames = 0 } else if (mean > 80) { brightFrames++; darkFrames = 0 }
+                    if (!torchOn && darkFrames > 15) {
+                        torchOn = true
+                        camera?.cameraControl?.enableTorch(true)
+                    } else if (torchOn && brightFrames > 15) {
+                        torchOn = false
+                        camera?.cameraControl?.enableTorch(false)
+                    }
+                }
                 // Two-rate gate. The full pipeline (binarise, finder scan, multi-triple sample, decode) is
                 // heavy, and running it flat out heats the phone and then thermally throttles, which is what
                 // makes it feel slower over time. So we push HARD only when it matters: once a code has been
@@ -272,6 +312,7 @@ fun QrScanScreen(
                     com.localghost.app.qr.QrSampler.ScanGeom.findersSeen >= 2) timing.lastDetectAt = now
                 when (result) {
                     is ScanResult.Enrol -> {
+                        tickAt = System.currentTimeMillis()
                         // Found the box. A CLEAN decode (plain RS, no erasures) that parsed as a valid enrol
                         // link is trustworthy on the first frame: the strict localghost:// pattern plus a
                         // well-formed 64-hex pinned fingerprint make a random miscorrection into a valid link
@@ -295,6 +336,7 @@ fun QrScanScreen(
                         }
                     }
                     is ScanResult.NotForUs -> {
+                        tickAt = System.currentTimeMillis()
                         // A readable code that is not the way in. Anchor the overlay and let the ghost
                         // orbit it. Only name it once the same payload has been seen twice, so a transient
                         // wrong decode never flashes the wrong opinion. Mark lastSeenAt for the timeout.
@@ -311,6 +353,7 @@ fun QrScanScreen(
                         }
                     }
                     is ScanResult.Frames -> {
+                        tickAt = System.currentTimeMillis()
                         coach = null
                         // Mid-capture of a multi-frame identity. Anchor the overlay, show progress, and on
                         // a NEWLY captured frame fire a brief success pulse + haptic so each scan feels
@@ -587,6 +630,10 @@ fun QrScanScreen(
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 Text("> $status", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+                if (tickShow) {
+                    Text("  ✓ code read", color = TerminalGreen,
+                        style = MaterialTheme.typography.labelMedium)
+                }
                 // Coaching hint: shown only during a sustained no-decode streak (see the analyser). It is
                 // the actionable version of the silent technical diag , tells the person what to DO.
                 coach?.let { c ->

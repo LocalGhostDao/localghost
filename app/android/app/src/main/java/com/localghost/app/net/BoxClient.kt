@@ -900,7 +900,13 @@ object BoxClient {
     }
 
     /** One thumbnail's bytes (webp or jpeg). Null when the frame has none (videos) or on failure. */
-    /** The UNTOUCHED archived original , full quality, mime-typed by the box. Multi-MB. */
+    /** Stream the untouched original to a FILE , the video path (any size, bounded RAM). */
+    suspend fun frameOriginalToFile(ctx: Context, hash: String, dest: java.io.File,
+                                    onBytes: ((Long) -> Unit)? = null): Boolean =
+        BoxHttp.getToFile(ctx, "/v1/frames/original?hash=$hash", dest, onBytes)
+
+    /** The UNTOUCHED archived original , full quality, mime-typed by the box. Multi-MB (images ,
+     *  videos use frameOriginalToFile; this path is RAM-capped at 64MB). */
     suspend fun frameOriginal(ctx: Context, hash: String): ByteArray? =
         BoxHttp.getBytes(ctx, "/v1/frames/original?hash=$hash")
 

@@ -87,6 +87,74 @@ of DONE (reverse chronological); open items live in TO DO until they move.
 
 ## DONE
 
+- [x] **84. The idle 4070** (2026-07-22): htop confessed , oracled's llama-server spawn had NO
+      -ngl flag, and llama.cpp with a CUDA build still runs PURE CPU unless told to offload
+      (opt-in per run, not baked at compile). Eleven CPU-hours through four threads, shared with
+      erigon, while the GPU watched; every caption/tag/distill estimate was made against a
+      machine fighting one-handed. "-ngl 99" hardcoded (ExtraArgs can override for GPU-less
+      boxes); the embed child's "-ngl 0" stays deliberate , CPU is its correct home. Expected
+      after redeploy: warmup a few seconds longer (VRAM upload), then captions in low single-digit
+      seconds and the caption backlog collapsing from days to hours.
+
+- [x] **83. Dependency census + QR round four** (2026-07-22): the census , SERVER: golang.org/x
+      (crypto, term, sys) which is the Go project's own extended stdlib, plus ONE true external:
+      github.com/google/go-tpm (the TPM has no stdlib binding; hand-rolling TPM 2.0 command
+      marshalling is how security bugs are born). APP: zero third-party , everything is androidx
+      (Compose, CameraX, WorkManager, Health Connect, Media3) + Kotlin/coroutines; networking is
+      HttpsURLConnection, JSON is the platform org.json, QR is OURS, images are BitmapFactory.
+      No OkHttp, no Retrofit, no Coil, no ZXing, no Room. QR: analyzer 1080p -> 720p (detection
+      cost scales with pixels, sampler binarises up to twice a frame , 2.25x more attempts per
+      second; small-module leniency covers the range loss). THE TICK , every successful decode
+      flashes a green check, repeats included: "I saw it" and "I did something about it" are
+      different facts and the scanner now reports both.
+
+- [x] **82. The proxy dies young** (2026-07-22): the operator's objection stood , a loopback
+      port is a third-party attack surface (local apps can probe it) and a cleartext exemption is
+      a posture wound even scoped to 127.0.0.1. Replaced by the IN-PROCESS answer: Media3
+      ExoPlayer with BoxDataSource , the player's byte requests are function calls into the
+      authenticated channel (position/length map straight onto Range), seeks are 206s from the
+      archive, and the attack surface is not small, it is ABSENT. VideoProxy.kt deleted, cleartext
+      exemption reverted, one dependency added (androidx.media3, same trust root as Compose ,
+      the exception stdlib-first was always allowed to make when the alternative is a network
+      listener). Graceful against an old secd: a 200-from-zero answer skips to position , correct
+      playback, slow seeks, until the operator redeploys. Fallback ladder intact.
+- [x] **81. True video streaming with seek** (2026-07-22): the LOOPBACK PROXY , no Android media
+      player speaks the box's mTLS + bearer, so the player talks plain HTTP to 127.0.0.1 and
+      VideoProxy forwards each request (Range header passthrough , ranged GETs ARE seeking) over
+      the authenticated channel with the same pinned cert and cached factory. Box side is ONE
+      call: http.ServeContent on the archive file (206/Content-Range/If-Range for free from a
+      ReadSeeker). Playback starts ~1s, the scrub bar jumps anywhere, nothing downloads, RAM is
+      one 512KB buffer. Hardening: loopback bind only, per-session hash allow-list (a local port
+      is same-device attack surface), Connection: close per request, dies with the dialog.
+      Cleartext permitted for 127.0.0.1 ONLY (the plaintext hop never leaves the process
+      boundary; the network hop stays mTLS). Fallback ladder: proxy stream -> disk-streamed
+      download -> honest failure.
+
+- [x] **80. The 268MB confession** (2026-07-22): VideoPlayer OOM , "download then play" was
+      download-INTO-RAM then play (readBytes doubling a ByteArrayOutputStream until the heap
+      gave out on a 268MB video). Repair: getToFile streams straight to disk (bounded 512KB
+      buffer at ANY size, live MB progress, partial writes delete themselves , half a video is
+      not a video); getBytes gains a 64MB sanity cap so the RAM path can never again be handed a
+      video by accident. True progressive playback (range requests / local proxy) noted as the
+      someday-polish; disk-streamed download-then-play at LAN speed is seconds.
+
+- [x] **79. Wire speed, part two** (2026-07-21): 8.4 MB/s post-handshake-fix was ONE stream's
+      worth of a Wi-Fi 6 link , (a) TLS write chunks 64KB -> 512KB (a record+syscall dance every
+      64KB caps a single HTTPS stream well under the radio; half-MB writes stay one bounded
+      buffer, never the whole file in RAM); (b) photos and videos run as TWO CONCURRENT streams
+      (separate cursors by design, per-kind progress UI already built , the cheap 2x without
+      touching the contiguity-safe pipeline). True N-way parallel upload deliberately deferred:
+      restructuring the streaming callback engine mid-import is surgery, and these two levers
+      should put the link, not the code, back in charge.
+
+- [x] **78. The 40,000 handshakes** (2026-07-21): sync felt slow on a LAN that could move a photo
+      in 200ms because BoxHttp built a FRESH SSLContext per request , not just the build cost (an
+      Android Keystore round-trip each time): a new factory instance defeats keep-alive entirely
+      (the connection pool keys on the factory), so every photo paid a full mTLS handshake.
+      Cached factory (invalidated only when baseUrl/fingerprint change): one handshake per
+      session, keep-alive for the other 39,999. No pacing or batch caps found in the loop , the
+      handshakes WERE the pacing.
+
 - [x] **76b. frames_gps index** (2026-07-21): partial (lat, lon) WHERE has_gps , the map's LOD
       bbox queries stop full-scanning at two-person scale (40k+ incoming). Added to the REGISTRY
       only; the convergence engine creates it at next unlock , the migration system's first real

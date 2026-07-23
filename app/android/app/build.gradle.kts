@@ -106,6 +106,11 @@ android {
 }
 dependencies {
     implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
+    // Media3 , the ONE dependency the video feature earns: a custom DataSource turns the player's
+    // byte requests into in-process calls on our authenticated channel, deleting the loopback
+    // proxy and its entire attack surface. androidx = the same trust root as Compose.
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("androidx.media3:media3-ui:1.4.1")
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)

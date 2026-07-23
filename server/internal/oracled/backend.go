@@ -98,6 +98,12 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 		// chat surface is the app through secd's authenticated edge; a browser UI on the loopback
 		// would be an unauthenticated second door for anything that can reach localhost.
 		"--no-webui",
+		// GPU OFFLOAD , the htop confession: llama.cpp with a CUDA build STILL runs pure-CPU
+		// unless told to offload; -ngl is opt-in per run, not baked in at compile. Eleven
+		// CPU-hours ground through four threads while an RTX 4070 watched. All layers to the
+		// GPU; conf can override through ExtraArgs (appended last wins in llama's parser) for
+		// a box that genuinely lacks one.
+		"-ngl", "99",
 	}
 	if b.cfg.MmprojPath != "" {
 		// Optional: a configured-but-missing projector degrades to TEXT-ONLY with a loud warning

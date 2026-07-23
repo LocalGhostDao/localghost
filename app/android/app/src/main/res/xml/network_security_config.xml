@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cleartext ONLY to loopback , the video proxy lives on 127.0.0.1 because no Android media
+     player speaks the box's mTLS + bearer; every byte still crosses the network encrypted and
+     authenticated, the plaintext hop never leaves the process boundary of this phone. Everything
+     non-loopback keeps the platform default: no cleartext, ever. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+    </domain-config>
+</network-security-config>

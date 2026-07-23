@@ -488,7 +488,16 @@ func (s *Server) handleFrameOriginal(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Content-Type", "application/octet-stream")
 	}
-	_, _ = io.Copy(w, f)
+	// ServeContent, not Copy: RANGE requests are how video players seek , probe the moov atom at
+	// the tail, jump to minute 7, resume , and ServeContent speaks 206/Content-Range/If-Range
+	// natively given a ReadSeeker. The whole streaming-with-seek feature server-side is this one
+	// call. Empty name: the mime header above already decided the type, no sniffing wanted.
+	st, serr := f.Stat()
+	if serr != nil {
+		s.appearsDown(w)
+		return
+	}
+	http.ServeContent(w, r, "", st.ModTime(), f)
 }
 
 // handleLocations accepts a JSON batch of location points ({"source":..,"points":[{ts,lat,lon}..]})

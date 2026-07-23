@@ -56,14 +56,23 @@ class SyncEngine(private val ctx: Context) {
         val result = withContext(Dispatchers.IO) {
             CameraReader.syncFrom(
                 ctx, cmd.kind, after,
-                shouldAbort = { com.localghost.app.settings.AppSettings.syncPaused(ctx) },
+                shouldAbort = {
+                    // Paused by the person, or off Wi-Fi without the mobile-sync setting , either
+                    // way, between items is the clean place to stop.
+                    com.localghost.app.settings.AppSettings.syncPaused(ctx) ||
+                        !NetGuard.uploadsAllowed(ctx)
+                },
                 checkHave = { hashes ->
                     // One round trip per group of 40. Empty set on ANY failure , uncertainty uploads.
                     kotlinx.coroutines.runBlocking { BoxClient.framesHave(ctx, hashes) }
                 },
                 onSkipExisting = { item -> confirm(item) },
                 send = { item, stream ->
-                    val ok = kotlinx.coroutines.runBlocking { BoxClient.ingest(ctx, cmd.kind, item.name, stream, item.dateTaken) }
+                    // Mid-file enforcement: the guard re-checks the network every 2MB, so losing
+                    // Wi-Fi kills the transfer within 2MB instead of letting a 2GB video finish
+                    // on mobile data. The failure holds the cursor; Wi-Fi resumes it.
+                    val guarded = NetGuard.GuardedInputStream(ctx, stream)
+                    val ok = kotlinx.coroutines.runBlocking { BoxClient.ingest(ctx, cmd.kind, item.name, guarded, item.dateTaken) }
                     if (!ok) sawFailure = true
                     // Advance the cursor only while the run is still a CONTIGUOUS success streak. Items
                     // upload oldest-first; if #11 failed, we must not advance past it even though #12+

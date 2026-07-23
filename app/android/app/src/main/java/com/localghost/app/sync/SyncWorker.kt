@@ -22,6 +22,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.localghost.app.settings.AppSettings
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /**
  * Background camera sync. Runs on WorkManager's own threads, NOT the Activity's lifecycleScope, so it
@@ -130,8 +132,20 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             override fun onDone(result: CommandResult) {}
         }
         return try {
-            engine.runCamera(MediaKind.PHOTO, progress)
-            engine.runCamera(MediaKind.VIDEO, progress)
+            // TWO STREAMS , photos and videos concurrently. Their cursors are separate by design,
+            // the progress UI is per-kind already, and a second TCP stream is the cheap half of
+            // "use the whole link" without touching the contiguity-safe per-kind pipeline.
+            if (!NetGuard.uploadsAllowed(applicationContext)) {
+                // Belt to the constraint's braces: WorkManager should not have started us on
+                // metered without the setting, but expedited paths and OEM quirks exist. A run
+                // that begins gated ends immediately, shipping nothing.
+                return@withContext Result.success()
+            }
+            coroutineScope {
+                val p = async { engine.runCamera(MediaKind.PHOTO, progress) }
+                val v = async { engine.runCamera(MediaKind.VIDEO, progress) }
+                p.await(); v.await()
+            }
             Result.success()
         } catch (e: Exception) {
             android.util.Log.w("LocalGhost", "background sync failed, will retry: ${e.message}")
