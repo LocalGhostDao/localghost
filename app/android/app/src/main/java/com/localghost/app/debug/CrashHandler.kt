@@ -1,6 +1,7 @@
 package com.localghost.app.debug
 
 import android.content.Context
+import android.util.Log
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -15,6 +16,7 @@ object CrashHandler {
         val appCtx = ctx.applicationContext
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e("LocalGhost", "uncaught exception on ${thread.name}", throwable)
             try { write(appCtx, thread, throwable) } catch (_: Throwable) {}
             previous?.uncaughtException(thread, throwable)
         }

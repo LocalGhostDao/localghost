@@ -1,7 +1,10 @@
 package com.localghost.app.security
 
+import android.app.KeyguardManager
+import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import android.util.Log
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -27,14 +30,22 @@ object AppLock {
     private const val TRANSFORM = "AES/GCM/NoPadding"
     private const val AUTH_WINDOW_SECONDS = 10
 
-    fun ensureKey() {
-        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        try { if (ks.containsAlias(OLD_ALIAS)) ks.deleteEntry(OLD_ALIAS) } catch (_: Exception) { /* gone is fine */ }
-        if (ks.containsAlias(ALIAS)) return
-        generate()
+    fun deviceAuthAvailable(ctx: Context): Boolean =
+        ctx.getSystemService(KeyguardManager::class.java)?.isDeviceSecure == true
+
+    fun ensureKey(ctx: Context): Boolean {
+        if (!deviceAuthAvailable(ctx)) return false
+        return ensureKey()
     }
 
-    private fun generate() {
+    private fun ensureKey(): Boolean {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        try { if (ks.containsAlias(OLD_ALIAS)) ks.deleteEntry(OLD_ALIAS) } catch (_: Exception) { /* gone is fine */ }
+        if (ks.containsAlias(ALIAS)) return true
+        return generate()
+    }
+
+    private fun generate(): Boolean = try {
         val spec = KeyGenParameterSpec.Builder(
             ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
@@ -46,6 +57,10 @@ object AppLock {
             .build()
         KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
             .apply { init(spec) }.generateKey()
+        true
+    } catch (e: Exception) {
+        Log.w("LocalGhost", "phone gate key unavailable: ${e.message}")
+        false
     }
 
     /**
@@ -66,7 +81,7 @@ object AppLock {
     } catch (e: java.security.InvalidKeyException) {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         try { ks.deleteEntry(ALIAS) } catch (_: Exception) { /* already gone is fine */ }
-        generate()
+        if (!generate()) return null
         try {
             initCipher()
         } catch (e2: android.security.keystore.UserNotAuthenticatedException) {

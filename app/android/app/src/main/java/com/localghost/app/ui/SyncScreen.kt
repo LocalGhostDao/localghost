@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
 import com.localghost.app.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun SyncScreen(
