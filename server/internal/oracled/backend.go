@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/oracle"
+	ghostprocess "github.com/LocalGhostDao/localghost/server/internal/process"
 )
 
 // Backend serves one inference. The queue's single worker calls Infer one request at a time.
@@ -34,12 +35,12 @@ type Backend interface {
 // LlamaConfig configures the llama-server child. Paths to the weights are on the ENCRYPTED VOLUME, so
 // a locked box cannot read the model , consistent with everything else on the box.
 type LlamaConfig struct {
-	BinPath   string // llama-server binary, e.g. /usr/local/bin/llama-server (the binary is not secret)
-	ModelPath string // <mount>/ai-models/gemma-4-12b-it-Q4_K_M.gguf , weights ON the volume
+	BinPath    string // llama-server binary, e.g. /usr/local/bin/llama-server (the binary is not secret)
+	ModelPath  string // <mount>/ai-models/gemma-4-12b-it-Q4_K_M.gguf , weights ON the volume
 	MmprojPath string // <mount>/ai-models/mmproj-F16.gguf (multimodal projector), optional
-	Port      int    // loopback port oracled picks and tells no one
-	ModelName string // reported back in Response.Model, e.g. "gemma-4-12b"
-	ExtraArgs []string
+	Port       int    // loopback port oracled picks and tells no one
+	ModelName  string // reported back in Response.Model, e.g. "gemma-4-12b"
+	ExtraArgs  []string
 }
 
 // llamaBackend owns a llama-server subprocess.
@@ -57,10 +58,10 @@ type llamaBackend struct {
 // NewLlamaBackend prepares (does not start) the backend.
 func NewLlamaBackend(cfg LlamaConfig) *llamaBackend {
 	return &llamaBackend{
-		cfg:    cfg,
+		cfg:          cfg,
 		client:       &http.Client{Timeout: 120 * time.Second}, // a 12B generation can be slow
-		streamClient: &http.Client{},                            // streaming: context-cancelled, never clock-killed
-		addr:   "127.0.0.1:" + strconv.Itoa(cfg.Port),
+		streamClient: &http.Client{},                           // streaming: context-cancelled, never clock-killed
+		addr:         "127.0.0.1:" + strconv.Itoa(cfg.Port),
 	}
 }
 
@@ -127,7 +128,7 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 	// ("left-over process llama-server in control group while starting unit") held port 18080
 	// and 9GB of VRAM, so the next oracled's child could not bind and every caption timed out
 	// for an hour. A SIGKILLed parent cannot clean up after itself; the kernel can.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
+	cmd.SysProcAttr = ghostprocess.ChildSysProcAttr()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
