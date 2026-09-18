@@ -19,6 +19,7 @@ package poltergres
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 )
@@ -113,10 +114,15 @@ func (c *Conn) drainToReady() {
 }
 
 // argText renders a Go value as Postgres text-format input. bool -> t/f matches Postgres literal input.
+// []byte is bytea hex input ("\x..."), the same encoding the search store's hexArg hand-rolls , the
+// default fmt.Sprint branch used to turn a byte slice into "[12 34 56]", a value that matched no
+// bytea and no text column and raised no error (found the hard way: a WHERE hash = $2 that never hit).
 func argText(a any) string {
 	switch v := a.(type) {
 	case string:
 		return v
+	case []byte:
+		return "\\x" + hex.EncodeToString(v)
 	case int:
 		return strconv.Itoa(v)
 	case int64:

@@ -7,6 +7,7 @@ package search
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -145,11 +146,22 @@ func (w *Worker) doCaption(ctx context.Context, job *Job) error {
 	// The SCENE section is the human-facing DESCRIPTION , stored on the frame so the gallery can
 	// show what the photo is without re-running the model. Never overwrites a non-empty value
 	// (a future user-edited description outranks the model, same rule as tags and memories).
+	// THE FRAME'S IDENTITY is the 32-hex prefix of the content hash , the same bridge doTags
+	// uses (archive files are named <hash>.<ext>). This used to bind the raw 32-byte sha256
+	// slice, which the text-protocol client rendered as "[12 34 56 ...]": a WHERE that could
+	// never match, zero rows updated, no error, and a gallery that showed no description for a
+	// single captioned photo while the caption queue drained beautifully.
 	if scene := captionSection(caption, "SCENE:"); scene != "" {
-		if err := w.Store.db.Exec(
+		hash := frameHashFromPath(p.Path)
+		if hash == "" && len(sha) >= 16 {
+			hash = hex.EncodeToString(sha[:16])
+		}
+		if hash == "" {
+			w.Log.Warn("description not written: no frame hash", "fn", "doCaption", "path", p.Path)
+		} else if err := w.Store.db.Exec(
 			`UPDATE frames SET description = $1 WHERE hash = $2 AND (description IS NULL OR description = '')`,
-			scene, sha); err != nil {
-			w.Log.Warn("description write failed", "fn", "doCaption", "hash", sha, "err", err)
+			scene, hash); err != nil {
+			w.Log.Warn("description write failed", "fn", "doCaption", "hash", hash, "err", err)
 		}
 	}
 	chunks := ChunkText(header, caption)

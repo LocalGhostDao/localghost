@@ -392,10 +392,11 @@ func (s *NotifStore) CursorSet(slot int, device, kind string, ts, id int64) erro
 	if err != nil {
 		return err
 	}
-	err = c.Exec(`INSERT INTO sync_cursors (device, kind, ts, id, updated_at) VALUES ($1,$2,$3,$4,extract(epoch from now())::bigint)
+	rows, err := c.Query(`INSERT INTO sync_cursors (device, kind, ts, id, updated_at) VALUES ($1,$2,$3,$4,extract(epoch from now())::bigint)
 		ON CONFLICT (device, kind) DO UPDATE SET ts = GREATEST(sync_cursors.ts, EXCLUDED.ts),
 		id = CASE WHEN EXCLUDED.ts >= sync_cursors.ts THEN EXCLUDED.id ELSE sync_cursors.id END,
-		updated_at = EXCLUDED.updated_at`,
+		updated_at = EXCLUDED.updated_at
+		RETURNING ts, id`,
 		device, kind, strconv.FormatInt(ts, 10), strconv.FormatInt(id, 10))
 	if err != nil {
 		return err
@@ -403,12 +404,34 @@ func (s *NotifStore) CursorSet(slot int, device, kind string, ts, id int64) erro
 	// Mirror to Redis , the read fast path AND a live exercise of apparedis on a real feature.
 	// Best effort: Postgres above is the durable truth; a Redis miss just means the next read
 	// falls back and says so (the "src" field in the cursor response makes this visible).
+	// MIRROR WHAT POSTGRES DECIDED, not what the phone sent: the upsert is monotonic (GREATEST),
+	// the old Set was last-write-wins, so one backward report , a run that began from (0,0)
+	// after a failed cursor fetch , rewound the fast path while the durable store stood still,
+	// and the next run resumed from the rewound copy. Two stores, one value.
+	mts, mid := ts, id
+	if len(rows.Vals) == 1 && len(rows.Vals[0]) == 2 && rows.Vals[0][0] != nil && rows.Vals[0][1] != nil {
+		mts, _ = strconv.ParseInt(*rows.Vals[0][0], 10, 64)
+		mid, _ = strconv.ParseInt(*rows.Vals[0][1], 10, 64)
+	}
 	if rd, rerr := s.rds(slot); rerr == nil {
-		if serr := rd.Set("sync:cursor:"+device+":"+kind, strconv.FormatInt(ts, 10)+":"+strconv.FormatInt(id, 10)); serr != nil {
+		if serr := rd.Set("sync:cursor:"+device+":"+kind, strconv.FormatInt(mts, 10)+":"+strconv.FormatInt(mid, 10)); serr != nil {
 			slog.Warn("cursor redis mirror failed (postgres holds it)", "fn", "CursorSet", "err", serr)
 		}
 	}
 	return nil
+}
+
+// cursorMirrorClear drops a device's Redis cursor keys so the next read takes the durable store's
+// word. Every path that changes sync_cursors WITHOUT going through CursorSet must call this: the
+// read side trusts a full Redis hit outright, so a stale mirror silently outvotes Postgres.
+func (s *NotifStore) cursorMirrorClear(slot int, device string) {
+	rd, err := s.rds(slot)
+	if err != nil {
+		return
+	}
+	if err := rd.Del("sync:cursor:"+device+":photo", "sync:cursor:"+device+":video"); err != nil {
+		slog.Warn("cursor redis clear failed (stale mirror may answer next read)", "fn", "cursorMirrorClear", "device", device, "err", err)
+	}
 }
 
 // CursorFull is a device's stored position for one kind , ms epoch + the last MediaStore id.
@@ -1278,10 +1301,20 @@ func (s *NotifStore) HealthStats(slot int, n int) ([]HealthSeries, error) {
 // GeoCluster is one aggregated map point: a grid cell's centroid, how many frames fell in it, and
 // (when the cell holds exactly one) that frame's hash so the app can open it.
 type GeoCluster struct {
-	Lat, Lon float64 `json:"lat,omitempty"`
-	N        int     `json:"n"`
-	Hash     string  `json:"hash,omitempty"`
-	TakenAt  int64   `json:"takenAt,omitempty"`
+	// ONE FIELD PER LINE, ON PURPOSE. This was Lat and Lon declared together under one
+	// json:"lat,omitempty" tag , two fields sharing one tag, so both were named "lat", and
+	// encoding/json resolves a duplicate
+	// name at the same nesting level by dropping EVERY field that carries it. No error, no
+	// warning: every LOD cell and the /newest answer left the box as {"n":1,"hash":...} with no
+	// coordinates at all, the phone read NaN, and the map drew nothing while the counter said
+	// "N photos". The handler's own log said points=12 because it counts the slice, not what the
+	// JSON carried. No omitempty on coordinates either: 0.0 is a real latitude (the equator) and
+	// a dropped key is indistinguishable from "the box has no idea".
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
+	N       int     `json:"n"`
+	Hash    string  `json:"hash,omitempty"`
+	TakenAt int64   `json:"takenAt,omitempty"`
 }
 
 // geoLevelPrecision , four LOD tiers. The map picks by zoom; POSTGRES does the aggregation, so a
@@ -1490,6 +1523,30 @@ func (s *NotifStore) DaemonSummary(slot int, name string) ([]DaemonKV, error) {
 		add("photos", one("SELECT count(*) FROM frames WHERE kind = 'photo'"))
 		add("videos", one("SELECT count(*) FROM frames WHERE kind = 'video'"))
 		add("geotagged", one("SELECT count(*) FROM frames WHERE has_gps"))
+		// WHERE THE MAP'S GAPS ARE. "geotagged 8k of 40k" is a number; which formats and which
+		// date sources are missing their fix is a diagnosis. One row per format: fixed/total,
+		// so a phone shooting HEIC or a video lane without a moov parser names itself here.
+		if rows, qerr := c.Query(
+			`SELECT coalesce(nullif(mime,''),'(unknown)'), count(*) FILTER (WHERE has_gps), count(*)
+			 FROM frames GROUP BY 1 ORDER BY 3 DESC LIMIT 8`); qerr == nil {
+			for _, v := range rows.Vals {
+				if len(v) == 3 && v[0] != nil && v[1] != nil && v[2] != nil {
+					add("gps "+*v[0], *v[1]+" of "+*v[2])
+				}
+			}
+		}
+		if rows, qerr := c.Query(
+			`SELECT taken_src, count(*) FROM frames GROUP BY 1 ORDER BY 2 DESC`); qerr == nil {
+			parts := make([]string, 0, len(rows.Vals))
+			for _, v := range rows.Vals {
+				if len(v) == 2 && v[0] != nil && v[1] != nil {
+					parts = append(parts, *v[0]+" "+*v[1])
+				}
+			}
+			if len(parts) > 0 {
+				add("taken_at from", strings.Join(parts, ", "))
+			}
+		}
 		add("placed", one("SELECT count(*) FROM frames WHERE place <> ''"))
 		add("named", one("SELECT count(*) FROM frames WHERE display_name <> ''"))
 		add("described", one("SELECT count(*) FROM frames WHERE description <> ''"))
@@ -1678,7 +1735,15 @@ func (s *NotifStore) ResetSyncCursors(slot int, device string) error {
 	if err != nil {
 		return err
 	}
-	return c.Exec("DELETE FROM sync_cursors WHERE device = $1", device)
+	if err := c.Exec("DELETE FROM sync_cursors WHERE device = $1", device); err != nil {
+		return err
+	}
+	// The mirror too , this deleted the Postgres rows and left the Redis keys, and CursorGetFull
+	// reads Redis FIRST and stops on a full hit, so "reset sync" reset nothing anyone could see:
+	// the next run asked for its cursor, the fast path answered the old position, and the whole
+	// library stayed un-offered. Two stores, one delete.
+	s.cursorMirrorClear(slot, device)
+	return nil
 }
 
 // DeviceRow , what the box honestly knows about one enrolled phone: which device key, when it
@@ -1785,6 +1850,10 @@ func (s *NotifStore) DeviceNameSet(slot int, device, name, model, stableID strin
 			if err := c.Exec("DELETE FROM device_names WHERE device = $1", old); err != nil {
 				return err
 			}
+			// The migration wrote Postgres only: clear both devices' mirrors so the adopted
+			// position is what the next read sees, not whatever Redis last heard from either.
+			s.cursorMirrorClear(slot, old)
+			s.cursorMirrorClear(slot, device)
 		}
 	}
 	return c.Exec(`INSERT INTO device_names (device, name, model, first_seen, stable_id)

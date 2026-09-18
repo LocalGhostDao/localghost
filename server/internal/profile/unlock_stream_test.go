@@ -45,7 +45,7 @@ func TestColdUnlocksEmitIdenticalStream(t *testing.T) {
 func TestStageOrderIsFixed(t *testing.T) {
 	got := collect(func(Stage) bool { return false })
 	// Extract the stage sequence (first appearance of each).
-	want := []Stage{StageResolve, StageUnseal, StageMount, StageStartDB, StageStartCache, StageDaemons, StageReady}
+	want := []Stage{StageResolve, StageUnseal, StageMount, StageStartDB, StageStartCache, StageDaemons, StageModel, StageReady}
 	seen := make([]Stage, 0, len(want))
 	last := Stage(-1)
 	for _, p := range got {

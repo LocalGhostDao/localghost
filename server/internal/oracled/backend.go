@@ -349,11 +349,23 @@ func applyThink(level, input string, maxTokens int) (string, int) {
 	}
 }
 
+// Turn is one prior exchange half, as the caller (synthd) reconstructs it from the persisted chat.
+// Role is "user" or "assistant"; anything else is dropped rather than forwarded to the template.
+type Turn struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // StreamChat opens a streaming chat completion against the running llama-server and returns the raw
 // SSE body for the caller to translate. The chat template applies exactly as in the one-shot path;
 // applyThink shapes the prompt and budget the same way, so streamed and one-shot answers are the
 // same answer delivered differently.
-func (b *llamaBackend) StreamChat(ctx context.Context, prompt, think, imageB64 string) (io.ReadCloser, string, error) {
+//
+// history is the CONVERSATION SO FAR, oldest first. Without it every message was a fresh, amnesiac
+// one-shot: the box persisted both halves of every exchange and then never showed the model any of
+// them, so "and what about the second one?" was answered by a model that had never heard the first.
+// The think instruction, when any, wraps only the CURRENT prompt; prior turns go in verbatim.
+func (b *llamaBackend) StreamChat(ctx context.Context, history []Turn, prompt, think, imageB64 string) (io.ReadCloser, string, error) {
 	// No separate ready gate: if llama-server is down or still loading, the POST below fails fast
 	// (refused connection / non-200) and the caller reports it , one truth source, no stale flag.
 	p, budget := applyThink(think, prompt, 0)
@@ -366,8 +378,16 @@ func (b *llamaBackend) StreamChat(ctx context.Context, prompt, think, imageB64 s
 			{"type": "image_url", "image_url": map[string]string{"url": "data:image/jpeg;base64," + imageB64}},
 		}
 	}
+	messages := make([]map[string]any, 0, len(history)+1)
+	for _, t := range history {
+		if (t.Role != "user" && t.Role != "assistant") || t.Content == "" {
+			continue
+		}
+		messages = append(messages, map[string]any{"role": t.Role, "content": t.Content})
+	}
+	messages = append(messages, map[string]any{"role": "user", "content": content})
 	payload := map[string]any{
-		"messages": []map[string]any{{"role": "user", "content": content}},
+		"messages": messages,
 		"stream":   true,
 	}
 	if budget > 0 {

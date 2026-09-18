@@ -47,6 +47,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		// whole conversation contract, not just the words.
 		Incognito bool  `json:"incognito"`
 		ChatID    int64 `json:"chatId"`
+		// The phone's copy of the conversation so far (incognito chats have no box copy). Opaque
+		// here: forwarded as received, bounded downstream. Same lesson as the two fields above ,
+		// the edge forwards the whole contract, or the feature is silently decorative.
+		History json.RawMessage `json:"history,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil || req.Prompt == "" {
 		s.appearsDown(w)
@@ -56,10 +60,14 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	// app. secd adds authentication and appears-down; it does not touch the events. Cancellation
 	// flows: app hangs up -> this request context cancels -> synthd -> oracled -> llama stops
 	// generating, so an abandoned question stops burning CPU.
-	body, _ := json.Marshal(map[string]any{
+	fwd := map[string]any{
 		"prompt": req.Prompt, "think": req.Think, "image": req.ImageB64,
 		"incognito": req.Incognito, "chatId": req.ChatID,
-	})
+	}
+	if len(req.History) > 0 && len(req.History) <= 64<<10 {
+		fwd["history"] = req.History
+	}
+	body, _ := json.Marshal(fwd)
 	runDir := fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)
 	up, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
 		"http://ghost/chat", bytes.NewReader(body))

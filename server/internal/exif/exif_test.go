@@ -102,3 +102,81 @@ func TestParseTolerance(t *testing.T) {
 		}
 	}
 }
+
+// TestParseTruncatedAPP1 , the pipeline reads a fixed HEAD of the file, and a phone's Exif APP1 can
+// run to 64KiB with its embedded thumbnail. The segment overrunning the buffer must not cost the
+// date and the fix that sit at the front of it. Simulated: declare a segment length far beyond the
+// bytes supplied and cut the file mid-thumbnail.
+func TestParseTruncatedAPP1(t *testing.T) {
+	full := buildTestJPEG()
+	// Pretend the APP1 is 60000 bytes long (thumbnail we never received) and hand over only the
+	// bytes that exist , the IFDs are all present, the declared tail is not.
+	cut := append([]byte{}, full[:len(full)-2]...) // drop EOI
+	cut[4], cut[5] = byte(60000>>8), byte(60000&0xFF)
+	m := Parse(cut)
+	if !m.HasGPS {
+		t.Fatal("truncated APP1 must still yield GPS from the IFDs that arrived")
+	}
+	if m.TakenAt.IsZero() {
+		t.Fatal("truncated APP1 must still yield DateTimeOriginal")
+	}
+	if math.Abs(m.Lat-51.5) > 1e-6 {
+		t.Fatalf("lat = %v", m.Lat)
+	}
+}
+
+// TestParseFillBytes , 0xFF padding between markers is legal JPEG; it must not read as "not a JPEG".
+func TestParseFillBytes(t *testing.T) {
+	full := buildTestJPEG()
+	padded := append([]byte{0xFF, 0xD8, 0xFF, 0xFF, 0xFF}, full[2:]...)
+	if m := Parse(padded); !m.HasGPS {
+		t.Fatal("fill bytes before APP1 must be skipped")
+	}
+}
+
+// TestParseNullIsland , a 0/0 fix is a camera with no lock, not a photo taken in the Gulf of Guinea.
+func TestParseNullIsland(t *testing.T) {
+	b := buildTestJPEG()
+	le := binary.LittleEndian
+	// TIFF starts at offset 12 (SOI 2 + marker 2 + len 2 + "Exif\0\0" 6); rationals @130 and @154.
+	base := 12
+	for _, off := range []int{130, 138, 146, 154, 162, 170} {
+		le.PutUint32(b[base+off:], 0)
+		le.PutUint32(b[base+off+4:], 1)
+	}
+	if m := Parse(b); m.HasGPS {
+		t.Fatalf("0/0 must not count as a fix, got %+v", m)
+	}
+}
+
+// TestParseOffsetTimeOriginal , with the EXIF 2.31 zone tag the wall clock becomes an instant.
+func TestParseOffsetTimeOriginal(t *testing.T) {
+	le := binary.LittleEndian
+	// Rebuild the Exif IFD with TWO entries: DateTimeOriginal and OffsetTimeOriginal ("+01:00").
+	tiff := make([]byte, 120)
+	copy(tiff[0:], "II")
+	le.PutUint16(tiff[2:], 42)
+	le.PutUint32(tiff[4:], 8)
+	putEntry := func(off int, tag, typ uint16, count, val uint32) {
+		le.PutUint16(tiff[off:], tag)
+		le.PutUint16(tiff[off+2:], typ)
+		le.PutUint32(tiff[off+4:], count)
+		le.PutUint32(tiff[off+8:], val)
+	}
+	le.PutUint16(tiff[8:], 1)
+	putEntry(10, 0x8769, 4, 1, 26)
+	le.PutUint32(tiff[22:], 0)
+	le.PutUint16(tiff[26:], 2)
+	putEntry(28, 0x9003, 2, 20, 56)
+	putEntry(40, 0x9011, 2, 7, 76)
+	le.PutUint32(tiff[52:], 0)
+	copy(tiff[56:], "2024:06:01 12:30:00\x00")
+	copy(tiff[76:], "+01:00\x00")
+	payload := append([]byte("Exif\x00\x00"), tiff...)
+	segLen := 2 + len(payload)
+	b := append([]byte{0xFF, 0xD8, 0xFF, 0xE1, byte(segLen >> 8), byte(segLen & 0xFF)}, payload...)
+	m := Parse(append(b, 0xFF, 0xD9))
+	if got := m.TakenAt.UTC().Format("2006-01-02T15:04:05Z"); got != "2024-06-01T11:30:00Z" {
+		t.Fatalf("12:30 at +01:00 must be 11:30Z, got %s", got)
+	}
+}

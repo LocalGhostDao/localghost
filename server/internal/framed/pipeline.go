@@ -21,10 +21,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"io"
-	"io/fs"
+	_ "image/gif" // registered so image.Decode handles GIF uploads (the sniffer already names them)
 	"image/jpeg"
 	_ "image/png" // registered so image.Decode handles PNG uploads
+	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -76,6 +77,12 @@ const (
 	previewEdge = 1600
 	thumbEdge   = 320
 	jpegQuality = 80
+	// metaHead is how much of a file's front the sniffer and the EXIF reader get. 64KiB was one
+	// byte short of honest: an Exif APP1 alone can be 64KiB (phones pad it with a big embedded
+	// thumbnail), and a JFIF APP0 or an XMP APP1 can precede it , so the photos with the RICHEST
+	// metadata were the ones whose date and GPS silently fell to the spool-name hint and to
+	// "no fix". 256KiB covers every layout a phone writes, and is still a single read.
+	metaHead = 256 << 10
 )
 
 // Pipeline drains intake folders and maintains the archive, previews, and day paths.
@@ -187,7 +194,7 @@ func (p *Pipeline) processOne(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	head := make([]byte, 64<<10) // sniff needs 12 bytes; JPEG/HEIC EXIF sits in the leading segment
+	head := make([]byte, metaHead) // sniff needs 12 bytes; JPEG EXIF sits in the leading segments
 	n, _ := io.ReadFull(src, head)
 	head = head[:n]
 
@@ -235,18 +242,30 @@ func (p *Pipeline) processOne(path string) (string, error) {
 		}
 	}
 	meta := exif.Parse(head) // EXIF lives in the leading segment; zero values if absent
-
 	taken := meta.TakenAt
 	takenSrc := "exif" // how taken was determined , recorded so consumers know what to trust
+	if sniff.Kind == KindVideo {
+		// A clip's fix and clock live in its moov , usually at the END of the file, which is why
+		// the head parser never saw them and every video sat off the map. Seek-walk the boxes;
+		// the parser reads headers and one moov, never the media. The fix is trusted outright;
+		// the clock ranks BELOW the phone's hint (some camera apps write mvhd in local time and
+		// say nothing), so it only decides when no hint arrived , a reprocess, a local import.
+		meta = p.videoMeta(path)
+		taken, takenSrc = time.Time{}, ""
+	}
 	if taken.IsZero() {
 		// The spool NAME may carry the phone's taken-timestamp hint (…-t<epochMillis>, appended by
-		// secd from the X-Ghost-Taken header). This is the primary fallback for VIDEOS , they have no
-		// EXIF, and their container (moov atom) parser is future work , and for stills whose EXIF was
-		// stripped. Hint over mtime: mtime is when the UPLOAD landed, the hint is when it was SHOT.
+		// secd from the X-Ghost-Taken header). This is the primary fallback for VIDEOS and for
+		// stills whose EXIF was stripped. Hint over mtime: mtime is when the UPLOAD landed, the
+		// hint is when it was SHOT.
 		if ms := takenHintFromName(path); ms > 0 {
 			taken = time.UnixMilli(ms).UTC()
 			takenSrc = "hint"
 		}
+	}
+	if taken.IsZero() && !meta.TakenAt.IsZero() {
+		taken = meta.TakenAt // the container clock (videos only reach here)
+		takenSrc = "moov"
 	}
 	if taken.IsZero() {
 		// Fall back to file mtime (the upload's) , honest approximation, better than epoch. Recorded
@@ -286,7 +305,7 @@ func (p *Pipeline) processOne(path string) (string, error) {
 	switch sniff.Kind {
 	case KindPhoto:
 		kindStr = "photo"
-		if cfgFmt == "jpeg" || cfgFmt == "png" {
+		if cfgFmt == "jpeg" || cfgFmt == "png" || cfgFmt == "gif" {
 			prevPath, thumbPath = p.makePreviews(raw, hash, meta.Orientation)
 		} else {
 			p.log.Info("photo archived without preview (decoder does not handle this still format)",
@@ -613,15 +632,18 @@ func (p *Pipeline) Reprocess(forcePreviews bool) (scanned, recorded, previewed, 
 			p.log.Warn("reprocess: unreadable, skipped", "fn", "Reprocess", "path", path, "err", ferr)
 			return nil
 		}
-		head := make([]byte, 64*1024)
+		head := make([]byte, metaHead)
 		n, _ := io.ReadFull(f, head)
 		_ = f.Close()
 		head = head[:n]
 		sn := Sniff(head)
 		meta := exif.Parse(head)
-
 		taken := meta.TakenAt
 		takenSrc := "exif"
+		if sn.Kind == KindVideo {
+			meta = p.videoMeta(path) // moov walk , the fix a clip carries at its tail
+			taken, takenSrc = meta.TakenAt, "moov"
+		}
 		if taken.IsZero() {
 			// The archive PATH is the day processOne filed it under , derived from the best taken
 			// source available at archive time (exif, then the spool-name hint, then mtime). The
@@ -749,6 +771,17 @@ func (p *Pipeline) Reprocess(forcePreviews bool) (scanned, recorded, previewed, 
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// videoMeta reads a clip's container metadata (moov: mvhd creation time, ©xyz / Apple ISO6709 fix).
+// Zero Meta on any trouble , a video without a readable moov is still a video, just an unplaced one.
+func (p *Pipeline) videoMeta(path string) exif.Meta {
+	f, err := os.Open(path)
+	if err != nil {
+		return exif.Meta{}
+	}
+	defer f.Close()
+	return exif.ParseISOBMFF(f)
 }
 
 // SetFFmpeg points the pipeline at a bundled ffmpeg (binary + private lib dir). Set when the

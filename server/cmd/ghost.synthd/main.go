@@ -71,6 +71,61 @@ func chatStore(mount string) *poltergres.ReadWrite {
 	return chatDB
 }
 
+// chatTurn is one persisted half of an exchange, in the shape oracled's chat endpoint takes.
+type chatTurn struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// Bounds on what a conversation's past can cost the model. Twelve messages is six exchanges , far
+// enough back for "the second one you mentioned"; the character cap keeps a pasted document from
+// eating the context window on every later turn. Oldest turns fall off first.
+const (
+	historyMaxMsgs  = 12
+	historyMaxChars = 8000
+)
+
+// chatHistory loads the last turns of a persisted chat, oldest first, so the model answers the
+// conversation and not just the sentence. Read BEFORE the current prompt is persisted, so the
+// prompt is never duplicated as history. Empty on any trouble , continuity is a feature, not a
+// dependency, same rule as persistence itself.
+func chatHistory(mount string, chatID int64) []chatTurn {
+	if chatID == 0 {
+		return nil
+	}
+	db := chatStore(mount)
+	if db == nil {
+		return nil
+	}
+	rows, err := db.Query(`SELECT role, content FROM chat_messages WHERE chat_id = $1 ORDER BY id DESC LIMIT $2`,
+		strconv.FormatInt(chatID, 10), strconv.Itoa(historyMaxMsgs))
+	if err != nil {
+		slog.Warn("chat history load failed, answering without it", "fn", "chatHistory", "err", err)
+		return nil
+	}
+	return trimHistory(rows.Vals)
+}
+
+// trimHistory turns newest-first rows into an oldest-first, character-bounded turn list.
+func trimHistory(vals [][]*string) []chatTurn {
+	out := make([]chatTurn, 0, len(vals))
+	chars := 0
+	for _, v := range vals { // newest first: stop once the budget is spent
+		if len(v) < 2 || v[0] == nil || v[1] == nil || *v[1] == "" {
+			continue
+		}
+		if chars+len(*v[1]) > historyMaxChars {
+			break
+		}
+		chars += len(*v[1])
+		out = append(out, chatTurn{Role: *v[0], Content: *v[1]})
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 { // back to oldest first
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
 // chatPersist appends a message, creating the chat first when id is 0. Title , first words of the
 // first prompt, cheap and editable later; an oracled-generated title is a planned refinement.
 // Returns the chat id (0 = persistence unavailable). Never fails the conversation.
@@ -165,17 +220,41 @@ func main() {
 			Incognito bool   `json:"incognito"`
 			ChatID    int64  `json:"chatId"`
 			Image     string `json:"image,omitempty"`
+			// The phone's own copy of the conversation , used only when the box holds none
+			// (incognito, or a chat that never persisted). Bounded the same way as the box's.
+			History []chatTurn `json:"history,omitempty"`
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
+		}
+		mount := filepath.Dir(runDir)
+		// THE CONVERSATION, not the sentence. Every turn was persisted and none was ever shown to
+		// the model , each message opened as a one-shot with no memory of the last, which reads
+		// exactly like a chat that has stopped working. Box history outranks the phone's copy
+		// when a persisted chat exists; incognito hands the phone's copy through and stores none.
+		var history []chatTurn
+		if !q.Incognito && q.ChatID != 0 {
+			history = chatHistory(mount, q.ChatID)
+		}
+		if len(history) == 0 && len(q.History) > 0 {
+			vals := make([][]*string, 0, len(q.History))
+			for i := len(q.History) - 1; i >= 0; i-- { // trimHistory expects newest first
+				t := q.History[i]
+				if t.Role != "user" && t.Role != "assistant" {
+					continue
+				}
+				role, content := t.Role, t.Content
+				vals = append(vals, []*string{&role, &content})
+			}
+			history = trimHistory(vals)
 		}
 		items := gatherContext(runDir, q.Prompt)
 		input := q.Prompt
 		if block := formatContext(items); block != "" {
 			input = block + "\n\nUsing the context above only where it is actually relevant, answer:\n" + q.Prompt
 		}
-		body, _ := json.Marshal(map[string]string{"prompt": input, "think": q.Think, "image": q.Image})
+		body, _ := json.Marshal(map[string]any{"prompt": input, "think": q.Think, "image": q.Image, "history": history})
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
 			"http://ghost/chat", bytes.NewReader(body))
 		if err != nil {
@@ -206,7 +285,6 @@ func main() {
 		// Persist the question now (incognito conversations never touch the tables); accumulate the
 		// answer from the token events while piping them through, save on done , and rewrite the
 		// done event to carry the chatId so the app can keep the conversation in one row.
-		mount := filepath.Dir(runDir)
 		chatID := q.ChatID
 		if !q.Incognito {
 			// BOUNDED: persistence is a feature, the stream is the product. A slow or wedged DB

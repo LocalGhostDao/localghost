@@ -251,7 +251,7 @@ object BoxClient {
     fun chat(
         incognito: Boolean = false,
         chatId: Long = 0L,
-        @Suppress("UNUSED_PARAMETER") history: List<Message>,
+        history: List<Message>,
         prompt: String,
         @Suppress("UNUSED_PARAMETER") convId: String?,
         @Suppress("UNUSED_PARAMETER") attachments: List<Attachment> = emptyList(),
@@ -265,10 +265,26 @@ object BoxClient {
         // appearing is the model generating, and closing the chat cancels generation on the box.
         val ctx = appCtx ?: run { send(ChatChunk.Token("(app context missing)")); send(ChatChunk.Done); return@channelFlow }
         val think = com.localghost.app.settings.AppSettings.thinkLevel(ctx)
+        // THE CONVERSATION SO FAR rides along , the box uses its own persisted copy when the chat
+        // has one (chatId != 0) and this copy when it does not (incognito, or a chat that never
+        // persisted). Without it every turn was a one-shot: the model never saw the last answer.
+        // The trailing entry is the prompt itself (the caller appends before sending); drop it.
+        // Bounded here too: the last dozen turns, text only , attachments stay with their turn.
+        val prior = history.filter { it.text.isNotBlank() }
+            .let { if (it.isNotEmpty() && it.last().role == Message.Role.USER && it.last().text == prompt) it.dropLast(1) else it }
+            .takeLast(12)
+        val historyJson = org.json.JSONArray().apply {
+            prior.forEach { m ->
+                put(org.json.JSONObject()
+                    .put("role", if (m.role == Message.Role.USER) "user" else "assistant")
+                    .put("content", m.text.take(4000)))
+            }
+        }
         try {
             BoxHttp.postStreamLines(ctx, "/v1/chat",
                 org.json.JSONObject().put("prompt", prompt).put("think", think)
                     .put("incognito", incognito).put("chatId", chatId)
+                    .apply { if (historyJson.length() > 0) put("history", historyJson) }
                     .apply { if (imageB64.isNotBlank()) put("imageB64", imageB64) }) { line ->
                 if (!line.startsWith("data: ")) return@postStreamLines true
                 val o = try { org.json.JSONObject(line.removePrefix("data: ")) } catch (_: Exception) { return@postStreamLines true }

@@ -51,7 +51,11 @@ func parse(b []byte) (Meta, error) {
 			return Meta{}, errNoExif
 		}
 		marker := b[i+1]
-		if marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD9) { // no-length markers
+		if marker == 0xFF { // fill byte , the spec allows any number of 0xFF before a marker
+			i++
+			continue
+		}
+		if marker == 0xD8 || marker == 0x01 || (marker >= 0xD0 && marker <= 0xD9) { // no-length markers
 			i += 2
 			continue
 		}
@@ -59,11 +63,23 @@ func parse(b []byte) (Meta, error) {
 			return Meta{}, errNoExif
 		}
 		segLen := int(binary.BigEndian.Uint16(b[i+2 : i+4]))
-		if segLen < 2 || i+2+segLen > len(b) {
+		if segLen < 2 {
 			return Meta{}, errNoExif
 		}
+		end := i + 2 + segLen
 		if marker == 0xE1 && segLen >= 8 { // APP1
-			payload := b[i+4 : i+2+segLen]
+			// TRUNCATION IS NOT FAILURE. The pipeline hands us the file's HEAD, not the file, and an
+			// Exif APP1 can run to its 64KiB ceiling (phones pad it with a large embedded thumbnail).
+			// Everything we read , IFD0, the Exif IFD, the GPS IFD , sits at the FRONT of the TIFF
+			// block; the thumbnail that pushes the segment past the buffer sits at the BACK. So
+			// when the segment overruns the buffer, parse what arrived: walk() bounds-checks every
+			// offset, so a value that lives past the cut is skipped, never read out of range. The
+			// old rule (segment must fit or the whole parse fails) silently dropped date AND GPS
+			// from exactly the photos with the biggest metadata.
+			if end > len(b) {
+				end = len(b)
+			}
+			payload := b[i+4 : end]
 			if len(payload) >= 6 && string(payload[:6]) == "Exif\x00\x00" {
 				tiff = payload[6:]
 				break
@@ -72,7 +88,10 @@ func parse(b []byte) (Meta, error) {
 		if marker == 0xDA { // start of scan , no metadata past here
 			break
 		}
-		i += 2 + segLen
+		if end > len(b) {
+			return Meta{}, errNoExif // a non-Exif segment overran the head: nothing more to find here
+		}
+		i = end
 	}
 	if tiff == nil {
 		return Meta{}, errNoExif
@@ -122,14 +141,29 @@ func parseTIFF(t []byte) (Meta, error) {
 	})
 
 	if exifOff > 0 {
+		var dto, offset string
 		walk(t, bo, exifOff, func(tag uint16, typ uint16, count uint32, val []byte) {
-			if tag == 0x9003 && typ == 2 { // DateTimeOriginal, ASCII "YYYY:MM:DD HH:MM:SS"
-				s := asciiVal(val, count)
-				if ts, err := time.Parse("2006:01:02 15:04:05", s); err == nil {
-					m.TakenAt = ts
+			switch tag {
+			case 0x9003: // DateTimeOriginal, ASCII "YYYY:MM:DD HH:MM:SS" , wall-clock, no zone
+				if typ == 2 {
+					dto = asciiVal(val, count)
+				}
+			case 0x9011: // OffsetTimeOriginal (EXIF 2.31), ASCII "+HH:MM" , the zone the clock was in
+				if typ == 2 {
+					offset = asciiVal(val, count)
 				}
 			}
 		})
+		if dto != "" {
+			// DateTimeOriginal is a WALL CLOCK with no zone. Phones since ~2019 also write the
+			// offset it was read in; with it the instant is exact, and a 23:30 photo in Vancouver
+			// stops landing on tomorrow's UTC day. Without it, UTC is the stated assumption.
+			if ts, err := time.Parse("2006:01:02 15:04:05-07:00", dto+offset); err == nil && len(offset) == 6 {
+				m.TakenAt = ts.UTC()
+			} else if ts, err := time.Parse("2006:01:02 15:04:05", dto); err == nil {
+				m.TakenAt = ts
+			}
+		}
 	}
 
 	if gpsOff > 0 {
@@ -161,7 +195,12 @@ func parseTIFF(t []byte) (Meta, error) {
 			if lonRef == "W" {
 				lon = -lon
 			}
-			m.Lat, m.Lon, m.HasGPS = lat, lon, true
+			// A fix is a fix only inside the globe. Cameras with no lock write 0/0 (Null Island,
+			// in the Gulf of Guinea) or degrees past the poles; recording those as GPS puts a
+			// person somewhere they have never been, which is worse than not knowing.
+			if lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && !(lat == 0 && lon == 0) {
+				m.Lat, m.Lon, m.HasGPS = lat, lon, true
+			}
 		}
 	}
 	return m, nil

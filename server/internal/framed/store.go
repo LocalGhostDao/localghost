@@ -56,16 +56,52 @@ func NewStore(sockDir string, port int, rwUser, rwPass, dbName string) *Store {
 // Ping verifies the connection (and thus that ghost_rw can authenticate).
 func (s *Store) Ping() error { return s.db.Ping() }
 
-// InsertFrame records one archived photo. ON CONFLICT DO NOTHING makes reprocessing idempotent , the
-// hash is the identity, so re-uploading the same photo is a no-op.
+// InsertFrame records one archived photo. The hash is the identity, so re-uploading the same photo
+// is a no-op , but a REPROCESS is not a re-upload: it is the current code re-reading the original,
+// and when the code got better (a longer metadata head, a tolerant EXIF parser, a decoder the box
+// did not have last time) the row must be allowed to improve. Every column below converges
+// MONOTONICALLY: a fact replaces an absence, a stronger source replaces a weaker one, and nothing
+// a person or an earlier ingest knew is ever overwritten by "unknown". The old clause backfilled
+// place only, which meant a frame archived without GPS stayed off the map forever, however many
+// times reprocess re-read its coordinates.
 func (s *Store) InsertFrame(f Frame) error {
 	return s.db.Exec(
 		`INSERT INTO frames (hash, taken_at, lat, lon, has_gps, archive_path, preview_path, thumb_path, bytes, source, received_at, kind, mime, taken_src, place, device)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-		 ON CONFLICT (hash) DO UPDATE SET place = EXCLUDED.place
-		   WHERE frames.place = '' AND EXCLUDED.place <> ''`,
+		 ON CONFLICT (hash) DO UPDATE SET
+		   place = CASE WHEN frames.place = '' AND EXCLUDED.place <> '' THEN EXCLUDED.place ELSE frames.place END,
+		   lat = CASE WHEN NOT frames.has_gps AND EXCLUDED.has_gps THEN EXCLUDED.lat ELSE frames.lat END,
+		   lon = CASE WHEN NOT frames.has_gps AND EXCLUDED.has_gps THEN EXCLUDED.lon ELSE frames.lon END,
+		   has_gps = frames.has_gps OR EXCLUDED.has_gps,
+		   taken_at = CASE WHEN `+takenRank("EXCLUDED")+` > `+takenRank("frames")+` THEN EXCLUDED.taken_at ELSE frames.taken_at END,
+		   taken_src = CASE WHEN `+takenRank("EXCLUDED")+` > `+takenRank("frames")+` THEN EXCLUDED.taken_src ELSE frames.taken_src END,
+		   preview_path = CASE WHEN frames.preview_path = '' AND EXCLUDED.preview_path <> '' THEN EXCLUDED.preview_path ELSE frames.preview_path END,
+		   thumb_path = CASE WHEN frames.thumb_path = '' AND EXCLUDED.thumb_path <> '' THEN EXCLUDED.thumb_path ELSE frames.thumb_path END,
+		   kind = CASE WHEN frames.kind = 'unknown' AND EXCLUDED.kind <> 'unknown' THEN EXCLUDED.kind ELSE frames.kind END,
+		   mime = CASE WHEN frames.mime = '' AND EXCLUDED.mime <> '' THEN EXCLUDED.mime ELSE frames.mime END,
+		   device = CASE WHEN frames.device = '' AND EXCLUDED.device <> '' THEN EXCLUDED.device ELSE frames.device END
+		 WHERE (frames.place = '' AND EXCLUDED.place <> '')
+		    OR (NOT frames.has_gps AND EXCLUDED.has_gps)
+		    OR (`+takenRank("EXCLUDED")+` > `+takenRank("frames")+`)
+		    OR (frames.preview_path = '' AND EXCLUDED.preview_path <> '')
+		    OR (frames.thumb_path = '' AND EXCLUDED.thumb_path <> '')
+		    OR (frames.kind = 'unknown' AND EXCLUDED.kind <> 'unknown')
+		    OR (frames.mime = '' AND EXCLUDED.mime <> '')
+		    OR (frames.device = '' AND EXCLUDED.device <> '')`,
 		f.Hash, f.TakenAt, f.Lat, f.Lon, f.HasGPS,
 		f.ArchivePath, f.PreviewPath, f.ThumbPath, f.Bytes, f.Source, f.ReceivedAt, f.Kind, f.MIME, f.TakenSrc, f.Place, f.Device)
+}
+
+// takenRank orders the taken_at sources by how much they can be trusted, as a SQL expression over
+// the given row alias. A reprocess may only REPLACE a capture time with one from a stronger
+// source: exif (the camera's own clock, zone-exact when the offset tag is present) over the
+// phone's MediaStore hint, over a video container's clock (some camera apps write it in local
+// time and say nothing). The archive path and upload mtime both rank zero: the path is midnight
+// of a day that was itself derived from an earlier decision, and mtime is not a capture time at
+// all , neither may ever replace anything, including each other. Server-side constant, no user
+// input, so a literal is the honest form.
+func takenRank(alias string) string {
+	return `(CASE ` + alias + `.taken_src WHEN 'exif' THEN 3 WHEN 'hint' THEN 2 WHEN 'moov' THEN 1 ELSE 0 END)`
 }
 
 // HasFrame reports whether a hash is already archived (dedupe before doing any work).
