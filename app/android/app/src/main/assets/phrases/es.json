@@ -1,0 +1,508 @@
+{
+ "lang": "es",
+ "name": "Spanish",
+ "nativeName": "Español",
+ "tts": "es-ES",
+ "countries": [
+  "ES",
+  "MX",
+  "AR",
+  "CL",
+  "CO",
+  "PE",
+  "UY",
+  "EC",
+  "BO",
+  "PY",
+  "CR",
+  "PA",
+  "DO",
+  "GT",
+  "CU",
+  "VE"
+ ],
+ "lateCountries": [
+  "ES",
+  "AR",
+  "UY"
+ ],
+ "lateHours": false,
+ "scriptNote": "Castilian sounds: c/z as 'th'. In the Americas say 's' instead, and 'boleto' for a ticket.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "Spain · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Mexico · any emergency",
+   "number": "911"
+  },
+  {
+   "label": "Argentina · any emergency",
+   "number": "911"
+  },
+  {
+   "label": "Chile · ambulance",
+   "number": "131"
+  },
+  {
+   "label": "Chile · police",
+   "number": "133"
+  },
+  {
+   "label": "Colombia · any emergency",
+   "number": "123"
+  },
+  {
+   "label": "Peru · police",
+   "number": "105"
+  },
+  {
+   "label": "Uruguay · any emergency",
+   "number": "911"
+  },
+  {
+   "label": "Ecuador · any emergency",
+   "number": "911"
+  },
+  {
+   "label": "Costa Rica · any emergency",
+   "number": "911"
+  },
+  {
+   "label": "Panama · any emergency",
+   "number": "911"
+  },
+  {
+   "label": "Dominican Republic · any emergency",
+   "number": "911"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Buenos días",
+   "say": "BWEH-nos DEE-as",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Buenas tardes",
+   "say": "BWEH-nas TAR-des",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Buenas noches",
+   "say": "BWEH-nas NO-ches",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "Buenas noches covers evening and night; there is no separate 'good night'."
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Buenas noches",
+   "say": "BWEH-nas NO-ches",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Hola",
+   "say": "OH-la",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Adiós",
+   "say": "ah-DYOS",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "¿Qué tal?",
+   "say": "keh TAL",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Bien, gracias",
+   "say": "BYEN, GRA-thyas",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Por favor",
+   "say": "por fa-VOR",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Gracias",
+   "say": "GRA-thyas",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Muchas gracias",
+   "say": "MOO-chas GRA-thyas",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Perdone",
+   "say": "per-DOH-neh",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Lo siento",
+   "say": "lo SYEN-to",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Sí",
+   "say": "SEE",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "No",
+   "say": "NO",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Un café, por favor",
+   "say": "oon ka-FEH, por fa-VOR",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "note": "Ask for 'un café solo' for an espresso, 'con leche' for milk."
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Un vaso de agua, por favor",
+   "say": "oon BA-so deh AH-gwa, por fa-VOR",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Dos cervezas, por favor",
+   "say": "dos ther-BEH-thas, por fa-VOR",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Una mesa para dos, por favor",
+   "say": "OO-na MEH-sa PA-ra DOS, por fa-VOR",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "La carta, por favor",
+   "say": "la KAR-ta, por fa-VOR",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "La cuenta, por favor",
+   "say": "la KWEN-ta, por fa-VOR",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "¿Puedo pagar con tarjeta?",
+   "say": "PWEH-do pa-GAR kon tar-HEH-ta",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Estaba delicioso",
+   "say": "es-TA-ba deh-lee-THYO-so",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "¡Salud!",
+   "say": "sa-LOOD",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "¿Cuánto cuesta?",
+   "say": "KWAN-to KWES-ta",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "¿A qué hora cierran?",
+   "say": "ah keh OH-ra THYEH-rran",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Un billete al centro, por favor",
+   "say": "oon bee-YEH-teh al THEN-tro, por fa-VOR",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "note": "In the Americas a ticket is 'un boleto'."
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "¿Dónde está la estación?",
+   "say": "DON-deh es-TA la es-ta-THYON",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Un taxi, por favor",
+   "say": "oon TAK-see, por fa-VOR",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Tengo una reserva",
+   "say": "TEN-go OO-na reh-SER-ba",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "¿A qué hora es el desayuno?",
+   "say": "ah keh OH-ra es el deh-sa-YOO-no",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "¿Dónde está el baño?",
+   "say": "DON-deh es-TA el BA-nyo",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "¿Habla inglés?",
+   "say": "AH-bla een-GLES",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "No entiendo",
+   "say": "no en-TYEN-do",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Más despacio, por favor",
+   "say": "mas des-PA-thyo, por fa-VOR",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Me he perdido",
+   "say": "meh eh per-DEE-do",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "¡Socorro!",
+   "say": "so-KO-rro",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Llame a un médico",
+   "say": "YA-meh ah oon MEH-dee-ko",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Llame a la policía",
+   "say": "YA-meh ah la po-lee-THEE-a",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

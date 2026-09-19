@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A plain home-screen widget is what Android 16 QPR2 offers on the lock screen; no special
+     category needed. updatePeriodMillis is 0 on purpose: our own inexact alarm redraws at each
+     rotation tick and slot boundary, which is both finer and cheaper than the 30-minute floor. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="90dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_phrase"
+    android:previewLayout="@layout/widget_phrase"
+    android:description="@string/phrase_widget_description"
+    android:widgetCategory="home_screen" />

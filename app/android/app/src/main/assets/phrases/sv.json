@@ -1,0 +1,449 @@
+{
+ "lang": "sv",
+ "name": "Swedish",
+ "nativeName": "Svenska",
+ "tts": "sv-SE",
+ "countries": [
+  "SE"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Sing-song pitch. 'sk' before e/i/y is a soft 'sh', 'å' is 'oh', 'ö' is the vowel in 'fur'.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "Sweden · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Sweden · non-urgent police",
+   "number": "114 14"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "God morgon",
+   "say": "goo MOR-ron",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "God dag",
+   "say": "goo DAHG",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "God kväll",
+   "say": "goo KVELL",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "God natt",
+   "say": "goo NAT",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Hej",
+   "say": "HAY",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "'Hej' works at any hour with anyone, including the prime minister."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Hej då",
+   "say": "hay DOH",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Hur mår du?",
+   "say": "hoor MOAR doo",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Bra, tack",
+   "say": "BRAH, tack",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Tack",
+   "say": "TACK",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE",
+   "note": "Swedish has no word for please. 'Tack' at the end of the request does the job."
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Tack",
+   "say": "TACK",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Tack så mycket",
+   "say": "tack so MEW-keh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Ursäkta",
+   "say": "oor-SHEK-ta",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Förlåt",
+   "say": "fur-LOHT",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Ja",
+   "say": "YAH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Nej",
+   "say": "NAY",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "En kaffe, tack",
+   "say": "en KAF-feh, tack",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE"
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Ett glas vatten, tack",
+   "say": "et glahs VAT-ten, tack",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Två öl, tack",
+   "say": "tvoh URL, tack",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Ett bord för två, tack",
+   "say": "et BOORD fur TVOH, tack",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Menyn, tack",
+   "say": "meh-NEWN, tack",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "Notan, tack",
+   "say": "NOO-tan, tack",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Kan jag betala med kort?",
+   "say": "kan yah beh-TAH-la meh KORT",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Sweden is close to cashless; some cafés will not take notes at all."
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Det var jättegott",
+   "say": "deh var YET-teh-got",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Skål!",
+   "say": "SKOHL",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Hur mycket kostar det?",
+   "say": "hoor MEW-keh KOS-tar deh",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "När stänger ni?",
+   "say": "nair STENG-er nee",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "En biljett till centrum, tack",
+   "say": "en bil-YET till SEN-troom, tack",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Var är stationen?",
+   "say": "var air sta-SHOO-nen",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "En taxi, tack",
+   "say": "en TAK-see, tack",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Jag har en bokning",
+   "say": "yah har en BOOK-ning",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "När är frukosten?",
+   "say": "nair air FROO-kos-ten",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Var är toaletten?",
+   "say": "var air too-a-LET-ten",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Talar du engelska?",
+   "say": "TAH-lar doo ENG-el-ska",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Jag förstår inte",
+   "say": "yah fur-STOHR IN-teh",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Långsammare, tack",
+   "say": "LONG-sam-ma-reh, tack",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Jag har gått vilse",
+   "say": "yah har got VIL-seh",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Hjälp!",
+   "say": "YELP",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Ring en läkare",
+   "say": "ring en LAY-ka-reh",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Ring polisen",
+   "say": "ring poo-LEE-sen",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

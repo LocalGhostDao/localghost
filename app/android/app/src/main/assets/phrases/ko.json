@@ -1,0 +1,475 @@
+{
+ "lang": "ko",
+ "name": "Korean",
+ "nativeName": "한국어",
+ "tts": "ko-KR",
+ "countries": [
+  "KR"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Hangul, an alphabet you can learn in an afternoon. The romanised line is Revised Romanization; 'eo' is the 'u' in but, 'eu' a tight 'uh'.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "South Korea · police",
+   "number": "112"
+  },
+  {
+   "label": "South Korea · fire and ambulance",
+   "number": "119"
+  },
+  {
+   "label": "South Korea · tourist helpline",
+   "number": "1330"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "좋은 아침이에요",
+   "say": "JOH-eun a-CHEEM-ee-eh-yo",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "GREETINGS",
+   "roman": "Joeun achimieyo",
+   "note": "Nice, but most people just say annyeonghaseyo. Use this with your host."
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "안녕히 주무세요",
+   "say": "an-NYEONG-hee joo-moo-SEH-yo",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Annyeonghi jumuseyo"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "안녕하세요",
+   "say": "an-NYEONG-ha-seh-yo",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Annyeonghaseyo",
+   "note": "Annyeonghaseyo is the greeting at every hour; the morning line is rarer, a warm extra."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "안녕히 계세요",
+   "say": "an-NYEONG-hee GYEH-seh-yo",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS",
+   "roman": "Annyeonghi gyeseyo",
+   "note": "Said by the one leaving to the one staying. If you both leave: 'annyeonghi gaseyo'."
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "잘 지내세요?",
+   "say": "jal jee-NEH-seh-yo",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "roman": "Jal jinaeseyo?"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "네, 잘 지내요",
+   "say": "neh, jal jee-NEH-yo",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS",
+   "roman": "Ne, jal jinaeyo"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "감사합니다",
+   "say": "gam-sa-HAM-nee-da",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE",
+   "roman": "Gamsahamnida"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "정말 감사합니다",
+   "say": "JEONG-mal gam-sa-HAM-nee-da",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE",
+   "roman": "Jeongmal gamsahamnida"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "실례합니다",
+   "say": "shil-LYEH-ham-nee-da",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE",
+   "roman": "Sillyehamnida"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "죄송합니다",
+   "say": "jweh-SONG-ham-nee-da",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "roman": "Joesonghamnida"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "네",
+   "say": "NEH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "roman": "Ne"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "아니요",
+   "say": "a-NEE-yo",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "roman": "Aniyo"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "커피 한 잔 주세요",
+   "say": "KEO-pee han JAN joo-SEH-yo",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "roman": "Keopi han jan juseyo"
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "물 한 잔 주세요",
+   "say": "MOOL han JAN joo-SEH-yo",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE",
+   "roman": "Mul han jan juseyo"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "맥주 두 잔 주세요",
+   "say": "MEK-joo doo JAN joo-SEH-yo",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE",
+   "roman": "Maekju du jan juseyo"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "두 명이요",
+   "say": "doo MYEONG-ee-yo",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT",
+   "roman": "Du myeong-iyo"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "메뉴 주세요",
+   "say": "MEH-nyoo joo-SEH-yo",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT",
+   "roman": "Menyu juseyo"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "계산서 주세요",
+   "say": "gyeh-SAN-seo joo-SEH-yo",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT",
+   "roman": "Gyesanseo juseyo",
+   "note": "Or walk to the counter and say 'gyesan halgeyo', I will pay."
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "카드로 계산할 수 있어요?",
+   "say": "KA-deu-ro gyeh-SAN-hal soo ee-SSEO-yo",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "roman": "Kadeuro gyesanhal su isseoyo?"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "맛있었어요",
+   "say": "ma-SHEE-sseo-sseo-yo",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "roman": "Masisseosseoyo"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "건배!",
+   "say": "geon-BEH",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "roman": "Geonbae!",
+   "note": "Turn slightly away from elders when you drink; it is noticed and appreciated."
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "얼마예요?",
+   "say": "EOL-ma-yeh-yo",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP",
+   "roman": "Eolmayeyo?"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "몇 시에 닫아요?",
+   "say": "myeot SHEE-eh DA-da-yo",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP",
+   "roman": "Myeot sie dadayo?"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "시내 가는 표 한 장 주세요",
+   "say": "shee-NEH GA-neun PYO han JANG joo-SEH-yo",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Sinae ganeun pyo han jang juseyo"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "역이 어디예요?",
+   "say": "YEO-gee EO-dee-yeh-yo",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Yeogi eodiyeyo?"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "택시 불러 주세요",
+   "say": "TEK-shee BOOL-leo joo-SEH-yo",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Taeksi bulleo juseyo"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "예약했어요",
+   "say": "yeh-YAK-heh-sseo-yo",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL",
+   "roman": "Yeyakhaesseoyo"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "아침 식사는 몇 시예요?",
+   "say": "a-CHEEM SHIK-sa-neun myeot SHEE-yeh-yo",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL",
+   "roman": "Achim siksaneun myeot siyeyo?"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "화장실이 어디예요?",
+   "say": "hwa-JANG-shee-ree EO-dee-yeh-yo",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP",
+   "roman": "Hwajangsiri eodiyeyo?"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "영어 할 수 있어요?",
+   "say": "YEONG-eo hal soo ee-SSEO-yo",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP",
+   "roman": "Yeongeo hal su isseoyo?"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "이해 못 했어요",
+   "say": "ee-HEH mot HEH-sseo-yo",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP",
+   "roman": "Ihae mot haesseoyo"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "천천히 말해 주세요",
+   "say": "cheon-CHEON-hee mal-HEH joo-SEH-yo",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP",
+   "roman": "Cheoncheonhi malhae juseyo"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "길을 잃었어요",
+   "say": "GEE-reul ee-REO-sseo-yo",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "roman": "Gireul ireosseoyo"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "도와주세요!",
+   "say": "do-WA-joo-seh-yo",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY",
+   "roman": "Dowajuseyo!"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "의사를 불러 주세요",
+   "say": "UI-sa-reul BOOL-leo joo-SEH-yo",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY",
+   "roman": "Uisareul bulleo juseyo"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "경찰을 불러 주세요",
+   "say": "GYEONG-cha-reul BOOL-leo joo-SEH-yo",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY",
+   "roman": "Gyeongchareul bulleo juseyo"
+  },
+  {
+   "id": "juseyo",
+   "en": "Please (give me)",
+   "local": "주세요",
+   "say": "joo-SEH-yo",
+   "roman": "Juseyo",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE",
+   "note": "Korean has no bare 'please'. 'Juseyo' after the thing you want is how every order ends."
+  }
+ ]
+}

@@ -815,6 +815,25 @@ object BoxClient {
         (0 until a.length()).map { a.optString(it) }
     } catch (_: Exception) { null }
 
+    /** The newest N day tracks in ONE round trip, each an ordered list of lat/lon pairs. Null when
+     *  the box predates /v1/geo/tracks (the caller falls back to days + one fetch per day). */
+    suspend fun geoTracks(ctx: Context, limit: Int = 14): List<Pair<String, List<Pair<Double, Double>>>>? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/geo/tracks?limit=$limit")
+        if (!r.has("tracks")) null
+        else {
+            val a = r.optJSONArray("tracks") ?: org.json.JSONArray()
+            (0 until a.length()).mapNotNull { i ->
+                val o = a.optJSONObject(i) ?: return@mapNotNull null
+                val c = o.optJSONArray("coords") ?: return@mapNotNull null
+                val pts = (0 until c.length()).mapNotNull { j ->
+                    val p = c.optJSONArray(j) ?: return@mapNotNull null
+                    Pair(p.optDouble(0), p.optDouble(1)) // already [lat, lon]
+                }
+                Pair(o.optString("day", ""), pts)
+            }
+        }
+    } catch (_: Exception) { null }
+
     /** One day's track as ordered lat/lon pairs, pulled from framed's GeoJSON LineStrings. */
     suspend fun geoDayTrack(ctx: Context, day: String): List<Pair<Double, Double>>? = try {
         val gj = BoxHttp.getJson(ctx, "/v1/geo/day?d=$day")
@@ -853,6 +872,46 @@ object BoxClient {
     private suspend fun worldGeoJsonDirect(ctx: Context): org.json.JSONObject? = try {
         BoxHttp.getJson(ctx, "/v1/geo/world")
     } catch (_: Exception) { null }
+
+    /** One landmass cut on the box: res is "" for world.geojson, else the token in world-<res>.geojson. */
+    data class WorldCut(val res: String, val bytes: Long, val etag: String)
+
+    /** The landmass cuts the box holds, smallest first (the index endpoint sorts). Null when the box
+     *  did not answer (offline, or a box that predates the index); an empty list means the box
+     *  answered and has no world file. */
+    suspend fun worldIndex(ctx: Context): List<WorldCut>? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/geo/world/index")
+        if (!r.has("cuts")) null
+        else {
+            val a = r.optJSONArray("cuts") ?: org.json.JSONArray()
+            (0 until a.length()).mapNotNull { i ->
+                val o = a.optJSONObject(i) ?: return@mapNotNull null
+                WorldCut(o.optString("res", ""), o.optLong("bytes"), o.optString("etag", ""))
+            }
+        }
+    } catch (_: Exception) { null }
+
+    /** One world cut ON DISK plus the ETag it was fetched under, revalidated against the box and
+     *  never parsed here. The map reads it with its own byte scanner (org.json on a 24MB GeoJSON is
+     *  a second of main-thread freeze and ~100MB of boxed Doubles), and caches the projected rings
+     *  keyed on this ETag so the JSON is walked once per world file, not once per open. Box
+     *  unreachable = whatever is cached, tag included; nothing cached = (null, "") and the map
+     *  draws graticule + dots, by design. res "" is the plain world.geojson every box has had. */
+    suspend fun worldGeoJsonFile(ctx: Context, res: String = ""): Pair<java.io.File?, String> {
+        val key = if (res.isEmpty()) "default" else res
+        val cache = java.io.File(ctx.filesDir, "world-$key.geojson")
+        val prefs = ctx.getSharedPreferences("ghost_geo", Context.MODE_PRIVATE)
+        val tagKey = "world_etag_$key"
+        try {
+            val path = if (res.isEmpty()) "/v1/geo/world" else "/v1/geo/world?res=$res"
+            val (fresh, newTag) = BoxHttp.getBytesEtag(ctx, path, prefs.getString(tagKey, null))
+            if (fresh != null) {
+                cache.writeBytes(fresh)
+                prefs.edit().putString(tagKey, newTag ?: "").apply()
+            }
+        } catch (_: Exception) { /* offline: the cached world still draws */ }
+        return Pair(if (cache.exists()) cache else null, prefs.getString(tagKey, "") ?: "")
+    }
 
     /** Rename a persisted chat , the person's title outranks the derived one, permanently. */
     suspend fun renameChat(ctx: Context, id: Long, title: String): Boolean = try {

@@ -1,0 +1,452 @@
+{
+ "lang": "hu",
+ "name": "Hungarian",
+ "nativeName": "Magyar",
+ "tts": "hu-HU",
+ "countries": [
+  "HU"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Stress always on the first syllable. 's' is 'sh', 'sz' is 's', 'cs' is 'ch', 'gy' is a soft 'dy', 'a' is the 'o' in hot.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "Hungary · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Hungary · ambulance",
+   "number": "104"
+  },
+  {
+   "label": "Hungary · police",
+   "number": "107"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Jó reggelt",
+   "say": "yoh REG-gelt",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Jó napot",
+   "say": "yoh NA-pot",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Jó estét",
+   "say": "yoh ESH-tayt",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Jó éjszakát",
+   "say": "yoh AY-sa-kaht",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Szia",
+   "say": "SEE-a",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "Szia is informal, and it also means bye. 'Jó napot' is the safe one with strangers."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Viszontlátásra",
+   "say": "VEE-sont-LAH-tahsh-ra",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Hogy van?",
+   "say": "hodj VAN",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Jól, köszönöm",
+   "say": "yohl, KUR-sur-nurm",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Kérem",
+   "say": "KAY-rem",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Köszönöm",
+   "say": "KUR-sur-nurm",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Köszönöm szépen",
+   "say": "KUR-sur-nurm SAY-pen",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Elnézést",
+   "say": "EL-nay-zaysht",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Sajnálom",
+   "say": "SHOY-nah-lom",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Igen",
+   "say": "EE-gen",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Nem",
+   "say": "NEM",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Egy kávét kérek",
+   "say": "edj KAH-vayt KAY-rek",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE"
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Egy pohár vizet kérek",
+   "say": "edj PO-hahr VEE-zet KAY-rek",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Két sört kérek",
+   "say": "kayt SHURT KAY-rek",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Egy asztalt kérek két főre",
+   "say": "edj AS-talt KAY-rek kayt FUR-reh",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Az étlapot kérem",
+   "say": "oz AYT-la-pot KAY-rem",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "A számlát kérem",
+   "say": "o SAHM-laht KAY-rem",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Fizethetek kártyával?",
+   "say": "FEE-zet-heh-tek KAHR-tyah-val",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Nagyon finom volt",
+   "say": "NA-djon FEE-nom volt",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Egészségedre!",
+   "say": "EG-aysh-shay-ged-reh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Never clink beer glasses: a national grudge dating from 1849. Wine and pálinka are fine."
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Mennyibe kerül?",
+   "say": "MEN-nyee-beh KEH-rewl",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "Hánykor zárnak?",
+   "say": "HAHNY-kor ZAHR-nok",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Egy jegyet kérek a központba",
+   "say": "edj YEH-djet KAY-rek o KURZ-pont-ba",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Hol van a pályaudvar?",
+   "say": "hol von o PAH-ya-ood-var",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Egy taxit kérek",
+   "say": "edj TAK-sit KAY-rek",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Van foglalásom",
+   "say": "von FOG-la-lah-shom",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "Hánykor van a reggeli?",
+   "say": "HAHNY-kor von o REG-geh-lee",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Hol van a mosdó?",
+   "say": "hol von o MOSH-doh",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Beszél angolul?",
+   "say": "BEH-sayl ON-go-lool",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Nem értem",
+   "say": "nem AYR-tem",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Lassabban, kérem",
+   "say": "LOSH-shob-bon, KAY-rem",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Eltévedtem",
+   "say": "EL-tay-ved-tem",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Segítség!",
+   "say": "SHEH-geet-shayg",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Hívjon orvost",
+   "say": "HEEV-yon OR-vosht",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Hívja a rendőrséget",
+   "say": "HEEV-ya o REN-dur-shay-get",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

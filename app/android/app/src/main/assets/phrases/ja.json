@@ -1,0 +1,485 @@
+{
+ "lang": "ja",
+ "name": "Japanese",
+ "nativeName": "日本語",
+ "tts": "ja-JP",
+ "countries": [
+  "JP"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Kana and kanji; the romaji line is the Hepburn spelling. Say every syllable evenly and short; a long vowel (ō, ū) is held twice as long.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "Japan · police",
+   "number": "110"
+  },
+  {
+   "label": "Japan · fire and ambulance",
+   "number": "119"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "おはようございます",
+   "say": "oh-HA-yoh go-zai-MAS",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Ohayō gozaimasu"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "こんにちは",
+   "say": "kon-NEE-chee-wa",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Konnichiwa",
+   "note": "Konnichiwa is also the everyday hello, from late morning on."
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "こんばんは",
+   "say": "kon-BAN-wa",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Konbanwa"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "おやすみなさい",
+   "say": "oh-YA-su-mee na-SAI",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Oyasumi nasai"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "お元気ですか",
+   "say": "oh-GEN-kee des ka",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "roman": "O-genki desu ka"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "元気です、ありがとう",
+   "say": "GEN-kee des, a-ree-GA-toh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS",
+   "roman": "Genki desu, arigatō"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "お願いします",
+   "say": "oh-neh-GAI-shee-mas",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE",
+   "roman": "Onegaishimasu"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "ありがとうございます",
+   "say": "a-ree-GA-toh go-zai-MAS",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE",
+   "roman": "Arigatō gozaimasu"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "どうもありがとうございます",
+   "say": "DOH-mo a-ree-GA-toh go-zai-MAS",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE",
+   "roman": "Dōmo arigatō gozaimasu"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "すみません",
+   "say": "soo-mee-ma-SEN",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE",
+   "roman": "Sumimasen",
+   "note": "Sumimasen is excuse me, sorry, and how you call a waiter. The most useful word in the language."
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "ごめんなさい",
+   "say": "go-MEN na-SAI",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "roman": "Gomen nasai"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "はい",
+   "say": "HAI",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "roman": "Hai"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "いいえ",
+   "say": "EE-eh",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "roman": "Iie"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "コーヒーを一つお願いします",
+   "say": "KOH-hee oh hee-TOTS oh-neh-GAI-shee-mas",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "roman": "Kōhī o hitotsu onegaishimasu"
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "お水をください",
+   "say": "oh-MEE-zoo oh koo-da-SAI",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE",
+   "roman": "O-mizu o kudasai"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "ビールを二つお願いします",
+   "say": "BEE-roo oh foo-TATS oh-neh-GAI-shee-mas",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE",
+   "roman": "Bīru o futatsu onegaishimasu"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "二人です",
+   "say": "foo-TA-ree des",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT",
+   "roman": "Futari desu",
+   "note": "Literally 'two people', which is what you say at the door. Hold up two fingers as well."
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "メニューをお願いします",
+   "say": "MEH-nyoo oh oh-neh-GAI-shee-mas",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT",
+   "roman": "Menyū o onegaishimasu"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "お会計をお願いします",
+   "say": "oh-KAI-kay oh oh-neh-GAI-shee-mas",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT",
+   "roman": "O-kaikei o onegaishimasu",
+   "note": "In most places you pay at the counter by the door, not at the table."
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "カードで払えますか",
+   "say": "KAH-do deh ha-ra-eh-MAS ka",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "roman": "Kādo de haraemasu ka",
+   "note": "Card works in cities; small places and shrines are cash. Carry yen."
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "おいしかったです",
+   "say": "oh-ee-shee-KAT-ta des",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "roman": "Oishikatta desu"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "乾杯！",
+   "say": "kam-PAI",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "roman": "Kanpai!"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "いくらですか",
+   "say": "EE-koo-ra des ka",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP",
+   "roman": "Ikura desu ka"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "何時に閉まりますか",
+   "say": "NAN-jee nee shee-ma-ree-MAS ka",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP",
+   "roman": "Nanji ni shimarimasu ka"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "駅はどこですか",
+   "say": "EH-kee wa DO-ko des ka",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Eki wa doko desu ka"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "タクシーをお願いします",
+   "say": "TAK-shee oh oh-neh-GAI-shee-mas",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Takushī o onegaishimasu"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "予約しています",
+   "say": "yo-YA-koo shee-teh ee-MAS",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL",
+   "roman": "Yoyaku shite imasu"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "朝食は何時ですか",
+   "say": "CHOH-sho-koo wa NAN-jee des ka",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL",
+   "roman": "Chōshoku wa nanji desu ka"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "トイレはどこですか",
+   "say": "TOY-reh wa DO-ko des ka",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP",
+   "roman": "Toire wa doko desu ka"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "英語を話せますか",
+   "say": "AY-go oh ha-na-seh-MAS ka",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP",
+   "roman": "Eigo o hanasemasu ka"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "わかりません",
+   "say": "wa-ka-ree-ma-SEN",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP",
+   "roman": "Wakarimasen"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "もっとゆっくりお願いします",
+   "say": "MOT-to yook-KOO-ree oh-neh-GAI-shee-mas",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP",
+   "roman": "Motto yukkuri onegaishimasu"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "道に迷いました",
+   "say": "MEE-chee nee ma-yo-ee-MASH-ta",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "roman": "Michi ni mayoimashita"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "助けて！",
+   "say": "tas-KEH-teh",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY",
+   "roman": "Tasukete!"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "医者を呼んでください",
+   "say": "EE-sha oh YON-deh koo-da-SAI",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY",
+   "roman": "Isha o yonde kudasai"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "警察を呼んでください",
+   "say": "KAY-sats oh YON-deh koo-da-SAI",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY",
+   "roman": "Keisatsu o yonde kudasai"
+  },
+  {
+   "id": "kippu",
+   "en": "One ticket, please",
+   "local": "切符を一枚お願いします",
+   "say": "KEEP-poo oh ee-chee-MAI oh-neh-GAI-shee-mas",
+   "roman": "Kippu o ichimai onegaishimasu",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "note": "Tickets are by station name; machines have an English button. Most people just tap an IC card."
+  },
+  {
+   "id": "gochiso",
+   "en": "Thank you for the meal",
+   "local": "ごちそうさまでした",
+   "say": "go-chee-SOH sa-ma DESH-ta",
+   "roman": "Gochisōsama deshita",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "RESTAURANT",
+   "note": "Said on leaving. The staff will light up."
+  }
+ ]
+}

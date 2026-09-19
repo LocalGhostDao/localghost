@@ -59,3 +59,19 @@ elif get "$NE" "$DEST/world.geojson"; then
 else
     echo "  note: could not fetch world.geojson , the MAP draws graticule + dots without landmass"
 fi
+
+# THE COARSE CUTS. The 10m file is the truth for a zoomed-in coastline and 24MB of truth is the wrong
+# thing to hand a phone before it can draw anything. Natural Earth publishes the same countries at
+# 110m (~800KB) and 50m (~4.5MB); the box serves whatever world*.geojson it has
+# (/v1/geo/world/index), the app opens on the smallest and refines with the largest once it is
+# cached. Existing boxes: drop these two files in <volume>/geo through ns.sh, nothing to restart.
+for res in 110m 50m; do
+    url="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_${res}_admin_0_countries.geojson"
+    if [ -s "$DEST/world-$res.geojson" ] && [ -z "$FORCE" ]; then
+        echo "  geo: world-$res.geojson already present"
+    elif get "$url" "$DEST/world-$res.geojson"; then
+        echo "  geo: fetched Natural Earth world-$res.geojson"
+    else
+        echo "  note: could not fetch world-$res.geojson , the map opens on the full-detail file (slower first draw)"
+    fi
+done

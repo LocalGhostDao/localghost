@@ -1,0 +1,465 @@
+{
+ "lang": "id",
+ "name": "Indonesian",
+ "nativeName": "Bahasa Indonesia",
+ "tts": "id-ID",
+ "countries": [
+  "ID"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Latin script, said as written: 'c' is 'ch', 'e' is mostly the short 'uh'. Stress is light; keep it flat.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "Indonesia · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Indonesia · police",
+   "number": "110"
+  },
+  {
+   "label": "Indonesia · ambulance",
+   "number": "118"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Selamat pagi",
+   "say": "suh-LAH-mat PAH-gee",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Selamat siang",
+   "say": "suh-LAH-mat SEE-ang",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "Selamat siang is for late morning to mid-afternoon; after that it is 'selamat sore'."
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Selamat malam",
+   "say": "suh-LAH-mat MAH-lam",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Selamat tidur",
+   "say": "suh-LAH-mat TEE-door",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Halo",
+   "say": "HAH-lo",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Sampai jumpa",
+   "say": "SAM-pai JOOM-pa",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Apa kabar?",
+   "say": "AH-pa KAH-bar",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Baik, terima kasih",
+   "say": "BAIK, tuh-REE-ma KAH-see",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Tolong",
+   "say": "TOH-long",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Terima kasih",
+   "say": "tuh-REE-ma KAH-see",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Terima kasih banyak",
+   "say": "tuh-REE-ma KAH-see BAH-nyak",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Permisi",
+   "say": "per-MEE-see",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Maaf",
+   "say": "ma-AHF",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Ya",
+   "say": "YAH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Tidak",
+   "say": "TEE-dak",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Satu kopi, tolong",
+   "say": "SAH-too KO-pee, TOH-long",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "note": "'Kopi' comes sweet unless you say 'tanpa gula', no sugar."
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Segelas air putih, tolong",
+   "say": "suh-GUH-las AH-yeer POO-tee, TOH-long",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Dua bir, tolong",
+   "say": "DOO-ah BEER, TOH-long",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Meja untuk dua orang, tolong",
+   "say": "MEH-ja OON-took DOO-ah OH-rang, TOH-long",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Menunya, tolong",
+   "say": "meh-NOO-nya, TOH-long",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "Minta bon, tolong",
+   "say": "MIN-ta BON, TOH-long",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Bisa bayar pakai kartu?",
+   "say": "BEE-sa BAH-yar PA-kai KAR-too",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Enak sekali",
+   "say": "EH-nak suh-KAH-lee",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Bersulang!",
+   "say": "ber-SOO-lang",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Rarely heard; much of the country does not drink. A raised glass and a smile do the work."
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Berapa harganya?",
+   "say": "buh-RAH-pa har-GAH-nya",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "Tutup jam berapa?",
+   "say": "TOO-toop jam buh-RAH-pa",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Satu tiket ke pusat kota, tolong",
+   "say": "SAH-too TEE-ket kuh POO-sat KO-ta, TOH-long",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Di mana stasiun?",
+   "say": "dee MAH-na STA-see-oon",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Panggil taksi, tolong",
+   "say": "PANG-gil TAK-see, TOH-long",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Saya punya reservasi",
+   "say": "SAH-ya POON-ya reh-ser-VAH-see",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "Sarapan jam berapa?",
+   "say": "sa-RAH-pan jam buh-RAH-pa",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Di mana toilet?",
+   "say": "dee MAH-na TOY-let",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Bisa bahasa Inggris?",
+   "say": "BEE-sa ba-HA-sa ING-gris",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Saya tidak mengerti",
+   "say": "SAH-ya TEE-dak muh-NGER-tee",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Pelan-pelan, tolong",
+   "say": "puh-LAN puh-LAN, TOH-long",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Saya tersesat",
+   "say": "SAH-ya ter-suh-SAT",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Tolong!",
+   "say": "TOH-long",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Panggil dokter",
+   "say": "PANG-gil DOK-ter",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Panggil polisi",
+   "say": "PANG-gil po-LEE-see",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "selamat_sore",
+   "en": "Good afternoon (late)",
+   "local": "Selamat sore",
+   "say": "suh-LAH-mat SO-reh",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "Siang until about three, sore from three until dark."
+  }
+ ]
+}

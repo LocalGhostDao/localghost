@@ -1,0 +1,461 @@
+{
+ "lang": "it",
+ "name": "Italian",
+ "nativeName": "Italiano",
+ "tts": "it-IT",
+ "countries": [
+  "IT",
+  "SM",
+  "VA",
+  "CH"
+ ],
+ "lateCountries": [
+  "IT"
+ ],
+ "lateHours": false,
+ "scriptNote": "Every vowel is spoken, double consonants are held a beat longer. 'c' before e/i is 'ch', 'ch' is 'k'.",
+ "genderedSpeech": true,
+ "emergency": [
+  {
+   "label": "Italy · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Italy · ambulance",
+   "number": "118"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Buongiorno",
+   "say": "bwon-JOR-no",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Buongiorno",
+   "say": "bwon-JOR-no",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "Buongiorno holds until about four; then buonasera."
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Buonasera",
+   "say": "bwo-na-SEH-ra",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Buonanotte",
+   "say": "bwo-na-NOT-teh",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Ciao",
+   "say": "CHOW",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "Ciao is for people you know. Buongiorno or buonasera for everyone else."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Arrivederci",
+   "say": "ar-ree-veh-DER-chee",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Come sta?",
+   "say": "KO-meh STA",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Bene, grazie",
+   "say": "BEH-neh, GRA-tsyeh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Per favore",
+   "say": "per fa-VO-reh",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Grazie",
+   "say": "GRA-tsyeh",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Grazie mille",
+   "say": "GRA-tsyeh MEEL-leh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Scusi",
+   "say": "SKOO-zee",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Mi dispiace",
+   "say": "mee dees-PYA-cheh",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Sì",
+   "say": "SEE",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "No",
+   "say": "NO",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Un caffè, per favore",
+   "say": "oon kaf-FEH, per fa-VO-reh",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "note": "'Un caffè' is an espresso, drunk standing at the bar. Cappuccino is a morning drink only."
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Un bicchiere d'acqua, per favore",
+   "say": "oon beek-KYEH-reh DAK-kwa, per fa-VO-reh",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Due birre, per favore",
+   "say": "DOO-eh BEER-reh, per fa-VO-reh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Un tavolo per due, per favore",
+   "say": "oon TA-vo-lo per DOO-eh, per fa-VO-reh",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Il menù, per favore",
+   "say": "eel meh-NOO, per fa-VO-reh",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "Il conto, per favore",
+   "say": "eel KON-to, per fa-VO-reh",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Posso pagare con la carta?",
+   "say": "POS-so pa-GA-reh kon la KAR-ta",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Era delizioso",
+   "say": "EH-ra deh-lee-TSYO-zo",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Salute!",
+   "say": "sa-LOO-teh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Or 'cin cin'. Look people in the eye as you clink."
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Quanto costa?",
+   "say": "KWAN-to KOS-ta",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "A che ora chiudete?",
+   "say": "ah keh OH-ra kyoo-DEH-teh",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Un biglietto per il centro, per favore",
+   "say": "oon beel-YET-to per eel CHEN-tro, per fa-VO-reh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Dov'è la stazione?",
+   "say": "do-VEH la sta-TSYO-neh",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Un taxi, per favore",
+   "say": "oon TAK-see, per fa-VO-reh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Ho una prenotazione",
+   "say": "oh OO-na preh-no-ta-TSYO-neh",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "A che ora è la colazione?",
+   "say": "ah keh OH-ra eh la ko-la-TSYO-neh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Dov'è il bagno?",
+   "say": "do-VEH eel BAN-yo",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Parla inglese?",
+   "say": "PAR-la een-GLEH-zeh",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Non capisco",
+   "say": "non ka-PEES-ko",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Più lentamente, per favore",
+   "say": "pyoo len-ta-MEN-teh, per fa-VO-reh",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Mi sono perso",
+   "say": "mee SO-no PER-so",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "forms": {
+    "masculine": "Mi sono perso",
+    "feminine": "Mi sono persa",
+    "masculineSay": "mee SO-no PER-so",
+    "feminineSay": "mee SO-no PER-sa"
+   }
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Aiuto!",
+   "say": "ah-YOO-to",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Chiami un medico",
+   "say": "KYA-mee oon MEH-dee-ko",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Chiami la polizia",
+   "say": "KYA-mee la po-lee-TSEE-a",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

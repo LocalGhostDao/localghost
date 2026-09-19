@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The void, with a hairline of phosphor. Corners follow the system widget radius on 12+. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/phrase_void" />
+    <stroke android:width="1dp" android:color="@color/phrase_border" />
+    <corners android:radius="16dp" />
+</shape>

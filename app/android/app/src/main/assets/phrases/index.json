@@ -1,0 +1,23 @@
+{
+ "packs": [
+  "es",
+  "pt",
+  "fr",
+  "it",
+  "de",
+  "nl",
+  "sv",
+  "el",
+  "ro",
+  "tr",
+  "pl",
+  "cs",
+  "hr",
+  "hu",
+  "ja",
+  "ko",
+  "th",
+  "id"
+ ],
+ "note": "one file per language; add a pack by dropping <lang>.json here and listing it"
+}

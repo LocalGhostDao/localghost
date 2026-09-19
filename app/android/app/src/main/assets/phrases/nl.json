@@ -1,0 +1,453 @@
+{
+ "lang": "nl",
+ "name": "Dutch",
+ "nativeName": "Nederlands",
+ "tts": "nl-NL",
+ "countries": [
+  "NL",
+  "BE"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "'g' and 'ch' are a throat scrape, 'ui' is roughly 'ow' said with pursed lips, 'ij' is 'ay'.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "Netherlands · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Belgium · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Belgium · police",
+   "number": "101"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Goedemorgen",
+   "say": "KHOO-duh-MOR-khun",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Goedemiddag",
+   "say": "KHOO-duh-MID-dakh",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Goedenavond",
+   "say": "KHOO-duhn-AH-vont",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Welterusten",
+   "say": "VEL-tuh-RUS-tun",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Hallo",
+   "say": "HA-lo",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Tot ziens",
+   "say": "tot ZEENS",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Hoe gaat het?",
+   "say": "hoo KHAHT ut",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Goed, dank u",
+   "say": "khoot, DANK ew",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Alstublieft",
+   "say": "AHL-stew-BLEEFT",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Dank u wel",
+   "say": "dank ew VEL",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Hartelijk dank",
+   "say": "HAR-tuh-luk DANK",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Pardon",
+   "say": "par-DON",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Sorry",
+   "say": "SOR-ree",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Ja",
+   "say": "YAH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Nee",
+   "say": "NAY",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Een koffie, alstublieft",
+   "say": "un KOF-fee, AHL-stew-BLEEFT",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE"
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Een glas water, alstublieft",
+   "say": "un khlas VAH-tur, AHL-stew-BLEEFT",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Twee bier, alstublieft",
+   "say": "tvay BEER, AHL-stew-BLEEFT",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Een tafel voor twee, alstublieft",
+   "say": "un TAH-ful vor TVAY, AHL-stew-BLEEFT",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "De kaart, alstublieft",
+   "say": "duh KAHRT, AHL-stew-BLEEFT",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "De rekening, alstublieft",
+   "say": "duh RAY-kuh-ning, AHL-stew-BLEEFT",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Kan ik pinnen?",
+   "say": "kan ik PIN-nun",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "'Pinnen' means paying with a debit card, which is how the Netherlands pays. Some places take no cash at all."
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Het was heerlijk",
+   "say": "ut vas HAYR-luk",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Proost!",
+   "say": "PROHST",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Hoeveel kost het?",
+   "say": "hoo-VAYL kost ut",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "Hoe laat sluiten jullie?",
+   "say": "hoo LAHT SLOW-tun YUL-lee",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Een kaartje naar het centrum, alstublieft",
+   "say": "un KAHR-chuh nar ut SEN-trum, AHL-stew-BLEEFT",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Waar is het station?",
+   "say": "vahr is ut sta-SHON",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Een taxi, alstublieft",
+   "say": "un TAK-see, AHL-stew-BLEEFT",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Ik heb een reservering",
+   "say": "ik hep un ray-zer-VAY-ring",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "Hoe laat is het ontbijt?",
+   "say": "hoo LAHT is ut ont-BAYT",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Waar is het toilet?",
+   "say": "vahr is ut twa-LET",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Spreekt u Engels?",
+   "say": "spraykt ew ENG-uls",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP",
+   "note": "Almost everyone will say yes. Asking first is still the polite move."
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Ik begrijp het niet",
+   "say": "ik buh-KHRAYP ut NEET",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Langzamer, alstublieft",
+   "say": "LANG-zah-mur, AHL-stew-BLEEFT",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Ik ben verdwaald",
+   "say": "ik ben vur-DVAHLT",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Help!",
+   "say": "HELP",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Bel een dokter",
+   "say": "bel un DOK-tur",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Bel de politie",
+   "say": "bel duh po-LEET-see",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

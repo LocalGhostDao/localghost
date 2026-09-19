@@ -1,0 +1,460 @@
+{
+ "lang": "pl",
+ "name": "Polish",
+ "nativeName": "Polski",
+ "tts": "pl-PL",
+ "countries": [
+  "PL"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "'w' is 'v', 'ł' is 'w', 'c' is 'ts', 'cz' is 'ch', 'sz' is 'sh', 'rz' and 'ż' are 'zh'. Stress falls on the second-to-last syllable.",
+ "genderedSpeech": true,
+ "emergency": [
+  {
+   "label": "Poland · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Poland · police",
+   "number": "997"
+  },
+  {
+   "label": "Poland · ambulance",
+   "number": "999"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Dzień dobry",
+   "say": "jen DOB-rih",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Dzień dobry",
+   "say": "jen DOB-rih",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "Dzień dobry is good morning and good afternoon both, until the evening."
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Dobry wieczór",
+   "say": "DOB-rih VYEH-choor",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Dobranoc",
+   "say": "dob-RA-nots",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Cześć",
+   "say": "CHESHCH",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "Cześć is for friends, and doubles as bye. Strangers get dzień dobry."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Do widzenia",
+   "say": "do vee-DZEN-ya",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Co słychać?",
+   "say": "tso SWIH-hach",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Dobrze, dziękuję",
+   "say": "DOB-zheh, jen-KOO-yeh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Proszę",
+   "say": "PRO-sheh",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Dziękuję",
+   "say": "jen-KOO-yeh",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Dziękuję bardzo",
+   "say": "jen-KOO-yeh BAR-dzo",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Przepraszam",
+   "say": "psheh-PRA-sham",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Przykro mi",
+   "say": "PSHIK-ro mee",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Tak",
+   "say": "TAK",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Nie",
+   "say": "NYEH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Poproszę kawę",
+   "say": "po-PRO-sheh KA-veh",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "note": "'Poproszę' is 'I would like', the polite way to order anything: poproszę + the thing."
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Poproszę szklankę wody",
+   "say": "po-PRO-sheh SHKLAN-keh VO-dih",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Poproszę dwa piwa",
+   "say": "po-PRO-sheh dva PEE-va",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Poproszę stolik dla dwóch osób",
+   "say": "po-PRO-sheh STO-leek dla DVOOKH O-soop",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Poproszę menu",
+   "say": "po-PRO-sheh MEH-nee",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "Poproszę rachunek",
+   "say": "po-PRO-sheh ra-KHOO-nek",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Czy mogę zapłacić kartą?",
+   "say": "chih MO-geh za-PWA-cheech KAR-tom",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Było pyszne",
+   "say": "BIH-wo PISH-neh",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Na zdrowie!",
+   "say": "na ZDRO-vyeh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Ile to kosztuje?",
+   "say": "EE-leh to kosh-TOO-yeh",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "O której zamykacie?",
+   "say": "o KTOO-rey za-mih-KA-cheh",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Poproszę bilet do centrum",
+   "say": "po-PRO-sheh BEE-let do TSEN-troom",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Gdzie jest dworzec?",
+   "say": "gjeh yest DVO-zhets",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Poproszę taksówkę",
+   "say": "po-PRO-sheh tak-SOOF-keh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Mam rezerwację",
+   "say": "mam reh-zer-VA-tsyeh",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "O której jest śniadanie?",
+   "say": "o KTOO-rey yest shnya-DA-nyeh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Gdzie jest toaleta?",
+   "say": "gjeh yest to-a-LEH-ta",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Czy mówi pan po angielsku?",
+   "say": "chih MOO-vee pan po an-GYEL-skoo",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP",
+   "note": "'Pan' to a man, 'pani' to a woman: 'czy mówi pani po angielsku?'"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Nie rozumiem",
+   "say": "nyeh ro-ZOO-myem",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Wolniej, proszę",
+   "say": "VOL-nyey, PRO-sheh",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Zgubiłem się",
+   "say": "zgoo-BEE-wem sheh",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "forms": {
+    "masculine": "Zgubiłem się",
+    "feminine": "Zgubiłam się",
+    "masculineSay": "zgoo-BEE-wem sheh",
+    "feminineSay": "zgoo-BEE-wam sheh"
+   }
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Pomocy!",
+   "say": "po-MO-tsih",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Proszę wezwać lekarza",
+   "say": "PRO-sheh VEZ-vach leh-KA-zha",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Proszę wezwać policję",
+   "say": "PRO-sheh VEZ-vach po-LEETS-yeh",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

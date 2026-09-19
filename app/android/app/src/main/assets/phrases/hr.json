@@ -1,0 +1,469 @@
+{
+ "lang": "hr",
+ "name": "Croatian",
+ "nativeName": "Hrvatski",
+ "tts": "hr-HR",
+ "countries": [
+  "HR",
+  "BA",
+  "ME"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Every letter is said, always the same way: 'c' is 'ts', 'č' and 'ć' are 'ch', 'š' is 'sh', 'ž' is 'zh', 'j' is 'y'. Bosnia and Montenegro understand every line.",
+ "genderedSpeech": true,
+ "emergency": [
+  {
+   "label": "Croatia · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Bosnia and Herzegovina · police",
+   "number": "122"
+  },
+  {
+   "label": "Bosnia and Herzegovina · ambulance",
+   "number": "124"
+  },
+  {
+   "label": "Bosnia and Herzegovina · fire",
+   "number": "123"
+  },
+  {
+   "label": "Montenegro · any emergency",
+   "number": "112"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Dobro jutro",
+   "say": "DOB-ro YOO-tro",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Dobar dan",
+   "say": "DOB-ar DAN",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Dobra večer",
+   "say": "DOB-ra VEH-cher",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Laku noć",
+   "say": "LA-koo NOCH",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Bok",
+   "say": "BOK",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "'Bok' is Croatian; in Bosnia and Montenegro say 'zdravo'."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Doviđenja",
+   "say": "do-vee-JEN-ya",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Kako ste?",
+   "say": "KA-ko steh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Dobro, hvala",
+   "say": "DOB-ro, HVA-la",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Molim",
+   "say": "MO-leem",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Hvala",
+   "say": "HVA-la",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Hvala lijepa",
+   "say": "HVA-la LYEH-pa",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Oprostite",
+   "say": "o-PROS-tee-teh",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Žao mi je",
+   "say": "ZHAO mee yeh",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Da",
+   "say": "DA",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Ne",
+   "say": "NEH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Jednu kavu, molim",
+   "say": "YED-noo KA-voo, MO-leem",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "note": "Coffee is sat down and lingered over. Nobody takes it away in a paper cup."
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Čašu vode, molim",
+   "say": "CHA-shoo VO-deh, MO-leem",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Dva piva, molim",
+   "say": "dva PEE-va, MO-leem",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Stol za dvoje, molim",
+   "say": "stol za DVO-yeh, MO-leem",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Jelovnik, molim",
+   "say": "YEH-lov-neek, MO-leem",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "Račun, molim",
+   "say": "RA-choon, MO-leem",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Mogu li platiti karticom?",
+   "say": "MO-goo lee PLA-tee-tee KAR-tee-tsom",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Bilo je ukusno",
+   "say": "BEE-lo yeh OO-koos-no",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Živjeli!",
+   "say": "ZHEEV-yeh-lee",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Živjeli is 'may we live'. Eye contact as you clink."
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Koliko košta?",
+   "say": "KO-lee-ko KOSH-ta",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "Kada zatvarate?",
+   "say": "KA-da za-TVA-ra-teh",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Jednu kartu do centra, molim",
+   "say": "YED-noo KAR-too do TSEN-tra, MO-leem",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Gdje je kolodvor?",
+   "say": "gdyeh yeh KO-lod-vor",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Taksi, molim",
+   "say": "TAK-see, MO-leem",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Imam rezervaciju",
+   "say": "EE-mam reh-zer-VA-tsee-yoo",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "U koliko sati je doručak?",
+   "say": "oo KO-lee-ko SA-tee yeh DO-roo-chak",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Gdje je WC?",
+   "say": "gdyeh yeh VEH-tseh",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Govorite li engleski?",
+   "say": "GO-vo-ree-teh lee EN-gles-kee",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Ne razumijem",
+   "say": "neh ra-ZOO-mee-yem",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Sporije, molim",
+   "say": "SPO-ree-yeh, MO-leem",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Izgubio sam se",
+   "say": "eez-GOO-bee-o sam seh",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "forms": {
+    "masculine": "Izgubio sam se",
+    "feminine": "Izgubila sam se",
+    "masculineSay": "eez-GOO-bee-o sam seh",
+    "feminineSay": "eez-GOO-bee-la sam seh"
+   }
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Upomoć!",
+   "say": "OO-po-moch",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Zovite liječnika",
+   "say": "ZO-vee-teh lee-YECH-nee-ka",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Zovite policiju",
+   "say": "ZO-vee-teh po-LEE-tsee-yoo",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

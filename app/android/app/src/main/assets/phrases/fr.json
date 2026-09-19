@@ -1,0 +1,476 @@
+{
+ "lang": "fr",
+ "name": "French",
+ "nativeName": "Français",
+ "tts": "fr-FR",
+ "countries": [
+  "FR",
+  "MC",
+  "BE",
+  "LU",
+  "CH",
+  "SN",
+  "CI"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Final consonants mostly silent; 'r' from the back of the throat. Always open with bonjour before anything else.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "France · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "France · medical (SAMU)",
+   "number": "15"
+  },
+  {
+   "label": "France · police",
+   "number": "17"
+  },
+  {
+   "label": "Belgium · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Switzerland · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Senegal · police",
+   "number": "17"
+  },
+  {
+   "label": "Senegal · fire/ambulance",
+   "number": "18"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Bonjour",
+   "say": "bon-ZHOOR",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Bonjour",
+   "say": "bon-ZHOOR",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "French has no 'good afternoon'; bonjour lasts until the evening."
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Bonsoir",
+   "say": "bon-SWAHR",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Bonne nuit",
+   "say": "bun NWEE",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Salut",
+   "say": "sa-LOO",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "Salut is for friends. With strangers, bonjour is the hello."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Au revoir",
+   "say": "oh ruh-VWAHR",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Comment allez-vous ?",
+   "say": "ko-mahn ta-lay VOO",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Bien, merci",
+   "say": "byan mair-SEE",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "S'il vous plaît",
+   "say": "seel voo PLEH",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Merci",
+   "say": "mair-SEE",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Merci beaucoup",
+   "say": "mair-SEE bo-KOO",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Excusez-moi",
+   "say": "ex-kew-zay MWAH",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Pardon",
+   "say": "par-DOHN",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Oui",
+   "say": "WEE",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Non",
+   "say": "NOHN",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Un café, s'il vous plaît",
+   "say": "uhn ka-FAY, seel voo PLEH",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "note": "'Un café' is a small espresso. For a milky one ask for 'un café crème'."
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Un verre d'eau, s'il vous plaît",
+   "say": "uhn vair DOH, seel voo PLEH",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Deux bières, s'il vous plaît",
+   "say": "duh BYAIR, seel voo PLEH",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Une table pour deux, s'il vous plaît",
+   "say": "ewn TAHBL poor DUH, seel voo PLEH",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "La carte, s'il vous plaît",
+   "say": "la KART, seel voo PLEH",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "L'addition, s'il vous plaît",
+   "say": "la-dee-SYOHN, seel voo PLEH",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Je peux payer par carte ?",
+   "say": "zhuh puh pay-YAY par KART",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "C'était délicieux",
+   "say": "say-TEH day-lee-SYUH",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Santé !",
+   "say": "sahn-TAY",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "C'est combien ?",
+   "say": "say kohm-BYAN",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "Vous fermez à quelle heure ?",
+   "say": "voo fair-MAY ah kel UHR",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Un billet pour le centre, s'il vous plaît",
+   "say": "uhn bee-YEH poor luh SAHNTR, seel voo PLEH",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Où est la gare ?",
+   "say": "oo eh la GAR",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Un taxi, s'il vous plaît",
+   "say": "uhn tak-SEE, seel voo PLEH",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "J'ai une réservation",
+   "say": "zhay ewn ray-zair-va-SYOHN",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "Le petit-déjeuner est à quelle heure ?",
+   "say": "luh puh-tee day-zhuh-NAY eh ta kel UHR",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Où sont les toilettes ?",
+   "say": "oo sohn lay twa-LET",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Vous parlez anglais ?",
+   "say": "voo par-LAY ahn-GLEH",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Je ne comprends pas",
+   "say": "zhuh nuh kohm-prahn PAH",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Plus lentement, s'il vous plaît",
+   "say": "plew lahnt-MAHN, seel voo PLEH",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Je suis perdu",
+   "say": "zhuh swee pair-DEW",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "note": "A woman writes 'perdue'; it sounds the same."
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Au secours !",
+   "say": "oh suh-KOOR",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Appelez un médecin",
+   "say": "a-play uhn mayd-SAN",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Appelez la police",
+   "say": "a-play la po-LEES",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

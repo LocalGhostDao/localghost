@@ -1,0 +1,465 @@
+{
+ "lang": "de",
+ "name": "German",
+ "nativeName": "Deutsch",
+ "tts": "de-DE",
+ "countries": [
+  "DE",
+  "AT",
+  "CH",
+  "LI",
+  "LU"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "'ch' after a/o/u is a throat sound, after e/i a hiss; 'w' is 'v', 'v' is 'f', 'ei' is 'eye', 'ie' is 'ee'.",
+ "genderedSpeech": false,
+ "emergency": [
+  {
+   "label": "Germany · fire/ambulance",
+   "number": "112"
+  },
+  {
+   "label": "Germany · police",
+   "number": "110"
+  },
+  {
+   "label": "Austria · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Austria · police",
+   "number": "133"
+  },
+  {
+   "label": "Switzerland · any emergency",
+   "number": "112"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Guten Morgen",
+   "say": "GOO-ten MOR-gen",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Guten Tag",
+   "say": "GOO-ten TAHK",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Guten Abend",
+   "say": "GOO-ten AH-bent",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Gute Nacht",
+   "say": "GOO-teh NAKHT",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Hallo",
+   "say": "HA-lo",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "In Austria and Bavaria the everyday hello is 'Grüß Gott'; in Switzerland 'Grüezi'."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Auf Wiedersehen",
+   "say": "owf VEE-der-zayn",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Wie geht es Ihnen?",
+   "say": "vee GAYT es EE-nen",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Gut, danke",
+   "say": "goot, DAN-keh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Bitte",
+   "say": "BIT-teh",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Danke",
+   "say": "DAN-keh",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Vielen Dank",
+   "say": "FEE-len DANK",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Entschuldigung",
+   "say": "ent-SHOOL-di-goong",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Es tut mir leid",
+   "say": "es toot meer LYTE",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Ja",
+   "say": "YAH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Nein",
+   "say": "NYNE",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Einen Kaffee, bitte",
+   "say": "EYE-nen KA-fay, BIT-teh",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE"
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Ein Glas Wasser, bitte",
+   "say": "eyn GLAHS VAS-ser, BIT-teh",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Zwei Bier, bitte",
+   "say": "tsvy BEER, BIT-teh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Einen Tisch für zwei, bitte",
+   "say": "EYE-nen TISH fewr TSVY, BIT-teh",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Die Speisekarte, bitte",
+   "say": "dee SHPY-zeh-kar-teh, BIT-teh",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "Die Rechnung, bitte",
+   "say": "dee RESH-noong, BIT-teh",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Kann ich mit Karte zahlen?",
+   "say": "kan ish mit KAR-teh TSAH-len",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Cash still rules in many German cafés and bakeries. Ask before you order."
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Es war köstlich",
+   "say": "es var KURST-lish",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Prost!",
+   "say": "PROHST",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Eye contact while clinking, every glass, every time."
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Was kostet das?",
+   "say": "vas KOS-tet das",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "Wann schließen Sie?",
+   "say": "van SHLEE-sen zee",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Eine Fahrkarte ins Zentrum, bitte",
+   "say": "EYE-neh FAR-kar-teh ins TSEN-troom, BIT-teh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Wo ist der Bahnhof?",
+   "say": "vo ist dair BAHN-hohf",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Ein Taxi, bitte",
+   "say": "eyn TAK-see, BIT-teh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Ich habe eine Reservierung",
+   "say": "ish HAH-beh EYE-neh reh-zer-VEE-roong",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "Wann gibt es Frühstück?",
+   "say": "van gipt es FREW-shtewk",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Wo ist die Toilette?",
+   "say": "vo ist dee twa-LET-teh",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Sprechen Sie Englisch?",
+   "say": "SHPRESH-en zee ENG-lish",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Ich verstehe nicht",
+   "say": "ish fer-SHTAY-eh nisht",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Langsamer, bitte",
+   "say": "LANG-zah-mer, BIT-teh",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Ich habe mich verlaufen",
+   "say": "ish HAH-beh mish fer-LOW-fen",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP"
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Hilfe!",
+   "say": "HIL-feh",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Rufen Sie einen Arzt",
+   "say": "ROO-fen zee EYE-nen ARTST",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Rufen Sie die Polizei",
+   "say": "ROO-fen zee dee po-lee-TSY",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

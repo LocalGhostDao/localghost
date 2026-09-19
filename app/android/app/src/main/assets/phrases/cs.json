@@ -1,0 +1,459 @@
+{
+ "lang": "cs",
+ "name": "Czech",
+ "nativeName": "Čeština",
+ "tts": "cs-CZ",
+ "countries": [
+  "CZ"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Stress always on the first syllable. 'c' is 'ts', 'č' is 'ch', 'š' is 'sh', 'ř' is a buzzed 'rzh' nobody else can say.",
+ "genderedSpeech": true,
+ "emergency": [
+  {
+   "label": "Czechia · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Czechia · ambulance",
+   "number": "155"
+  },
+  {
+   "label": "Czechia · police",
+   "number": "158"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Dobré ráno",
+   "say": "DOB-reh RAH-no",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Dobrý den",
+   "say": "DOB-ree DEN",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "Dobrý den is the greeting for everything after breakfast, and the safe hello with strangers."
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Dobrý večer",
+   "say": "DOB-ree VEH-cher",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Dobrou noc",
+   "say": "DOB-roh NOTS",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Ahoj",
+   "say": "A-hoy",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS",
+   "note": "Ahoj is for friends, and it also means bye."
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Na shledanou",
+   "say": "na SKHLEH-da-noh",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Jak se máte?",
+   "say": "yak seh MAH-teh",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Dobře, děkuji",
+   "say": "DOB-zheh, DYEH-koo-yee",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Prosím",
+   "say": "PRO-seem",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Děkuji",
+   "say": "DYEH-koo-yee",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Děkuji mnohokrát",
+   "say": "DYEH-koo-yee MNO-ho-kraht",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Promiňte",
+   "say": "PRO-min-teh",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Je mi líto",
+   "say": "yeh mee LEE-to",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Ano",
+   "say": "A-no",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Ne",
+   "say": "NEH",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Jednu kávu, prosím",
+   "say": "YED-noo KAH-voo, PRO-seem",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE"
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Sklenici vody, prosím",
+   "say": "SKLEH-nyi-tsi VO-di, PRO-seem",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Dvě piva, prosím",
+   "say": "dvyeh PEE-va, PRO-seem",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Stůl pro dva, prosím",
+   "say": "stool pro DVA, PRO-seem",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "Jídelní lístek, prosím",
+   "say": "YEE-del-nyee LEES-tek, PRO-seem",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "Účet, prosím",
+   "say": "OO-chet, PRO-seem",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Můžu platit kartou?",
+   "say": "MOO-zhoo PLA-tyit KAR-toh",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Bylo to výborné",
+   "say": "BI-lo to VEE-bor-neh",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Na zdraví!",
+   "say": "na ZDRA-vee",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "note": "Eye contact, clink, and do not cross arms with the person next to you."
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Kolik to stojí?",
+   "say": "KO-lik to STO-yee",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "V kolik zavíráte?",
+   "say": "f KO-lik za-VEE-rah-teh",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Jednu jízdenku do centra, prosím",
+   "say": "YED-noo YEEZ-den-koo do TSEN-tra, PRO-seem",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Kde je nádraží?",
+   "say": "gdeh yeh NAH-dra-zhee",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Taxi, prosím",
+   "say": "TAK-si, PRO-seem",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Mám rezervaci",
+   "say": "mahm REH-zer-va-tsi",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "V kolik je snídaně?",
+   "say": "f KO-lik yeh SNYEE-da-nyeh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Kde je záchod?",
+   "say": "gdeh yeh ZAH-khot",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Mluvíte anglicky?",
+   "say": "MLOO-vee-teh AN-glits-ki",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Nerozumím",
+   "say": "NEH-ro-zoo-meem",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Pomaleji, prosím",
+   "say": "PO-ma-leh-yi, PRO-seem",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Ztratil jsem se",
+   "say": "STRA-tyil sem seh",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "forms": {
+    "masculine": "Ztratil jsem se",
+    "feminine": "Ztratila jsem se",
+    "masculineSay": "STRA-tyil sem seh",
+    "feminineSay": "STRA-tyi-la sem seh"
+   }
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Pomoc!",
+   "say": "PO-mots",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Zavolejte doktora",
+   "say": "ZA-vo-ley-teh DOK-to-ra",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Zavolejte policii",
+   "say": "ZA-vo-ley-teh PO-li-tsi-yi",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

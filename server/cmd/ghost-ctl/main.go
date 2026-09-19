@@ -18,6 +18,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/nsreach"
 	"github.com/LocalGhostDao/localghost/server/internal/pair"
 	"github.com/LocalGhostDao/localghost/server/internal/watchd"
 )
@@ -160,7 +161,7 @@ func restartDaemon(args []string) {
 		fatal("restart-daemon needs a daemon name, e.g. ghost.synthd")
 	}
 	name := rest[0]
-	c := watchd.NewClient(filepath.Join(*mount, "run", "watchd.sock"))
+	c := watchd.NewClient(nsreach.Path(filepath.Join(*mount, "run", "watchd.sock")))
 	svcs, err := c.Restart(name)
 	if err != nil {
 		fatal("restart %s: %v (is the box unlocked?)", name, err)
@@ -174,7 +175,7 @@ func daemonStatus(args []string) {
 	fs := flag.NewFlagSet("daemon-status", flag.ExitOnError)
 	mount := fs.String("mount", "/var/lib/ghost/mnt/slot0", "mounted volume path (holds run/watchd.sock)")
 	_ = fs.Parse(args)
-	c := watchd.NewClient(filepath.Join(*mount, "run", "watchd.sock"))
+	c := watchd.NewClient(nsreach.Path(filepath.Join(*mount, "run", "watchd.sock")))
 	svcs, err := c.Status()
 	if err != nil {
 		fatal("status: %v (is the box unlocked?)", err)

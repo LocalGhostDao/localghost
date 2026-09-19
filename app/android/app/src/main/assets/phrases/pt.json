@@ -1,0 +1,496 @@
+{
+ "lang": "pt",
+ "name": "Portuguese",
+ "nativeName": "Português",
+ "tts": "pt-PT",
+ "countries": [
+  "PT",
+  "BR",
+  "AO",
+  "MZ",
+  "CV"
+ ],
+ "lateCountries": [
+  "PT"
+ ],
+ "lateHours": false,
+ "scriptNote": "European Portuguese: final vowels nearly vanish, 's' at the end of a word is 'sh'. Brazil says every vowel.",
+ "genderedSpeech": true,
+ "emergency": [
+  {
+   "label": "Portugal · any emergency",
+   "number": "112"
+  },
+  {
+   "label": "Brazil · police",
+   "number": "190"
+  },
+  {
+   "label": "Brazil · ambulance",
+   "number": "192"
+  },
+  {
+   "label": "Brazil · fire",
+   "number": "193"
+  },
+  {
+   "label": "Angola · police",
+   "number": "113"
+  },
+  {
+   "label": "Mozambique · police",
+   "number": "119"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_morning",
+   "en": "Good morning",
+   "local": "Bom dia",
+   "say": "bong DEE-ah",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_afternoon",
+   "en": "Good afternoon",
+   "local": "Boa tarde",
+   "say": "BOH-ah TAR-d",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "good_evening",
+   "en": "Good evening",
+   "local": "Boa noite",
+   "say": "BOH-ah NOY-t",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "note": "Boa noite is both good evening and good night."
+  },
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "Boa noite",
+   "say": "BOH-ah NOY-t",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "Olá",
+   "say": "oh-LAH",
+   "slots": [],
+   "weight": 6,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "Adeus",
+   "say": "ah-DEH-oosh",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "Como está?",
+   "say": "KOH-moo esh-TAH",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS"
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "Bem, obrigado",
+   "say": "baym, oh-bree-GAH-doo",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS",
+   "forms": {
+    "masculine": "Bem, obrigado",
+    "feminine": "Bem, obrigada",
+    "masculineSay": "baym, oh-bree-GAH-doo",
+    "feminineSay": "baym, oh-bree-GAH-dah"
+   }
+  },
+  {
+   "id": "please",
+   "en": "Please",
+   "local": "Por favor",
+   "say": "poor fah-VOR",
+   "slots": [],
+   "weight": 6,
+   "situation": "POLITE"
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "Obrigado",
+   "say": "oh-bree-GAH-doo",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE",
+   "note": "Obrigado if you are a man, obrigada if you are a woman. It agrees with the speaker, not the listener.",
+   "forms": {
+    "masculine": "Obrigado",
+    "feminine": "Obrigada",
+    "masculineSay": "oh-bree-GAH-doo",
+    "feminineSay": "oh-bree-GAH-dah"
+   }
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "Muito obrigado",
+   "say": "MWEEN-too oh-bree-GAH-doo",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE",
+   "forms": {
+    "masculine": "Muito obrigado",
+    "feminine": "Muito obrigada",
+    "masculineSay": "MWEEN-too oh-bree-GAH-doo",
+    "feminineSay": "MWEEN-too oh-bree-GAH-dah"
+   }
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "Com licença",
+   "say": "kong lee-SEN-sah",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE"
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "Desculpe",
+   "say": "desh-KOOL-p",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE"
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "Sim",
+   "say": "seeng",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "Não",
+   "say": "nowng",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE"
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "Um café, por favor",
+   "say": "oong kah-FEH, poor fah-VOR",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "note": "A 'café' in Portugal is an espresso. Ask for 'um galão' for a tall milky one."
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "Um copo de água, por favor",
+   "say": "oong KOH-poo d'AH-gwah, poor fah-VOR",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "Duas cervejas, por favor",
+   "say": "DOO-ash ser-VEH-zhash, poor fah-VOR",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE"
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "Uma mesa para dois, por favor",
+   "say": "OO-mah MEH-zah PA-rah doysh, poor fah-VOR",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "A ementa, por favor",
+   "say": "ah eh-MEN-tah, poor fah-VOR",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT",
+   "note": "In Brazil the menu is 'o cardápio', the toilet 'o banheiro', breakfast 'café da manhã'."
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "A conta, por favor",
+   "say": "ah KON-tah, poor fah-VOR",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "Posso pagar com cartão?",
+   "say": "POH-soo pah-GAR kong kar-TOWNG",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "Estava delicioso",
+   "say": "esh-TAH-vah deh-lee-see-OH-zoo",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "Saúde!",
+   "say": "sah-OO-d",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "Quanto custa?",
+   "say": "KWAN-too KOOSH-tah",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP"
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "A que horas fecham?",
+   "say": "ah k'OH-rash FEH-showng",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP"
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "Um bilhete para o centro, por favor",
+   "say": "oong beel-YEH-t PA-rah oo SEN-troo, poor fah-VOR",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "Onde é a estação?",
+   "say": "ON-d eh ah esh-tah-SOWNG",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "Um táxi, por favor",
+   "say": "oong TAK-see, poor fah-VOR",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT"
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "Tenho uma reserva",
+   "say": "TEN-yoo OO-mah reh-ZER-vah",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "A que horas é o pequeno-almoço?",
+   "say": "ah k'OH-rash eh oo p'KEH-noo al-MOH-soo",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL"
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "Onde é a casa de banho?",
+   "say": "ON-d eh ah KAH-zah d BAH-nyoo",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP"
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "Fala inglês?",
+   "say": "FAH-lah een-GLESH",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP"
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "Não entendo",
+   "say": "nowng en-TEN-doo",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP"
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "Mais devagar, por favor",
+   "say": "mysh d'vah-GAR, poor fah-VOR",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP"
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "Estou perdido",
+   "say": "esh-TOH per-DEE-doo",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "forms": {
+    "masculine": "Estou perdido",
+    "feminine": "Estou perdida",
+    "masculineSay": "esh-TOH per-DEE-doo",
+    "feminineSay": "esh-TOH per-DEE-dah"
+   }
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "Socorro!",
+   "say": "soo-KOH-rroo",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "Chame um médico",
+   "say": "SHAH-m oong MEH-dee-koo",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "Chame a polícia",
+   "say": "SHAH-m ah poo-LEE-syah",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY"
+  }
+ ]
+}

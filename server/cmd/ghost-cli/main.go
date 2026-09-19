@@ -5,7 +5,9 @@
 //
 // It dials <mount>/run/<service>.sock directly , the same control socket watchd and the daemons use ,
 // so it only works on the box while UNLOCKED (the sockets live on the encrypted volume). Filesystem
-// perms are the auth: you must be able to read the run-user's socket.
+// perms are the auth: you must be able to read the run-user's socket. The volume is mounted inside
+// ghost.secd's mount namespace; as root, ghost-cli reaches it through /proc/<secd>/root on its own
+// (internal/nsreach), so `sudo ./bin/ghost-cli ghost.framed reprocess` works straight from the repo.
 //
 // Usage:
 //
@@ -26,6 +28,7 @@ import (
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
+	"github.com/LocalGhostDao/localghost/server/internal/nsreach"
 )
 
 func main() {
@@ -57,6 +60,26 @@ func main() {
 	// caller overrode the run dir explicitly.
 	if service == "ghost.secd" && !runDirOverridden {
 		runDir = envOr("GHOST_SECD_RUN_DIR", "/var/lib/ghost/run")
+	}
+
+	// THE VOLUME IS IN SECD'S MOUNT NAMESPACE. From a root shell the run dir is not there; the
+	// cohort's sockets are, one door away at /proc/<secd>/root. Take that door when it is the only
+	// one open , the repo's own ./bin/ghost-cli then works from anywhere, with no nsenter and no
+	// copy through /tmp. Said once on stderr so the path in any later error makes sense.
+	if reached := nsreach.Path(runDir); reached != runDir {
+		fmt.Fprintf(os.Stderr, "(volume reached through ghost.secd's namespace: %s)\n", reached)
+		runDir = reached
+	} else if _, serr := os.Stat(runDir); serr != nil && service != "ghost.secd" {
+		// INSTRUMENT THE SILENCE: a missing run dir with no door taken used to look identical
+		// whether the box was locked, secd was not running, or this binary was simply older than
+		// the door. Name what was tried, so the next line (the dial error) reads as a diagnosis.
+		pids := nsreach.PIDs("ghost.secd")
+		if len(pids) == 0 {
+			fmt.Fprintf(os.Stderr, "(%s not visible here and ghost.secd is not running , nothing to reach)\n", runDir)
+		} else {
+			fmt.Fprintf(os.Stderr, "(%s not visible here; ghost.secd pid(s) %v have no %s inside their namespace either , is the box unlocked? run as root?)\n",
+				runDir, pids, runDir)
+		}
 	}
 
 	client := ctlsock.NewClientTimeout(service, runDir, 130*time.Second) // long enough for an inference

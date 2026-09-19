@@ -66,6 +66,16 @@ install -d -m755 "$SYSTEM_BIN"
 install -m755 "$REPO/bin/ghost.secd" "$SYSTEM_BIN/ghost.secd.new"
 mv "$SYSTEM_BIN/ghost.secd.new" "$SYSTEM_BIN/ghost.secd"
 echo "staged $(sha256sum "$SYSTEM_BIN/ghost.secd" | cut -c1-12) -> $SYSTEM_BIN/ghost.secd"
+# THE OPERATOR TOOLS GO TO /opt TOO. The cohort's control sockets live on the volume, inside secd's
+# mount namespace, and /home is EMPTY in there (ProtectHome) , so a ghost-cli that lives only under
+# the repo could never reach ghost.framed without a hand-copy through /tmp first. /opt is visible
+# on both sides of the namespace: `sudo ./tools/ns.sh ghost-cli ghost.framed reprocess` just works.
+for tool in ghost-cli ghost-ctl; do
+    [ -e "$REPO/bin/$tool" ] || continue
+    install -m755 "$REPO/bin/$tool" "$SYSTEM_BIN/$tool.new"
+    mv "$SYSTEM_BIN/$tool.new" "$SYSTEM_BIN/$tool"
+done
+echo "staged ghost-cli + ghost-ctl -> $SYSTEM_BIN (reachable inside the namespace, no /tmp copy)"
 
 say "2b   stage the COHORT for the volume (ingested at next unlock)"
 # The ghost.*d daemons (and llama-server) live on the ENCRYPTED VOLUME and are seeded there at

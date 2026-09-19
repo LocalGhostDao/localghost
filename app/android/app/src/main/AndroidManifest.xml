@@ -15,6 +15,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- ghost.phrased: redraw the lock-screen card and widget after a reboot. Note what is NOT
+         here: no location permission. The country comes from the mobile network's country code,
+         which TelephonyManager hands out with no permission at all. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <!-- Without this, Health Connect serves only the 30 days BEFORE the grant , the full-history
@@ -78,6 +82,24 @@
         </activity-alias>
 
         <receiver android:name=".notify.MuteReceiver" android:exported="false" />
+
+        <!-- ghost.phrased , the phrase you need now, on the lock screen and as a widget. -->
+        <receiver android:name=".phrases.PhraseWidget" android:exported="false"
+            android:label="@string/phrase_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider"
+                android:resource="@xml/phrase_widget_info" />
+        </receiver>
+        <receiver android:name=".phrases.PhraseReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -17,7 +17,9 @@ set -u
 MOUNT="${GHOST_MOUNT:-/var/lib/ghost/mnt/slot0}"
 RUN_DIR="${GHOST_RUN_DIR:-$MOUNT/run}"
 LOG_DIR="${GHOST_LOG_DIR:-$MOUNT/logs}"
+# The repo's own build first (freshest), then the /opt copy redeploy installs, then PATH.
 CLI="${GHOST_CLI:-./bin/ghost-cli}"
+[ -x "$CLI" ] || CLI="/opt/localghost/bin/ghost-cli"
 [ -x "$CLI" ] || CLI="$(command -v ghost-cli || echo ./bin/ghost-cli)"
 LINES=5
 ONLY=""
@@ -42,30 +44,24 @@ dim()   { printf '\033[2m%s\033[0m'  "$1"; }
 
 # The volume is mounted inside ghost.secd's PRIVATE MOUNT NAMESPACE , a deliberate design choice: the
 # host mount table never shows the decrypted volume, and other host processes cannot casually see it.
-# So if the run dir is not visible here but secd is running, re-exec this script INSIDE secd's
-# namespace. Root can always enter deliberately; nothing enters casually.
-#
-# The re-exec must go THROUGH /tmp: /home is EMPTY inside the namespace (ProtectHome), and both this
-# script and ./bin/ghost-cli normally live under the repo there , nsenter with a /home path fails
-# "No such file or directory", the exact trap the setup notes warn about for ns.sh. /tmp is shared,
-# so stage the script and the CLI there, point GHOST_CLI at the staged copy, and clean up on exit.
-if [ -n "${GHOST_STAGE_DIR:-}" ]; then
-    trap 'rm -rf "$GHOST_STAGE_DIR"' EXIT
-fi
+# From here (root), the way in is the kernel's own link: /proc/<secd>/root resolves into that
+# namespace, files open through it and unix sockets connect through it. So when the run dir is not
+# visible, every path this script touches is simply prefixed with that door , no nsenter, no
+# re-exec, no copying the script or the CLI through /tmp. ghost-cli takes the same door on its own
+# (internal/nsreach), so the plain `$CLI <svc> ping` calls below just work.
 if [ ! -d "$RUN_DIR" ]; then
     SECD_PID="$(pidof ghost.secd || true)"
-    if [ -n "$SECD_PID" ] && [ -z "${GHOST_NS_ENTERED:-}" ]; then
-        STAGE="$(mktemp -d /tmp/ghost-health.XXXXXX)"
-        cp "$0" "$STAGE/health.sh" && chmod 0755 "$STAGE/health.sh"
-        if [ -x "$CLI" ]; then
-            cp "$CLI" "$STAGE/ghost-cli" && chmod 0755 "$STAGE/ghost-cli"
-        fi
-        exec env GHOST_NS_ENTERED=1 GHOST_STAGE_DIR="$STAGE" GHOST_CLI="$STAGE/ghost-cli" \
-            nsenter -t "$SECD_PID" -m "$STAGE/health.sh" "$@"
+    SECD_PID="${SECD_PID%% *}"
+    if [ -n "$SECD_PID" ] && [ -d "/proc/$SECD_PID/root$RUN_DIR" ]; then
+        DOOR="/proc/$SECD_PID/root"
+        MOUNT="$DOOR$MOUNT"; RUN_DIR="$DOOR$RUN_DIR"; LOG_DIR="$DOOR$LOG_DIR"
+        export GHOST_RUN_DIR="$RUN_DIR" GHOST_LOG_DIR="$LOG_DIR"
+        echo "(volume reached through ghost.secd's namespace: $DOOR)"
+    else
+        echo "run dir $RUN_DIR not present , is the box unlocked? (secd mounts the volume on unlock,"
+        echo "inside its own mount namespace; run as root and this script reaches it through /proc)"
+        exit 1
     fi
-    echo "run dir $RUN_DIR not present , is the box unlocked? (secd mounts the volume on unlock,"
-    echo "inside its own mount namespace; this script auto-enters it when secd is running)"
-    exit 1
 fi
 
 # Discover any extra sockets not in the roster (hand-added daemons), so nothing is missed.

@@ -667,9 +667,34 @@ func (s *Server) handleFramesSearch(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"frames": rowsOut})
 }
 
-// handleGeoWorld , GET /v1/geo/world , serves the operator-provided Natural Earth GeoJSON from the
-// volume (<mount>/geo/world.geojson) for the app's self-drawn base map. Absent file appears down ,
-// the map renders without landmass (graticule + tracks + dots), by design.
+// worldFileName maps the optional ?res= to a file under <mount>/geo: "" is world.geojson (the file
+// every box has had), anything else is world-<res>.geojson (world-110m.geojson, world-50m.geojson ,
+// the coarser Natural Earth cuts fetch_geo.sh now drops beside the 10m one). res is a short
+// lowercase token or the request is refused , it becomes a filename.
+func worldFileName(res string) (string, bool) {
+	if res == "" {
+		return "world.geojson", true
+	}
+	if len(res) > 12 {
+		return "", false
+	}
+	for _, ch := range res {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') {
+			return "", false
+		}
+	}
+	return "world-" + res + ".geojson", true
+}
+
+func worldETag(fi os.FileInfo) string {
+	return fmt.Sprintf("\"w-%d-%d\"", fi.ModTime().Unix(), fi.Size())
+}
+
+// handleGeoWorld , GET /v1/geo/world[?res=110m] , serves an operator-provided Natural Earth GeoJSON
+// from the volume (<mount>/geo/world.geojson, or world-<res>.geojson) for the app's self-drawn base
+// map. Absent file appears down , the map renders without landmass (graticule + tracks + dots), by
+// design. /v1/geo/world/index says which cuts exist so the app can open on the small one and
+// refine with the big one.
 func (s *Server) handleGeoWorld(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
 		s.appearsDown(w)
@@ -682,7 +707,12 @@ func (s *Server) handleGeoWorld(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
-	path := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "geo", "world.geojson")
+	name, ok := worldFileName(r.URL.Query().Get("res"))
+	if !ok {
+		s.appearsDown(w)
+		return
+	}
+	path := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "geo", name)
 	f, err := os.Open(path)
 	if err != nil {
 		s.appearsDown(w)
@@ -693,9 +723,8 @@ func (s *Server) handleGeoWorld(w http.ResponseWriter, r *http.Request) {
 	// the multi-MB world locally and revalidates with If-None-Match; a match costs a 304 and zero
 	// bytes , the map opens instantly offline-first and updates only when the world actually does.
 	fi, _ := f.Stat()
-	etag := ""
 	if fi != nil {
-		etag = fmt.Sprintf("\"w-%d-%d\"", fi.ModTime().Unix(), fi.Size())
+		etag := worldETag(fi)
 		w.Header().Set("ETag", etag)
 		if r.Header.Get("If-None-Match") == etag {
 			w.WriteHeader(http.StatusNotModified)
@@ -704,6 +733,54 @@ func (s *Server) handleGeoWorld(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = io.Copy(w, f)
+}
+
+// handleGeoWorldIndex , GET /v1/geo/world/index , the landmass cuts on the volume: every
+// world*.geojson under <mount>/geo with its res token, size and ETag. The app opens on the smallest
+// (a 110m world is under a megabyte and draws in a blink) and refines with the largest once it is
+// in; one file only means one entry and the old behaviour. No geo dir at all is an empty list, not
+// appears-down , a young box with no landmass is a normal state the map already handles.
+func (s *Server) handleGeoWorldIndex(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	type cut struct {
+		Res   string `json:"res"`
+		Name  string `json:"name"`
+		Bytes int64  `json:"bytes"`
+		ETag  string `json:"etag"`
+	}
+	cuts := []cut{}
+	dir := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "geo")
+	if ents, err := os.ReadDir(dir); err == nil {
+		for _, e := range ents {
+			n := e.Name()
+			if e.IsDir() || !strings.HasPrefix(n, "world") || !strings.HasSuffix(n, ".geojson") {
+				continue
+			}
+			res := strings.TrimSuffix(strings.TrimPrefix(n, "world"), ".geojson")
+			res = strings.TrimPrefix(res, "-")
+			if _, ok := worldFileName(res); !ok {
+				continue // a name the world endpoint would refuse is not offered
+			}
+			fi, ferr := e.Info()
+			if ferr != nil {
+				continue
+			}
+			cuts = append(cuts, cut{Res: res, Name: n, Bytes: fi.Size(), ETag: worldETag(fi)})
+		}
+	}
+	sort.Slice(cuts, func(i, j int) bool { return cuts[i].Bytes < cuts[j].Bytes })
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"cuts": cuts})
 }
 
 // handleGeoDays , GET /v1/geo/days?limit=N , which day tracks exist (framed's RebuildDay output),
@@ -744,6 +821,88 @@ func (s *Server) handleGeoDays(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"days": days})
+}
+
+// handleGeoTracks , GET /v1/geo/tracks?limit=N , the newest N day tracks in ONE answer, as compact
+// [lat,lon] polylines. The map used to open with /v1/geo/days and then one /v1/geo/day per day ,
+// fifteen sequential mTLS round trips before the first track could draw. framed's day files already
+// carry the Douglas-Peucker-simplified LineString; this reads them once and hands back only the
+// line, not the photo Points the LOD feed already covers. Days with no track (photos only) are
+// omitted. No paths dir is an empty list, a young box's normal state.
+func (s *Server) handleGeoTracks(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 120 {
+		limit = 14
+	}
+	type track struct {
+		Day    string       `json:"day"`
+		Coords [][2]float64 `json:"coords"` // [lat, lon], the order the map speaks
+	}
+	out := []track{}
+	dir := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "paths")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"tracks": out})
+		return
+	}
+	days := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".geojson") {
+			days = append(days, strings.TrimSuffix(e.Name(), ".geojson"))
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(days)))
+	for _, d := range days {
+		if len(out) >= limit {
+			break
+		}
+		if _, perr := time.Parse("2006-01-02", d); perr != nil {
+			continue // only the files framed names; nothing else in this dir is a day
+		}
+		b, rerr := os.ReadFile(filepath.Join(dir, d+".geojson"))
+		if rerr != nil {
+			continue
+		}
+		var doc struct {
+			Features []struct {
+				Geometry struct {
+					Type   string          `json:"type"`
+					Coords json.RawMessage `json:"coordinates"`
+				} `json:"geometry"`
+			} `json:"features"`
+		}
+		if json.Unmarshal(b, &doc) != nil {
+			continue
+		}
+		for _, f := range doc.Features {
+			if f.Geometry.Type != "LineString" {
+				continue
+			}
+			var lonlat [][2]float64
+			if json.Unmarshal(f.Geometry.Coords, &lonlat) != nil || len(lonlat) < 2 {
+				continue
+			}
+			t := track{Day: d, Coords: make([][2]float64, len(lonlat))}
+			for i, c := range lonlat {
+				t.Coords[i] = [2]float64{c[1], c[0]} // GeoJSON is lon,lat; the map wants lat,lon
+			}
+			out = append(out, t)
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"tracks": out})
 }
 
 // handleGeoDay , GET /v1/geo/day?d=YYYY-MM-DD , one day's track GeoJSON, exactly as framed wrote it.

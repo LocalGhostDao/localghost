@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">LocalGhost</string>
+    <string name="phrase_widget_label">ghost.phrased</string>
+    <string name="phrase_widget_description">The phrase you are likely to need right now, in the language around you. Works on the lock screen.</string>
 </resources>

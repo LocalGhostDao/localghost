@@ -197,6 +197,11 @@ class MainActivity : ComponentActivity() {
         thinkLevelState = AppSettings.thinkLevel(this)
         AppLock.ensureKey()
         Notifications.ensureChannel(this)
+        // ghost.phrased: redraw the lock-screen card and widget for this hour (no-op when both are
+        // off) and arm the next refresh. Runs outside the security gate on purpose , a phrase on the
+        // lock screen is the point, and none of it touches the box.
+        com.localghost.app.phrases.PhraseSurface.ensureChannel(this)
+        Thread { com.localghost.app.phrases.PhraseSurface.refresh(applicationContext) }.start() // parses the packs; not on the UI thread
         PollWorker.schedule(this)
         SyncWorker.schedule(this)          // 15-min background sync, Wi-Fi only
         CrashHandler.pending(this)?.let { screen = Screen.Crash(it) }

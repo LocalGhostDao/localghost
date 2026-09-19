@@ -42,6 +42,7 @@ enum class Dest(val label: String, val glyph: String) {
     SYNC("SYNC", "⇅"),
     GALLERY("GALLERY", "▦"),
     MAP("MAP", "◎"),
+    PHRASES("PHRASES", "»"),
     HEALTH("HEALTH", "♥"),
     CODES("CODES", "⚿"),
     SETTINGS("SETTINGS", "⚙"),
@@ -128,6 +129,7 @@ fun MainShell(
         when (navRequest) {
             "notifications" -> dest = Dest.NOTIFICATIONS
             "memories" -> dest = Dest.MEMORIES
+            "phrases" -> dest = Dest.PHRASES
         }
         if (navRequest.isNotEmpty()) onNavConsumed()
     }
@@ -204,6 +206,7 @@ fun MainShell(
                         Dest.SYNC -> SyncScreen(sync, onSync, onRequestFullAccess, onTestNotification, onTogglePause = onTogglePause)
                         Dest.GALLERY -> GalleryScreen()
                         Dest.MAP -> MapScreen()
+                        Dest.PHRASES -> PhrasesScreen()
                         Dest.HEALTH -> HealthScreen()
                         Dest.CODES -> PinManagementScreen(devices)
                         Dest.SETTINGS -> SettingsScreen(
@@ -391,7 +394,7 @@ private fun DrawerPanel(
 
             Spacer(Modifier.height(20.dp))
             SectionLabel("YOUR ARCHIVE")
-            listOf(Dest.GALLERY, Dest.MAP, Dest.HEALTH, Dest.MEMORIES, Dest.SYNC).forEach {
+            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.MEMORIES, Dest.SYNC).forEach {
                 DrawerRow(it, it == current) { onSelect(it) }
             }
 

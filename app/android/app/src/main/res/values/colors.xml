@@ -2,4 +2,11 @@
 <resources>
     <color name="lg_void">#FF111111</color>
     <color name="lg_green">#FF33FF00</color>
+    <!-- ghost.phrased widget palette , the app's Color.kt values, for the RemoteViews layout. -->
+    <color name="phrase_void">#FF111111</color>
+    <color name="phrase_border">#FF444444</color>
+    <color name="phrase_green">#FF33FF00</color>
+    <color name="phrase_dim">#FF1A8000</color>
+    <color name="phrase_text">#FFE0E0E0</color>
+    <color name="phrase_text_dim">#FFA0A0A0</color>
 </resources>

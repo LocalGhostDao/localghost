@@ -1,0 +1,648 @@
+{
+ "lang": "th",
+ "name": "Thai",
+ "nativeName": "ไทย",
+ "tts": "th-TH",
+ "countries": [
+  "TH"
+ ],
+ "lateCountries": [],
+ "lateHours": false,
+ "scriptNote": "Thai script; tones matter and the romanisation cannot carry them, so say it and let people correct you. End every sentence with the particle: khrap if you are a man, kha if you are a woman.",
+ "genderedSpeech": true,
+ "emergency": [
+  {
+   "label": "Thailand · police",
+   "number": "191"
+  },
+  {
+   "label": "Thailand · ambulance",
+   "number": "1669"
+  },
+  {
+   "label": "Thailand · tourist police",
+   "number": "1155"
+  }
+ ],
+ "phrases": [
+  {
+   "id": "good_night",
+   "en": "Good night",
+   "local": "ฝันดีนะครับ/ค่ะ",
+   "say": "fan DEE na krap/ka",
+   "slots": [
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Fan dee na khrap/kha",
+   "forms": {
+    "masculine": "ฝันดีนะครับ",
+    "feminine": "ฝันดีนะค่ะ",
+    "masculineSay": "fan DEE na krap",
+    "feminineSay": "fan DEE na ka"
+   }
+  },
+  {
+   "id": "hello",
+   "en": "Hello",
+   "local": "สวัสดีครับ/ค่ะ",
+   "say": "sa-wat-DEE krap/ka",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "GREETINGS",
+   "roman": "Sawatdee khrap/kha",
+   "note": "Sawatdee at any hour. The particle at the end is what makes it polite.",
+   "forms": {
+    "masculine": "สวัสดีครับ",
+    "feminine": "สวัสดีค่ะ",
+    "masculineSay": "sa-wat-DEE krap",
+    "feminineSay": "sa-wat-DEE ka"
+   }
+  },
+  {
+   "id": "goodbye",
+   "en": "Goodbye",
+   "local": "ลาก่อนครับ/ค่ะ",
+   "say": "laa GORN krap/ka",
+   "slots": [],
+   "weight": 5,
+   "situation": "GREETINGS",
+   "roman": "Laa gorn khrap/kha",
+   "forms": {
+    "masculine": "ลาก่อนครับ",
+    "feminine": "ลาก่อนค่ะ",
+    "masculineSay": "laa GORN krap",
+    "feminineSay": "laa GORN ka"
+   }
+  },
+  {
+   "id": "how_are_you",
+   "en": "How are you?",
+   "local": "สบายดีไหมครับ/ค่ะ",
+   "say": "sa-baai DEE mai krap/ka",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "roman": "Sabai dee mai khrap/kha",
+   "forms": {
+    "masculine": "สบายดีไหมครับ",
+    "feminine": "สบายดีไหมค่ะ",
+    "masculineSay": "sa-baai DEE mai krap",
+    "feminineSay": "sa-baai DEE mai ka"
+   }
+  },
+  {
+   "id": "fine_thanks",
+   "en": "Fine, thank you",
+   "local": "สบายดีครับ/ค่ะ",
+   "say": "sa-baai DEE krap/ka",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS",
+   "roman": "Sabai dee khrap/kha",
+   "forms": {
+    "masculine": "สบายดีครับ",
+    "feminine": "สบายดีค่ะ",
+    "masculineSay": "sa-baai DEE krap",
+    "feminineSay": "sa-baai DEE ka"
+   }
+  },
+  {
+   "id": "thank_you",
+   "en": "Thank you",
+   "local": "ขอบคุณครับ/ค่ะ",
+   "say": "KHOP-koon krap/ka",
+   "slots": [],
+   "weight": 9,
+   "situation": "POLITE",
+   "roman": "Khop khun khrap/kha",
+   "forms": {
+    "masculine": "ขอบคุณครับ",
+    "feminine": "ขอบคุณค่ะ",
+    "masculineSay": "KHOP-koon krap",
+    "feminineSay": "KHOP-koon ka"
+   }
+  },
+  {
+   "id": "thanks_a_lot",
+   "en": "Thank you very much",
+   "local": "ขอบคุณมากครับ/ค่ะ",
+   "say": "KHOP-koon MAHK krap/ka",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "POLITE",
+   "roman": "Khop khun mak khrap/kha",
+   "forms": {
+    "masculine": "ขอบคุณมากครับ",
+    "feminine": "ขอบคุณมากค่ะ",
+    "masculineSay": "KHOP-koon MAHK krap",
+    "feminineSay": "KHOP-koon MAHK ka"
+   }
+  },
+  {
+   "id": "excuse_me",
+   "en": "Excuse me",
+   "local": "ขอโทษครับ/ค่ะ",
+   "say": "kor-TOHT krap/ka",
+   "slots": [],
+   "weight": 7,
+   "situation": "POLITE",
+   "roman": "Kho thot khrap/kha",
+   "forms": {
+    "masculine": "ขอโทษครับ",
+    "feminine": "ขอโทษค่ะ",
+    "masculineSay": "kor-TOHT krap",
+    "feminineSay": "kor-TOHT ka"
+   }
+  },
+  {
+   "id": "sorry",
+   "en": "Sorry",
+   "local": "ขอโทษครับ/ค่ะ",
+   "say": "kor-TOHT krap/ka",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "roman": "Kho thot khrap/kha",
+   "forms": {
+    "masculine": "ขอโทษครับ",
+    "feminine": "ขอโทษค่ะ",
+    "masculineSay": "kor-TOHT krap",
+    "feminineSay": "kor-TOHT ka"
+   }
+  },
+  {
+   "id": "yes",
+   "en": "Yes",
+   "local": "ใช่ครับ/ค่ะ",
+   "say": "CHAI krap/ka",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "roman": "Chai khrap/kha",
+   "note": "There is no plain yes. Repeat the verb, or say 'chai' for 'that is right'.",
+   "forms": {
+    "masculine": "ใช่ครับ",
+    "feminine": "ใช่ค่ะ",
+    "masculineSay": "CHAI krap",
+    "feminineSay": "CHAI ka"
+   }
+  },
+  {
+   "id": "no",
+   "en": "No",
+   "local": "ไม่ใช่ครับ/ค่ะ",
+   "say": "MAI CHAI krap/ka",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "roman": "Mai chai khrap/kha",
+   "forms": {
+    "masculine": "ไม่ใช่ครับ",
+    "feminine": "ไม่ใช่ค่ะ",
+    "masculineSay": "MAI CHAI krap",
+    "feminineSay": "MAI CHAI ka"
+   }
+  },
+  {
+   "id": "one_coffee",
+   "en": "One coffee, please",
+   "local": "ขอกาแฟหนึ่งแก้วครับ/ค่ะ",
+   "say": "KOR gaa-FAE neung GAEW krap/ka",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 9,
+   "situation": "CAFE",
+   "roman": "Kho kafae neung kaew khrap/kha",
+   "forms": {
+    "masculine": "ขอกาแฟหนึ่งแก้วครับ",
+    "feminine": "ขอกาแฟหนึ่งแก้วค่ะ",
+    "masculineSay": "KOR gaa-FAE neung GAEW krap",
+    "feminineSay": "KOR gaa-FAE neung GAEW ka"
+   }
+  },
+  {
+   "id": "water",
+   "en": "A glass of water, please",
+   "local": "ขอน้ำเปล่าหนึ่งแก้วครับ/ค่ะ",
+   "say": "KOR nahm PLAO neung GAEW krap/ka",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE",
+   "roman": "Kho nam plao neung kaew khrap/kha",
+   "forms": {
+    "masculine": "ขอน้ำเปล่าหนึ่งแก้วครับ",
+    "feminine": "ขอน้ำเปล่าหนึ่งแก้วค่ะ",
+    "masculineSay": "KOR nahm PLAO neung GAEW krap",
+    "feminineSay": "KOR nahm PLAO neung GAEW ka"
+   }
+  },
+  {
+   "id": "two_beers",
+   "en": "Two beers, please",
+   "local": "ขอเบียร์สองขวดครับ/ค่ะ",
+   "say": "KOR bee-a SONG khuat krap/ka",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 7,
+   "situation": "CAFE",
+   "roman": "Kho bia song khuat khrap/kha",
+   "forms": {
+    "masculine": "ขอเบียร์สองขวดครับ",
+    "feminine": "ขอเบียร์สองขวดค่ะ",
+    "masculineSay": "KOR bee-a SONG khuat krap",
+    "feminineSay": "KOR bee-a SONG khuat ka"
+   }
+  },
+  {
+   "id": "table_for_two",
+   "en": "A table for two, please",
+   "local": "ขอโต๊ะสำหรับสองคนครับ/ค่ะ",
+   "say": "KOR TOH sam-RAP SONG khon krap/ka",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT",
+   "roman": "Kho to samrap song khon khrap/kha",
+   "forms": {
+    "masculine": "ขอโต๊ะสำหรับสองคนครับ",
+    "feminine": "ขอโต๊ะสำหรับสองคนค่ะ",
+    "masculineSay": "KOR TOH sam-RAP SONG khon krap",
+    "feminineSay": "KOR TOH sam-RAP SONG khon ka"
+   }
+  },
+  {
+   "id": "menu",
+   "en": "The menu, please",
+   "local": "ขอเมนูครับ/ค่ะ",
+   "say": "KOR meh-NOO krap/ka",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 7,
+   "situation": "RESTAURANT",
+   "roman": "Kho menu khrap/kha",
+   "forms": {
+    "masculine": "ขอเมนูครับ",
+    "feminine": "ขอเมนูค่ะ",
+    "masculineSay": "KOR meh-NOO krap",
+    "feminineSay": "KOR meh-NOO ka"
+   }
+  },
+  {
+   "id": "bill",
+   "en": "The bill, please",
+   "local": "เช็คบิลครับ/ค่ะ",
+   "say": "CHEK bin krap/ka",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 10,
+   "situation": "RESTAURANT",
+   "roman": "Check bin khrap/kha",
+   "note": "'Check bin' is what everyone says; it is borrowed from English and understood everywhere.",
+   "forms": {
+    "masculine": "เช็คบิลครับ",
+    "feminine": "เช็คบิลค่ะ",
+    "masculineSay": "CHEK bin krap",
+    "feminineSay": "CHEK bin ka"
+   }
+  },
+  {
+   "id": "card",
+   "en": "Can I pay by card?",
+   "local": "จ่ายด้วยบัตรได้ไหมครับ/ค่ะ",
+   "say": "JAI duay BAT dai MAI krap/ka",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "roman": "Jai duay bat dai mai khrap/kha",
+   "forms": {
+    "masculine": "จ่ายด้วยบัตรได้ไหมครับ",
+    "feminine": "จ่ายด้วยบัตรได้ไหมค่ะ",
+    "masculineSay": "JAI duay BAT dai MAI krap",
+    "feminineSay": "JAI duay BAT dai MAI ka"
+   }
+  },
+  {
+   "id": "delicious",
+   "en": "It was delicious",
+   "local": "อร่อยมากครับ/ค่ะ",
+   "say": "a-ROI MAHK krap/ka",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "roman": "Aroi mak khrap/kha",
+   "forms": {
+    "masculine": "อร่อยมากครับ",
+    "feminine": "อร่อยมากค่ะ",
+    "masculineSay": "a-ROI MAHK krap",
+    "feminineSay": "a-ROI MAHK ka"
+   }
+  },
+  {
+   "id": "cheers",
+   "en": "Cheers!",
+   "local": "ชนแก้ว!",
+   "say": "chon GAEW",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "roman": "Chon kaew!"
+  },
+  {
+   "id": "how_much",
+   "en": "How much is it?",
+   "local": "เท่าไหร่ครับ/ค่ะ",
+   "say": "TAO-rai krap/ka",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP",
+   "roman": "Thao rai khrap/kha",
+   "forms": {
+    "masculine": "เท่าไหร่ครับ",
+    "feminine": "เท่าไหร่ค่ะ",
+    "masculineSay": "TAO-rai krap",
+    "feminineSay": "TAO-rai ka"
+   }
+  },
+  {
+   "id": "close_time",
+   "en": "What time do you close?",
+   "local": "ปิดกี่โมงครับ/ค่ะ",
+   "say": "PIT gee MOHNG krap/ka",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP",
+   "roman": "Pit ki mong khrap/kha",
+   "forms": {
+    "masculine": "ปิดกี่โมงครับ",
+    "feminine": "ปิดกี่โมงค่ะ",
+    "masculineSay": "PIT gee MOHNG krap",
+    "feminineSay": "PIT gee MOHNG ka"
+   }
+  },
+  {
+   "id": "ticket",
+   "en": "One ticket to the centre, please",
+   "local": "ขอตั๋วไปในเมืองหนึ่งใบครับ/ค่ะ",
+   "say": "KOR TUA pai nai MUANG neung BAI krap/ka",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Kho tua pai nai mueang neung bai khrap/kha",
+   "forms": {
+    "masculine": "ขอตั๋วไปในเมืองหนึ่งใบครับ",
+    "feminine": "ขอตั๋วไปในเมืองหนึ่งใบค่ะ",
+    "masculineSay": "KOR TUA pai nai MUANG neung BAI krap",
+    "feminineSay": "KOR TUA pai nai MUANG neung BAI ka"
+   }
+  },
+  {
+   "id": "where_station",
+   "en": "Where is the station?",
+   "local": "สถานีอยู่ที่ไหนครับ/ค่ะ",
+   "say": "sa-TAH-nee yoo tee NAI krap/ka",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Sathani yu thi nai khrap/kha",
+   "forms": {
+    "masculine": "สถานีอยู่ที่ไหนครับ",
+    "feminine": "สถานีอยู่ที่ไหนค่ะ",
+    "masculineSay": "sa-TAH-nee yoo tee NAI krap",
+    "feminineSay": "sa-TAH-nee yoo tee NAI ka"
+   }
+  },
+  {
+   "id": "taxi",
+   "en": "A taxi, please",
+   "local": "เรียกแท็กซี่ให้หน่อยครับ/ค่ะ",
+   "say": "REE-ak TAK-see hai NOI krap/ka",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "roman": "Riak taxi hai noi khrap/kha",
+   "forms": {
+    "masculine": "เรียกแท็กซี่ให้หน่อยครับ",
+    "feminine": "เรียกแท็กซี่ให้หน่อยค่ะ",
+    "masculineSay": "REE-ak TAK-see hai NOI krap",
+    "feminineSay": "REE-ak TAK-see hai NOI ka"
+   }
+  },
+  {
+   "id": "reservation",
+   "en": "I have a reservation",
+   "local": "จองไว้แล้วครับ/ค่ะ",
+   "say": "JONG wai LAEO krap/ka",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL",
+   "roman": "Jong wai laeo khrap/kha",
+   "forms": {
+    "masculine": "จองไว้แล้วครับ",
+    "feminine": "จองไว้แล้วค่ะ",
+    "masculineSay": "JONG wai LAEO krap",
+    "feminineSay": "JONG wai LAEO ka"
+   }
+  },
+  {
+   "id": "breakfast",
+   "en": "What time is breakfast?",
+   "local": "อาหารเช้ากี่โมงครับ/ค่ะ",
+   "say": "ah-HAHN CHAO gee MOHNG krap/ka",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL",
+   "roman": "Ahan chao ki mong khrap/kha",
+   "forms": {
+    "masculine": "อาหารเช้ากี่โมงครับ",
+    "feminine": "อาหารเช้ากี่โมงค่ะ",
+    "masculineSay": "ah-HAHN CHAO gee MOHNG krap",
+    "feminineSay": "ah-HAHN CHAO gee MOHNG ka"
+   }
+  },
+  {
+   "id": "toilet",
+   "en": "Where is the toilet?",
+   "local": "ห้องน้ำอยู่ที่ไหนครับ/ค่ะ",
+   "say": "HONG nahm yoo tee NAI krap/ka",
+   "slots": [],
+   "weight": 8,
+   "situation": "HELP",
+   "roman": "Hong nam yu thi nai khrap/kha",
+   "forms": {
+    "masculine": "ห้องน้ำอยู่ที่ไหนครับ",
+    "feminine": "ห้องน้ำอยู่ที่ไหนค่ะ",
+    "masculineSay": "HONG nahm yoo tee NAI krap",
+    "feminineSay": "HONG nahm yoo tee NAI ka"
+   }
+  },
+  {
+   "id": "english",
+   "en": "Do you speak English?",
+   "local": "พูดภาษาอังกฤษได้ไหมครับ/ค่ะ",
+   "say": "POOT pah-SAH ang-GRIT dai MAI krap/ka",
+   "slots": [],
+   "weight": 7,
+   "situation": "HELP",
+   "roman": "Phut phasa angkrit dai mai khrap/kha",
+   "forms": {
+    "masculine": "พูดภาษาอังกฤษได้ไหมครับ",
+    "feminine": "พูดภาษาอังกฤษได้ไหมค่ะ",
+    "masculineSay": "POOT pah-SAH ang-GRIT dai MAI krap",
+    "feminineSay": "POOT pah-SAH ang-GRIT dai MAI ka"
+   }
+  },
+  {
+   "id": "dont_understand",
+   "en": "I don't understand",
+   "local": "ไม่เข้าใจครับ/ค่ะ",
+   "say": "MAI kao JAI krap/ka",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP",
+   "roman": "Mai khao jai khrap/kha",
+   "forms": {
+    "masculine": "ไม่เข้าใจครับ",
+    "feminine": "ไม่เข้าใจค่ะ",
+    "masculineSay": "MAI kao JAI krap",
+    "feminineSay": "MAI kao JAI ka"
+   }
+  },
+  {
+   "id": "slowly",
+   "en": "More slowly, please",
+   "local": "ช้าๆ หน่อยครับ/ค่ะ",
+   "say": "CHAH-chah NOI krap/ka",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP",
+   "roman": "Cha cha noi khrap/kha",
+   "forms": {
+    "masculine": "ช้าๆ หน่อยครับ",
+    "feminine": "ช้าๆ หน่อยค่ะ",
+    "masculineSay": "CHAH-chah NOI krap",
+    "feminineSay": "CHAH-chah NOI ka"
+   }
+  },
+  {
+   "id": "lost",
+   "en": "I am lost",
+   "local": "หลงทางครับ/ค่ะ",
+   "say": "LONG tahng krap/ka",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HELP",
+   "roman": "Long thang khrap/kha",
+   "forms": {
+    "masculine": "หลงทางครับ",
+    "feminine": "หลงทางค่ะ",
+    "masculineSay": "LONG tahng krap",
+    "feminineSay": "LONG tahng ka"
+   }
+  },
+  {
+   "id": "help",
+   "en": "Help!",
+   "local": "ช่วยด้วย!",
+   "say": "CHUAY DUAY",
+   "slots": [],
+   "weight": 10,
+   "situation": "EMERGENCY",
+   "roman": "Chuay duay!"
+  },
+  {
+   "id": "doctor",
+   "en": "Call a doctor",
+   "local": "เรียกหมอให้หน่อยครับ/ค่ะ",
+   "say": "REE-ak MOR hai NOI krap/ka",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY",
+   "roman": "Riak mo hai noi khrap/kha",
+   "forms": {
+    "masculine": "เรียกหมอให้หน่อยครับ",
+    "feminine": "เรียกหมอให้หน่อยค่ะ",
+    "masculineSay": "REE-ak MOR hai NOI krap",
+    "feminineSay": "REE-ak MOR hai NOI ka"
+   }
+  },
+  {
+   "id": "police",
+   "en": "Call the police",
+   "local": "เรียกตำรวจให้หน่อยครับ/ค่ะ",
+   "say": "REE-ak tam-RUAT hai NOI krap/ka",
+   "slots": [],
+   "weight": 9,
+   "situation": "EMERGENCY",
+   "roman": "Riak tamruat hai noi khrap/kha",
+   "forms": {
+    "masculine": "เรียกตำรวจให้หน่อยครับ",
+    "feminine": "เรียกตำรวจให้หน่อยค่ะ",
+    "masculineSay": "REE-ak tam-RUAT hai NOI krap",
+    "feminineSay": "REE-ak tam-RUAT hai NOI ka"
+   }
+  }
+ ]
+}
