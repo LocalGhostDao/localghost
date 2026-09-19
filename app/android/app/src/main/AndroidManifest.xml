@@ -15,10 +15,15 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
-    <!-- ghost.phrased: redraw the lock-screen card and widget after a reboot. Note what is NOT
-         here: no location permission. The country comes from the mobile network's country code,
-         which TelephonyManager hands out with no permission at all. -->
+    <!-- ghost.phrased: redraw the lock-screen card and widget after a reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- The location trail (sync/LocationLog): a fix every quarter hour, kept on the phone and
+         handed to the box's map when there is one, and the country the lock-screen phrase is in.
+         Background access is what lets the fix happen with the app closed; all three are asked
+         on the welcome screen, and each one can stay off , the app degrades, never breaks. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <!-- Without this, Health Connect serves only the 30 days BEFORE the grant , the full-history

@@ -59,8 +59,10 @@ data class EnrollLink(
 
     companion object {
         const val PREFIX = "localghost://enroll?"
-        /** The newest enrol-link version this app understands. Bump when the format changes. v2 = +cert/key. */
-        const val CURRENT_VERSION = 2
+        /** The newest enrol-link version this app understands. Bump when the format changes.
+         *  v2 = +cert/key (base64url of PEM); v3 = certder/keyder (base64url of the DER itself,
+         *  1.8x smaller, a third fewer QR frames). Both are still read. */
+        const val CURRENT_VERSION = 3
 
         /**
          * Parse a scanned/typed payload, keeping the version distinction. Use this where the caller
@@ -82,10 +84,14 @@ data class EnrollLink(
             val fp = params["fp"]?.trim().orEmpty()
             val port = params["port"]?.trim()?.toIntOrNull() ?: 8443
             val name = params["name"]?.trim().orEmpty()
-            // v2: the device cert + key, base64url-encoded PEM. Optional at parse time (v1 links lack
-            // them); the enrol flow requires them. Malformed base64 -> treated as absent, not a hard fail.
-            val certPem = decodeB64Url(params["cert"]?.trim().orEmpty())
-            val keyPem = decodeB64Url(params["key"]?.trim().orEmpty())
+            // v3: the device cert + key as base64url DER (certder/keyder), wrapped back into PEM here
+            // because that is what the keystore path downstream takes. v2: base64url-encoded PEM
+            // (cert/key). Optional at parse time (v1 links lack them); the enrol flow requires them.
+            // Malformed base64 -> treated as absent, not a hard fail.
+            val certPem = derToPem(params["certder"]?.trim().orEmpty(), "CERTIFICATE")
+                ?: decodeB64Url(params["cert"]?.trim().orEmpty())
+            val keyPem = derToPem(params["keyder"]?.trim().orEmpty(), "PRIVATE KEY")
+                ?: decodeB64Url(params["key"]?.trim().orEmpty())
 
             // Required fields differ by version. v1 (legacy) used a pairing `code`; v2 carries the device
             // cert + key IN the link instead, so `code` is gone , requiring it rejected every real v2 QR
@@ -126,6 +132,23 @@ data class EnrollLink(
         fun normaliseFp(fp: String): String =
             fp.uppercase().filter { it.isLetterOrDigit() }
                 .chunked(2).joinToString(":")
+
+        /** base64url DER -> a PEM block ("-----BEGIN <type>-----", 64-column standard base64,
+         *  "-----END <type>-----"), or null if empty/invalid. What the v2 link carried ready-made. */
+        internal fun derToPem(v: String, type: String): String? {
+            if (v.isEmpty()) return null
+            val der = runCatching { java.util.Base64.getUrlDecoder().decode(v.trimEnd('=')) }.getOrNull() ?: return null
+            if (der.isEmpty()) return null
+            val b64 = java.util.Base64.getEncoder().encodeToString(der)
+            val sb = StringBuilder("-----BEGIN $type-----\n")
+            var i = 0
+            while (i < b64.length) {
+                sb.append(b64, i, minOf(i + 64, b64.length)).append('\n')
+                i += 64
+            }
+            sb.append("-----END $type-----\n")
+            return sb.toString()
+        }
 
         /** Decode a base64url (RFC 4648, URL-safe, optional padding) value to its UTF-8 string, or null
          *  if empty/invalid. Pure JVM (java.util.Base64) so it stays unit-testable. */

@@ -772,6 +772,51 @@ object BoxClient {
         }
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "frames geo: ${e.message}"); null }
 
+    /** One stage of the archive pipeline: how many photos and videos have it, of how many. */
+    data class Stage(val done: Int, val total: Int) {
+        val left: Int get() = (total - done).coerceAtLeast(0)
+        val pct: Int get() = if (total <= 0) 100 else (done * 100L / total).toInt()
+    }
+    data class Queue(val pending: Int, val parked: Int)
+    /** framed's own stock-take, as it publishes it while running and after. */
+    data class Converge(
+        val running: Boolean, val startedAt: Long, val finishedAt: Long,
+        val toDo: Int, val done: Int, val summary: String,
+        val rederived: Int, val notified: Int, val unrenderable: Int,
+    )
+    data class Pipeline(
+        val version: Int, val photos: Int, val videos: Int, val total: Int,
+        val derived: Stage, val previewed: Stage, val described: Stage, val titled: Stage,
+        val tagged: Stage, val atLatest: Stage,
+        val caption: Queue, val tag: Queue, val embed: Queue,
+        val describedLastHour: Int, val describedLastDay: Int, val lastDescribedAt: Long,
+        val etaSeconds: Long, val converge: Converge?, val convergeUpdatedAt: Long, val now: Long,
+    )
+
+    /** GET /v1/pipeline: the stage-by-stage progress the Box Status screen draws. Null when the
+     *  box has never heard of it (older build) or is down. */
+    suspend fun pipeline(ctx: Context): Pipeline? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/pipeline")
+        if (!r.has("total")) null else {
+            fun stage(k: String) = r.optJSONObject(k)?.let { Stage(it.optInt("done"), it.optInt("total")) } ?: Stage(0, 0)
+            fun queue(k: String) = r.optJSONObject(k)?.let { Queue(it.optInt("pending"), it.optInt("parked")) } ?: Queue(0, 0)
+            val cv = r.optJSONObject("converge")?.let { c ->
+                val rep = c.optJSONObject("report")
+                Converge(c.optBoolean("running"), c.optLong("startedAt"), c.optLong("finishedAt"),
+                    c.optInt("toDo"), c.optInt("done"), c.optString("summary"),
+                    rep?.optInt("rederived") ?: 0, rep?.optInt("notified") ?: 0, rep?.optInt("unrenderable") ?: 0)
+            }
+            Pipeline(
+                r.optInt("pipelineVersion"), r.optInt("photos"), r.optInt("videos"), r.optInt("total"),
+                stage("derived"), stage("previewed"), stage("described"), stage("titled"),
+                stage("tagged"), stage("atLatest"),
+                queue("caption"), queue("tag"), queue("embed"),
+                r.optInt("describedLastHour"), r.optInt("describedLastDay"), r.optLong("lastDescribedAt"),
+                r.optLong("etaSeconds", -1), cv, r.optLong("convergeUpdatedAt"), r.optLong("now"),
+            )
+        }
+    } catch (e: Exception) { android.util.Log.w("LocalGhost", "pipeline: ${e.message}"); null }
+
     /** Per-daemon drill-in rows for the Box Status detail screens. */
     suspend fun daemonSummary(ctx: Context, name: String): List<Pair<String, String>>? = try {
         val r = BoxHttp.getJson(ctx, "/v1/daemon/summary?name=$name")

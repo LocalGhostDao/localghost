@@ -106,7 +106,10 @@ object QrSampler {
         // 5x that stalled the feed , and the moment any bias shows promise it goes sticky and the
         // common case is one pass again. A sticky bias that misses 12 straight frames is dropped:
         // the scene changed, stop flogging it.
-        val biases = intArrayOf(8, 4, 12, 0, 16)
+        // Negative biases too: thresh = mid - bias, so a positive bias only ever SHRINKS dark
+        // regions. A bright monitor blooms light into its dark modules, and the frame that fixes
+        // that is one where dark regions GROW , the direction the old set never tried.
+        val biases = intArrayOf(8, 4, 12, 0, 16, -4, -8)
         stickyBias?.let { sb ->
             val r = candidatesForBias(lum, width, height, sb)
             if (r.first.isNotEmpty()) {

@@ -2,7 +2,6 @@ package pair
 
 import (
 	"encoding/base64"
-	"encoding/pem"
 	"fmt"
 	"net/url"
 	"strings"
@@ -34,8 +33,10 @@ type EnrollLink struct {
 }
 
 // CurrentVersion is the enrol-link format version this box emits. Keep equal to the app's
-// EnrollLink.CURRENT_VERSION.
-const CurrentVersion = 2
+// EnrollLink.CURRENT_VERSION. v3: the identity travels as base64url(DER) in certder/keyder ,
+// v2 wrapped the DER in PEM and base64url'd THAT, 1.8x the bytes, which is a third of the QR
+// frames for nothing. Parse (both sides) still reads v2 links.
+const CurrentVersion = 3
 
 func (e EnrollLink) String() string {
 	q := url.Values{}
@@ -45,17 +46,14 @@ func (e EnrollLink) String() string {
 	// Fingerprint without separators keeps the QR payload short; the app re-inserts colons via
 	// its normaliseFp. url.Values will percent-encode anything unusual, so plain hex is best.
 	q.Set("fp", stripSeparators(e.Fingerprint))
-	// The device identity. The app expects base64url( PEM ), so we PEM-wrap the DER here and encode
-	// that. (The struct holds DER because the PKI issues DER and never writes the key to disk; PEM is
-	// only the wire shape the app parser wants.) This is the bulk of the payload, which is why the QR
-	// encoder goes up to v20 , a P256 cert+key is a few hundred bytes.
+	// The device identity, raw DER base64url'd: the bulk of the payload (a P256 cert is ~380
+	// bytes, its PKCS8 key ~140), so every byte here is QR frames on the terminal. The app wraps
+	// the DER back into PEM for its keystore.
 	if len(e.DeviceCertDER) > 0 {
-		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: e.DeviceCertDER})
-		q.Set("cert", base64.RawURLEncoding.EncodeToString(certPEM))
+		q.Set("certder", base64.RawURLEncoding.EncodeToString(e.DeviceCertDER))
 	}
 	if len(e.DeviceKeyDER) > 0 {
-		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: e.DeviceKeyDER})
-		q.Set("key", base64.RawURLEncoding.EncodeToString(keyPEM))
+		q.Set("keyder", base64.RawURLEncoding.EncodeToString(e.DeviceKeyDER))
 	}
 	if e.BoxName != "" {
 		q.Set("name", e.BoxName)

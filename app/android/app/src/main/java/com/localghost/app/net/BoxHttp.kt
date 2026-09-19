@@ -174,6 +174,20 @@ object BoxHttp {
         }
     }
 
+    /** POST a JSON body and return only the HTTP status , for spool endpoints that answer 202 with
+     *  no body (locations). Throws on a transport failure; the caller keeps its spool either way. */
+    suspend fun postJsonCode(ctx: Context, path: String, body: JSONObject): Int = withContext(Dispatchers.IO) {
+        val conn = open(ctx, path, "POST")
+        conn.doOutput = true
+        conn.setRequestProperty("Content-Type", "application/json")
+        try {
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+            conn.responseCode
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     /** POST a JSON body, returning the parsed JSON response. On Dispatchers.IO (see getJson). */
     suspend fun postJson(ctx: Context, path: String, body: JSONObject, readTimeoutMs: Int = 30_000): JSONObject = withContext(Dispatchers.IO) {
         val conn = open(ctx, path, "POST")

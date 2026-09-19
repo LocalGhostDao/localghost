@@ -379,3 +379,111 @@ just holds the phone up; the app catches frames across a loop or two and its "sc
 says when it is done. Same trick air-gapped hardware wallets use for large payloads. Pure display:
 zero network, zero new surface. Non-tty output (pipes, logs) keeps the static sequential rendering.
 Both ghost-setup and ghost-qr detect the tty via x/term (already a dependency).
+
+## Ten easy frames instead of seven dense ones
+
+Field observation: of the seven frames a real identity link split into at v10, the LAST one , the
+short remainder, a v7-8 symbol , scanned first try every time, while the six v10 frames each
+sometimes needed another lap of the rotation. So the rotating view now caps at v8
+(pair.maxAnimatedVersion): a 1.25KB link becomes ten frames of 49 modules a side, every one the
+size of the frame that always worked, one lap of ~32s and no waiting for the next. Nothing on the
+app side changes; the assembler never cared how many frames there are. framebudget_test.go pins
+the cap and the ten-frame split.
+
+## The archive's own stock-take (pipeline versioning)
+
+frames.pipe_ver records which framed pipeline last derived a row (framed.PipelineVersion, now 2:
+truncation-tolerant EXIF, video moov metadata, previews for clips). Every InsertFrame stamps it and
+the ON CONFLICT clause converges the row column by column (a better taken_at source wins, a
+missing preview is filled, never the reverse). At start, after the resume drain, framed waits for
+searchd to answer a ping and runs Converge: one Audit query over frames (kind, paths, pipe_ver,
+description set, title set, tags exist), then re-derives rows behind the version or without
+previews, and sends an ENSURE ingest for rows missing a description, title or tags. searchd
+answers an ensure by doing exactly the missing stage , re-applying a caption it already has,
+copying a burst representative's, requeueing a parked caption job against the frame's render (a
+video is captioned from its frame grab), or ingesting a frame it never saw. Every step is
+idempotent: the description writes only where empty, chunks only when the original has none, the
+tag pass only where a title or tag is missing, the tags chunk once.
+
+A healthy box logs one line: "N frames (P photos, V videos), all at the latest stage (pipeline
+v2)". Anything else is itemised (behind, no preview, undescribed, untitled, untagged, unrenderable
+videos) and repaired, with progress every 200 repairs. `ghost-cli ghost.framed stages` is the
+read-only version; `ghost-cli ghost.framed converge` runs a pass now. Bumping PipelineVersion IS
+the migration: the next start re-derives every row below it.
+
+## The phone's own location trail
+
+POST /v1/locations always accepted watch points; nothing on the phone ever sent any. Now the app
+keeps a trail itself (sync/LocationLog.kt): a WorkManager run every quarter hour takes one fix
+through the framework LocationManager (fused, else network, else GPS , no Play Services), keeps it
+when the phone moved 25m or an hour passed, and appends "ts lat lon" to a capped spool in the
+app's private files. The spool is flushed to the box as {"source":"phone","points":[...]} whenever
+there is an enrolled box with a live session (each worker run, and at unlock) , so a trail begun
+before any box exists catches up the day one is enrolled, and a phone that never enrols keeps a
+trail that never leaves it. The fix is also geocoded on the phone (OS Geocoder, only when it moved
+20km or half a day passed) and that country outranks the mobile network for the lock-screen
+phrase, so hotel Wi-Fi with a foreign SIM no longer says the wrong language.
+
+All of it is asked for on the new welcome screen, before any QR is scanned: notifications,
+location, background location, photos and videos, camera , one chain of system dialogs with the
+reason next to each line, then two switches (the lock-screen phrase, the trail) that default on.
+The welcome shows once per install, upgraded installs included, and the phrases and the trail run
+from that moment with or without a box.
+
+## The archive's progress, on the phone (/v1/pipeline)
+
+Box Status now opens with the archive pipeline panel: every stage as a bar , at the latest stage,
+derived (v2), previewed, described, titled, tagged , with done / total / percent / left, the pace
+(descriptions landed in the last hour and today), the time the rest will take at that pace, the
+searchd queue (captions, tags, embeds; parked counts), and framed's own stock-take line ("checking
+now · 340 of 2,100 rows handled" while it runs; "last check 4 min ago: N frames, all at the latest
+stage" after). Polled every 5s while the screen is open; nothing is estimated on the phone.
+
+Server side: frames.described_at (stamped by ApplyCaption, indexed where > 0) is the rate's only
+source , no counter in memory; daemon_state (daemon, key, value, updated_at) is where a daemon
+publishes work in flight, single writer per daemon, and framed writes its ConvergeState there at
+the start of a pass, every 200 repairs and at the end. hw.PipelineProgressFrom reads frames,
+search.jobs and daemon_state in three flat SELECTs; secd serves it at GET /v1/pipeline (session).
+internal/pgtest runs all of it , the schema registry incl. the upgrade path (drop the new columns
+and table, converge again), InsertFrame convergence, Audit, every ensure-path query, ApplyCaption,
+the progress feed, location points , against a REAL Postgres when GHOST_PG_SOCKET_DIR is set;
+skipped otherwise. First blind SQL on this project that was proven before it shipped.
+
+## Enrolment QR: any K of K+M frames (LGQR2), a smaller link (v3), a hardened decoder
+
+The stock-take of the scanner (the phone's from-scratch QrSampler/QrMatrixDecode/ReedSolomon
+against ZXing, ZXing-cpp, BoofCV, quirc and the BC-UR animated-QR standard hardware wallets use)
+found the shape of the user's wait: LGQR1 needed EVERY one of N specific frames, so one missed
+frame cost a whole lap of the rotation. Fixed at the root:
+
+- internal/pair/qrstream.go + app qr/StreamAssembler.kt: the link is split into K data blocks
+  and M = K/2 parity blocks from a Cauchy matrix over GF(256) (an MDS code, the QR symbol's own
+  Reed-Solomon one level up). ANY K distinct frames rebuild the link; a miss costs one more frame,
+  never a lap. Frame: `LGQR2 idx K M len crc32 pcrc body`; the per-frame 16-bit CRC drops a
+  garbled read instead of letting it poison the set, the payload CRC-32 verifies the join. The
+  Go test writes testdata/lgqr2_fixture.txt and the app's StreamAssemblerTest decodes it (200
+  random K-subsets, parity-only, duplicates, corruption, a foreign frame), so both ends are
+  proven against the same bytes. The old LGQR1 path stays in the app for older boxes.
+- Link v3: certder/keyder carry base64url(DER) instead of base64url(PEM(DER)): 858 bytes for a
+  real identity instead of 1243. With v8 frames that is 8 data + 4 parity frames; the phone is
+  done after 8 catches, typically 16-20s at the new 2s hold (was 3.2s: the long hold was
+  insurance against missing a frame, which no longer costs anything). The app wraps the DER back
+  into PEM for its keystore; v2 links still parse; a v4 link tells the app to update.
+- Terminal rendering: on a terminal tall enough (57+ rows for v8) the frames are drawn with one
+  full background-coloured cell pair per module (RenderTerminalCells) instead of half-block
+  glyphs , the likeliest cause of "dense frames only scan from far away" is the hairline most
+  fonts leave through every second module row; background colour paints the whole cell. Smaller
+  terminals keep the half-block form at v8.
+- Decoder hardening (qr/ReedSolomon.kt, QrMatrixDecode.kt): the errors-only path now has the
+  capacity check and the syndrome re-check the erasure path always had; erasures are capped at
+  nsym-4 (ERASE_MARGIN) because at e = nsym every input "decodes" , pure interpolation, no check
+  left, and that fabricated block used to reach the frame assembler. QrSampler's binariser probes
+  negative biases too (-4, -8): a bright monitor blooms light into dark modules and only a
+  threshold that GROWS dark regions recovers them. Auto-zoom 2x in the scanner after a sustained
+  no-decode streak on a code under ~5 px/module (720p analysis frames are pixel-starved on a v8
+  symbol at arm's length); back to 1x when the code grows past 9.5 px/module.
+- Known and left: QrSamplerTest.recoversRotated10Degrees fails on the untouched tree too (a v2
+  symbol at 10 degrees is sampled as 37 modules , the timing-line version estimate), and the
+  sampler still uses one alignment pattern of the six a v8 symbol has and no temporal fusion
+  across attempts. Both are the next levers if ten easy frames still stall; the review's full
+  ranked list is in the project notes.

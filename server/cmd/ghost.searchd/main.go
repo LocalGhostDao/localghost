@@ -226,6 +226,11 @@ func main() {
 			Meta       map[string]any `json:"meta"`
 			Text       string         `json:"text"`   // text sources: body (else read from path)
 			Header     string         `json:"header"` // optional context header
+			// Images only. Render: the picture the model should LOOK at (framed's preview or a
+			// video's frame grab); identity stays the archived file at Path. Ensure: the frame is
+			// already known, fill whatever stage it is missing (caption, title, tags).
+			Render string `json:"render"`
+			Ensure bool   `json:"ensure"`
 		}
 		if err := json.Unmarshal(args, &a); err != nil {
 			return ctlsock.Response{}, err
@@ -238,11 +243,9 @@ func main() {
 		var id int64
 		var err error
 		if a.Source == "image" {
-			b, rerr := os.ReadFile(a.Path)
-			if rerr != nil {
-				return ctlsock.Response{}, rerr
-			}
-			id, err = ing.IngestImage(o, b)
+			// Streams the identity hash; never loads the archived bytes whole (a clip is not a
+			// photo). The old ReadFile here would have put a 500MB video on the heap.
+			id, err = ing.IngestImageFile(o, a.Path, a.Render, a.Ensure)
 		} else {
 			body := a.Text
 			if body == "" {

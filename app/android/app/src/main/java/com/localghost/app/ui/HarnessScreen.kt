@@ -54,6 +54,7 @@ fun HarnessScreen(daemons: Loadable<List<DaemonStatus>>) {
                 }
             }
         }
+        item { PipelinePanel() }
         when (daemons) {
             is Loadable.Loading -> item { LoadingRow("polling daemons…") }
             is Loadable.Failed -> item { ErrorLine(daemons.reason) }
@@ -68,6 +69,116 @@ fun HarnessScreen(daemons: Loadable<List<DaemonStatus>>) {
             }
         }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+/**
+ * THE ARCHIVE'S PROGRESS , the stock-take as a panel: every stage as a bar with done/total and
+ * what is left, the description rate and the time the rest will take at that pace, searchd's
+ * queue, and framed's own check while it runs. Polled every 5 s while the screen is open; the
+ * numbers are the box's (/v1/pipeline), nothing is estimated on the phone.
+ */
+@Composable
+private fun PipelinePanel() {
+    val ctx = LocalContext.current
+    var p by remember { mutableStateOf<BoxClient.Pipeline?>(null) }
+    var unsupported by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val got = BoxClient.pipeline(ctx)
+            if (got == null && p == null) unsupported = true else if (got != null) { p = got; unsupported = false }
+            kotlinx.coroutines.delay(5_000)
+        }
+    }
+    Column(Modifier.fillMaxWidth().border(1.dp, TerminalDim, RectangleShape).background(VoidLighter).padding(14.dp)) {
+        Row {
+            Text("◉", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.width(8.dp))
+            Text("archive pipeline", color = TerminalGreen, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.weight(1f))
+            p?.let { Text("v${it.version}", color = GhostTextDim, style = MaterialTheme.typography.labelMedium) }
+        }
+        Spacer(Modifier.height(6.dp))
+        val pl = p
+        when {
+            pl == null && unsupported -> Text("the box does not report pipeline progress yet , deploy the current build",
+                color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            pl == null -> Text("reading from the box…", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            pl.total == 0 -> Text("no photos or videos archived yet", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            else -> {
+                Text("${pl.photos} photos · ${pl.videos} videos", color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                StageBar("at the latest stage", pl.atLatest, strong = true)
+                StageBar("derived (v${pl.version})", pl.derived)
+                StageBar("previewed", pl.previewed)
+                StageBar("described", pl.described)
+                StageBar("titled", pl.titled)
+                StageBar("tagged", pl.tagged)
+                Spacer(Modifier.height(8.dp))
+                // Pace and ETA: the box counts descriptions landed in the last hour; the ETA is
+                // the rest at that pace. No pace = nothing described in the last hour, which is
+                // either done or a model that is not running; both are said plainly.
+                val left = pl.described.left
+                val pace = when {
+                    left == 0 -> "every photo and video is described"
+                    pl.describedLastHour > 0 -> "${pl.describedLastHour}/h · ${pl.describedLastDay} today · " +
+                        "$left left, about ${eta(pl.etaSeconds)}"
+                    pl.caption.pending > 0 -> "$left left, none described in the last hour , the vision model is idle or warming"
+                    pl.caption.parked > 0 -> "$left left, ${pl.caption.parked} caption jobs parked (five failures each) , unpark or check oracled"
+                    else -> "$left left, nothing queued , the next stock-take will queue them"
+                }
+                Text(pace, color = if (left == 0) TerminalGreen else GhostText, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                Text("queue · captions ${pl.caption.pending}${parked(pl.caption)} · tags ${pl.tag.pending}${parked(pl.tag)} · embeds ${pl.embed.pending}",
+                    color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                pl.converge?.let { c ->
+                    Spacer(Modifier.height(4.dp))
+                    val line = when {
+                        c.running -> "checking now · ${c.done} of ${c.toDo} rows handled · re-read ${c.rederived}, asked searchd for ${c.notified}" +
+                            (if (c.unrenderable > 0) " · ${c.unrenderable} videos without a frame grab" else "")
+                        c.finishedAt > 0 -> "last check ${ago(pl.now - c.finishedAt)}: ${c.summary}"
+                        else -> "check pending"
+                    }
+                    Text(line, color = if (c.running) TerminalGreen else GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+private fun parked(q: BoxClient.Queue) = if (q.parked > 0) " (+${q.parked} parked)" else ""
+
+private fun eta(seconds: Long): String = when {
+    seconds < 0 -> "unknown"
+    seconds < 90 -> "a minute"
+    seconds < 3600 -> "${(seconds + 30) / 60} min"
+    seconds < 86400 -> "${(seconds + 1800) / 3600} h"
+    else -> "${(seconds + 43200) / 86400} days"
+}
+
+private fun ago(seconds: Long): String = when {
+    seconds < 60 -> "just now"
+    seconds < 3600 -> "${seconds / 60} min ago"
+    seconds < 86400 -> "${seconds / 3600} h ago"
+    else -> "${seconds / 86400} days ago"
+}
+
+@Composable
+private fun StageBar(label: String, s: BoxClient.Stage, strong: Boolean = false) {
+    val colour = if (s.left == 0) TerminalGreen else if (strong) GhostText else GhostTextDim
+    Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+        Row {
+            Text(label, color = colour, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            Text(if (s.left == 0) "${s.done} · 100%" else "${s.done} of ${s.total} · ${s.pct}% · ${s.left} left",
+                color = colour, style = MaterialTheme.typography.labelMedium)
+        }
+        Spacer(Modifier.height(2.dp))
+        Canvas(Modifier.fillMaxWidth().height(if (strong) 8.dp else 4.dp)) {
+            drawRect(color = Void)
+            val w = if (s.total <= 0) size.width else size.width * s.done / s.total
+            drawRect(color = if (s.left == 0) TerminalGreen else TerminalDim,
+                size = androidx.compose.ui.geometry.Size(w.coerceIn(0f, size.width), size.height))
+        }
     }
 }
 

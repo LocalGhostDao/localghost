@@ -354,7 +354,7 @@ object QrMatrixDecode {
                 val ambiguous = confFull.indices.filter { confFull[it] < CONF_ERASE_BELOW }
                     .sortedBy { confFull[it] }
                 if (ambiguous.isNotEmpty()) {
-                    corrected = ReedSolomon.decode(full, ecpb, ambiguous.take(ecpb).toIntArray())
+                    corrected = ReedSolomon.decode(full, ecpb, ambiguous.take(ecpb - ReedSolomon.ERASE_MARGIN).toIntArray())
                     if (corrected != null) lastPath = "conf"
                     if (VERBOSE) android.util.Log.d("LGScan", "conf-erasure block=$bi n=${ambiguous.size} -> ${if (corrected != null) "OK" else "fail"}")
                 }
@@ -380,7 +380,7 @@ object QrMatrixDecode {
                             { if (distFull[it] < radius) 0 else 1 },
                             { if (distFull[it] < radius) distFull[it] else confFull[it].toDouble() },
                         ))
-                        .take(ecpb)
+                        .take(ecpb - ReedSolomon.ERASE_MARGIN)
                     if (erase.isEmpty()) continue
                     corrected = ReedSolomon.decode(full, ecpb, erase.toIntArray())
                     if (corrected != null) { lastPath = "logo"; break }

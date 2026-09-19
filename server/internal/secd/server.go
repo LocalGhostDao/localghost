@@ -211,6 +211,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/geo/world", s.handleGeoWorld)           // landmass GeoJSON, ?res= picks a cut
 	mux.HandleFunc("/v1/geo/world/index", s.handleGeoWorldIndex) // which cuts exist (open small, refine big)
 	mux.HandleFunc("/v1/daemon/summary", s.handleDaemonSummary) // per-daemon drill-in
+	mux.HandleFunc("/v1/pipeline", s.handlePipeline)            // stage-by-stage archive progress + ETA
 	mux.HandleFunc("/v1/frames/geo/lod", s.handleFramesGeoLOD) // 4-level map aggregation
 	mux.HandleFunc("/v1/frames/newest", s.handleFramesNewest)  // map's opening view
 	mux.HandleFunc("/v1/geo/days", s.handleGeoDays)            // which day tracks exist

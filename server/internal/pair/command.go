@@ -38,8 +38,9 @@ type Options struct {
 // scanning the QR is enrolment, done locally on the phone, so the box has nothing to "arm" or track.
 //
 // EncodeQR is the seam: it turns a frame string into a Matrix (qrencode.go, the from-scratch
-// byte-mode encoder, no third-party QR). The device identity (cert+key) is ~1.4 KB, too much for one
-// comfortably-scannable QR, so ChunkLink splits it into a few small frames the app reassembles.
+// byte-mode encoder, no third-party QR). The device identity (cert+key) is ~850 bytes as DER, too
+// much for one comfortably-scannable QR, so NewStream splits it into small erasure-coded frames
+// (any K of K+M rebuild it) that the app reassembles.
 func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error {
 	host := opts.Host
 	if host == "" {
@@ -68,21 +69,21 @@ func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error
 		DeviceCertDER: certDER,
 		DeviceKeyDER:  keyDER,
 	}
-	// Chunk the link into scannable frames. A real device identity (~1.4 KB) will not fit one
-	// comfortable QR, so we render a few small frames the app scans in sequence. A small link yields a
-	// single frame, so this is one code path, not a special case.
+	// Split the link into erasure-coded frames (qrstream.go): K data blocks plus M parity blocks,
+	// any K of which rebuild the link. A small link still yields one frame set; the app path is
+	// the same whether there are two frames or twenty.
 	//
-	// staticBudget is the per-frame payload for NON-animated output (static print, or a small terminal
-	// falling back from animation). It is deliberately conservative , v8-equivalent , so printed frames
-	// stay small enough to scan off a phone screen even in a modest window. The old default was ~v12,
-	// which is exactly the density that only scanned from far away.
-	const staticBudget = 130
-	payload := staticBudget
+	// staticBudget is the per-frame byte budget for NON-animated output (static print, or a small
+	// terminal falling back from animation): v8, the density field testing settled on.
+	staticBudget := versionM[maxAnimatedVersion][0] - 3
+	budget := staticBudget
 	animate := opts.Animate
+	cells := false
 	if animate {
 		if cols, rows, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-			if p, ok := frameBudget(cols, rows); ok {
-				payload = p
+			if b, ok := frameBudget(cols, rows); ok {
+				budget = b
+				cells = cellsFit(cols, rows, maxAnimatedVersion)
 			} else {
 				// Too small to rotate usefully. Print statically at the conservative budget (already set
 				// above) , scroll and scan, or re-run from a larger window for the animated flow.
@@ -91,29 +92,30 @@ func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error
 			}
 		}
 	}
-	frames := ChunkLinkSized(link.String(), payload)
+	stream, err := NewStream([]byte(link.String()), StreamBlockBudget(budget), 0.5)
+	if err != nil {
+		return fmt.Errorf("framing the link: %w", err)
+	}
+	frames := stream.Frames()
+	render := RenderTerminal
+	if cells {
+		render = RenderTerminalCells
+	}
 	fmt.Fprintln(w)
-	if len(frames) == 1 {
-		matrix, err := encodeQR(frames[0])
-		if err != nil {
-			return fmt.Errorf("encoding QR: %w", err)
-		}
-		fmt.Fprintln(w, RenderTerminal(matrix))
-		fmt.Fprintln(w, "Scan this with the LocalGhost app. The QR carries the device identity , scanning it enrols the phone.")
-	} else if animate {
-		if err := animateFrames(w, frames, encodeQR, opts.EnrolledSignal); err != nil && err != errEnrolled {
+	if animate {
+		if err := animateFrames(w, frames, stream.K, encodeQR, render, opts.EnrolledSignal); err != nil && err != errEnrolled {
 			return err
 		}
 	} else {
-		fmt.Fprintf(w, "The device identity spans %d QR codes. In the app, scan them in any order , it\n", len(frames))
-		fmt.Fprintln(w, "shows progress and assembles the identity once all are captured.")
+		fmt.Fprintf(w, "The device identity spans %d QR codes; the app needs ANY %d of them. Scan in any order , it\n", len(frames), stream.K)
+		fmt.Fprintln(w, "shows progress and assembles the identity once it has enough.")
 		for i, frame := range frames {
 			matrix, err := encodeQR(frame)
 			if err != nil {
 				return fmt.Errorf("encoding QR frame %d: %w", i+1, err)
 			}
 			fmt.Fprintf(w, "\n--- QR %d of %d ---\n", i+1, len(frames))
-			fmt.Fprintln(w, RenderTerminal(matrix))
+			fmt.Fprintln(w, render(matrix))
 		}
 	}
 	fmt.Fprintf(w, "  box     %s:%d\n", host, opts.Port)
@@ -123,6 +125,10 @@ func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error
 	fmt.Fprintln(w, "Anyone who scans this QR gets a working device identity , show it to your phone only.")
 	return nil
 }
+
+// maxAnimatedVersion is the densest QR the rotating view will draw, whatever the terminal size.
+// The evidence is in frameBudget; the number is here so a test can pin it.
+const maxAnimatedVersion = 8
 
 // frameBudget converts terminal geometry into a per-frame payload budget. Height is the binding
 // constraint on most consoles: half-block rendering draws two module rows per text line, captions
@@ -139,15 +145,28 @@ func frameBudget(cols, rows int) (int, bool) {
 	if v < 8 {
 		return 0, false
 	}
-	// Cap at v10 even on huge terminals. Phone cameras pointed at MONITORS fight moire and per-module
-	// blur, and field testing showed dense frames (v12+) only scanning from far away , more, smaller
+	// Cap at v8 even on huge terminals. Phone cameras pointed at MONITORS fight moire and per-module
+	// blur, and field testing showed dense frames only scanning from far away , more, smaller
 	// frames beat fewer, denser ones (the assembler does not care; the rotation just runs a bit
-	// longer). v10 keeps a real identity link to ~8 frames.
-	if v > 10 {
-		v = 10
+	// longer). The cap was v10, which split a real identity link into 7 frames; the LAST of those
+	// (the short remainder, a v7-8 symbol) was the one that always scanned first try while the six
+	// v10 frames each sometimes needed another lap of the rotation. v8 makes every frame that size,
+	// 49 modules a side; with the DER link and erasure coding that is 8 data + 4 parity frames.
+	if v > maxAnimatedVersion {
+		v = maxAnimatedVersion
 	}
-	// data codewords minus byte-mode overhead (~3) and the frame header (~20, with margin).
-	return versionM[v][0] - 27, true
+	// The frame's byte budget: data codewords minus byte-mode overhead (mode + count). The stream
+	// takes its header out of this (StreamBlockBudget).
+	return versionM[v][0] - 3, true
+}
+
+// cellsFit says whether the terminal is tall enough to draw a frame of version v with one full
+// character cell per module (RenderTerminalCells): (17+4v+8) rows plus captions. On a terminal
+// that tall the bigger modules beat the half-block rendering's per-line hairlines; below it the
+// half-block rendering is the only one that fits.
+func cellsFit(cols, rows, v int) bool {
+	side := qrSide(v) + 8
+	return rows-6 >= side && cols >= 2*side
 }
 
 // animateFrames rotates the enrolment QR frames on an interactive terminal: each frame shows for a
@@ -157,7 +176,7 @@ func frameBudget(cols, rows int) (int, bool) {
 // when the set is complete. No feedback channel exists , or can: pre-enrolment the phone has no
 // client cert, so the box's mTLS edge rejects it, which is the appears-down design doing its job.
 // The rotation is pure display; security posture is unchanged.
-func animateFrames(w io.Writer, frames []string, encodeQR func(string) (Matrix, error), enrolled func() bool) error {
+func animateFrames(w io.Writer, frames []string, k int, encodeQR func(string) (Matrix, error), render func(Matrix) string, enrolled func() bool) error {
 	// Pre-encode every frame so the loop never fails mid-rotation.
 	rendered := make([]string, len(frames))
 	for i, f := range frames {
@@ -165,16 +184,19 @@ func animateFrames(w io.Writer, frames []string, encodeQR func(string) (Matrix, 
 		if err != nil {
 			return fmt.Errorf("encoding QR frame %d: %w", i+1, err)
 		}
-		rendered[i] = RenderTerminal(m)
+		rendered[i] = render(m)
 	}
 	done := make(chan struct{})
 	go func() {
 		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 		close(done)
 	}()
-	// Field-tuned: 3.2s per frame. Long enough that a phone reliably locks, decodes, and registers
-	// each frame (with its success pulse) before the next appears, without the rotation dragging.
-	const hold = 3200 * time.Millisecond
+	// 2s per frame. The 3.2s the LGQR1 rotation used was insurance against missing a frame, because
+	// a miss cost a whole lap; with erasure coding a miss costs one more frame, so the hold only
+	// has to cover the phone's lock-and-decode (~0.3-0.8s, and it samples every 100ms while
+	// assembling). Twenty attempts per frame is plenty; a lap of 17 frames is 34s and the phone
+	// is normally done after K+1 or K+2 of them.
+	const hold = 2000 * time.Millisecond
 	// One full clear up front, cursor hidden for the duration (a blinking cursor inside the symbol
 	// helps nobody). Each frame then redraws from HOME with erase-to-end-of-line per line and
 	// erase-below at the end , no full clears in the loop, so there is no flicker, and frames of
@@ -184,8 +206,8 @@ func animateFrames(w io.Writer, frames []string, encodeQR func(string) (Matrix, 
 	i := 0
 	for {
 		fmt.Fprint(w, "\x1b[H")
-		fmt.Fprintf(w, "QR %d of %d , hold the phone steady; the app collects them in any order.\x1b[K\n", i%len(frames)+1, len(frames))
-		fmt.Fprint(w, "Press Enter here once the app shows all frames captured.\x1b[K\n\x1b[K\n")
+		fmt.Fprintf(w, "QR %d of %d , hold the phone steady; any %d of these complete the enrolment.\x1b[K\n", i%len(frames)+1, len(frames), k)
+		fmt.Fprint(w, "Press Enter here once the app shows the identity assembled.\x1b[K\n\x1b[K\n")
 		for _, line := range strings.Split(rendered[i%len(frames)], "\n") {
 			fmt.Fprint(w, line, "\x1b[K\n")
 		}

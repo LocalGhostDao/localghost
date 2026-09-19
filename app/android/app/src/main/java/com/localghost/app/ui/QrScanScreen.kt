@@ -107,6 +107,8 @@ fun QrScanScreen(
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     // Accumulates multi-frame enrolment QRs across camera frames. Remembered so it survives recompositions.
     val frames = remember { com.localghost.app.qr.FrameAssembler() }
+    // The erasure-coded set (LGQR2) a current box rotates: any K of its K+M frames complete it.
+    val stream = remember { com.localghost.app.qr.StreamAssembler() }
     var frameProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var capturedFrames by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var frameFlashAt by remember { mutableStateOf(0L) } // timestamp of the last new-frame pulse
@@ -196,6 +198,32 @@ fun QrScanScreen(
         var darkFrames by remember { mutableStateOf(0) }
         var brightFrames by remember { mutableStateOf(0) }
         var torchOn by remember { mutableStateOf(false) }
+        // AUTO-ZOOM , a code that keeps showing finders but never decodes at under ~5 px per
+        // module is pixel-starved, not misread: on a 720p analysis frame a v8 symbol filling half
+        // the short axis is ~6 px per module, and nearest-pixel sampling inside the module has
+        // two or three distinct pixels to vote with. The phone's own zoom is real detail (720p is
+        // a downscale of the sensor), so after a sustained no-decode streak on a small code, zoom
+        // 2x; back out when the code grows past what the frame holds comfortably.
+        var zoomed by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                val cam = camera
+                val streak = com.localghost.app.qr.QrSampler.ScanGeom.noDecodeStreak
+                val mod = com.localghost.app.qr.QrSampler.ScanGeom.moduleLenPx
+                if (cam != null) {
+                    val maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
+                    if (!zoomed && streak >= 6 && mod in 0.1..5.0 && maxZoom >= 1.9f) {
+                        runCatching { cam.cameraControl.setZoomRatio(2f) }
+                        zoomed = true
+                        ScanDiag.last = "zoomed 2x (${"%.1f".format(mod)} px/module)"
+                    } else if (zoomed && mod > 9.5) {
+                        runCatching { cam.cameraControl.setZoomRatio(1f) }
+                        zoomed = false
+                    }
+                }
+                kotlinx.coroutines.delay(250)
+            }
+        }
         // Tap-to-focus feedback ring: where the last tap landed and its fade clock. tapTick (not the
         // offset) keys the animation so tapping the same spot twice still replays the ring.
         var focusRingAt by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
@@ -301,7 +329,7 @@ fun QrScanScreen(
                     proxy.close()
                     return@setAnalyzer
                 }
-                val result = tryDecode(proxy, frames)
+                val result = tryDecode(proxy, frames, stream)
                 proxy.close()
                 // A code is "in view" when this frame either sampled a grid (corners set) or saw at least
                 // two finder patterns , the marginal codes that fail to sample are exactly the ones that
@@ -1148,7 +1176,8 @@ private object ScanBuffers {
     }
 }
 
-private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAssembler): ScanResult {
+private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAssembler,
+                      stream: com.localghost.app.qr.StreamAssembler): ScanResult {
     return try {
         val plane = proxy.planes[0]
         val buffer = plane.buffer
@@ -1221,7 +1250,18 @@ private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAsse
         // feed it to the assembler and only parse once every frame is captured and the checksum verifies.
         // A single-QR (small) enrol link never matches the frame magic and falls straight through.
         val toParse: String
-        if (frames.isFrame(text)) {
+        if (stream.isFrame(text)) {
+            // Erasure-coded set: every distinct frame counts, whichever it is. The pips show a COUNT
+            // (the first `have` of K), not identities, because with parity any K of K+M do.
+            val payload = stream.offer(text)
+            val (have, want) = stream.progress()
+            if (payload == null) {
+                ScanDiag.last = "enrol frame ${have} of ${want} (any of ${stream.totalFrames()})"
+                return ScanResult.Frames(have, want, (1..have).toSet(), stream.lastOfferWasNew, overlay)
+            }
+            ScanDiag.last = "enrol complete ${have} of ${want}"
+            toParse = String(payload, Charsets.ISO_8859_1)
+        } else if (frames.isFrame(text)) {
             val joined = frames.offer(text)
             val (have, want) = frames.progress()
             if (joined == null) {
@@ -1241,6 +1281,10 @@ private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAsse
             val (have, want) = frames.progress()
             if (want > 0 && have < want) {
                 return ScanResult.Frames(have, want, frames.capturedSeqs(), false, overlay)
+            }
+            val (shave, swant) = stream.progress()
+            if (swant > 0 && shave < swant) {
+                return ScanResult.Frames(shave, swant, (1..shave).toSet(), false, overlay)
             }
             toParse = text
         }

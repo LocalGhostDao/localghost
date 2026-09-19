@@ -53,6 +53,9 @@ func NewStore(sockDir string, port int, rwUser, rwPass, dbName string) *Store {
 	return &Store{db: poltergres.NewReadWrite(sockDir, port, rwUser, rwPass, dbName)}
 }
 
+// NewStoreDB wraps an existing connection (tests against a real Postgres share one).
+func NewStoreDB(db *poltergres.ReadWrite) *Store { return &Store{db: db} }
+
 // Ping verifies the connection (and thus that ghost_rw can authenticate).
 func (s *Store) Ping() error { return s.db.Ping() }
 
@@ -66,9 +69,10 @@ func (s *Store) Ping() error { return s.db.Ping() }
 // times reprocess re-read its coordinates.
 func (s *Store) InsertFrame(f Frame) error {
 	return s.db.Exec(
-		`INSERT INTO frames (hash, taken_at, lat, lon, has_gps, archive_path, preview_path, thumb_path, bytes, source, received_at, kind, mime, taken_src, place, device)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+		`INSERT INTO frames (hash, taken_at, lat, lon, has_gps, archive_path, preview_path, thumb_path, bytes, source, received_at, kind, mime, taken_src, place, device, pipe_ver)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		 ON CONFLICT (hash) DO UPDATE SET
+		   pipe_ver = GREATEST(frames.pipe_ver, EXCLUDED.pipe_ver),
 		   place = CASE WHEN frames.place = '' AND EXCLUDED.place <> '' THEN EXCLUDED.place ELSE frames.place END,
 		   lat = CASE WHEN NOT frames.has_gps AND EXCLUDED.has_gps THEN EXCLUDED.lat ELSE frames.lat END,
 		   lon = CASE WHEN NOT frames.has_gps AND EXCLUDED.has_gps THEN EXCLUDED.lon ELSE frames.lon END,
@@ -87,9 +91,49 @@ func (s *Store) InsertFrame(f Frame) error {
 		    OR (frames.thumb_path = '' AND EXCLUDED.thumb_path <> '')
 		    OR (frames.kind = 'unknown' AND EXCLUDED.kind <> 'unknown')
 		    OR (frames.mime = '' AND EXCLUDED.mime <> '')
-		    OR (frames.device = '' AND EXCLUDED.device <> '')`,
+		    OR (frames.device = '' AND EXCLUDED.device <> '')
+		    OR (frames.pipe_ver < EXCLUDED.pipe_ver)`,
 		f.Hash, f.TakenAt, f.Lat, f.Lon, f.HasGPS,
-		f.ArchivePath, f.PreviewPath, f.ThumbPath, f.Bytes, f.Source, f.ReceivedAt, f.Kind, f.MIME, f.TakenSrc, f.Place, f.Device)
+		f.ArchivePath, f.PreviewPath, f.ThumbPath, f.Bytes, f.Source, f.ReceivedAt, f.Kind, f.MIME, f.TakenSrc, f.Place, f.Device, PipelineVersion)
+}
+
+// Audit is one row of the archive's own stock-take: what a frame has and what it is missing,
+// against the running pipeline. Read once at start by Converge, never guessed.
+type Audit struct {
+	Hash        string
+	Kind        string
+	ArchivePath string
+	PreviewPath string
+	ThumbPath   string
+	TakenAt     int64
+	PipeVer     int
+	Described   bool // frames.description set (the caption's SCENE)
+	Titled      bool // frames.display_name set (date + first tags)
+	Tagged      bool // at least one tag row, tombstones included: a tag the user removed is a decision, not a gap
+}
+
+// Audit reads every frame's stage facts in one query. 40k rows is a few MB and well under a
+// second; a start-up check must not cost more than that or nobody will leave it on.
+func (s *Store) Audit() ([]Audit, error) {
+	rows, err := s.db.Query(`
+		SELECT f.hash, f.kind, f.archive_path, f.preview_path, f.thumb_path, f.taken_at, f.pipe_ver,
+		       f.description <> '', f.display_name <> '',
+		       EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash)
+		FROM frames f ORDER BY f.taken_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Audit, 0, len(rows.Vals))
+	for _, r := range rows.Vals {
+		if len(r) < 10 || r[0] == nil {
+			continue
+		}
+		a := Audit{Hash: *r[0], Kind: deref(r[1]), ArchivePath: deref(r[2]), PreviewPath: deref(r[3]), ThumbPath: deref(r[4]),
+			TakenAt: atoi64(deref(r[5])), PipeVer: int(atoi64(deref(r[6]))),
+			Described: deref(r[7]) == "t", Titled: deref(r[8]) == "t", Tagged: deref(r[9]) == "t"}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 // takenRank orders the taken_at sources by how much they can be trusted, as a SQL expression over
@@ -474,6 +518,15 @@ func (s *Store) InsertJournal(hash string, ts int64, title, body string) error {
 	return s.db.Exec(
 		"INSERT INTO journal_entries (source, ref, ts, title, body, created_at) VALUES ('ghost.framed', $1, $2, $3, $4, $5) ON CONFLICT (source, ref) DO NOTHING",
 		hash, ts, title, body, time.Now().UnixMilli())
+}
+
+// SetState publishes one JSON value under framed's name in daemon_state, for the status screens.
+// Overwrite, never append: the row is "what is true now", and the phone polls it.
+func (s *Store) SetState(key string, value []byte) error {
+	return s.db.Exec(
+		`INSERT INTO daemon_state (daemon, key, value, updated_at) VALUES ('ghost.framed', $1, $2, $3)
+		 ON CONFLICT (daemon, key) DO UPDATE SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at`,
+		key, string(value), time.Now().UTC().Unix())
 }
 
 // WeeklyHighlight picks the best day of the last 7 (most geotagged photos, place named) and, if

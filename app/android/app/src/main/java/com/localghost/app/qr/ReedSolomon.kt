@@ -21,8 +21,23 @@ internal object ReedSolomon {
 
         val errLoc = findErrorLocator(synd, nsym)
         val positions = findErrors(errLoc.reversedArray(), block.size) ?: return null
-        return correctErrata(block, synd, positions)
+        // The same two guards the erasure path has always had. Without the capacity check a
+        // locator with more roots than the code can correct was "corrected" anyway; without the
+        // re-check a miscorrection was returned as clean , and "clean" is the path the scanner
+        // trusts on a single frame.
+        if (2 * positions.size > nsym) return null
+        val corrected = correctErrata(block, synd, positions) ?: return null
+        if (calcSyndromes(corrected, nsym).max() != 0) return null
+        return corrected
     }
+
+    /**
+     * Erasures kept below the parity count. With e = nsym erasures and no errors the system has as
+     * many unknowns as equations and EVERY input "decodes" , pure interpolation, no check left, a
+     * fabricated block passed back as corrected. Keeping four parity symbols in reserve leaves
+     * 32 bits of check, so a wrong guess fails with odds around 2^-32 instead of never.
+     */
+    const val ERASE_MARGIN = 4
 
     /**
      * Erasure-aware decode. When we already KNOW where the damage is , for a QR with a centre logo, the
@@ -34,7 +49,7 @@ internal object ReedSolomon {
      */
     fun decode(block: IntArray, nsym: Int, erasures: IntArray): IntArray? {
         if (erasures.isEmpty()) return decode(block, nsym)
-        if (erasures.size > nsym) return null
+        if (erasures.size > nsym - ERASE_MARGIN) return null
         val msg = block.copyOf()
         for (e in erasures) if (e in msg.indices) msg[e] = 0
         val synd = calcSyndromes(msg, nsym)

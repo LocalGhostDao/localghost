@@ -28,9 +28,23 @@ func Parse(raw string) (EnrollLink, error) {
 		return EnrollLink{}, fmt.Errorf("link missing host or fingerprint")
 	}
 	// cert/key are optional AT PARSE (a link can be inspected without them), but REQUIRED to actually
-	// enrol , the caller checks. Decode if present.
+	// enrol , the caller checks. Decode if present: v3 carries DER (certder/keyder), v2 PEM (cert/key).
 	var certDER, keyDER []byte
-	if c := strings.TrimSpace(q.Get("cert")); c != "" {
+	if c := strings.TrimSpace(q.Get("certder")); c != "" {
+		der, derr := base64.RawURLEncoding.DecodeString(c)
+		if derr != nil {
+			return EnrollLink{}, fmt.Errorf("bad certder encoding: %w", derr)
+		}
+		certDER = der
+	}
+	if k := strings.TrimSpace(q.Get("keyder")); k != "" {
+		der, derr := base64.RawURLEncoding.DecodeString(k)
+		if derr != nil {
+			return EnrollLink{}, fmt.Errorf("bad keyder encoding: %w", derr)
+		}
+		keyDER = der
+	}
+	if c := strings.TrimSpace(q.Get("cert")); c != "" && certDER == nil {
 		pemBytes, derr := base64.RawURLEncoding.DecodeString(c)
 		if derr != nil {
 			return EnrollLink{}, fmt.Errorf("bad cert encoding: %w", derr)
@@ -41,7 +55,7 @@ func Parse(raw string) (EnrollLink, error) {
 			return EnrollLink{}, fmt.Errorf("cert is not valid PEM")
 		}
 	}
-	if k := strings.TrimSpace(q.Get("key")); k != "" {
+	if k := strings.TrimSpace(q.Get("key")); k != "" && keyDER == nil {
 		pemBytes, derr := base64.RawURLEncoding.DecodeString(k)
 		if derr != nil {
 			return EnrollLink{}, fmt.Errorf("bad key encoding: %w", derr)

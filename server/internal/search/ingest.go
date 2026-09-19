@@ -13,8 +13,10 @@ import (
 	"image"
 	_ "image/jpeg" // decoders for pHash
 	_ "image/png"
+	"io"
 	"log/slog"
 	"os"
+	"time"
 )
 
 type Ingester struct {
@@ -98,6 +100,169 @@ func (in *Ingester) IngestImage(o Original, imageBytes []byte) (int64, error) {
 			 WHERE source = 'image' AND id = $2`, repID, id)
 	}
 	return id, in.Store.EnqueueJob("caption", map[string]any{"origId": id, "path": o.Path})
+}
+
+// IngestImageFile is the frame path framed uses: identity is the sha256 of the ARCHIVED bytes,
+// streamed (a video is hundreds of MB and never belongs in memory), while the picture the model
+// looks at is the RENDER (framed's upright 1600px preview, or the frame grab of a clip). Unlike
+// IngestImage, an original that already exists is not a full stop: with ensure set, the stages
+// it is missing are queued, which is how a caption that parked in a bad week, or a video from
+// before videos were captioned, gets its description without anyone running a script.
+func (in *Ingester) IngestImageFile(o Original, identityPath, renderPath string, ensure bool) (int64, error) {
+	if renderPath == "" {
+		renderPath = identityPath
+	}
+	if ensure && o.SHA256 == nil {
+		// A stock-take asks about frames searchd mostly already knows: find them by the frame
+		// hash in the archive filename (a sha256 prefix) before paying to hash the bytes.
+		if id, err := in.Store.OriginalIDByFrameHash(frameHashFromPath(identityPath)); err == nil && id != 0 {
+			return id, in.ensureCaptioned(id, renderPath)
+		}
+	}
+	if o.SHA256 == nil {
+		f, err := os.Open(identityPath)
+		if err != nil {
+			return 0, err
+		}
+		h := sha256.New()
+		_, cerr := io.Copy(h, f)
+		_ = f.Close()
+		if cerr != nil {
+			return 0, cerr
+		}
+		o.SHA256 = h.Sum(nil)
+	}
+	if dead, err := in.Store.Tombstoned(o.SHA256); err != nil {
+		return 0, err
+	} else if dead {
+		return 0, fmt.Errorf("refused: content is tombstoned")
+	}
+	id, existed, err := in.Store.InsertOriginal(o)
+	if err != nil {
+		return 0, err
+	}
+	if existed {
+		if !ensure {
+			return id, nil
+		}
+		return id, in.ensureCaptioned(id, renderPath)
+	}
+	img, derr := decodeFile(renderPath)
+	if derr != nil {
+		in.Log.Warn("render undecodable, ingested without phash; caption still queued", "fn", "IngestImageFile", "id", id, "render", renderPath, "err", derr)
+		return id, in.Store.EnqueueJob("caption", map[string]any{"origId": id, "path": renderPath})
+	}
+	ph := DHash(img)
+	if err := in.Store.SetPhash(id, ph); err != nil {
+		return id, err
+	}
+	if repID, dist, found, err := in.Store.NearestPhash(ph, id); err == nil && found && dist <= 6 {
+		// Burst sibling (spec 9.1 step 2): mark, and take the representative's caption so this
+		// frame is described and titled too; it is the same picture to a person.
+		in.Log.Info("burst sibling, caption copied from representative", "fn", "IngestImageFile", "id", id, "dupOf", repID, "hamming", dist)
+		if err := in.Store.db.Exec(
+			`UPDATE search.originals SET meta = meta || jsonb_build_object('dup_of', $1::bigint)
+			 WHERE source = 'image' AND id = $2`, repID, id); err != nil {
+			return id, err
+		}
+		return id, in.ensureCaptioned(id, renderPath)
+	}
+	return id, in.Store.EnqueueJob("caption", map[string]any{"origId": id, "path": renderPath})
+}
+
+// ensureCaptioned queues or completes exactly the missing stage for a known original:
+//   - a caption already in meta: re-apply it (description, title, tags) where the frame lacks them;
+//   - a burst sibling: copy the representative's caption and apply it;
+//   - no caption, no live job: queue one against the render (a parked job is replaced);
+//   - a runnable job already queued: nothing to do, it is on its way.
+func (in *Ingester) ensureCaptioned(id int64, render string) error {
+	st, err := in.Store.CaptionStateOf(id)
+	if err != nil {
+		return err
+	}
+	if st.Caption == "" && st.DupOf != 0 {
+		rep, rerr := in.Store.CaptionStateOf(st.DupOf)
+		if rerr == nil && rep.Caption != "" {
+			if err := in.Store.SetCaption(id, rep.Caption); err != nil {
+				return err
+			}
+			st.Caption = rep.Caption
+		}
+	}
+	if st.Caption != "" {
+		_, _, _, captured, oerr := in.Store.OriginalByID("image", id)
+		if oerr != nil {
+			return oerr
+		}
+		return in.ApplyCaption(id, render, st.Caption, captured)
+	}
+	if st.JobQueued && !st.JobParked {
+		return nil
+	}
+	return in.Store.RequeueCaption(id, render)
+}
+
+// ApplyCaption is everything that follows a caption, idempotent, so the ensure path and the
+// worker share one truth: the SCENE section onto frames.description (only where empty), the
+// caption as searchable chunks (only when the original has none), and the tag pass queued (which
+// writes tags and the title, both only where missing).
+func (in *Ingester) ApplyCaption(origID int64, path, caption string, captured time.Time) error {
+	if scene := captionSection(caption, "SCENE:"); scene != "" {
+		if hash := frameHashFromPath(path); hash != "" {
+			if err := in.Store.db.Exec(
+				`UPDATE frames SET description = $1, described_at = $3 WHERE hash = $2 AND (description IS NULL OR description = '')`,
+				scene, hash, time.Now().UTC().Unix()); err != nil {
+				in.Log.Warn("description write failed", "fn", "ApplyCaption", "hash", hash, "err", err)
+			}
+		}
+	}
+	if n, cerr := in.Store.ChunkCount(0, "image", origID); cerr == nil && n == 0 {
+		_, _, meta, _, oerr := in.Store.OriginalByID("image", origID)
+		if oerr != nil {
+			return oerr
+		}
+		header := ContextHeader("photo", captured.Format("2006-01-02"), metaCamera(meta))
+		ids, err := in.Store.InsertChunksT0("image", origID, captured, ChunkText(header, caption))
+		if err != nil {
+			return err
+		}
+		if err := in.enqueueEmbeds(ids); err != nil {
+			return err
+		}
+	}
+	// The tag pass is a model call: run it only for a frame that still lacks a title or tags,
+	// and only when one is not already queued (a parked one is replaced, like a caption).
+	if hash := frameHashFromPath(path); hash != "" {
+		if need, nerr := in.Store.FrameNeedsTagPass(hash); nerr == nil && !need {
+			return nil
+		}
+	}
+	queued, parked, jerr := in.Store.JobState("tag", origID)
+	if jerr != nil {
+		return jerr
+	}
+	if queued && !parked {
+		return nil
+	}
+	if parked {
+		if err := in.Store.db.Exec(`DELETE FROM search.jobs WHERE kind = 'tag' AND (payload->>'origId')::bigint = $1`, origID); err != nil {
+			return err
+		}
+	}
+	return in.Store.EnqueueJob("tag", map[string]any{
+		"origId": origID, "path": path, "caption": caption, "captured": captured.Unix(),
+	})
+}
+
+// decodeFile decodes an image file for the perceptual hash without holding more than that file.
+func decodeFile(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, _, derr := image.Decode(f)
+	return img, derr
 }
 
 func (in *Ingester) enqueueEmbeds(chunkIDs []int64) error {

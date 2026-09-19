@@ -7,7 +7,6 @@ package search
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -132,52 +131,19 @@ func (w *Worker) doCaption(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err // ErrNoVision parks here, visibly, until oracled can see
 	}
-	// Store the caption in meta AND chunk it (spec 9.1 steps 6-7).
-	if err := w.Store.db.Exec(
-		`UPDATE search.originals SET meta = meta || jsonb_build_object('caption', $1::text)
-		 WHERE source = 'image' AND id = $2`, caption, p.OrigID); err != nil {
+	// Store the caption in meta, then everything that follows a caption (spec 9.1 steps 6-7):
+	// the SCENE onto frames.description, the chunks, the tag pass. One idempotent function shared
+	// with the ensure path, so a re-run never doubles a chunk or overwrites a person's edit. The
+	// frame's identity is the 32-hex prefix in the render's filename (archive, preview and thumb
+	// all carry it); this used to bind the raw sha bytes and matched nothing, silently.
+	if err := w.Store.SetCaption(p.OrigID, caption); err != nil {
 		return err
 	}
-	_, sha, meta, captured, err := w.Store.OriginalByID("image", p.OrigID)
+	_, _, _, captured, err := w.Store.OriginalByID("image", p.OrigID)
 	if err != nil {
 		return err
 	}
-	header := ContextHeader("photo", captured.Format("2006-01-02"), metaCamera(meta))
-	// The SCENE section is the human-facing DESCRIPTION , stored on the frame so the gallery can
-	// show what the photo is without re-running the model. Never overwrites a non-empty value
-	// (a future user-edited description outranks the model, same rule as tags and memories).
-	// THE FRAME'S IDENTITY is the 32-hex prefix of the content hash , the same bridge doTags
-	// uses (archive files are named <hash>.<ext>). This used to bind the raw 32-byte sha256
-	// slice, which the text-protocol client rendered as "[12 34 56 ...]": a WHERE that could
-	// never match, zero rows updated, no error, and a gallery that showed no description for a
-	// single captioned photo while the caption queue drained beautifully.
-	if scene := captionSection(caption, "SCENE:"); scene != "" {
-		hash := frameHashFromPath(p.Path)
-		if hash == "" && len(sha) >= 16 {
-			hash = hex.EncodeToString(sha[:16])
-		}
-		if hash == "" {
-			w.Log.Warn("description not written: no frame hash", "fn", "doCaption", "path", p.Path)
-		} else if err := w.Store.db.Exec(
-			`UPDATE frames SET description = $1 WHERE hash = $2 AND (description IS NULL OR description = '')`,
-			scene, hash); err != nil {
-			w.Log.Warn("description write failed", "fn", "doCaption", "hash", hash, "err", err)
-		}
-	}
-	chunks := ChunkText(header, caption)
-	ids, err := w.Store.InsertChunksT0("image", p.OrigID, captured, chunks)
-	if err != nil {
-		return err
-	}
-	if err := w.Ingester.enqueueEmbeds(ids); err != nil {
-		return err
-	}
-	// Chain the tag pass , text-only over the caption we just made, so it rides the same background
-	// queue at a fraction of the vision pass's cost.
-	return w.Store.EnqueueJob("tag", map[string]any{
-		"origId": p.OrigID, "path": p.Path, "caption": caption,
-		"captured": captured.Unix(),
-	})
+	return w.Ingester.ApplyCaption(p.OrigID, p.Path, caption, captured)
 }
 
 // doTags turns a caption into tag rows and a derived display name. The frame's identity (the 32-hex
@@ -200,11 +166,18 @@ func (w *Worker) doTags(ctx context.Context, job *Job) error {
 	if err != nil {
 		return err
 	}
-	if len(tags) == 0 {
-		w.Log.Info("no tags extracted", "fn", "doTags", "origId", p.OrigID)
-		return nil
-	}
 	hash := frameHashFromPath(p.Path)
+	if len(tags) == 0 {
+		// Nothing to tag with; the frame still gets its date as a title so a person sees SOMETHING,
+		// and the stock-take keeps counting it untagged (a later pass may do better).
+		w.Log.Info("no tags extracted", "fn", "doTags", "origId", p.OrigID)
+		if hash == "" {
+			return nil
+		}
+		return w.Store.db.Exec(
+			`UPDATE frames SET display_name = $1 WHERE hash = $2 AND (display_name IS NULL OR display_name = '')`,
+			time.Unix(p.Captured, 0).UTC().Format("2006-01-02"), hash)
+	}
 	if hash == "" {
 		w.Log.Warn("tag pass: no frame hash in path, tags kept for search only", "fn", "doTags", "path", p.Path)
 	} else {
@@ -235,7 +208,11 @@ func (w *Worker) doTags(ctx context.Context, job *Job) error {
 			return err
 		}
 	}
-	// Tags into the search surface too , one extra chunk makes every tag retrievable.
+	// Tags into the search surface too , one extra chunk makes every tag retrievable. Once: a
+	// tag pass re-run by the stock-take (title was missing, say) must not stack a second copy.
+	if has, herr := w.Store.HasTagChunk(p.OrigID); herr == nil && has {
+		return nil
+	}
 	captured := time.Unix(p.Captured, 0).UTC()
 	ids, err := w.Store.InsertChunksT0("image", p.OrigID, captured, ChunkText("", "tags: "+strings.Join(tags, ", ")))
 	if err != nil {

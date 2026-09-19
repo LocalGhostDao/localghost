@@ -61,3 +61,32 @@ func RenderTerminal(m Matrix) string {
 	}
 	return b.String()
 }
+
+// RenderTerminalCells draws the QR with one full character cell pair per module , two spaces
+// on a black or white BACKGROUND, no glyphs at all. Half-block rendering depends on the font's
+// block glyphs filling their cell exactly and on the terminal leaving no gap between lines; many
+// do neither, which puts a light hairline through every second module row and is the likeliest
+// reason dense frames only scanned from a distance. Background colour paints the whole cell.
+// Twice the rows of the half-block form, so the caller uses it only where it fits (cellsFit).
+func RenderTerminalCells(m Matrix) string {
+	const (
+		reset = "\x1b[0m"
+		dark  = "\x1b[40m  "
+		light = "\x1b[47m  "
+	)
+	const quiet = 4
+	n := m.Size()
+	var b strings.Builder
+	for y := -quiet; y < n+quiet; y++ {
+		for x := -quiet; x < n+quiet; x++ {
+			if x >= 0 && y >= 0 && x < n && y < n && m.Dark(x, y) {
+				b.WriteString(dark)
+			} else {
+				b.WriteString(light)
+			}
+		}
+		b.WriteString(reset)
+		b.WriteString("\n")
+	}
+	return b.String()
+}

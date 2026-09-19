@@ -125,22 +125,31 @@ func main() {
 	// Hand every archived photo to the search layer. Best-effort: the archive is the source of truth
 	// and searchd's rebuild re-covers anything missed; a failure here is a warn, never a drop.
 	searchCli := ctlsock.NewClientTimeout("ghost.searchd", runDir, 30*time.Second)
-	pipe.OnArchived(func(archivePath string, takenAt int64) {
+	pipe.OnArchived(func(archivePath, renderPath string, takenAt int64, ensure bool) {
 		_, err := searchCli.Call("ingest", map[string]any{
-			"source": "image", "path": archivePath, "capturedAt": takenAt, "daemon": service,
+			"source": "image", "path": archivePath, "render": renderPath, "capturedAt": takenAt,
+			"daemon": service, "ensure": ensure,
 		})
 		if err != nil {
-			lg.Warn("search ingest notify failed (rebuild will cover it)", "fn", "main",
+			lg.Warn("search ingest notify failed (converge at next start will cover it)", "fn", "main",
 				"path", archivePath, "err", err)
 		}
 	})
 
-	// Resume: drain whatever was spooled before the last lock/crash, then poll.
+	// Resume: drain whatever was spooled before the last lock/crash, then THE STOCK-TAKE: every
+	// frame checked against the running pipeline, the ones behind repaired, the ones missing a
+	// description, title or tags handed to searchd. On a healthy box this is one query and one
+	// line in the log; after a pipeline bump it is the migration, run by the daemon, not by hand.
 	go func() {
 		n := pipe.DrainIncoming() + pipe.DrainLocations()
 		if n > 0 {
 			lg.Info("resume drain complete", "fn", "main", "processed", n)
 		}
+		// The daemons start together; if searchd's socket is not up yet every ensure notify of
+		// the pass would fail, and "the next start will cover it" would be true at every start.
+		// Wait for it, bounded: a box without searchd still gets framed's half of the pass.
+		waitForSearch(ctx, searchCli, 2*time.Minute, lg)
+		pipe.Converge()
 		t := time.NewTicker(time.Duration(cfg.PollSeconds) * time.Second)
 		defer t.Stop()
 		for {
@@ -313,6 +322,23 @@ func main() {
 		return ctlsock.Response{OK: true, Text: "reprocess started (watch the log; force=" +
 			map[bool]string{true: "true", false: "false"}[a.Force] + ")"}, nil
 	})
+	// stages: the stock-take, read-only , X photos and Y videos, how many at the latest stage, and
+	// what the rest are missing. converge: the same, plus the repairs, in the background.
+	ctl.Handle("stages", func(json.RawMessage) (ctlsock.Response, error) {
+		r, err := pipe.Stages()
+		if err != nil {
+			return ctlsock.Response{}, err
+		}
+		data, _ := json.Marshal(r)
+		return ctlsock.Response{OK: true, Text: r.String(), Data: data}, nil
+	})
+	ctl.Handle("converge", func(json.RawMessage) (ctlsock.Response, error) {
+		go func() {
+			lg.Info("converge pass starting (may first queue behind a drain)", "fn", "main")
+			pipe.Converge()
+		}()
+		return ctlsock.Response{OK: true, Text: "converge started (watch the log for the summary line)"}, nil
+	})
 	ctl.Handle("rebuild-day", func(args json.RawMessage) (ctlsock.Response, error) {
 		var a struct {
 			Day string `json:"day"`
@@ -365,4 +391,25 @@ func envPort(key string) int {
 func fileOK(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+// waitForSearch blocks until searchd answers a ping, the budget runs out, or ctx ends. Returns
+// whether it answered; the caller runs the pass either way and logs which it was.
+func waitForSearch(ctx context.Context, cli *ctlsock.Client, budget time.Duration, lg *slog.Logger) bool {
+	deadline := time.Now().Add(budget)
+	for {
+		if _, err := cli.Call("ping", nil); err == nil {
+			return true
+		}
+		if time.Now().After(deadline) || ctx.Err() != nil {
+			lg.Warn("searchd not answering; converge runs without it (descriptions wait for the next pass)",
+				"fn", "waitForSearch", "waited", budget)
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(2 * time.Second):
+		}
+	}
 }

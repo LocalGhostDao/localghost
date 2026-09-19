@@ -53,4 +53,21 @@ object AppSettings {
     fun everAskedMedia(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_ASKED_MEDIA, false)
     fun setEverAskedMedia(ctx: Context, asked: Boolean) =
         prefs(ctx).edit().putBoolean(KEY_ASKED_MEDIA, asked).apply()
+
+    /** The welcome screen has run once: every permission asked in one place, before any scan.
+     *  False on an upgrade from a build that had no welcome, so existing installs see it once too. */
+    fun onboarded(ctx: Context): Boolean = prefs(ctx).getBoolean("onboarded", false)
+    fun setOnboarded(ctx: Context, done: Boolean) = prefs(ctx).edit().putBoolean("onboarded", done).apply()
+
+    /** GRANT ACCESS was tapped at least once: after that, a permission the OS will not ask about
+     *  again is BLOCKED, not merely unasked. Separate from everAskedMedia, which an upgraded
+     *  install already has set. */
+    fun welcomeAsked(ctx: Context): Boolean = prefs(ctx).getBoolean("welcome_asked", false)
+    fun setWelcomeAsked(ctx: Context, asked: Boolean) = prefs(ctx).edit().putBoolean("welcome_asked", asked).apply()
+
+    /** The location trail: a position every quarter hour, kept on the phone and handed to the box
+     *  when there is one. On by default once location is allowed; the switch is on the welcome
+     *  screen and in settings, and the permission itself is the second switch. */
+    fun locationTrail(ctx: Context): Boolean = prefs(ctx).getBoolean("location_trail", true)
+    fun setLocationTrail(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("location_trail", on).apply()
 }

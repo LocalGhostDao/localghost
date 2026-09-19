@@ -212,11 +212,11 @@ func TestEnrollLinkCarriesVersion(t *testing.T) {
 	// The app reads v as the format version (absent = 1). The box must emit it so a future format
 	// change lets a newer box tell an older app to update rather than mis-parsing. Pin that the
 	// emitted link contains the current version, and that it equals the documented constant.
-	if CurrentVersion != 2 {
+	if CurrentVersion != 3 {
 		t.Fatalf("CurrentVersion changed to %d , update the app's EnrollLink.CURRENT_VERSION in lockstep", CurrentVersion)
 	}
 	link := EnrollLink{Host: "10.0.0.1", Port: 8443, Fingerprint: "CD"}.String()
-	want := "v=2"
+	want := "v=3"
 	if !strings.Contains(link, want) {
 		t.Fatalf("enroll link missing version: got %q, want it to contain %q", link, want)
 	}

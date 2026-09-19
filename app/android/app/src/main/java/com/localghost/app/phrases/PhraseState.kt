@@ -54,13 +54,20 @@ data class Whereabouts(val country: String, val source: String)
 
 object CountryDetect {
     /**
-     * Country of the mobile network the phone is registered on, read with NO permission , it is
-     * the same fact the status bar shows as the carrier name , then the SIM's home country, then
-     * the time zone. Never location. A person on Wi-Fi only with a foreign SIM gets their home
-     * country, which is why the override exists.
+     * Where the phone is, best source first: the person's own pin; the country of the last
+     * location fix when it is recent (the trail's fix, geocoded on the phone , see LocationLog);
+     * the mobile network the phone is registered on, read with no permission , the same fact the
+     * status bar shows as the carrier name; the SIM's home country; the time zone. A person on
+     * Wi-Fi only with a foreign SIM and location off gets their home country, which is why the
+     * override exists.
      */
     fun detect(ctx: Context): Whereabouts {
         PhraseState.countryOverride(ctx).takeIf { it.isNotEmpty() }?.let { return Whereabouts(it, "you chose it") }
+        com.localghost.app.sync.LocationLog.lastCountry(ctx)?.let { (cc, ts) ->
+            // Six hours: long enough to survive a flight's worth of no fixes, short enough that
+            // the country on the card is the one outside the window, not the one before the flight.
+            if (System.currentTimeMillis() / 1000 - ts < 6 * 3600) return Whereabouts(cc, "your location")
+        }
         try {
             val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
             tm?.networkCountryIso?.takeIf { it.length == 2 }?.let { return Whereabouts(it.uppercase(), "mobile network") }

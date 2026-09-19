@@ -43,6 +43,34 @@ fun SettingsScreen(
         )
 
         Spacer(Modifier.height(24.dp))
+        SectionLabel("LOCATION TRAIL")
+        Spacer(Modifier.height(8.dp))
+        // Read and written right here, like the phrase switches: this is per-phone state, and the
+        // shell has no reason to carry it.
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        var trailTick by remember { mutableIntStateOf(0) }
+        val trailOn = remember(trailTick) { com.localghost.app.settings.AppSettings.locationTrail(ctx) }
+        val trailAllowed = remember(trailTick) { com.localghost.app.sync.LocationLog.hasPermission(ctx) }
+        val trailBackground = remember(trailTick) { com.localghost.app.sync.LocationLog.hasBackground(ctx) }
+        val waiting = remember(trailTick) { com.localghost.app.sync.LocationLog.pendingCount(ctx) }
+        toggleRow(
+            label = "keep the trail",
+            sub = when {
+                !trailOn -> "off, the phone takes no fixes"
+                !trailAllowed -> "on, but location is not allowed for LocalGhost , nothing is recorded"
+                !trailBackground -> "on while the app is open only ('always' not allowed)"
+                waiting > 0 -> "on, a point every quarter hour · $waiting waiting for the box"
+                else -> "on, a point every quarter hour · nothing waiting"
+            },
+            checked = trailOn,
+            onChange = { on ->
+                com.localghost.app.settings.AppSettings.setLocationTrail(ctx, on)
+                if (on) com.localghost.app.sync.LocationLog.schedule(ctx) else com.localghost.app.sync.LocationLog.stop(ctx)
+                trailTick++
+            },
+        )
+
+        Spacer(Modifier.height(24.dp))
         SectionLabel("CHAT")
         Spacer(Modifier.height(8.dp))
         // Deliberation depth for every chat answer. Tapping cycles off -> brief -> deep. Honest

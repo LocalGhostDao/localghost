@@ -90,10 +90,11 @@ fun SetupScreen(
                 textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
 
             Spacer(Modifier.height(16.dp))
-            GhostButton("SKIP , USE ON-PHONE MODELS ONLY", onLocalOnly, modifier = Modifier.fillMaxWidth())
+            GhostButton("SKIP , USE THE PHONE ALONE", onLocalOnly, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
-            Text("No box needed. A limited interface with on-phone models only and no history. You can " +
-                 "enrol a box later.", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+            Text("No box needed for the phrases, the location trail and on-phone models; chat has no " +
+                 "history without one. Enrol a box whenever, the trail catches up.",
+                 color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                  modifier = Modifier.fillMaxWidth())
         }
     }

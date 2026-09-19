@@ -1550,6 +1550,23 @@ func (s *NotifStore) DaemonSummary(slot int, name string) ([]DaemonKV, error) {
 		add("placed", one("SELECT count(*) FROM frames WHERE place <> ''"))
 		add("named", one("SELECT count(*) FROM frames WHERE display_name <> ''"))
 		add("described", one("SELECT count(*) FROM frames WHERE description <> ''"))
+		// THE STOCK-TAKE, as framed's start-up Converge sees it: at the latest stage means derived
+		// by the newest pipeline, previewed, described, titled and tagged. The pipeline version
+		// is read from the rows (the max any row carries), so this line cannot claim a version
+		// nothing has reached.
+		add("pipeline", "v"+one("SELECT coalesce(max(pipe_ver),0) FROM frames")+
+			" · at latest stage "+one(`SELECT count(*) FROM frames f WHERE kind IN ('photo','video')
+			  AND pipe_ver >= (SELECT coalesce(max(pipe_ver),0) FROM frames)
+			  AND preview_path <> '' AND thumb_path <> '' AND description <> '' AND display_name <> ''
+			  AND EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash AND t.source <> 'user_removed')`)+
+			" of "+one("SELECT count(*) FROM frames WHERE kind IN ('photo','video')"))
+		add("behind", "no preview "+one("SELECT count(*) FROM frames WHERE kind IN ('photo','video') AND (preview_path = '' OR thumb_path = '')")+
+			" · undescribed "+one("SELECT count(*) FROM frames WHERE kind IN ('photo','video') AND description = ''")+
+			" · untitled "+one("SELECT count(*) FROM frames WHERE kind IN ('photo','video') AND display_name = ''")+
+			" · untagged "+one(`SELECT count(*) FROM frames f WHERE kind IN ('photo','video')
+			  AND NOT EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash AND t.source <> 'user_removed')`))
+		add("videos described", one("SELECT count(*) FROM frames WHERE kind = 'video' AND description <> ''")+
+			" of "+one("SELECT count(*) FROM frames WHERE kind = 'video'"))
 		add("tagged", one("SELECT count(DISTINCT hash) FROM frame_tags WHERE source <> 'user_removed'"))
 		add("caption queue", one("SELECT count(*) FROM search.jobs WHERE kind = 'caption' AND attempts < 5"))
 		add("captions exhausted", one("SELECT count(*) FROM search.jobs WHERE kind = 'caption' AND attempts >= 5"))

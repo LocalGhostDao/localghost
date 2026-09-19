@@ -1,6 +1,7 @@
 package com.localghost.app
 
 import android.Manifest
+import android.os.Build
 import android.content.Context
 import android.content.pm.PackageManager
 import android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_STRONG
@@ -24,6 +25,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -59,6 +61,8 @@ import com.localghost.app.sync.MediaKind
 import com.localghost.app.sync.SyncEngine
 import com.localghost.app.sync.SyncWorker
 import com.localghost.app.ui.CrashScreen
+import com.localghost.app.ui.Grant
+import com.localghost.app.ui.WelcomeScreen
 import com.localghost.app.ui.SetupScreen
 import com.localghost.app.ui.QrScanScreen
 import com.localghost.app.ui.Loadable
@@ -86,6 +90,7 @@ import kotlinx.coroutines.launch
 
 private sealed interface Screen {
     data class Crash(val report: String) : Screen
+    data object Welcome : Screen
     data object Setup : Screen
     data object Scan : Screen
     data object Gate : Screen
@@ -189,6 +194,91 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { }
 
+    // The welcome chain: every permission the app wants, asked one group after another from one
+    // launcher. Android will not show two dialogs at once, and background location may only be
+    // asked once foreground location is held (11+ sends the person to a settings page for it), so
+    // the groups run in sequence and each result launches the next. Done fires when the queue is
+    // empty, whatever was granted.
+    private val permChain = ArrayDeque<Array<String>>()
+    private var permChainDone: (() -> Unit)? = null
+    private var permAsking by mutableStateOf(false)
+    private val chainLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permTick++; nextInChain() }
+
+    private fun nextInChain() {
+        while (permChain.isNotEmpty()) {
+            val group = permChain.removeFirst().filter { !granted(it) }.toTypedArray()
+            if (group.isEmpty()) continue
+            if (group.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION) &&
+                !com.localghost.app.sync.LocationLog.hasPermission(this)) continue
+            if (group.contains(Manifest.permission.ACCESS_MEDIA_LOCATION) && !hasImages()) continue
+            chainLauncher.launch(group)
+            return
+        }
+        permAsking = false
+        permChainDone?.invoke()
+        permChainDone = null
+    }
+
+    private fun startWelcomeGrants() {
+        if (permAsking) return
+        permChain.clear()
+        if (Build.VERSION.SDK_INT >= 33) permChain.add(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+        permChain.add(imagePerms)
+        permChain.add(arrayOf(Manifest.permission.ACCESS_MEDIA_LOCATION))
+        permChain.add(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        if (Build.VERSION.SDK_INT >= 29) permChain.add(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+        permChain.add(arrayOf(Manifest.permission.CAMERA))
+        AppSettings.setEverAskedMedia(this, true)
+        AppSettings.setWelcomeAsked(this, true)
+        permAsking = true
+        permChainDone = { refreshGrants() }
+        nextInChain()
+    }
+
+    /** The welcome rows, recomputed whenever a grant changes (permTick). */
+    private fun welcomeGrants(): List<Grant> {
+        // Any of the group counts as on: coarse-only location, or partial photo access, is a
+        // choice the person made, not a failure. BLOCKED = asked before and the OS will not show
+        // the dialog again; the row says so and GRANT ACCESS cannot help, only settings can.
+        fun state(vararg perms: String): PermState = when {
+            perms.any { granted(it) } -> PermState.GRANTED
+            AppSettings.welcomeAsked(this) && perms.none { shouldShowRequestPermissionRationale(it) } -> PermState.BLOCKED
+            else -> PermState.DENIED
+        }
+        val rows = mutableListOf<Grant>()
+        if (Build.VERSION.SDK_INT >= 33) rows += Grant("◈", "notifications",
+            "the phrase on your lock screen, and the box when it has something to say",
+            state(Manifest.permission.POST_NOTIFICATIONS))
+        rows += Grant("◈", "location",
+            "the trail: where you were, a point every quarter hour, and the language around you",
+            state(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+        if (Build.VERSION.SDK_INT >= 29) rows += Grant("◈", "location, always",
+            "the trail keeps going with the app closed; 'while using' stops it the moment you leave",
+            state(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+        rows += Grant("◈", "photos & videos",
+            "synced to your box and indexed there, nowhere else",
+            state(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
+        rows += Grant("◈", "camera", "to scan the codes on your box", state(Manifest.permission.CAMERA))
+        return rows
+    }
+
+    /** CONTINUE on the welcome screen: apply the two switches, start what needs no box, move on. */
+    private fun finishWelcome(lockScreen: Boolean, trail: Boolean, noBox: Boolean) {
+        com.localghost.app.phrases.PhraseState.setLockScreenOn(this, lockScreen)
+        AppSettings.setLocationTrail(this, trail)
+        AppSettings.setOnboarded(this, true)
+        Thread { com.localghost.app.phrases.PhraseSurface.refresh(applicationContext) }.start()
+        if (com.localghost.app.sync.LocationLog.active(this)) {
+            com.localghost.app.sync.LocationLog.schedule(this)
+            com.localghost.app.sync.LocationLog.sampleNow(this)
+        }
+        refreshGrants()
+        if (noBox) { enterLocalOnly(); return }
+        screen = if (BoxConfig.isConfigured(this)) Screen.Gate else Screen.Setup
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         intent?.getStringExtra("nav")?.let { pendingNav = it }
@@ -206,10 +296,19 @@ class MainActivity : ComponentActivity() {
         SyncWorker.schedule(this)          // 15-min background sync, Wi-Fi only
         CrashHandler.pending(this)?.let { screen = Screen.Crash(it) }
 
-        // Setup vs use: if the box connection hasn't been enrolled, start at the setup screen.
-        // (A pending crash still takes precedence.)
-        if (screen !is Screen.Crash && !BoxConfig.isConfigured(this)) {
+        // Welcome first, once: every permission asked before any code is scanned, and the two
+        // things that need no box (the lock-screen phrase, the trail) switched on. Then setup vs
+        // use: no enrolled box means the setup screen. (A pending crash still takes precedence.)
+        if (screen !is Screen.Crash && !AppSettings.onboarded(this)) {
+            screen = Screen.Welcome
+        } else if (screen !is Screen.Crash && !BoxConfig.isConfigured(this)) {
             screen = Screen.Setup
+            // A tap on the lock-screen card with no box enrolled lands on the phrases, not on a
+            // form asking for a box that does not exist.
+            if (pendingNav == "phrases") enterLocalOnly()
+        }
+        if (com.localghost.app.sync.LocationLog.active(this)) {
+            com.localghost.app.sync.LocationLog.schedule(this)
         }
 
         lifecycleScope.launch {
@@ -235,6 +334,20 @@ class MainActivity : ComponentActivity() {
                 }
                 when (val s = screen) {
                     is Screen.Crash -> CrashScreen(s.report) { CrashHandler.clear(this); screen = Screen.Gate }
+                    Screen.Welcome -> {
+                        var lock by rememberSaveable { mutableStateOf(true) }
+                        var trail by rememberSaveable { mutableStateOf(true) }
+                        WelcomeScreen(
+                            grants = run { permTick; welcomeGrants() },
+                            asking = permAsking,
+                            lockScreenOn = lock, onLockScreen = { lock = it },
+                            trailOn = trail, onTrail = { trail = it },
+                            onGrant = ::startWelcomeGrants,
+                            onSettings = ::openAppSettings,
+                            onContinue = { finishWelcome(lock, trail, noBox = false) },
+                            onNoBox = { finishWelcome(lock, trail, noBox = true) },
+                        )
+                    }
                     Screen.Setup -> SetupScreen(
                         busy = busy,
                         error = error,
@@ -355,7 +468,8 @@ class MainActivity : ComponentActivity() {
         // permission dialog appears , without this it would lock the user out mid-setup and re-prompt
         // for a fingerprint they have not even set up against a box yet. The rule lives in AuthGate so
         // it is unit-tested (see AuthGateTest.keepForScreen_*).
-        val preEnrolment = screen is Screen.Setup || screen is Screen.Scan
+        // Welcome too: its permission dialogs background the activity one after another.
+        val preEnrolment = screen is Screen.Setup || screen is Screen.Scan || screen is Screen.Welcome
         val mustTearDown = authGate.onStop(
             keepCurrentScreen = AuthGate.keepForScreen(preEnrolment, crashShowing = screen is Screen.Crash)
         )
@@ -505,13 +619,16 @@ class MainActivity : ComponentActivity() {
         return if (!canPrompt && everAsked) PermState.BLOCKED else PermState.DENIED
     }
 
+    /** Deep-link to this app's system settings page: the only way past a permission the OS will
+     *  no longer ask about. */
+    private fun openAppSettings() {
+        startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.fromParts("package", packageName, null)))
+    }
+
     private fun onPermAction() {
         when (capturePermState()) {
-            PermState.BLOCKED -> {
-                // prompt is dead — deep-link to this app's system settings page
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.fromParts("package", packageName, null)))
-            }
+            PermState.BLOCKED -> openAppSettings() // prompt is dead
             else -> {
                 AppSettings.setEverAskedMedia(this, true)
                 launchForResult(mediaLauncher, imagePerms)
@@ -763,6 +880,10 @@ class MainActivity : ComponentActivity() {
     private fun maybeAutoSync() {
         if (autoSyncTried) return
         autoSyncTried = true
+        // The trail's backlog goes first: a few KB of points that may have waited since before
+        // this box existed. Its own worker also flushes every quarter hour; this is the moment a
+        // session appears, so the map is current when the person opens it.
+        lifecycleScope.launch(Dispatchers.IO) { com.localghost.app.sync.LocationLog.flush(this@MainActivity) }
         // Cooldown: even across lock/unlock cycles (which reset autoSyncTried), do not kick a fresh
         // full sync more than once every few minutes. Returning to the app should not restart sync ,
         // the periodic 15-min worker and the cursor already keep the box current. A manual SYNC NOW

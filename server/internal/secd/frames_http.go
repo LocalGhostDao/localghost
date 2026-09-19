@@ -1124,6 +1124,30 @@ func (s *Server) handleDaemonSummary(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"name": name, "rows": kv})
 }
 
+// handlePipeline , GET /v1/pipeline , the archive's stage-by-stage progress, searchd's queue,
+// the description rate and ETA, and framed's live stock-take. The Box Status screen polls it.
+func (s *Server) handlePipeline(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	p, err := s.notif.PipelineProgress(mounted)
+	if err != nil {
+		secdLog.Warn("pipeline progress failed", "fn", "handlePipeline", "err", err)
+		s.appearsDown(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(p)
+}
+
 // handleCheckins , GET /v1/checkins?days=N , past daily check-ins for the MEMORIES strip.
 func (s *Server) handleCheckins(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {

@@ -94,8 +94,19 @@ var schemaRegistry = []SchemaTable{
 		{"place", "TEXT", true, "''"},
 		{"description", "TEXT", true, "''"},
 		{"display_name", "TEXT", true, "''"},
+		// PIPELINE VERSION , which framed pipeline last converged this row (framed.PipelineVersion).
+		// 0 is "before anyone counted". A row below the running version is re-read from its
+		// original at start; that is how a parser fix reaches photos archived years earlier
+		// without anyone writing a script.
+		{"pipe_ver", "INT", true, "0"},
+		// WHEN the description landed (unix seconds; 0 = not yet). The stock-take's rate and
+		// ETA come from this: how many were described in the last hour says how long the rest
+		// will take, with no counter anyone has to keep in memory.
+		{"described_at", "BIGINT", true, "0"},
 	}, Indexes: []string{
 		"CREATE INDEX IF NOT EXISTS frames_taken_at ON frames (taken_at)",
+		"CREATE INDEX IF NOT EXISTS frames_pipe_ver ON frames (pipe_ver)",
+		"CREATE INDEX IF NOT EXISTS frames_described_at ON frames (described_at) WHERE described_at > 0",
 		"CREATE INDEX IF NOT EXISTS frames_kind ON frames (kind)",
 		// The map's LOD queries bbox-filter on lat/lon every pan tick; at a two-person archive
 		// (40k+) that is a full scan per gesture without this. Partial: only GPS rows belong.
@@ -216,6 +227,17 @@ var schemaRegistry = []SchemaTable{
 		{"lat", "DOUBLE PRECISION", true, ""},
 		{"lon", "DOUBLE PRECISION", true, ""},
 		{"source", "TEXT", true, "'watch'"},
+	}},
+	// DAEMON STATE , what a daemon wants the status screens to know about work in flight, as
+	// one JSON value per key, written by that daemon only (rule 1: single writer). framed's
+	// "converge" key is the stock-take's live progress; the phone reads it through hw. A
+	// restart leaves the last value, so "last checked 3 minutes ago, all at the latest stage"
+	// survives the daemon that said it.
+	{Name: "daemon_state", PK: "daemon, key", Cols: []SchemaCol{
+		{"daemon", "TEXT", true, ""},
+		{"key", "TEXT", true, ""},
+		{"value", "TEXT", true, "'{}'"},
+		{"updated_at", "BIGINT", true, "0"},
 	}},
 }
 

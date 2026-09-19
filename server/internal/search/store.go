@@ -264,6 +264,114 @@ func (s *Store) ReingestImages() (int64, error) {
 	return n, nil
 }
 
+// CaptionState is what the ensure path needs to know about an image original without reading its
+// bytes: the caption it has (if any), the representative it is a burst sibling of (if any), and
+// whether a caption job for it already sits in the queue, parked or runnable.
+type CaptionState struct {
+	Caption   string
+	DupOf     int64
+	JobQueued bool
+	JobParked bool
+}
+
+func (s *Store) CaptionStateOf(origID int64) (CaptionState, error) {
+	var st CaptionState
+	rows, err := s.db.Query(`SELECT meta->>'caption', meta->>'dup_of' FROM search.originals WHERE source = 'image' AND id = $1`, origID)
+	if err != nil {
+		return st, err
+	}
+	if len(rows.Vals) == 1 {
+		if v := rows.Vals[0][0]; v != nil {
+			st.Caption = *v
+		}
+		if v := rows.Vals[0][1]; v != nil {
+			st.DupOf, _ = strconv.ParseInt(*v, 10, 64)
+		}
+	}
+	st.JobQueued, st.JobParked, err = s.JobState("caption", origID)
+	return st, err
+}
+
+// JobState reports whether a job of the kind sits in the queue for an original, and whether it is
+// parked (five failed attempts, invisible to ClaimJob). The ensure path asks before enqueueing so a
+// stock-take never doubles a job that is already on its way.
+func (s *Store) JobState(kind string, origID int64) (queued, parked bool, err error) {
+	jobs, err := s.db.Query(`SELECT attempts FROM search.jobs WHERE kind = $1 AND (payload->>'origId')::bigint = $2`, kind, origID)
+	if err != nil {
+		return false, false, err
+	}
+	for _, r := range jobs.Vals {
+		if len(r) == 0 || r[0] == nil {
+			continue
+		}
+		queued = true
+		if n, perr := strconv.Atoi(*r[0]); perr == nil && n >= 5 {
+			parked = true
+		}
+	}
+	return queued, parked, nil
+}
+
+// OriginalIDByFrameHash finds an image original from framed's frame hash, which is the first 16
+// bytes of the same sha256 searchd stores in full. The ensure path uses it so a stock-take does
+// not re-hash a 400MB clip just to ask whether it has a description. 0 when unknown.
+func (s *Store) OriginalIDByFrameHash(frameHash string) (int64, error) {
+	if len(frameHash) != 32 {
+		return 0, nil
+	}
+	rows, err := s.db.Query(
+		`SELECT id FROM search.originals WHERE source = 'image' AND substring(sha256 from 1 for 16) = decode($1, 'hex')`, frameHash)
+	if err != nil || len(rows.Vals) == 0 || rows.Vals[0][0] == nil {
+		return 0, err
+	}
+	id, _ := strconv.ParseInt(*rows.Vals[0][0], 10, 64)
+	return id, nil
+}
+
+// FrameNeedsTagPass is true when the frame with this hash still lacks a title or tags, or is not
+// in frames at all (then the pass runs, as it always did). It keeps the ensure path from paying a
+// model call for a frame that only lacked its description.
+func (s *Store) FrameNeedsTagPass(hash string) (bool, error) {
+	rows, err := s.db.Query(
+		`SELECT (display_name IS NULL OR display_name = '')
+		     OR NOT EXISTS (SELECT 1 FROM frame_tags WHERE frame_tags.hash = frames.hash)
+		 FROM frames WHERE hash = $1`, hash)
+	if err != nil {
+		return true, err
+	}
+	if len(rows.Vals) == 0 || rows.Vals[0][0] == nil {
+		return true, nil
+	}
+	return *rows.Vals[0][0] == "t", nil
+}
+
+// HasTagChunk is true when the original already carries its "tags: ..." search chunk, so a
+// repeated tag pass does not stack a second copy into the index.
+func (s *Store) HasTagChunk(origID int64) (bool, error) {
+	rows, err := s.db.Query(
+		`SELECT 1 FROM search.chunks WHERE tier = 0 AND orig_source = 'image' AND orig_id = $1 AND body LIKE 'tags: %' LIMIT 1`, origID)
+	if err != nil {
+		return false, err
+	}
+	return len(rows.Vals) > 0, nil
+}
+
+// RequeueCaption gives an original's caption job a fresh start with a NEW render path: parked
+// attempts back to zero, or a new job when none exists. The render path is what the model looks
+// at now (a preview, a frame grab), which may differ from what the old job pointed at.
+func (s *Store) RequeueCaption(origID int64, render string) error {
+	if err := s.db.Exec(`DELETE FROM search.jobs WHERE kind = 'caption' AND (payload->>'origId')::bigint = $1`, origID); err != nil {
+		return err
+	}
+	return s.EnqueueJob("caption", map[string]any{"origId": origID, "path": render})
+}
+
+// SetCaption stores a caption in an original's meta (the ensure path copying a burst representative's).
+func (s *Store) SetCaption(origID int64, caption string) error {
+	return s.db.Exec(`UPDATE search.originals SET meta = meta || jsonb_build_object('caption', $1::text)
+		WHERE source = 'image' AND id = $2`, caption, origID)
+}
+
 func (s *Store) ClaimJob(kind string) (*Job, error) {
 	rows, err := s.db.Query(`
 		UPDATE search.jobs SET attempts = attempts + 1
