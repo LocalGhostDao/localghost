@@ -21,6 +21,13 @@ object PhraseState {
     fun langOverride(ctx: Context): String = p(ctx).getString("lang", "") ?: ""
     fun setLangOverride(ctx: Context, l: String) = p(ctx).edit().putString("lang", l).apply()
 
+    /** The language the card last spoke in a country that HAS a pack , what practice mode at home
+     *  falls back to, so the trip's language follows you home. */
+    fun lastLang(ctx: Context): String = p(ctx).getString("last_lang", "") ?: ""
+    fun setLastLang(ctx: Context, l: String) {
+        if (l.isNotEmpty() && lastLang(ctx) != l) p(ctx).edit().putString("last_lang", l).apply()
+    }
+
     fun speakerForm(ctx: Context): SpeakerForm =
         SpeakerForm.entries.firstOrNull { it.name == p(ctx).getString("form", "") } ?: SpeakerForm.NEUTRAL
     fun setSpeakerForm(ctx: Context, f: SpeakerForm) = p(ctx).edit().putString("form", f.name).apply()
@@ -63,10 +70,11 @@ object CountryDetect {
      */
     fun detect(ctx: Context): Whereabouts {
         PhraseState.countryOverride(ctx).takeIf { it.isNotEmpty() }?.let { return Whereabouts(it, "you chose it") }
-        com.localghost.app.sync.LocationLog.lastCountry(ctx)?.let { (cc, ts) ->
-            // Six hours: long enough to survive a flight's worth of no fixes, short enough that
-            // the country on the card is the one outside the window, not the one before the flight.
-            if (System.currentTimeMillis() / 1000 - ts < 6 * 3600) return Whereabouts(cc, "your location")
+        val fix = com.localghost.app.sync.LocationLog.lastCountry(ctx)
+        // Six hours: long enough to survive a flight's worth of no fixes, short enough that the
+        // country on the card is the one outside the window, not the one before the flight.
+        if (fix != null && System.currentTimeMillis() / 1000 - fix.second < 6 * 3600) {
+            return Whereabouts(fix.first, "your location")
         }
         try {
             val tm = ctx.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager

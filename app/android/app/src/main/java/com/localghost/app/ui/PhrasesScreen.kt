@@ -75,6 +75,7 @@ fun PhrasesScreen() {
                     Text(
                         when {
                             preview.isNotEmpty() -> "${CountryNames.of(preview)} · previewing"
+                            now.where.source == "practice" -> "practice · no pack for where you are, so ${pack?.name ?: "a language"} for now"
                             now.where.country.isEmpty() -> "no country yet"
                             else -> "${CountryNames.of(now.where.country)} · via ${now.where.source}"
                         },

@@ -28,16 +28,29 @@ object PhraseNow {
      *  [previewCountry] lets the screen look at another country (learn before you fly) without
      *  touching what the lock screen shows. */
     fun resolve(ctx: Context, previewCountry: String = "", cal: Calendar = Calendar.getInstance()): Now {
-        val where = if (previewCountry.isNotEmpty()) Whereabouts(previewCountry.uppercase(), "preview") else CountryDetect.detect(ctx)
+        var where = if (previewCountry.isNotEmpty()) Whereabouts(previewCountry.uppercase(), "preview") else CountryDetect.detect(ctx)
         val packs = PhrasePacks.all(ctx)
-        val langs = PhraseEngine.langsFor(where.country, packs)
+        var langs = PhraseEngine.langsFor(where.country, packs)
         val chosen = PhraseState.langOverride(ctx)
+        if (langs.isEmpty() && packs.isNotEmpty() && previewCountry.isEmpty()) {
+            // PRACTICE , at home (London has no pack, and never will) or anywhere without one, the
+            // card is not blank: it speaks the language you pinned, else the last one you were
+            // travelling in, else a different pack each day. A lock screen that says "no phrases
+            // for the United Kingdom" teaches nobody anything.
+            val sorted = packs.sortedBy { it.lang }
+            val practice = sorted.firstOrNull { it.lang == chosen }
+                ?: sorted.firstOrNull { it.lang == PhraseState.lastLang(ctx) }
+                ?: sorted[cal.get(Calendar.DAY_OF_YEAR) % sorted.size]
+            langs = listOf(practice) + sorted.filter { it.lang != practice.lang }
+            where = Whereabouts(practice.countries.firstOrNull() ?: "", "practice")
+        }
         val pack = langs.firstOrNull { it.lang == chosen } ?: langs.firstOrNull()
         val form = PhraseState.speakerForm(ctx)
         if (pack == null) {
             return Now(where, null, emptyList(), false,
                 null, CountryDetect.slotKey(PhraseEngine.slotFor(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), false), cal), form)
         }
+        if (where.source != "practice" && where.source != "preview") PhraseState.setLastLang(ctx, pack.lang)
         val late = PhraseEngine.isLate(pack, where.country)
         val hour = cal.get(Calendar.HOUR_OF_DAY)
         val minute = cal.get(Calendar.MINUTE)

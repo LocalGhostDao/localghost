@@ -156,7 +156,8 @@ object LocationLog {
                     got = loc; latch.countDown()
                 }
                 if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) signal.cancel()
-                got?.let { return Point(it.time / 1000, it.latitude, it.longitude) }
+                val g = got
+                if (g != null) return Point(g.time / 1000, g.latitude, g.longitude)
             }
         } catch (_: SecurityException) {
             return null
