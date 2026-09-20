@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/ghosthealth"
@@ -134,7 +135,22 @@ func main() {
 		lg.Info("model ready", "fn", "main", "model", cfg.ModelName)
 	}()
 	broker.Run()
-	defer func() { broker.Stop(); llama.Stop() }()
+	// Shutdown order matters: the MODEL first, then the broker. The broker's Stop waits for its
+	// worker, and the worker is usually mid-inference now that captions run all day; waiting on
+	// llama to finish a caption before killing llama took longer than watchd's 5s grace, every
+	// halt, and the SIGKILL that followed was what "wedged daemon" meant. Killing llama first
+	// fails the in-flight request at once, the worker returns, and the broker stops in
+	// milliseconds; a bound on the wait keeps a surprise from becoming a wedge again.
+	defer func() {
+		llama.Stop()
+		done := make(chan struct{})
+		go func() { broker.Stop(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			lg.Warn("broker did not stop in 2s; exiting anyway", "fn", "main")
+		}
+	}()
 
 	// Control socket: base commands + infer + a models command.
 	runDir := filepath.Join(*mount, "run")

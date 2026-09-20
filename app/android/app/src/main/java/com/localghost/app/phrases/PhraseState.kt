@@ -37,6 +37,13 @@ object PhraseState {
     fun lockScreenOn(ctx: Context): Boolean = p(ctx).getBoolean("lockscreen", false)
     fun setLockScreenOn(ctx: Context, on: Boolean) = p(ctx).edit().putBoolean("lockscreen", on).apply()
 
+    /** Promote the card to a LIVE UPDATE where the phone offers it (Android 16+: status-bar chip,
+     *  top of the lock screen, always-on display, Samsung's Now Bar). On by default: it is the
+     *  same silent card, shown where a glance lands. The OS still needs the person's per-app
+     *  permission for live updates, which the PHRASES screen links to. */
+    fun liveUpdate(ctx: Context): Boolean = p(ctx).getBoolean("live", true)
+    fun setLiveUpdate(ctx: Context, on: Boolean) = p(ctx).edit().putBoolean("live", on).apply()
+
     /** Manual NEXT taps, scoped to the slot they were made in: a new part of the day starts at
      *  its greeting again. Stored as "<yyyyddd>-<slot>:<count>". */
     fun manualNext(ctx: Context, slotKey: String): Int {
@@ -49,11 +56,50 @@ object PhraseState {
         val n = manualNext(ctx, slotKey) + 1
         p(ctx).edit().putString("next", "$slotKey:$n").apply()
     }
+    fun setManualNext(ctx: Context, slotKey: String, n: Int) = p(ctx).edit().putString("next", "$slotKey:$n").apply()
     fun resetManualNext(ctx: Context) = p(ctx).edit().remove("next").apply()
 
-    /** Flashcard scores per phrase id: how many times in a row it was "got it". */
-    fun drillScore(ctx: Context, id: String): Int = p(ctx).getInt("drill.$id", 0)
-    fun setDrillScore(ctx: Context, id: String, n: Int) = p(ctx).edit().putInt("drill.$id", n.coerceIn(0, 9)).apply()
+    /** Below this a phrase is still being learned; at it and above it is KNOWN , out of the walk
+     *  except as a review, counted in the progress lines. Three in a row in the drill, or one tap
+     *  of GOT IT / a ✓ in the list, which set it straight to this. */
+    const val KNOWN_AT = 3
+
+    /** Flashcard scores per phrase id, PER LANGUAGE: "good_morning" is an id in every pack, and
+     *  knowing it in Greek says nothing about Japanese. The first build keyed by id alone; those
+     *  scores are read as a fallback so nobody's week of breakfasts is lost. */
+    fun drillScore(ctx: Context, lang: String, id: String): Int {
+        val pr = p(ctx)
+        return pr.getInt("drill.$lang.$id", pr.getInt("drill.$id", 0))
+    }
+    fun setDrillScore(ctx: Context, lang: String, id: String, n: Int) =
+        p(ctx).edit().putInt("drill.$lang.$id", n.coerceIn(0, 9)).apply()
+
+    fun isKnown(ctx: Context, lang: String, id: String): Boolean = drillScore(ctx, lang, id) >= KNOWN_AT
+    fun setKnown(ctx: Context, lang: String, id: String, known: Boolean) =
+        setDrillScore(ctx, lang, id, if (known) KNOWN_AT else 0)
+
+    /** Every phrase id the person knows in this language , the engine's [PhraseEngine.order] input. */
+    fun known(ctx: Context, lang: String): Set<String> {
+        val prefix = "drill.$lang."
+        val scoped = HashMap<String, Int>()
+        val legacy = HashMap<String, Int>()
+        for ((k, v) in p(ctx).all) {
+            if (v !is Int) continue
+            if (k.startsWith(prefix)) scoped[k.substring(prefix.length)] = v
+            else if (k.startsWith("drill.") && k.indexOf('.', 6) < 0) legacy[k.substring(6)] = v // pre-language key
+        }
+        val out = HashSet<String>()
+        for ((id, n) in legacy) if (id !in scoped && n >= KNOWN_AT) out.add(id)
+        for ((id, n) in scoped) if (n >= KNOWN_AT) out.add(id)
+        return out
+    }
+
+    /** Mark a whole set at once (the LEVELS section's "I know these"). One commit, not one per id. */
+    fun setKnownAll(ctx: Context, lang: String, ids: Collection<String>, known: Boolean) {
+        val e = p(ctx).edit()
+        for (id in ids) e.putInt("drill.$lang.$id", if (known) KNOWN_AT else 0)
+        e.apply()
+    }
 }
 
 /** Where the phone is, without asking it where the person is. */

@@ -110,6 +110,7 @@ type Audit struct {
 	Described   bool // frames.description set (the caption's SCENE)
 	Titled      bool // frames.display_name set (date + first tags)
 	Tagged      bool // at least one tag row, tombstones included: a tag the user removed is a decision, not a gap
+	Categorised bool // every live model tag carries a category (the digest's grouping); vacuously true with no tags
 }
 
 // Audit reads every frame's stage facts in one query. 40k rows is a few MB and well under a
@@ -118,19 +119,20 @@ func (s *Store) Audit() ([]Audit, error) {
 	rows, err := s.db.Query(`
 		SELECT f.hash, f.kind, f.archive_path, f.preview_path, f.thumb_path, f.taken_at, f.pipe_ver,
 		       f.description <> '', f.display_name <> '',
-		       EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash)
+		       EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash),
+		       NOT EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash AND t.category = '' AND t.source <> 'user_removed')
 		FROM frames f ORDER BY f.taken_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]Audit, 0, len(rows.Vals))
 	for _, r := range rows.Vals {
-		if len(r) < 10 || r[0] == nil {
+		if len(r) < 11 || r[0] == nil {
 			continue
 		}
 		a := Audit{Hash: *r[0], Kind: deref(r[1]), ArchivePath: deref(r[2]), PreviewPath: deref(r[3]), ThumbPath: deref(r[4]),
 			TakenAt: atoi64(deref(r[5])), PipeVer: int(atoi64(deref(r[6]))),
-			Described: deref(r[7]) == "t", Titled: deref(r[8]) == "t", Tagged: deref(r[9]) == "t"}
+			Described: deref(r[7]) == "t", Titled: deref(r[8]) == "t", Tagged: deref(r[9]) == "t", Categorised: deref(r[10]) == "t"}
 		out = append(out, a)
 	}
 	return out, nil

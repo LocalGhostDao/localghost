@@ -24,8 +24,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sync"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -287,11 +288,13 @@ func (s *Supervisor) scheduleBackoff(rt *serviceRuntime, detail string) {
 	rt.backoffTil = time.Now().Add(backoff)
 }
 
-// killProc signals TERM, then after a grace KILL, and reaps. Closes the log file too.
-func (s *Supervisor) killProc(rt *serviceRuntime) {
+// killProc signals TERM, then after a grace KILL, and reaps. Returns how long the process took
+// to die and whether it needed the KILL , the numbers a slow halt is diagnosed from.
+func (s *Supervisor) killProc(rt *serviceRuntime) (took time.Duration, killed bool) {
 	if rt.proc == nil {
-		return
+		return 0, false
 	}
+	t0 := time.Now()
 	_ = rt.proc.Signal(syscall.SIGTERM)
 	done := make(chan struct{})
 	go func() { _, _ = rt.proc.Wait(); close(done) }()
@@ -306,12 +309,24 @@ func (s *Supervisor) killProc(rt *serviceRuntime) {
 		// clean exit; the wedged get the floor.
 		_ = rt.proc.Kill()
 		<-done
+		killed = true
 	}
 	rt.proc = nil
+	took = time.Since(t0)
+	s.jlog.Info("service stopped", "fn", "killProc", "svc", rt.svc.Name, "ms", took.Milliseconds(), "killed", killed)
+	return took, killed
 }
 
-// TeardownAll stops the poll loop, then stops every service in reverse order and CONFIRMS each is
-// dead. Returns only after every daemon process is gone , the property secd's unmount depends on.
+// TeardownAll stops the poll loop, then stops every service and CONFIRMS each is dead. Returns
+// only after every daemon process is gone , the property secd's unmount depends on.
+//
+// All daemons are signalled AT ONCE and waited for concurrently: the old reverse-order walk
+// paid every slow exit in series (an oracled mid-inference plus a searchd mid-caption plus a
+// framed mid-stock-take was 15s before anything else happened, and the redeploy script's 30s
+// patience ran out on a cohort that was merely queueing). Nothing here depends on order: the
+// daemons only talk to each other and to the datastores, which secd stops after this returns,
+// and a daemon whose peer dies first gets an error on its way out, which it was already on. One
+// summary line names the slow ones.
 func (s *Supervisor) TeardownAll() error {
 	s.mu.Lock()
 	if s.stopPoll != nil {
@@ -323,11 +338,39 @@ func (s *Supervisor) TeardownAll() error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	t0 := time.Now()
+	type stopped struct {
+		name   string
+		took   time.Duration
+		killed bool
+	}
+	results := make([]stopped, len(s.order))
+	var wg sync.WaitGroup
 	for i := len(s.order) - 1; i >= 0; i-- {
 		rt := s.services[s.order[i]]
-		s.killProc(rt)
-		rt.state = stateDown
+		wg.Add(1)
+		go func(i int, rt *serviceRuntime) {
+			defer wg.Done()
+			took, killed := s.killProc(rt)
+			results[i] = stopped{rt.svc.Name, took, killed}
+		}(i, rt)
 	}
+	wg.Wait()
+	for _, name := range s.order {
+		s.services[name].state = stateDown
+	}
+	parts := make([]string, 0, len(results))
+	for _, r := range results {
+		if r.name == "" {
+			continue
+		}
+		line := fmt.Sprintf("%s %.1fs", r.name, r.took.Seconds())
+		if r.killed {
+			line += " (killed)"
+		}
+		parts = append(parts, line)
+	}
+	s.jlog.Info("cohort down", "fn", "TeardownAll", "ms", time.Since(t0).Milliseconds(), "services", strings.Join(parts, ", "))
 	return nil
 }
 

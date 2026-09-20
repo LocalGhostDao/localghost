@@ -513,7 +513,23 @@ class MainActivity : ComponentActivity() {
                 android.util.Log.w("LocalGhost", "attachment read failed: ${e.message}"); null
             }
         } ?: ""
-        BoxClient.chat(incognito = incognitoState, chatId = if (incognitoState) 0L else currentChatId, messages.toList(), text, activeConvId, atts, chatCaps, imageB64 = imageB64).collect { chunk ->
+        // THE PHONE SEARCHES, THE BOX NEVER DOES. When the web mode says so, look the question up
+        // here first and hand the findings to the box as labelled context; the answer then draws
+        // on the archive and the outside world with the box still never opening a socket to it.
+        var web: org.json.JSONArray? = null
+        var webHits: List<com.localghost.app.net.WebSearch.Hit> = emptyList()
+        val mode = AppSettings.webMode(this)
+        if (com.localghost.app.net.WebSearch.shouldSearch(mode, text)) {
+            messages.add(Message(Message.Role.GHOST, "", reasoning = "searching the web on this phone…"))
+            // The last fix, when recent, lets "what's the weather like?" mean here; it never leaves
+            // the phone except as the coordinates of a weather query, and only for that question.
+            val here = com.localghost.app.sync.LocationLog.last(this)?.takeIf { System.currentTimeMillis() / 1000 - it.ts < 6 * 3600 }
+                ?.let { com.localghost.app.net.WebSearch.Here(it.lat, it.lon) }
+            webHits = com.localghost.app.net.WebSearch.search(text, here)
+            if (webHits.isNotEmpty()) web = com.localghost.app.net.WebSearch.toJson(webHits)
+            if (messages.lastOrNull()?.role == Message.Role.GHOST && messages.last().text.isEmpty()) messages.removeAt(messages.size - 1)
+        }
+        BoxClient.chat(incognito = incognitoState, chatId = if (incognitoState) 0L else currentChatId, messages.toList(), text, activeConvId, atts, chatCaps, imageB64 = imageB64, web = web).collect { chunk ->
             when (chunk) {
                 is BoxClient.ChatChunk.Memories -> mems = chunk.ids
                 is BoxClient.ChatChunk.ChatId -> {
@@ -532,16 +548,16 @@ class MainActivity : ComponentActivity() {
                     reasoning += chunk.text
                     val body = reply // "" until the first real token
                     if (messages.lastOrNull()?.role == Message.Role.GHOST)
-                        messages[messages.size - 1] = Message(Message.Role.GHOST, body, mems, reasoning = reasoning)
-                    else messages.add(Message(Message.Role.GHOST, body, mems, reasoning = reasoning))
+                        messages[messages.size - 1] = Message(Message.Role.GHOST, body, mems, reasoning = reasoning, web = webHits)
+                    else messages.add(Message(Message.Role.GHOST, body, mems, reasoning = reasoning, web = webHits))
                 }
                 is BoxClient.ChatChunk.Token -> {
                     if (genStartMs == 0L) genStartMs = System.currentTimeMillis()
                     genChars += chunk.text.length
                     reply += chunk.text
                     if (messages.lastOrNull()?.role == Message.Role.GHOST)
-                        messages[messages.size - 1] = Message(Message.Role.GHOST, reply, mems, reasoning = reasoning)
-                    else messages.add(Message(Message.Role.GHOST, reply, mems, reasoning = reasoning))
+                        messages[messages.size - 1] = Message(Message.Role.GHOST, reply, mems, reasoning = reasoning, web = webHits)
+                    else messages.add(Message(Message.Role.GHOST, reply, mems, reasoning = reasoning, web = webHits))
                 }
                 BoxClient.ChatChunk.Done -> {
                     streaming = false

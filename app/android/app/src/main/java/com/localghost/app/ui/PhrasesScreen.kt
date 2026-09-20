@@ -104,6 +104,7 @@ fun PhrasesScreen() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${slotView.glyph} ${slotView.label}", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.weight(1f))
+                    if (current != null) Text("L${current.level} ${Levels.name(current.level)} · ", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                     if (list.isNotEmpty()) Text("${index + 1}/${list.size}", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                 }
                 Spacer(Modifier.height(14.dp))
@@ -135,6 +136,10 @@ fun PhrasesScreen() {
                         Act("slow") { say(current, slow = true) }
                         Act("next") { index = (index + 1) % list.size }
                         Act("show") { show = true }
+                        val knownNow = current.id in now.known
+                        Act(if (knownNow) "✓ known" else "got it") {
+                            PhraseState.setKnown(ctx, pack.lang, current.id, !knownNow); changed()
+                        }
                     }
                     Spacer(Modifier.height(12.dp))
                     // the slot's progress, as dots , the same walk the lock screen makes
@@ -168,10 +173,13 @@ fun PhrasesScreen() {
             }
             items(list.size) { i ->
                 val p = list[i]
-                PhraseRow(p, form, selected = i == index, onSelect = { index = i }, onSay = { say(p) })
+                PhraseRow(p, form, selected = i == index, known = p.id in now.known,
+                    onSelect = { index = i }, onSay = { say(p) },
+                    onKnown = { PhraseState.setKnown(ctx, pack.lang, p.id, p.id !in now.known); changed() })
             }
 
-            item { Spacer(Modifier.height(8.dp)); Phrasebook(pack, form, ::say) }
+            item { Spacer(Modifier.height(8.dp)); LevelsSection(pack, now.known, now.band, onChange = ::changed) }
+            item { Spacer(Modifier.height(8.dp)); Phrasebook(pack, form, now.known, ::say, onChange = ::changed) }
             item { Spacer(Modifier.height(8.dp)); Drill(pack, form, ::say) }
             item { Spacer(Modifier.height(8.dp)); Emergency(pack, form, ::say) }
         }
@@ -184,7 +192,7 @@ fun PhrasesScreen() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("card on the lock screen", color = GhostText, style = MaterialTheme.typography.bodyMedium)
-                    Text("a silent notification that changes with the hour · say and next work without unlocking",
+                    Text("a silent notification that changes with the hour · say, next and got it work without unlocking · pull it open for the next two phrases",
                         color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 }
                 Switch(checked = lock, onCheckedChange = { on ->
@@ -203,12 +211,38 @@ fun PhrasesScreen() {
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 })
             }
+            // LIVE UPDATE (Android 16+): the same card, promoted , the top of the lock screen, the
+            // status-bar chip, the always-on display, Samsung's Now Bar. The OS asks the person
+            // per app; until they allow it the card stays an ordinary silent notification.
+            val canPromote = remember(tick) { PhraseSurface.canPromote(ctx) }
+            if (canPromote != null) {
+                Spacer(Modifier.height(12.dp))
+                var live by remember(tick) { mutableStateOf(PhraseState.liveUpdate(ctx)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("live update", color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                        Text(if (canPromote) "the card at the top of the lock screen, in the status bar and on the always-on display (Now Bar on Galaxy)"
+                            else "allowed for LocalGhost in Settings › Notifications › Live updates, then the card moves to the top of the lock screen and into the Now Bar",
+                            color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                    }
+                    Switch(checked = live, onCheckedChange = { on ->
+                        live = on; PhraseState.setLiveUpdate(ctx, on); changed()
+                    }, colors = SwitchDefaults.colors(checkedThumbColor = Void, checkedTrackColor = TerminalGreen,
+                        uncheckedThumbColor = GhostTextDim, uncheckedTrackColor = VoidLighter, uncheckedBorderColor = GhostBorder))
+                }
+                if (live && !canPromote) {
+                    Spacer(Modifier.height(4.dp))
+                    GhostButton("allow live updates", onClick = {
+                        PhraseSurface.promotedSettingsIntent(ctx)?.let { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                    })
+                }
+            }
             Spacer(Modifier.height(12.dp))
             var pinNote by remember { mutableStateOf("") }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("widget", color = GhostText, style = MaterialTheme.typography.bodyMedium)
-                    Text("home screen anywhere · lock screen on Android 16 QPR2 and later",
+                    Text("home screen anywhere · on the lock screen too: Pixel (Android 16 QPR2+) long-press the lock screen › customize › widgets; Galaxy (One UI 8+) Settings › Lock screen › Widgets",
                         color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 }
                 GhostButton("add", onClick = {
@@ -293,21 +327,73 @@ private fun Chips(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) 
     }
 }
 
+/** One phrase in a list. The ✓ at the end is the known toggle: lit when the person has it, and a
+ *  tap flips it , the quickest way to tell the walk "I have these, show me the rest". */
 @Composable
-private fun PhraseRow(p: Phrase, form: SpeakerForm, selected: Boolean, onSelect: () -> Unit, onSay: () -> Unit) {
+private fun PhraseRow(p: Phrase, form: SpeakerForm, selected: Boolean, known: Boolean = false,
+                      onSelect: () -> Unit, onSay: () -> Unit, onKnown: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().clickable { onSelect() }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(if (selected) "›" else " ", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(p.localFor(form), color = if (selected) TerminalGreen else GhostText, style = MaterialTheme.typography.bodyLarge)
-            Text("${p.sayItFor(form)}  ·  ${p.en}", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            Text(p.localFor(form), color = if (selected) TerminalGreen else if (known) GhostTextDim else GhostText, style = MaterialTheme.typography.bodyLarge)
+            Text("${p.sayItFor(form)}  ·  ${p.en}" + (if (p.level > 1) "  ·  L${p.level}" else ""), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
         }
         Text("[ say ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.clickable { onSay() }.padding(start = 8.dp, top = 6.dp, bottom = 6.dp))
+        if (onKnown != null) {
+            Text(if (known) "✓" else "○", color = if (known) TerminalGreen else TerminalDim, style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.clickable { onKnown() }.padding(start = 10.dp, end = 2.dp, top = 4.dp, bottom = 4.dp))
+        }
+    }
+}
+
+/**
+ * LEVELS: where you are in the language, and the shortcut for someone who already speaks some of
+ * it. Each level is a line , known of total , and "I know these" marks the whole level so the
+ * walk moves on to the next one at once, instead of waiting for GOT IT taps on forty cards.
+ */
+@Composable
+private fun LevelsSection(pack: PhrasePack, known: Set<String>, band: Int, onChange: () -> Unit) {
+    val ctx = LocalContext.current
+    val prog = remember(pack.lang, known) { PhraseEngine.progress(pack, known) }
+    if (prog.size <= 1 && pack.phrases.none { it.level > 1 }) {
+        // A pack without levels: one progress line is enough, and "I know these" still helps.
+        val (k, t) = prog[1] ?: (0 to 0)
+        Column {
+            SectionLabel("KNOWN")
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("$k of $t phrases · known cards leave the walk and come back as reviews", color = GhostTextDim,
+                    style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+            }
+        }
+        return
+    }
+    Column {
+        SectionLabel("LEVELS")
+        Spacer(Modifier.height(6.dp))
+        Text("the walk shows level $band, ${Levels.name(band)} · a level opens once ${(Levels.DONE_SHARE * 100).toInt()}% of the one below is known · known cards come back as reviews, one in five",
+            color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(6.dp))
+        for ((level, kt) in prog) {
+            val (k, t) = kt
+            val ids = pack.phrases.filter { it.level == level && it.situation != Situation.EMERGENCY }.map { it.id }
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (level == band) "›" else " ", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("$level · ${Levels.name(level)}", color = if (level <= band) GhostText else GhostTextDim, style = MaterialTheme.typography.bodyMedium)
+                    Text("$k of $t known", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                }
+                if (k < t) GhostButton("i know these", onClick = { PhraseState.setKnownAll(ctx, pack.lang, ids, true); onChange() })
+                else GhostButton("start over", onClick = { PhraseState.setKnownAll(ctx, pack.lang, ids, false); onChange() })
+            }
+        }
     }
 }
 
 @Composable
-private fun Phrasebook(pack: PhrasePack, form: SpeakerForm, say: (Phrase, Boolean) -> Unit) {
+private fun Phrasebook(pack: PhrasePack, form: SpeakerForm, known: Set<String>, say: (Phrase, Boolean) -> Unit, onChange: () -> Unit) {
+    val ctx = LocalContext.current
     var open by remember(pack.lang) { mutableStateOf(false) }
     var chapter by remember(pack.lang) { mutableStateOf(Situation.GREETINGS) }
     val chapters = Situation.entries.filter { s -> s != Situation.EMERGENCY && pack.phrases.any { it.situation == s } }
@@ -325,7 +411,8 @@ private fun Phrasebook(pack: PhrasePack, form: SpeakerForm, say: (Phrase, Boolea
         Chips(chapters.map { it.label }, chapters.indexOf(chapter)) { chapter = chapters[it] }
         Spacer(Modifier.height(4.dp))
         pack.phrases.filter { it.situation == chapter }.forEach { p ->
-            PhraseRow(p, form, selected = false, onSelect = { say(p, false) }, onSay = { say(p, false) })
+            PhraseRow(p, form, selected = false, known = p.id in known, onSelect = { say(p, false) }, onSay = { say(p, false) },
+                onKnown = { PhraseState.setKnown(ctx, pack.lang, p.id, p.id !in known); onChange() })
         }
     }
 }
@@ -341,10 +428,10 @@ private fun Drill(pack: PhrasePack, form: SpeakerForm, say: (Phrase, Boolean) ->
     var open by remember(pack.lang) { mutableStateOf(false) }
     var round by remember(pack.lang) { mutableStateOf(0) }
     val due = remember(pack.lang, round) {
-        pack.phrases.filter { it.situation != Situation.EMERGENCY && PhraseState.drillScore(ctx, it.id) < 3 }
-            .sortedBy { PhraseState.drillScore(ctx, it.id) }
+        pack.phrases.filter { it.situation != Situation.EMERGENCY && PhraseState.drillScore(ctx, pack.lang, it.id) < PhraseState.KNOWN_AT }
+            .sortedBy { PhraseState.drillScore(ctx, pack.lang, it.id) }
     }
-    val solid = pack.phrases.count { it.situation != Situation.EMERGENCY && PhraseState.drillScore(ctx, it.id) >= 3 }
+    val solid = pack.phrases.count { it.situation != Situation.EMERGENCY && PhraseState.drillScore(ctx, pack.lang, it.id) >= PhraseState.KNOWN_AT }
     var flipped by remember(pack.lang, round) { mutableStateOf(false) }
     Column {
         Row(Modifier.fillMaxWidth().clickable { open = !open }, verticalAlignment = Alignment.CenterVertically) {
@@ -352,7 +439,7 @@ private fun Drill(pack: PhrasePack, form: SpeakerForm, say: (Phrase, Boolean) ->
             Spacer(Modifier.weight(1f))
             Text(if (open) "▴" else "▾", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }
-        Text("$solid of ${pack.phrases.count { it.situation != Situation.EMERGENCY }} solid · a phrase is solid after three in a row",
+        Text("$solid of ${pack.phrases.count { it.situation != Situation.EMERGENCY }} solid · three in a row makes a phrase known, and known phrases leave the lock-screen walk",
             color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
         if (!open) return
         Spacer(Modifier.height(8.dp))
@@ -361,7 +448,7 @@ private fun Drill(pack: PhrasePack, form: SpeakerForm, say: (Phrase, Boolean) ->
             Text("everything solid. order the bill in style.", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))
             GhostButton("start over", onClick = {
-                pack.phrases.forEach { PhraseState.setDrillScore(ctx, it.id, 0) }; round++
+                PhraseState.setKnownAll(ctx, pack.lang, pack.phrases.map { it.id }, false); round++; PhraseSurface.refresh(ctx)
             })
             return
         }
@@ -379,8 +466,12 @@ private fun Drill(pack: PhrasePack, form: SpeakerForm, say: (Phrase, Boolean) ->
         Row {
             Act("say") { say(card, false) }
             if (flipped) {
-                Act("got it") { PhraseState.setDrillScore(ctx, card.id, PhraseState.drillScore(ctx, card.id) + 1); round++ }
-                Act("again") { PhraseState.setDrillScore(ctx, card.id, 0); round++ }
+                Act("got it") {
+                    val n = PhraseState.drillScore(ctx, pack.lang, card.id) + 1
+                    PhraseState.setDrillScore(ctx, pack.lang, card.id, n); round++
+                    if (n >= PhraseState.KNOWN_AT) Thread { PhraseSurface.refresh(ctx) }.start() // it just left the walk
+                }
+                Act("again") { PhraseState.setDrillScore(ctx, pack.lang, card.id, 0); round++ }
             }
         }
     }

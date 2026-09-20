@@ -487,3 +487,171 @@ frame cost a whole lap of the rotation. Fixed at the root:
   sampler still uses one alignment pattern of the six a v8 symbol has and no temporal fusion
   across attempts. Both are the next levers if ten easy frames still stall; the review's full
   ranked list is in the project notes.
+
+## The lock-screen card: answered from a snapshot, promoted to a live update
+
+The pause between SAY and NEXT on the lock screen was a cold process: a tap woke the app (killed
+hours earlier), which then parsed eighteen packs, resolved the country and rebuilt the slot's
+list before the card could change. PhraseSurface now keeps a Snapshot in prefs at every refresh ,
+the slot's ordered phrases flattened to strings, the headline, the voice tag , and NEXT redraws
+the card and widget from that in a few milliseconds, then re-syncs from the packs in the
+background. SAY speaks from the same snapshot; the voice engine's own warm-up on a cold process
+(~half a second) is the part that remains, and goAsync keeps the process alive six seconds after
+a SAY so the NEXT that follows is warm.
+
+"More than a notification": on Android 16+ the same card asks to be a LIVE UPDATE
+(NotificationCompat setRequestPromotedOngoing + setShortCriticalText, POST_PROMOTED_NOTIFICATIONS
+in the manifest): the top of the lock screen, a status-bar chip with the phrase, the always-on
+display, and Samsung's Now Bar on One UI 8. The OS grants it per app; PHRASES shows the switch
+and links to the settings page when it is not yet allowed (canPostPromotedNotifications). The
+widget was already lock-screen capable (Android 16 QPR2+ needs no opt-in; One UI 8 lists
+third-party widgets under Settings › Lock screen › Widgets); its SAY/NEXT are broadcasts, so they
+work without unlocking, and a RemoteViews update lands faster than a notification re-render.
+
+## Halt timings, and why the cohort took 31s
+
+The redeploy's graceful halt reported "cohort down after 31s, still stopping" without naming a
+daemon. Two causes, both fixed:
+
+- ghost.oracled stopped the BROKER before the MODEL: the broker's Stop waits for its worker, the
+  worker was mid-caption (captions run all day now), and llama does not answer until the caption
+  is done , longer than watchd's 5s grace, every halt, so oracled was SIGKILLed each time (llama
+  dies with it through Pdeathsig, so nothing leaked, but 5s were paid). Now llama is killed
+  first (2s grace, down from 10), the in-flight request fails at once, and the broker stop is
+  bounded at 2s.
+- watchd tore the cohort down IN SERIES, each daemon with its own 5s grace: three slow exits were
+  15s before anything else stopped, and the script's 30s patience expired on a cohort that was
+  merely queueing. TeardownAll now signals every daemon at once and waits concurrently; the
+  cohort is down in max(exit times), not the sum. Nothing depended on the order: the daemons
+  talk only to each other and to the datastores, which secd still stops after this returns.
+
+Timings, as asked: watchd logs "service stopped svc=… ms=… killed=…" per daemon and one "cohort
+down ms=… services=ghost.oracled 0.3s, ghost.framed 0.1s, …" line; redeploy.sh names the
+survivors every 5s while it waits and ends with "cohort down after Ns , slowest: ghost.x=6s …",
+with a 45s budget instead of 30.
+
+## The trail: a quarter hour, kept on the phone, synced without duplicates
+
+Operator ruling: a point every fifteen minutes is the trail; no minute-by-minute service (it was
+built and removed the same evening: a foreground service with its own notification and battery
+contract, for a history the quarter-hour worker already gives). What stays is the spool and the
+sync, and the sync is duplicate-free by construction, not by comparison:
+
+- the phone keeps one point per 25 m or per hour, timestamps STRICTLY increasing (a cached fix
+  older than the last point is not news and is dropped), in an append-only file;
+- a point leaves the spool only when the box has answered 202 for the batch it was in, and the
+  acknowledgement removes exactly those timestamps , never a range, never a position , so a
+  point recorded while a batch was in flight is untouched;
+- a lost reply or a 503 leaves the batch in place and the next flush re-sends it, oldest first,
+  4000 points a batch; the box keys location_points on (ts, source) with ON CONFLICT DO NOTHING,
+  so a re-sent batch is absorbed and the trail never holds a point twice;
+- the source is per phone ("phone-" + 8 hex of the stable id), so two phones in one archive
+  cannot collide on a second, and a phone's re-send lands only on its own rows.
+
+Proven on the JVM against stubs (25 m rule, monotonic timestamps, exact ack, 9000 points in
+batches with a failure in the middle re-sent once, no-session no-op) and, for the box side, in
+internal/pgtest (InsertPoints twice = the same rows). Settings › LOCATION TRAIL shows points
+today and points waiting for the box.
+
+## Tags with categories, and the photo digest a prompt actually wants
+
+frame_tags.category (people, place, object, activity, food, animal, vehicle, nature, event, text,
+style; '' = not yet) turns a flat word list into a summary. The tag pass now asks the model for
+category:tag pairs (search.TagPrompt); a bare tag is placed by search.Lexicon, a few hundred of
+the tags an archive actually produces (last word of a compound decides, plurals fold), no model
+needed; whatever is left goes to a categorize job (search.CategorizePrompt, one small call per
+frame, background). The stock-take has a new stage, CATEGORISED (Audit, Converge, /v1/pipeline
+"categorised" + a "categorize" queue), and after each pass framed asks searchd for
+`categorize`, which queues the backfill in bulk , thousands of frames are one command, not
+thousands of notifies. /v1/frames rows carry tagsByCategory next to tags.
+
+synthd injects the matched photo SET as one line, after memories and before the caption
+snippets: "8 photos match (2026-07-04 to 2026-07-06): people: child, two adults · place: beach,
+harbour · food: pastel de nata · activity: sailing" , searchd `search` limited to images, then
+`digest` over the frame hashes (Store.TagDigest groups by category, most frequent first). Six
+snippets tell the model about six photos; the digest tells it what the whole set is made of.
+
+## The phone searches the web; the box never does
+
+New in /v1/chat (secd forwards, synthd formats): `web`, an array of results the PHONE fetched for
+this question , title, url, snippet, an excerpt of the page cut to the paragraph that matches
+the question, and when. synthd bounds it (6 hits, 1500 chars of excerpt each), adds each as a
+"web" context item so the app's transparency panel shows exactly what the model saw, and puts a
+labelled block after the archive context: "Web results the user's phone fetched … this box has
+no internet … attribute by site name". The box still opens no socket to the outside.
+
+App: net/WebSearch.kt , DuckDuckGo's HTML endpoint (built for script-less browsers; no key, no
+library), the result anchors and snippets by regex, the top three pages fetched in parallel and
+cut to the best-matching window; five results, bounded seconds, nothing rather than late. A
+"web" line under the composer cycles off / auto / on (AppSettings.webMode, off by default): auto
+searches only when the question mentions time, money, news, places or comparisons
+(WebSearch.looksFresh); the chat shows "searching the web on this phone…" while it runs. The
+result-page markup (result__a, result__snippet, the uddg= redirect) is what that endpoint has
+served for years but could not be fetched from the build sandbox; if it changes, the parser finds
+nothing and the question goes to the box without web context, never with garbage.
+
+## The web search grows up: a plan, tools, a readability pass, numbered sources
+
+net/WebSearch.kt is now a small pipeline rather than one request. PLAN: the question with the
+chat filler cut off both ends ("hey, can you please tell me…", "…for me please") is the first
+search; its bare keywords are a second, run only when the first came back thin; and when the
+question is about now and names no year, the same again with the year, always. Results merge by
+URL and the pages several queries agree on move up. TOOLS: a weather question goes to Open-Meteo
+(geocoded by the place named, or the trail's last fix within six hours when it names none; "for
+tomorrow" is a day, not a place), a currency question to the ECB's rates via Frankfurter
+("100 euros in pounds", "gbp to ron", symbols too), a short "who is / what is X" to Wikipedia's
+summary API; all keyless, one GET each, and each comes back as a hit with a kind of its own
+(weather, rate, summary) so the box sees a dated figure, not somebody's prose. SEARCH: DuckDuckGo
+HTML, then the lite endpoint when HTML answers with nothing or its bot check, both parsed by the
+anchor's class whatever the attribute order. READ: the top three pages get a readability pass ,
+the article/main element when there is one, comments and script/style/nav/header/footer/aside/
+form/figure removed, paragraphs split at block ends, anything shorter than forty characters or
+more link than text dropped (menus, "related" lists), the page's own title, description and
+publish date kept (meta, JSON-LD datePublished, the first <time>) , and the excerpt is the
+description plus the window around the paragraph with the most question terms. A Wikipedia
+result is read through the summary API instead of scraped. Ten-minute cache per question.
+
+The chat now shows the findings numbered under the reply ("5 from the web · searched on this
+phone"), each row the title, site and date, a tap opening the page; synthd's block is numbered
+the same way and asks the model to cite by number and site, to prefer a dated figure to an
+undated page, and to say when the findings do not settle the question; the block carries the
+fetched time once, so "today" in a page means the right day. synthd bounds eight hits now and
+validates the kind. Verified on fixtures: both DuckDuckGo markups, the bot check, the readability
+extract on a page with nav, sidebar, comment and link-menu traps, the tool selection, and the
+three JSON formatters (Open-Meteo, Frankfurter, Wikipedia) on sample documents in the shape
+those APIs return , none of the four hosts is reachable from the build sandbox, so the live
+markup and JSON remain unverified until the APK runs on a phone; each path returns nothing on a
+surprise, never garbage.
+
+## The lock-screen card pulled open, GOT IT, and a Greek pack with levels
+
+Pull the card down and it now shows the pronunciation and meaning, the aside, then "next" and
+"then" (the two cards after this one, so a glance teaches three), and "36 of 178 known · level 2,
+getting by · 4/41 morning". A third action, GOT IT, marks the phrase known: it leaves the walk at
+once (the next card slides in from the snapshot, no pause), counts in the progress line, and comes
+back only as a review. The cursor is pinned to the card just shown before the background re-sync
+from the packs, and a redraw of the same card is skipped, so a tap never shows one card and then
+another. Same on the widget: the header carries known/total.
+
+Phrases carry a level (1 survival, 2 getting by, 3 conversation, 4 sounding local; packs without
+the field are level 1) and the walk is gated by the person's band: level 1 until 60% of it is
+known, then level 2 joins, and so on; a slot with fewer than five cards left borrows the next
+level so the walk never runs dry. After every four unlearned cards one known card comes round
+(each at most once a walk; which one shifts with the day), and when everything is known the walk
+is the known cards, heaviest first. The greeting always leads. Known = drill score ≥ 3, now keyed
+per language (drill.<lang>.<id>; the old drill.<id> keys are read as a fallback), set by GOT IT,
+the ✓ on any row (slot list, phrasebook), three GOT ITs in the drill, or the LEVELS section's
+"I know these" per level, which is how someone who already has the basics skips forty taps.
+
+Greek is the first pack with the levels filled in: 181 phrases (39 survival as before, 79
+getting by, 45 conversation, 18 sounding local) across five new chapters , numbers & time, out
+and about, small talk, what you think, sounding local , with the coffee orders (freddo métrio,
+ellinikó skéto), the kilo of house wine, sunbeds, the ferry, "siga siga", "éla", "ti léei", "mia
+chará", "kalí synécheia", "filótimo", and speaker forms where the adjective changes
+(kourasménos/-i, allergikós/-í, sígouros/-i). Written by me, not by a native speaker: the
+accents and the stressed syllables were checked word by word, the cultural notes are the ones a
+regular gets told, and any one that makes a taverna laugh is one edit in el.json. Verified with
+the app's own parser and engine over all eighteen packs (the harness: band, the due walk, the
+review sprinkle, progress) and with the surface itself compiled against Android stubs: draw,
+the expanded text, NEXT, GOT IT on a card and on the greeting, the band climbing after
+"I know these", lock screen off, SAY. JUnit: PhraseEngineTest, WebSearchTest.

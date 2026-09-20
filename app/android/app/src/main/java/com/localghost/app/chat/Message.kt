@@ -17,6 +17,10 @@ data class Message(
     // "thinking…" toggle; not persisted by the box (chat history reloads with it empty, which is
     // honest , the box stores the conversation, not the scratchpad).
     val reasoning: String = "",
+    // What the PHONE found on the web for this turn and handed to the box, numbered in the order
+    // the box saw them, so a "[2]" in the answer is a link the person can open. Kept with the
+    // reply, not the question: it is part of how the answer was made.
+    val web: List<com.localghost.app.net.WebSearch.Hit> = emptyList(),
 ) {
     enum class Role { USER, GHOST }
 }

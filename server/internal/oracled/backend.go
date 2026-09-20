@@ -314,7 +314,9 @@ func (b *llamaBackend) Stop() {
 	go func() { _, _ = b.proc.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(2 * time.Second):
+		// 2s, down from 10: a model server has nothing to flush, and watchd gives the whole
+		// daemon 5s before it kills us (and, through Pdeathsig, llama with us).
 		_ = b.proc.Kill()
 		<-done
 	}

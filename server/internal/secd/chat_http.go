@@ -51,6 +51,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		// here: forwarded as received, bounded downstream. Same lesson as the two fields above ,
 		// the edge forwards the whole contract, or the feature is silently decorative.
 		History json.RawMessage `json:"history,omitempty"`
+		// Web results the phone fetched for this question. The box never reaches the internet;
+		// the phone did, on the person's say-so, and hands the findings in. Opaque here, bounded
+		// downstream.
+		Web json.RawMessage `json:"web,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil || req.Prompt == "" {
 		s.appearsDown(w)
@@ -66,6 +70,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.History) > 0 && len(req.History) <= 64<<10 {
 		fwd["history"] = req.History
+	}
+	if len(req.Web) > 0 && len(req.Web) <= 32<<10 {
+		fwd["web"] = req.Web
 	}
 	body, _ := json.Marshal(fwd)
 	runDir := fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)

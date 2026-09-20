@@ -217,6 +217,48 @@ func main() {
 	})
 
 	// ingest: other daemons hand items in here , one writer to the search schema.
+	// categorize: queue the category backfill for frames whose tags still lack one (the
+	// stock-take calls it once per pass; safe any time, queues nothing on a healthy archive).
+	ctl.Handle("categorize", func(args json.RawMessage) (ctlsock.Response, error) {
+		var a struct {
+			Limit int `json:"limit"`
+		}
+		if len(args) > 0 {
+			_ = json.Unmarshal(args, &a)
+		}
+		n, err := storeW.EnqueueCategorize(a.Limit)
+		if err != nil {
+			return ctlsock.Response{}, err
+		}
+		data, _ := json.Marshal(map[string]int{"queued": n})
+		return ctlsock.Response{OK: true, Text: fmt.Sprintf("queued %d frames for tag categories", n), Data: data}, nil
+	})
+	// digest: the tags of a set of frames grouped by category , the prompt-sized summary synthd
+	// injects when a question matches photos. hashes=<csv>.
+	ctl.Handle("digest", func(args json.RawMessage) (ctlsock.Response, error) {
+		var a struct {
+			Hashes json.RawMessage `json:"hashes"`
+			Per    int             `json:"per"`
+		}
+		if len(args) > 0 {
+			if err := json.Unmarshal(args, &a); err != nil {
+				return ctlsock.Response{}, err
+			}
+		}
+		hashes := splitCSV(flexStr(a.Hashes))
+		var clean []string
+		for _, h := range hashes {
+			if len(h) == 32 && strings.Trim(h, "0123456789abcdef") == "" {
+				clean = append(clean, h)
+			}
+		}
+		d, err := storeA.TagDigest(clean, a.Per)
+		if err != nil {
+			return ctlsock.Response{}, err
+		}
+		data, _ := json.Marshal(d)
+		return ctlsock.Response{OK: true, Data: data}, nil
+	})
 	ctl.Handle("ingest", func(args json.RawMessage) (ctlsock.Response, error) {
 		var a struct {
 			Source     string         `json:"source"`

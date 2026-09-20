@@ -31,16 +31,18 @@ type PipelineProgress struct {
 	Other           int `json:"other"`
 	Total           int `json:"total"` // photos + videos, the rows that have stages
 
-	Derived   PipelineStage `json:"derived"`   // pipe_ver at the highest version
-	Previewed PipelineStage `json:"previewed"` // preview + thumb on disk
-	Described PipelineStage `json:"described"`
-	Titled    PipelineStage `json:"titled"`
-	Tagged    PipelineStage `json:"tagged"`
-	AtLatest  PipelineStage `json:"atLatest"` // all of the above
+	Derived     PipelineStage `json:"derived"`   // pipe_ver at the highest version
+	Previewed   PipelineStage `json:"previewed"` // preview + thumb on disk
+	Described   PipelineStage `json:"described"`
+	Titled      PipelineStage `json:"titled"`
+	Tagged      PipelineStage `json:"tagged"`
+	Categorised PipelineStage `json:"categorised"` // tagged frames whose model tags all carry a category
+	AtLatest    PipelineStage `json:"atLatest"`    // all of the above
 
-	Caption PipelineQueue `json:"caption"`
-	Tag     PipelineQueue `json:"tag"`
-	Embed   PipelineQueue `json:"embed"`
+	Caption    PipelineQueue `json:"caption"`
+	Tag        PipelineQueue `json:"tag"`
+	Embed      PipelineQueue `json:"embed"`
+	Categorize PipelineQueue `json:"categorize"`
 
 	DescribedLastHour int   `json:"describedLastHour"`
 	DescribedLastDay  int   `json:"describedLastDay"`
@@ -101,13 +103,15 @@ func PipelineProgressFrom(c *poltergres.ReadWrite) (PipelineProgress, error) {
 		       count(*) FILTER (WHERE staged AND description <> ''),
 		       count(*) FILTER (WHERE staged AND display_name <> ''),
 		       count(*) FILTER (WHERE staged AND tagged),
+		       count(*) FILTER (WHERE staged AND tagged AND categorised),
 		       count(*) FILTER (WHERE staged AND pipe_ver >= (SELECT v FROM ver) AND preview_path <> '' AND thumb_path <> ''
-		                          AND description <> '' AND display_name <> '' AND tagged),
+		                          AND description <> '' AND display_name <> '' AND tagged AND categorised),
 		       count(*) FILTER (WHERE staged AND description <> '' AND described_at >= $1),
 		       count(*) FILTER (WHERE staged AND description <> '' AND described_at >= $2),
 		       coalesce(max(described_at), 0)
 		FROM (SELECT f.*, f.kind IN ('photo','video') AS staged,
-		             EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash) AS tagged
+		             EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash) AS tagged,
+		             NOT EXISTS (SELECT 1 FROM frame_tags t WHERE t.hash = f.hash AND t.category = '' AND t.source <> 'user_removed') AS categorised
 		      FROM frames f) x`, p.Now-3600, p.Now-86400)
 	p.PipelineVersion = at(v, 0)
 	p.Photos, p.Videos, p.Other = at(v, 1), at(v, 2), at(v, 3)
@@ -117,9 +121,10 @@ func PipelineProgressFrom(c *poltergres.ReadWrite) (PipelineProgress, error) {
 	p.Described = PipelineStage{at(v, 6), p.Total}
 	p.Titled = PipelineStage{at(v, 7), p.Total}
 	p.Tagged = PipelineStage{at(v, 8), p.Total}
-	p.AtLatest = PipelineStage{at(v, 9), p.Total}
-	p.DescribedLastHour, p.DescribedLastDay = at(v, 10), at(v, 11)
-	p.LastDescribedAt = int64(at(v, 12))
+	p.Categorised = PipelineStage{at(v, 9), p.Tagged.Done}
+	p.AtLatest = PipelineStage{at(v, 10), p.Total}
+	p.DescribedLastHour, p.DescribedLastDay = at(v, 11), at(v, 12)
+	p.LastDescribedAt = int64(at(v, 13))
 
 	q := ints(`
 		SELECT count(*) FILTER (WHERE kind = 'caption' AND attempts < 5),
@@ -127,11 +132,14 @@ func PipelineProgressFrom(c *poltergres.ReadWrite) (PipelineProgress, error) {
 		       count(*) FILTER (WHERE kind = 'tag' AND attempts < 5),
 		       count(*) FILTER (WHERE kind = 'tag' AND attempts >= 5),
 		       count(*) FILTER (WHERE kind = 'embed_text' AND attempts < 5),
-		       count(*) FILTER (WHERE kind = 'embed_text' AND attempts >= 5)
+		       count(*) FILTER (WHERE kind = 'embed_text' AND attempts >= 5),
+		       count(*) FILTER (WHERE kind = 'categorize' AND attempts < 5),
+		       count(*) FILTER (WHERE kind = 'categorize' AND attempts >= 5)
 		FROM search.jobs`)
 	p.Caption = PipelineQueue{at(q, 0), at(q, 1)}
 	p.Tag = PipelineQueue{at(q, 2), at(q, 3)}
 	p.Embed = PipelineQueue{at(q, 4), at(q, 5)}
+	p.Categorize = PipelineQueue{at(q, 6), at(q, 7)}
 
 	left := p.Described.Total - p.Described.Done
 	switch {

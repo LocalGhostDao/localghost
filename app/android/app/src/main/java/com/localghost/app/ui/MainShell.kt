@@ -130,6 +130,7 @@ fun MainShell(
             "notifications" -> dest = Dest.NOTIFICATIONS
             "memories" -> dest = Dest.MEMORIES
             "phrases" -> dest = Dest.PHRASES
+            "map" -> dest = Dest.MAP
         }
         if (navRequest.isNotEmpty()) onNavConsumed()
     }

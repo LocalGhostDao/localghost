@@ -12,8 +12,8 @@
   "CY"
  ],
  "lateHours": false,
- "scriptNote": "Greek alphabet. The romanised line follows the sound, not the letters; 'th' as in thin, 'dh' as in this, 'gh' a soft throat sound.",
- "genderedSpeech": false,
+ "scriptNote": "Greek alphabet. The romanised line follows the sound, not the letters; 'th' as in thin, 'dh' as in this, 'gh' a soft throat sound, 'kh' as in loch.",
+ "genderedSpeech": true,
  "emergency": [
   {
    "label": "Greece · any emergency",
@@ -43,7 +43,8 @@
    ],
    "weight": 10,
    "situation": "GREETINGS",
-   "roman": "Kaliméra"
+   "roman": "Kaliméra",
+   "level": 1
   },
   {
    "id": "good_afternoon",
@@ -57,7 +58,8 @@
    "weight": 10,
    "situation": "GREETINGS",
    "roman": "Kaló mesiméri",
-   "note": "Kaliméra stretches well past noon; kalispéra takes over from mid-afternoon."
+   "note": "Kaliméra stretches well past noon; kalispéra takes over from mid-afternoon.",
+   "level": 1
   },
   {
    "id": "good_evening",
@@ -69,7 +71,8 @@
    ],
    "weight": 10,
    "situation": "GREETINGS",
-   "roman": "Kalispéra"
+   "roman": "Kalispéra",
+   "level": 1
   },
   {
    "id": "good_night",
@@ -81,7 +84,8 @@
    ],
    "weight": 10,
    "situation": "GREETINGS",
-   "roman": "Kaliníchta"
+   "roman": "Kaliníchta",
+   "level": 1
   },
   {
    "id": "hello",
@@ -91,7 +95,8 @@
    "slots": [],
    "weight": 6,
    "situation": "GREETINGS",
-   "roman": "Yia sas"
+   "roman": "Yia sas",
+   "level": 1
   },
   {
    "id": "goodbye",
@@ -101,7 +106,8 @@
    "slots": [],
    "weight": 5,
    "situation": "GREETINGS",
-   "roman": "Antío"
+   "roman": "Antío",
+   "level": 1
   },
   {
    "id": "how_are_you",
@@ -114,7 +120,8 @@
    ],
    "weight": 4,
    "situation": "GREETINGS",
-   "roman": "Ti kánete?"
+   "roman": "Ti kánete?",
+   "level": 1
   },
   {
    "id": "fine_thanks",
@@ -127,7 +134,8 @@
    ],
    "weight": 3,
    "situation": "GREETINGS",
-   "roman": "Kalá, efcharistó"
+   "roman": "Kalá, efcharistó",
+   "level": 1
   },
   {
    "id": "please",
@@ -137,7 +145,8 @@
    "slots": [],
    "weight": 6,
    "situation": "POLITE",
-   "roman": "Parakaló"
+   "roman": "Parakaló",
+   "level": 1
   },
   {
    "id": "thank_you",
@@ -147,7 +156,8 @@
    "slots": [],
    "weight": 9,
    "situation": "POLITE",
-   "roman": "Efcharistó"
+   "roman": "Efcharistó",
+   "level": 1
   },
   {
    "id": "thanks_a_lot",
@@ -160,7 +170,8 @@
    ],
    "weight": 5,
    "situation": "POLITE",
-   "roman": "Efcharistó polí"
+   "roman": "Efcharistó polí",
+   "level": 1
   },
   {
    "id": "excuse_me",
@@ -170,7 +181,8 @@
    "slots": [],
    "weight": 7,
    "situation": "POLITE",
-   "roman": "Me synchoríte"
+   "roman": "Me synchoríte",
+   "level": 1
   },
   {
    "id": "sorry",
@@ -180,7 +192,8 @@
    "slots": [],
    "weight": 5,
    "situation": "POLITE",
-   "roman": "Signómi"
+   "roman": "Signómi",
+   "level": 1
   },
   {
    "id": "yes",
@@ -190,7 +203,8 @@
    "slots": [],
    "weight": 3,
    "situation": "POLITE",
-   "roman": "Ne"
+   "roman": "Ne",
+   "level": 1
   },
   {
    "id": "no",
@@ -200,7 +214,8 @@
    "slots": [],
    "weight": 3,
    "situation": "POLITE",
-   "roman": "Óchi"
+   "roman": "Óchi",
+   "level": 1
   },
   {
    "id": "one_coffee",
@@ -213,7 +228,8 @@
    "weight": 9,
    "situation": "CAFE",
    "roman": "Énan kafé, parakaló",
-   "note": "Say 'énan freddo espresso' in summer and you will pass for a local."
+   "note": "Say 'énan freddo espresso' in summer and you will pass for a local.",
+   "level": 1
   },
   {
    "id": "water",
@@ -226,7 +242,8 @@
    ],
    "weight": 7,
    "situation": "CAFE",
-   "roman": "Éna potíri neró, parakaló"
+   "roman": "Éna potíri neró, parakaló",
+   "level": 1
   },
   {
    "id": "two_beers",
@@ -239,7 +256,8 @@
    ],
    "weight": 7,
    "situation": "CAFE",
-   "roman": "Dío bíres, parakaló"
+   "roman": "Dío bíres, parakaló",
+   "level": 1
   },
   {
    "id": "table_for_two",
@@ -251,7 +269,8 @@
    ],
    "weight": 10,
    "situation": "RESTAURANT",
-   "roman": "Éna trapézi gia dío, parakaló"
+   "roman": "Éna trapézi gia dío, parakaló",
+   "level": 1
   },
   {
    "id": "menu",
@@ -264,7 +283,8 @@
    ],
    "weight": 7,
    "situation": "RESTAURANT",
-   "roman": "Ton katálogo, parakaló"
+   "roman": "Ton katálogo, parakaló",
+   "level": 1
   },
   {
    "id": "bill",
@@ -278,7 +298,8 @@
    ],
    "weight": 10,
    "situation": "RESTAURANT",
-   "roman": "Ton logariasmó, parakaló"
+   "roman": "Ton logariasmó, parakaló",
+   "level": 1
   },
   {
    "id": "card",
@@ -293,7 +314,8 @@
    ],
    "weight": 6,
    "situation": "RESTAURANT",
-   "roman": "Boró na plirόso me kárta?"
+   "roman": "Boró na plirόso me kárta?",
+   "level": 1
   },
   {
    "id": "delicious",
@@ -305,7 +327,8 @@
    ],
    "weight": 4,
    "situation": "RESTAURANT",
-   "roman": "Ítan nóstimo"
+   "roman": "Ítan nóstimo",
+   "level": 1
   },
   {
    "id": "cheers",
@@ -319,7 +342,8 @@
    "weight": 6,
    "situation": "RESTAURANT",
    "roman": "Stin ygeiá mas!",
-   "note": "Shortened to 'yamas' among friends."
+   "note": "Shortened to 'yamas' among friends.",
+   "level": 1
   },
   {
    "id": "how_much",
@@ -332,7 +356,8 @@
    ],
    "weight": 8,
    "situation": "SHOP",
-   "roman": "Póso káni?"
+   "roman": "Póso káni?",
+   "level": 1
   },
   {
    "id": "close_time",
@@ -344,7 +369,8 @@
    ],
    "weight": 4,
    "situation": "SHOP",
-   "roman": "Ti óra klínete?"
+   "roman": "Ti óra klínete?",
+   "level": 1
   },
   {
    "id": "ticket",
@@ -357,7 +383,8 @@
    ],
    "weight": 6,
    "situation": "TRANSPORT",
-   "roman": "Éna eisitírio gia to kéntro, parakaló"
+   "roman": "Éna eisitírio gia to kéntro, parakaló",
+   "level": 1
   },
   {
    "id": "where_station",
@@ -371,7 +398,8 @@
    ],
    "weight": 6,
    "situation": "TRANSPORT",
-   "roman": "Pou íne o stathmós?"
+   "roman": "Pou íne o stathmós?",
+   "level": 1
   },
   {
    "id": "taxi",
@@ -384,7 +412,8 @@
    ],
    "weight": 6,
    "situation": "TRANSPORT",
-   "roman": "Éna taxí, parakaló"
+   "roman": "Éna taxí, parakaló",
+   "level": 1
   },
   {
    "id": "reservation",
@@ -397,7 +426,8 @@
    ],
    "weight": 5,
    "situation": "HOTEL",
-   "roman": "Écho krátisi"
+   "roman": "Écho krátisi",
+   "level": 1
   },
   {
    "id": "breakfast",
@@ -410,7 +440,8 @@
    ],
    "weight": 4,
    "situation": "HOTEL",
-   "roman": "Ti óra íne to proinó?"
+   "roman": "Ti óra íne to proinó?",
+   "level": 1
   },
   {
    "id": "toilet",
@@ -420,7 +451,8 @@
    "slots": [],
    "weight": 8,
    "situation": "HELP",
-   "roman": "Pou íne i toualéta?"
+   "roman": "Pou íne i toualéta?",
+   "level": 1
   },
   {
    "id": "english",
@@ -430,7 +462,8 @@
    "slots": [],
    "weight": 7,
    "situation": "HELP",
-   "roman": "Miláte angliká?"
+   "roman": "Miláte angliká?",
+   "level": 1
   },
   {
    "id": "dont_understand",
@@ -440,7 +473,8 @@
    "slots": [],
    "weight": 5,
    "situation": "HELP",
-   "roman": "Den katalavéno"
+   "roman": "Den katalavéno",
+   "level": 1
   },
   {
    "id": "slowly",
@@ -450,7 +484,8 @@
    "slots": [],
    "weight": 4,
    "situation": "HELP",
-   "roman": "Pio argá, parakaló"
+   "roman": "Pio argá, parakaló",
+   "level": 1
   },
   {
    "id": "lost",
@@ -464,7 +499,8 @@
    ],
    "weight": 3,
    "situation": "HELP",
-   "roman": "Cháthika"
+   "roman": "Cháthika",
+   "level": 1
   },
   {
    "id": "help",
@@ -474,7 +510,8 @@
    "slots": [],
    "weight": 10,
    "situation": "EMERGENCY",
-   "roman": "Voítheia!"
+   "roman": "Voítheia!",
+   "level": 1
   },
   {
    "id": "doctor",
@@ -484,7 +521,8 @@
    "slots": [],
    "weight": 9,
    "situation": "EMERGENCY",
-   "roman": "Kaléste énan giatró"
+   "roman": "Kaléste énan giatró",
+   "level": 1
   },
   {
    "id": "police",
@@ -494,7 +532,1828 @@
    "slots": [],
    "weight": 9,
    "situation": "EMERGENCY",
-   "roman": "Kaléste tin astynomía"
+   "roman": "Kaléste tin astynomía",
+   "level": 1
+  },
+  {
+   "id": "yia_sou",
+   "en": "Hi / bye (to a friend)",
+   "local": "Γεια σου",
+   "say": "ya SOO",
+   "roman": "Geia sou",
+   "slots": [],
+   "weight": 7,
+   "situation": "GREETINGS",
+   "level": 2,
+   "note": "The informal one. Geia sas to strangers, elders and anyone behind a counter."
+  },
+  {
+   "id": "ti_kaneis",
+   "en": "How are you? (to a friend)",
+   "local": "Τι κάνεις;",
+   "say": "tee KA-nees",
+   "roman": "Ti káneis",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "GREETINGS",
+   "level": 2
+  },
+  {
+   "id": "kalo_apogevma",
+   "en": "Have a good afternoon",
+   "local": "Καλό απόγευμα",
+   "say": "ka-LO a-PO-yev-ma",
+   "roman": "Kaló apógevma",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "GREETINGS",
+   "level": 2
+  },
+  {
+   "id": "kalo_vrady",
+   "en": "Have a good evening (as you leave)",
+   "local": "Καλό βράδυ",
+   "say": "ka-LO VRA-dhee",
+   "roman": "Kaló vrády",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "level": 2,
+   "note": "Kalispéra when you arrive, kaló vrády when you leave."
+  },
+  {
+   "id": "kali_evdomada",
+   "en": "Have a good week",
+   "local": "Καλή εβδομάδα",
+   "say": "ka-LEE ev-dho-MA-dha",
+   "roman": "Kalí evdomáda",
+   "slots": [
+    "MORNING"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "level": 3,
+   "note": "Mondays only, and everyone says it."
+  },
+  {
+   "id": "kalo_mina",
+   "en": "Happy new month",
+   "local": "Καλό μήνα",
+   "say": "ka-LO MEE-na",
+   "roman": "Kaló mína",
+   "slots": [],
+   "weight": 3,
+   "situation": "GREETINGS",
+   "level": 3,
+   "note": "On the first of the month, to everyone, all day."
+  },
+  {
+   "id": "kalo_savvatokyriako",
+   "en": "Have a good weekend",
+   "local": "Καλό Σαββατοκύριακο",
+   "say": "ka-LO sa-va-to-KEE-ree-a-ko",
+   "roman": "Kaló Savvatokýriako",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "level": 3
+  },
+  {
+   "id": "kalos_irthate",
+   "en": "Welcome",
+   "local": "Καλώς ήρθατε",
+   "say": "ka-LOS EER-tha-teh",
+   "roman": "Kalós írthate",
+   "slots": [],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "level": 3,
+   "note": "You will hear it at every door. The reply is 'kalós sas vríkame', roughly 'good to find you'."
+  },
+  {
+   "id": "kalos_sas_vrikame",
+   "en": "Good to be here (the reply to welcome)",
+   "local": "Καλώς σας βρήκαμε",
+   "say": "ka-LOS sas VREE-ka-meh",
+   "roman": "Kalós sas vríkame",
+   "slots": [],
+   "weight": 4,
+   "situation": "GREETINGS",
+   "level": 3
+  },
+  {
+   "id": "kali_orexi",
+   "en": "Enjoy your meal",
+   "local": "Καλή όρεξη",
+   "say": "ka-LEE O-rek-see",
+   "roman": "Kalí órexi",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 6,
+   "situation": "POLITE",
+   "level": 2,
+   "note": "Said to the next table as you pass, and to you by the waiter."
+  },
+  {
+   "id": "tipota",
+   "en": "Don't mention it",
+   "local": "Τίποτα",
+   "say": "TEE-po-ta",
+   "roman": "Típota",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "level": 2,
+   "note": "Literally 'nothing': the reply to thank you."
+  },
+  {
+   "id": "den_peirazei",
+   "en": "Never mind",
+   "local": "Δεν πειράζει",
+   "say": "dhen pee-RA-zee",
+   "roman": "Den peirázei",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "level": 2
+  },
+  {
+   "id": "miso_lepto",
+   "en": "One moment",
+   "local": "Μισό λεπτό",
+   "say": "mee-SO lep-TO",
+   "roman": "Misó leptó",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "level": 2,
+   "note": "Half a minute, which in Greece is a flexible unit."
+  },
+  {
+   "id": "vevaios",
+   "en": "Of course",
+   "local": "Βεβαίως",
+   "say": "ve-VEH-os",
+   "roman": "Vevaíos",
+   "slots": [],
+   "weight": 4,
+   "situation": "POLITE",
+   "level": 2
+  },
+  {
+   "id": "kanena_provlima",
+   "en": "No problem",
+   "local": "Κανένα πρόβλημα",
+   "say": "ka-NEH-na PRO-vlee-ma",
+   "roman": "Kanéna próvlima",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "level": 2
+  },
+  {
+   "id": "na_sai_kala",
+   "en": "Be well (a warm thank you)",
+   "local": "Να 'σαι καλά",
+   "say": "na seh ka-LA",
+   "roman": "Na 'sai kalá",
+   "slots": [],
+   "weight": 5,
+   "situation": "POLITE",
+   "level": 3,
+   "note": "Thank you and bless you in one. To strangers, 'na 'ste kalá'."
+  },
+  {
+   "id": "chronia_polla",
+   "en": "Many happy returns",
+   "local": "Χρόνια πολλά",
+   "say": "KHRO-nya po-LA",
+   "roman": "Chrónia pollá",
+   "slots": [],
+   "weight": 4,
+   "situation": "POLITE",
+   "level": 3,
+   "note": "Birthdays, name days, every feast. The reply is 'epísis', likewise."
+  },
+  {
+   "id": "syncharitiria",
+   "en": "Congratulations",
+   "local": "Συγχαρητήρια",
+   "say": "seen-kha-ree-TEE-ree-a",
+   "roman": "Syncharitíria",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "level": 3
+  },
+  {
+   "id": "perastika",
+   "en": "Get well soon",
+   "local": "Περαστικά",
+   "say": "pe-ra-stee-KA",
+   "roman": "Perastiká",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "level": 3
+  },
+  {
+   "id": "kalo_taxidi",
+   "en": "Have a good trip",
+   "local": "Καλό ταξίδι",
+   "say": "ka-LO tak-SEE-dhee",
+   "roman": "Kaló taxídi",
+   "slots": [],
+   "weight": 3,
+   "situation": "POLITE",
+   "level": 3
+  },
+  {
+   "id": "kali_diaskedasi",
+   "en": "Have fun",
+   "local": "Καλή διασκέδαση",
+   "say": "ka-LEE dhee-a-SKEH-dha-see",
+   "roman": "Kalí diaskédasi",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "POLITE",
+   "level": 3
+  },
+  {
+   "id": "one_to_three",
+   "en": "One, two, three",
+   "local": "Ένα, δύο, τρία",
+   "say": "EH-na, DHEE-o, TREE-a",
+   "roman": "Éna, dýo, tría",
+   "slots": [],
+   "weight": 7,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "four_to_six",
+   "en": "Four, five, six",
+   "local": "Τέσσερα, πέντε, έξι",
+   "say": "TEH-se-ra, PEN-deh, EK-see",
+   "roman": "Téssera, pénte, éxi",
+   "slots": [],
+   "weight": 6,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "seven_to_ten",
+   "en": "Seven, eight, nine, ten",
+   "local": "Επτά, οκτώ, εννέα, δέκα",
+   "say": "ep-TA, ok-TO, e-NEH-a, DHEH-ka",
+   "roman": "Eptá, októ, ennéa, déka",
+   "slots": [],
+   "weight": 6,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "twenty_fifty_hundred",
+   "en": "Twenty, fifty, a hundred",
+   "local": "Είκοσι, πενήντα, εκατό",
+   "say": "EE-ko-see, pe-NIN-da, e-ka-TO",
+   "roman": "Eíkosi, penínta, ekató",
+   "slots": [],
+   "weight": 5,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "what_time",
+   "en": "What time is it?",
+   "local": "Τι ώρα είναι;",
+   "say": "tee O-ra EE-neh",
+   "roman": "Ti óra eínai",
+   "slots": [],
+   "weight": 6,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "at_eight",
+   "en": "At eight o'clock",
+   "local": "Στις οκτώ",
+   "say": "stees ok-TO",
+   "roman": "Stis októ",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "NUMBERS",
+   "level": 2,
+   "note": "Stis plus the number. At one o'clock is 'sti mía'."
+  },
+  {
+   "id": "today_tomorrow",
+   "en": "Today, tomorrow",
+   "local": "Σήμερα, αύριο",
+   "say": "SEE-me-ra, AV-ree-o",
+   "roman": "Símera, ávrio",
+   "slots": [],
+   "weight": 5,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "yesterday",
+   "en": "Yesterday",
+   "local": "Χθες",
+   "say": "khthes",
+   "roman": "Chthes",
+   "slots": [],
+   "weight": 3,
+   "situation": "NUMBERS",
+   "level": 2,
+   "note": "One syllable, two throat sounds in a row. Take it slowly."
+  },
+  {
+   "id": "half_hour",
+   "en": "In half an hour",
+   "local": "Σε μισή ώρα",
+   "say": "seh mee-SEE O-ra",
+   "roman": "Se misí óra",
+   "slots": [],
+   "weight": 5,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "how_long_take",
+   "en": "How long does it take?",
+   "local": "Πόση ώρα κάνει;",
+   "say": "PO-see O-ra KA-nee",
+   "roman": "Pósi óra kánei",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "days",
+   "en": "Monday, Saturday, Sunday",
+   "local": "Δευτέρα, Σάββατο, Κυριακή",
+   "say": "dhef-TEH-ra, SA-va-to, kee-ree-a-KEE",
+   "roman": "Deftéra, Sávvato, Kyriakí",
+   "slots": [],
+   "weight": 3,
+   "situation": "NUMBERS",
+   "level": 2
+  },
+  {
+   "id": "freddo",
+   "en": "A freddo espresso, medium sweet",
+   "local": "Έναν φρέντο εσπρέσο, μέτριο",
+   "say": "EH-nan FRED-o es-PRES-o, MET-ree-o",
+   "roman": "Énan fréddo espréso, métrio",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "CAFE",
+   "level": 2,
+   "note": "Métrio is medium sweet, skéto no sugar, glykó sweet. Freddo is the summer coffee of Greece."
+  },
+  {
+   "id": "greek_coffee",
+   "en": "A Greek coffee, no sugar",
+   "local": "Έναν ελληνικό, σκέτο",
+   "say": "EH-nan e-lee-nee-KO, SKEH-to",
+   "roman": "Énan ellinikó, skéto",
+   "slots": [
+    "MORNING",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "CAFE",
+   "level": 2,
+   "note": "Boiled in a bríki, grounds and all. Do not drink the last sip."
+  },
+  {
+   "id": "frappe",
+   "en": "A frappé with milk",
+   "local": "Έναν φραπέ με γάλα",
+   "say": "EH-nan fra-PEH meh GHA-la",
+   "roman": "Énan frapé me gála",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "CAFE",
+   "level": 2
+  },
+  {
+   "id": "takeaway",
+   "en": "To take away",
+   "local": "Για έξω",
+   "say": "ya EK-so",
+   "roman": "Gia éxo",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 5,
+   "situation": "CAFE",
+   "level": 2,
+   "note": "Literally 'for outside'. 'Edó' for here."
+  },
+  {
+   "id": "orange_juice",
+   "en": "A fresh orange juice",
+   "local": "Έναν φρέσκο χυμό πορτοκάλι",
+   "say": "EH-nan FRES-ko khee-MO por-to-KA-lee",
+   "roman": "Énan frésko chymó portokáli",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "CAFE",
+   "level": 2
+  },
+  {
+   "id": "what_recommend",
+   "en": "What do you recommend?",
+   "local": "Τι προτείνετε;",
+   "say": "tee pro-TEE-ne-teh",
+   "roman": "Ti proteínete",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "fresh_fish",
+   "en": "Which fish is fresh today?",
+   "local": "Ποιο ψάρι είναι φρέσκο σήμερα;",
+   "say": "pyo PSA-ree EE-neh FRES-ko SEE-me-ra",
+   "roman": "Poio psári eínai frésko símera",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2,
+   "note": "Fish is priced by the kilo. Ask to see it, and ask the price before it reaches the grill."
+  },
+  {
+   "id": "house_wine",
+   "en": "Half a kilo of house wine",
+   "local": "Μισό κιλό κρασί χύμα",
+   "say": "mee-SO kee-LO kra-SEE KHEE-ma",
+   "roman": "Misó kiló krasí chýma",
+   "slots": [
+    "EVENING"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "level": 2,
+   "note": "House wine comes by the kilo, in a tin jug. Chýma means loose, from the barrel."
+  },
+  {
+   "id": "ouzo",
+   "en": "An ouzo with ice",
+   "local": "Ένα ούζο με πάγο",
+   "say": "EH-na OO-zo meh PA-gho",
+   "roman": "Éna oúzo me págo",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "tap_water",
+   "en": "Tap water is fine, thank you",
+   "local": "Νερό της βρύσης, ευχαριστώ",
+   "say": "ne-RO tees VREE-sees, ef-kha-ree-STO",
+   "roman": "Neró tis vrýsis, efcharistó",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "vegetarian",
+   "en": "I'm vegetarian",
+   "local": "Είμαι χορτοφάγος",
+   "say": "EE-meh khor-to-FA-ghos",
+   "roman": "Eímai chortofágos",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "allergic_nuts",
+   "en": "I'm allergic to nuts",
+   "local": "Είμαι αλλεργικός στους ξηρούς καρπούς",
+   "say": "EE-meh a-ler-yee-KOS stoos ksee-ROOS kar-POOS",
+   "roman": "Eímai allergikós stous xiroús karpoús",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2,
+   "forms": {
+    "feminine": "Είμαι αλλεργική στους ξηρούς καρπούς",
+    "feminineSay": "EE-meh a-ler-yee-KEE stoos ksee-ROOS kar-POOS"
+   }
+  },
+  {
+   "id": "is_it_spicy",
+   "en": "Is it spicy?",
+   "local": "Είναι καυτερό;",
+   "say": "EE-neh kaf-te-RO",
+   "roman": "Eínai kafteró",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 3,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "same_again",
+   "en": "The same again, please",
+   "local": "Το ίδιο πάλι, παρακαλώ",
+   "say": "to EE-dhee-o PA-lee, pa-ra-ka-LO",
+   "roman": "To ídio páli, parakaló",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "nothing_else",
+   "en": "Nothing else, thank you",
+   "local": "Τίποτα άλλο, ευχαριστώ",
+   "say": "TEE-po-ta A-lo, ef-kha-ree-STO",
+   "roman": "Típota állo, efcharistó",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "pay_separately",
+   "en": "Can we pay separately?",
+   "local": "Μπορούμε να πληρώσουμε χωριστά;",
+   "say": "bo-ROO-meh na plee-RO-soo-meh kho-ree-STA",
+   "roman": "Boroúme na plirósoume choristá",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 2
+  },
+  {
+   "id": "my_treat",
+   "en": "This one's on me",
+   "local": "Κερνάω εγώ",
+   "say": "ker-NA-o e-GHO",
+   "roman": "Kernáo egó",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 3,
+   "note": "The kérasma is serious. Refuse twice out of politeness, never a third time."
+  },
+  {
+   "id": "do_you_have",
+   "en": "Do you have…?",
+   "local": "Έχετε…;",
+   "say": "EH-khe-teh",
+   "roman": "Échete",
+   "slots": [],
+   "weight": 6,
+   "situation": "SHOP",
+   "level": 2,
+   "note": "Followed by anything: échete neró, échete Wi-Fi, échete metritá."
+  },
+  {
+   "id": "too_expensive",
+   "en": "That's too expensive",
+   "local": "Είναι πολύ ακριβό",
+   "say": "EE-neh po-LEE a-kree-VO",
+   "roman": "Eínai polý akrivó",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "SHOP",
+   "level": 2
+  },
+  {
+   "id": "just_looking",
+   "en": "I'm just looking",
+   "local": "Απλώς κοιτάω",
+   "say": "a-PLOS kee-TA-o",
+   "roman": "Aplós koitáo",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "SHOP",
+   "level": 2
+  },
+  {
+   "id": "ill_take_it",
+   "en": "I'll take it",
+   "local": "Θα το πάρω",
+   "say": "tha to PA-ro",
+   "roman": "Tha to páro",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "SHOP",
+   "level": 2
+  },
+  {
+   "id": "bigger_smaller",
+   "en": "Bigger, smaller",
+   "local": "Μεγαλύτερο, μικρότερο",
+   "say": "me-gha-LEE-te-ro, mee-KRO-te-ro",
+   "roman": "Megalýtero, mikrótero",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "SHOP",
+   "level": 2
+  },
+  {
+   "id": "cash_or_card",
+   "en": "Cash or card?",
+   "local": "Μετρητά ή κάρτα;",
+   "say": "me-tree-TA ee KAR-ta",
+   "roman": "Metritá í kárta",
+   "slots": [],
+   "weight": 4,
+   "situation": "SHOP",
+   "level": 2
+  },
+  {
+   "id": "receipt",
+   "en": "A receipt, please",
+   "local": "Μια απόδειξη, παρακαλώ",
+   "say": "mya a-PO-dhee-ksee, pa-ra-ka-LO",
+   "roman": "Mia apódeixi, parakaló",
+   "slots": [],
+   "weight": 4,
+   "situation": "SHOP",
+   "level": 2
+  },
+  {
+   "id": "a_kilo_of",
+   "en": "A kilo of tomatoes, please",
+   "local": "Ένα κιλό ντομάτες, παρακαλώ",
+   "say": "EH-na kee-LO do-MA-tes, pa-ra-ka-LO",
+   "roman": "Éna kiló ntomátes, parakaló",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "SHOP",
+   "level": 2,
+   "note": "The laïkí, the street market, sells by the kilo and shouts."
+  },
+  {
+   "id": "open_sunday",
+   "en": "Are you open on Sunday?",
+   "local": "Είστε ανοιχτά την Κυριακή;",
+   "say": "EE-steh a-neekh-TA teen kee-ree-a-KEE",
+   "roman": "Eíste anoichtá tin Kyriakí",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "SHOP",
+   "level": 2
+  },
+  {
+   "id": "left_right_straight",
+   "en": "Left, right, straight on",
+   "local": "Αριστερά, δεξιά, ευθεία",
+   "say": "a-ree-ste-RA, dhek-see-A, ef-THEE-a",
+   "roman": "Aristerá, dexiá, eftheía",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "is_it_far",
+   "en": "Is it far?",
+   "local": "Είναι μακριά;",
+   "say": "EE-neh ma-kree-A",
+   "roman": "Eínai makriá",
+   "slots": [],
+   "weight": 6,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "is_it_near",
+   "en": "Is it close by?",
+   "local": "Είναι κοντά;",
+   "say": "EE-neh kon-DA",
+   "roman": "Eínai kontá",
+   "slots": [],
+   "weight": 4,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "which_bus",
+   "en": "Which bus goes to the centre?",
+   "local": "Ποιο λεωφορείο πάει στο κέντρο;",
+   "say": "pyo le-o-fo-REE-o PA-ee sto KEN-dro",
+   "roman": "Poio leoforeío páei sto kéntro",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "how_much_to_centre",
+   "en": "How much to the centre?",
+   "local": "Πόσο κάνει μέχρι το κέντρο;",
+   "say": "PO-so KA-nee MEH-khree to KEN-dro",
+   "roman": "Póso kánei méchri to kéntro",
+   "slots": [],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 2,
+   "note": "Ask before the taxi moves. The meter, 'to taxímetro', should be on."
+  },
+  {
+   "id": "stop_here",
+   "en": "Stop here, please",
+   "local": "Σταματήστε εδώ, παρακαλώ",
+   "say": "sta-ma-TEE-steh e-DHO, pa-ra-ka-LO",
+   "roman": "Stamatíste edó, parakaló",
+   "slots": [],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "to_the_port",
+   "en": "To the port, please",
+   "local": "Στο λιμάνι, παρακαλώ",
+   "say": "sto lee-MA-nee, pa-ra-ka-LO",
+   "roman": "Sto limáni, parakaló",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "to_the_airport",
+   "en": "To the airport, please",
+   "local": "Στο αεροδρόμιο, παρακαλώ",
+   "say": "sto a-e-ro-DHRO-mee-o, pa-ra-ka-LO",
+   "roman": "Sto aerodrómio, parakaló",
+   "slots": [
+    "MORNING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "ferry_time",
+   "en": "What time does the ferry leave?",
+   "local": "Τι ώρα φεύγει το πλοίο;",
+   "say": "tee O-ra FEV-yee to PLEE-o",
+   "roman": "Ti óra févgei to ploío",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "show_on_map",
+   "en": "Can you show me on the map?",
+   "local": "Μπορείτε να μου δείξετε στον χάρτη;",
+   "say": "bo-REE-teh na moo DHEEK-se-teh ston KHAR-tee",
+   "roman": "Boreíte na mou deíxete ston chárti",
+   "slots": [],
+   "weight": 4,
+   "situation": "TRANSPORT",
+   "level": 2
+  },
+  {
+   "id": "wifi_password",
+   "en": "What's the Wi-Fi password?",
+   "local": "Ποιος είναι ο κωδικός του Wi-Fi;",
+   "say": "pyos EE-neh o ko-dhee-KOS too wi-fi",
+   "roman": "Poios eínai o kodikós tou Wi-Fi",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL",
+   "level": 2
+  },
+  {
+   "id": "ac_broken",
+   "en": "The air conditioning doesn't work",
+   "local": "Το κλιματιστικό δεν δουλεύει",
+   "say": "to klee-ma-tee-stee-KO dhen dhoo-LEV-ee",
+   "roman": "To klimatistikó den doulévei",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "HOTEL",
+   "level": 2
+  },
+  {
+   "id": "leave_luggage",
+   "en": "Can I leave my bags here?",
+   "local": "Μπορώ να αφήσω τις βαλίτσες εδώ;",
+   "say": "bo-RO na a-FEE-so tees va-LEE-tses e-DHO",
+   "roman": "Boró na afíso tis valítses edó",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "HOTEL",
+   "level": 2
+  },
+  {
+   "id": "another_towel",
+   "en": "Could I have another towel?",
+   "local": "Μπορώ να έχω άλλη μία πετσέτα;",
+   "say": "bo-RO na EH-kho A-lee MEE-a pe-TSEH-ta",
+   "roman": "Boró na écho álli mía petséta",
+   "slots": [],
+   "weight": 3,
+   "situation": "HOTEL",
+   "level": 2
+  },
+  {
+   "id": "room_key",
+   "en": "The key to room ten, please",
+   "local": "Το κλειδί για το δέκα, παρακαλώ",
+   "say": "to klee-DHEE ya to DHEH-ka, pa-ra-ka-LO",
+   "roman": "To kleidí gia to déka, parakaló",
+   "slots": [
+    "AFTERNOON",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HOTEL",
+   "level": 2
+  },
+  {
+   "id": "checkout_time",
+   "en": "What time do we have to leave the room?",
+   "local": "Τι ώρα πρέπει να αφήσουμε το δωμάτιο;",
+   "say": "tee O-ra PREH-pee na a-FEE-soo-meh to dho-MA-tee-o",
+   "roman": "Ti óra prépei na afísoume to domátio",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HOTEL",
+   "level": 2
+  },
+  {
+   "id": "where_beach",
+   "en": "Where is the beach?",
+   "local": "Πού είναι η παραλία;",
+   "say": "poo EE-neh ee pa-ra-LEE-a",
+   "roman": "Poú eínai i paralía",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "two_sunbeds",
+   "en": "Two sunbeds, please",
+   "local": "Δύο ξαπλώστρες, παρακαλώ",
+   "say": "DHEE-o ksa-PLO-stres, pa-ra-ka-LO",
+   "roman": "Dýo xaplóstres, parakaló",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 6,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "umbrella_included",
+   "en": "Is the umbrella included?",
+   "local": "Περιλαμβάνεται η ομπρέλα;",
+   "say": "pe-ree-lam-VA-ne-teh ee om-BREH-la",
+   "roman": "Perilamvánetai i ompréla",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "swim_safe",
+   "en": "Is it safe to swim here?",
+   "local": "Είναι ασφαλές το κολύμπι εδώ;",
+   "say": "EE-neh as-fa-LES to ko-LEEM-bee e-DHO",
+   "roman": "Eínai asfalés to kolýmpi edó",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "sunscreen",
+   "en": "Do you sell sunscreen?",
+   "local": "Έχετε αντηλιακό;",
+   "say": "EH-khe-teh an-dee-lee-a-KO",
+   "roman": "Échete antiliakó",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "museum_tickets",
+   "en": "Two tickets for the museum",
+   "local": "Δύο εισιτήρια για το μουσείο",
+   "say": "DHEE-o ee-see-TEE-ree-a ya to moo-SEE-o",
+   "roman": "Dýo eisitíria gia to mouseío",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "what_time_open",
+   "en": "What time does it open?",
+   "local": "Τι ώρα ανοίγει;",
+   "say": "tee O-ra a-NEE-yee",
+   "roman": "Ti óra anoígei",
+   "slots": [
+    "MORNING",
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "rent_scooter",
+   "en": "I'd like to rent a scooter",
+   "local": "Θέλω να νοικιάσω ένα σκούτερ",
+   "say": "THEH-lo na nee-KYA-so EH-na SKOO-ter",
+   "roman": "Thélo na noikiáso éna skoúter",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 3,
+   "situation": "OUT",
+   "level": 2
+  },
+  {
+   "id": "sea_lovely",
+   "en": "The sea is wonderful",
+   "local": "Η θάλασσα είναι υπέροχη",
+   "say": "ee THA-la-sa EE-neh ee-PEH-ro-khee",
+   "roman": "I thálassa eínai ypérochi",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "OUT",
+   "level": 3
+  },
+  {
+   "id": "speak_little",
+   "en": "I speak a little Greek",
+   "local": "Μιλάω λίγα ελληνικά",
+   "say": "mee-LA-o LEE-gha e-lee-nee-KA",
+   "roman": "Miláo líga elliniká",
+   "slots": [],
+   "weight": 6,
+   "situation": "HELP",
+   "level": 2,
+   "note": "Say it and watch the whole table warm up."
+  },
+  {
+   "id": "what_does_mean",
+   "en": "What does this mean?",
+   "local": "Τι σημαίνει αυτό;",
+   "say": "tee see-MEH-nee af-TO",
+   "roman": "Ti simaínei aftó",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP",
+   "level": 2
+  },
+  {
+   "id": "how_say",
+   "en": "How do you say … in Greek?",
+   "local": "Πώς λέγεται … στα ελληνικά;",
+   "say": "pos LEH-ye-teh … sta e-lee-nee-KA",
+   "roman": "Pós légetai … sta elliniká",
+   "slots": [],
+   "weight": 5,
+   "situation": "HELP",
+   "level": 2
+  },
+  {
+   "id": "write_it_down",
+   "en": "Can you write it down?",
+   "local": "Μπορείτε να το γράψετε;",
+   "say": "bo-REE-teh na to GHRAP-se-teh",
+   "roman": "Boreíte na to grápsete",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP",
+   "level": 2
+  },
+  {
+   "id": "repeat_please",
+   "en": "Could you repeat that?",
+   "local": "Μπορείτε να το επαναλάβετε;",
+   "say": "bo-REE-teh na to e-pa-na-LA-ve-teh",
+   "roman": "Boreíte na to epanalávete",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP",
+   "level": 2
+  },
+  {
+   "id": "i_dont_know",
+   "en": "I don't know",
+   "local": "Δεν ξέρω",
+   "say": "dhen KSEH-ro",
+   "roman": "Den xéro",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP",
+   "level": 2
+  },
+  {
+   "id": "pharmacy",
+   "en": "Where is a pharmacy?",
+   "local": "Πού υπάρχει φαρμακείο;",
+   "say": "poo ee-PAR-khee far-ma-KEE-o",
+   "roman": "Poú ypárchei farmakeío",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "HELP",
+   "level": 2,
+   "note": "The green cross. One is always on night duty, 'dianykterévon'."
+  },
+  {
+   "id": "not_well",
+   "en": "I don't feel well",
+   "local": "Δεν νιώθω καλά",
+   "say": "dhen NYO-tho ka-LA",
+   "roman": "Den niótho kalá",
+   "slots": [],
+   "weight": 4,
+   "situation": "HELP",
+   "level": 2
+  },
+  {
+   "id": "charge_phone",
+   "en": "Can I charge my phone here?",
+   "local": "Μπορώ να φορτίσω το κινητό μου εδώ;",
+   "say": "bo-RO na for-TEE-so to kee-nee-TO moo e-DHO",
+   "roman": "Boró na fortíso to kinitó mou edó",
+   "slots": [],
+   "weight": 3,
+   "situation": "HELP",
+   "level": 2
+  },
+  {
+   "id": "my_name_is",
+   "en": "My name is …",
+   "local": "Με λένε …",
+   "say": "meh LEH-neh",
+   "roman": "Me léne",
+   "slots": [],
+   "weight": 6,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "your_name",
+   "en": "What's your name?",
+   "local": "Πώς σε λένε;",
+   "say": "pos seh LEH-neh",
+   "roman": "Pós se léne",
+   "slots": [],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3,
+   "note": "To someone older or behind a desk: 'pós sas léne'."
+  },
+  {
+   "id": "nice_to_meet",
+   "en": "Nice to meet you",
+   "local": "Χάρηκα",
+   "say": "KHA-ree-ka",
+   "roman": "Chárika",
+   "slots": [],
+   "weight": 6,
+   "situation": "SMALLTALK",
+   "level": 3,
+   "note": "Literally 'I was glad'. The reply is 'ki egó', me too."
+  },
+  {
+   "id": "where_from",
+   "en": "Where are you from?",
+   "local": "Από πού είσαι;",
+   "say": "a-PO poo EE-seh",
+   "roman": "Apó poú eísai",
+   "slots": [],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "i_am_from",
+   "en": "I'm from …",
+   "local": "Είμαι από …",
+   "say": "EE-meh a-PO",
+   "roman": "Eímai apó",
+   "slots": [],
+   "weight": 6,
+   "situation": "SMALLTALK",
+   "level": 3,
+   "note": "Apó to Londíno, apó tin Anglía, apó ti Roumanía."
+  },
+  {
+   "id": "first_time",
+   "en": "It's my first time in Greece",
+   "local": "Είναι η πρώτη μου φορά στην Ελλάδα",
+   "say": "EE-neh ee PRO-tee moo fo-RA steen e-LA-dha",
+   "roman": "Eínai i próti mou forá stin Elláda",
+   "slots": [],
+   "weight": 4,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "on_holiday",
+   "en": "I'm here on holiday",
+   "local": "Είμαι εδώ για διακοπές",
+   "say": "EE-meh e-DHO ya dhee-a-ko-PES",
+   "roman": "Eímai edó gia diakopés",
+   "slots": [],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "how_long_staying",
+   "en": "How long are you staying?",
+   "local": "Πόσο θα μείνεις;",
+   "say": "PO-so tha MEE-nees",
+   "roman": "Póso tha meíneis",
+   "slots": [],
+   "weight": 3,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "one_week",
+   "en": "One week",
+   "local": "Μία εβδομάδα",
+   "say": "MEE-a ev-dho-MA-dha",
+   "roman": "Mía evdomáda",
+   "slots": [],
+   "weight": 4,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "what_work",
+   "en": "What do you do?",
+   "local": "Τι δουλειά κάνεις;",
+   "say": "tee dhoo-LYA KA-nees",
+   "roman": "Ti douleiá káneis",
+   "slots": [],
+   "weight": 3,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "work_computers",
+   "en": "I work with computers",
+   "local": "Δουλεύω με υπολογιστές",
+   "say": "dhoo-LEV-o meh ee-po-lo-yee-STES",
+   "roman": "Doulévo me ypologistés",
+   "slots": [],
+   "weight": 3,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "beautiful_here",
+   "en": "It's beautiful here",
+   "local": "Είναι πανέμορφα εδώ",
+   "say": "EE-neh pa-NEH-mor-fa e-DHO",
+   "roman": "Eínai panémorfa edó",
+   "slots": [],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "very_hot",
+   "en": "It's very hot today",
+   "local": "Κάνει πολλή ζέστη σήμερα",
+   "say": "KA-nee po-LEE ZEH-stee SEE-me-ra",
+   "roman": "Kánei pollí zésti símera",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "go_for_coffee",
+   "en": "Shall we go for a coffee?",
+   "local": "Πάμε για καφέ;",
+   "say": "PA-meh ya ka-FEH",
+   "roman": "Páme gia kafé",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3,
+   "note": "A Greek coffee lasts two hours. That is the point."
+  },
+  {
+   "id": "recommend_taverna",
+   "en": "Can you recommend a taverna?",
+   "local": "Μπορείτε να μου προτείνετε μια ταβέρνα;",
+   "say": "bo-REE-teh na moo pro-TEE-ne-teh mya ta-VER-na",
+   "roman": "Boreíte na mou proteínete mia tavérna",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "what_to_see",
+   "en": "What's worth seeing around here?",
+   "local": "Τι αξίζει να δούμε εδώ γύρω;",
+   "say": "tee a-KSEE-zee na DHOO-meh e-DHO YEE-ro",
+   "roman": "Ti axízei na doúme edó gýro",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "take_photo",
+   "en": "May I take a photo?",
+   "local": "Μπορώ να βγάλω μια φωτογραφία;",
+   "say": "bo-RO na VGHA-lo mya fo-to-ghra-FEE-a",
+   "roman": "Boró na vgálo mia fotografía",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "see_you_tomorrow",
+   "en": "See you tomorrow",
+   "local": "Τα λέμε αύριο",
+   "say": "ta LEH-meh AV-ree-o",
+   "roman": "Ta léme ávrio",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3,
+   "note": "'Ta léme' alone is 'see you', the everyday goodbye."
+  },
+  {
+   "id": "hungry",
+   "en": "I'm hungry",
+   "local": "Πεινάω",
+   "say": "pee-NA-o",
+   "roman": "Peináo",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "thirsty",
+   "en": "I'm thirsty",
+   "local": "Διψάω",
+   "say": "dhee-PSA-o",
+   "roman": "Dipsáo",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "tired",
+   "en": "I'm tired",
+   "local": "Είμαι κουρασμένος",
+   "say": "EE-meh koo-ra-SMEH-nos",
+   "roman": "Eímai kourasménos",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "SMALLTALK",
+   "level": 3,
+   "forms": {
+    "feminine": "Είμαι κουρασμένη",
+    "feminineSay": "EE-meh koo-ra-SMEH-nee"
+   }
+  },
+  {
+   "id": "lets_go",
+   "en": "Let's go!",
+   "local": "Πάμε!",
+   "say": "PA-meh",
+   "roman": "Páme",
+   "slots": [],
+   "weight": 5,
+   "situation": "SMALLTALK",
+   "level": 3
+  },
+  {
+   "id": "i_like_it",
+   "en": "I like it a lot",
+   "local": "Μου αρέσει πολύ",
+   "say": "moo a-REH-see po-LEE",
+   "roman": "Mou arései polý",
+   "slots": [],
+   "weight": 6,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "i_think",
+   "en": "I think that …",
+   "local": "Νομίζω ότι …",
+   "say": "no-MEE-zo O-tee",
+   "roman": "Nomízo óti",
+   "slots": [],
+   "weight": 4,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "i_agree",
+   "en": "I agree",
+   "local": "Συμφωνώ",
+   "say": "seem-fo-NO",
+   "roman": "Symfonó",
+   "slots": [],
+   "weight": 4,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "good_idea",
+   "en": "Good idea",
+   "local": "Καλή ιδέα",
+   "say": "ka-LEE ee-DHEH-a",
+   "roman": "Kalí idéa",
+   "slots": [],
+   "weight": 4,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "maybe_later",
+   "en": "Maybe later",
+   "local": "Ίσως αργότερα",
+   "say": "EE-sos ar-GHO-te-ra",
+   "roman": "Ísos argótera",
+   "slots": [],
+   "weight": 4,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "i_prefer",
+   "en": "I'd rather …",
+   "local": "Προτιμώ …",
+   "say": "pro-tee-MO",
+   "roman": "Protimó",
+   "slots": [],
+   "weight": 3,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "doesnt_matter",
+   "en": "It doesn't matter to me",
+   "local": "Δεν με πειράζει",
+   "say": "dhen meh pee-RA-zee",
+   "roman": "Den me peirázei",
+   "slots": [],
+   "weight": 3,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "not_sure",
+   "en": "I'm not sure",
+   "local": "Δεν είμαι σίγουρος",
+   "say": "dhen EE-meh SEE-ghoo-ros",
+   "roman": "Den eímai sígouros",
+   "slots": [],
+   "weight": 3,
+   "situation": "OPINION",
+   "level": 3,
+   "forms": {
+    "feminine": "Δεν είμαι σίγουρη",
+    "feminineSay": "dhen EE-meh SEE-ghoo-ree"
+   }
+  },
+  {
+   "id": "it_was_great",
+   "en": "It was wonderful",
+   "local": "Ήταν υπέροχα",
+   "say": "EE-tan ee-PEH-ro-kha",
+   "roman": "Ítan ypérocha",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "too_loud",
+   "en": "It's too loud here",
+   "local": "Έχει πολλή φασαρία εδώ",
+   "say": "EH-khee po-LEE fa-sa-REE-a e-DHO",
+   "roman": "Échei pollí fasaría edó",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 2,
+   "situation": "OPINION",
+   "level": 3
+  },
+  {
+   "id": "siga_siga",
+   "en": "Slowly, slowly",
+   "local": "Σιγά σιγά",
+   "say": "see-GHA see-GHA",
+   "roman": "Sigá sigá",
+   "slots": [],
+   "weight": 6,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "The national tempo, and the answer to 'when?'"
+  },
+  {
+   "id": "ela",
+   "en": "Come on / hey / no way",
+   "local": "Έλα",
+   "say": "EH-la",
+   "roman": "Éla",
+   "slots": [],
+   "weight": 6,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "Literally 'come'. Answers the phone, voices disbelief, urges you on: one word, twenty meanings."
+  },
+  {
+   "id": "entaxei",
+   "en": "OK",
+   "local": "Εντάξει",
+   "say": "en-DAK-see",
+   "roman": "Entáxei",
+   "slots": [],
+   "weight": 6,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "Literally 'in order'. Agreement, acknowledgement, resignation."
+  },
+  {
+   "id": "ti_leei",
+   "en": "What's up?",
+   "local": "Τι λέει;",
+   "say": "tee LEH-ee",
+   "roman": "Ti léei",
+   "slots": [],
+   "weight": 5,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "'What does it say?', between friends. The answer is 'óla kalá'."
+  },
+  {
+   "id": "ola_kala",
+   "en": "All good",
+   "local": "Όλα καλά",
+   "say": "O-la ka-LA",
+   "roman": "Óla kalá",
+   "slots": [],
+   "weight": 5,
+   "situation": "LOCAL",
+   "level": 4
+  },
+  {
+   "id": "mia_chara",
+   "en": "Just fine",
+   "local": "Μια χαρά",
+   "say": "mya kha-RA",
+   "roman": "Mia chará",
+   "slots": [],
+   "weight": 5,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "Literally 'a joy'. How you are, how the food was, how the room is."
+  },
+  {
+   "id": "kali_synecheia",
+   "en": "Enjoy the rest of your day",
+   "local": "Καλή συνέχεια",
+   "say": "ka-LEE see-NEH-khee-a",
+   "roman": "Kalí synécheia",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "'Good continuation': the shopkeeper's goodbye."
+  },
+  {
+   "id": "geia_mas",
+   "en": "Cheers!",
+   "local": "Γεια μας",
+   "say": "ya MAS",
+   "roman": "Geia mas",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "'Health to us'. Clink low and look them in the eye."
+  },
+  {
+   "id": "sto_kalo",
+   "en": "Go well",
+   "local": "Στο καλό",
+   "say": "sto ka-LO",
+   "roman": "Sto kaló",
+   "slots": [],
+   "weight": 4,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "Said to the one who leaves: 'na páte sto kaló'."
+  },
+  {
+   "id": "opa",
+   "en": "Whoa! / oops / hey!",
+   "local": "Ώπα",
+   "say": "O-pa",
+   "roman": "Ópa",
+   "slots": [],
+   "weight": 4,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "A dropped plate, a near miss, a dance, a toast: the interjection for everything."
+  },
+  {
+   "id": "ante",
+   "en": "Come on then / get away!",
+   "local": "Άντε",
+   "say": "AN-deh",
+   "roman": "Ánte",
+   "slots": [],
+   "weight": 4,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "'Ánte geia' is 'bye then'. Alone it is get a move on, or disbelief."
+  },
+  {
+   "id": "ti_na_kanoume",
+   "en": "What can you do?",
+   "local": "Τι να κάνουμε;",
+   "say": "tee na KA-noo-meh",
+   "roman": "Ti na kánoume",
+   "slots": [],
+   "weight": 4,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "The national shrug."
+  },
+  {
+   "id": "malista",
+   "en": "Indeed / certainly",
+   "local": "Μάλιστα",
+   "say": "MA-lee-sta",
+   "roman": "Málista",
+   "slots": [],
+   "weight": 3,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "A polite, formal yes. Also 'I see', when someone explains at length."
+  },
+  {
+   "id": "filotimo",
+   "en": "Filótimo",
+   "local": "Φιλότιμο",
+   "say": "fee-LO-tee-mo",
+   "roman": "Filótimo",
+   "slots": [],
+   "weight": 3,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "Untranslatable: honour, duty and generosity in one word. Praise someone's filótimo and you have a friend."
+  },
+  {
+   "id": "re",
+   "en": "Hey (between friends)",
+   "local": "Ρε",
+   "say": "reh",
+   "roman": "Re",
+   "slots": [],
+   "weight": 3,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "Softens or sharpens anything. Strictly for people you know: 'éla re' is 'oh come on'."
+  },
+  {
+   "id": "tha_doume",
+   "en": "We'll see",
+   "local": "Θα δούμε",
+   "say": "tha DHOO-meh",
+   "roman": "Tha doúme",
+   "slots": [],
+   "weight": 3,
+   "situation": "LOCAL",
+   "level": 4
+  },
+  {
+   "id": "den_variesai",
+   "en": "Let it go",
+   "local": "Δεν βαριέσαι",
+   "say": "dhen va-RYEH-seh",
+   "roman": "Den variésai",
+   "slots": [],
+   "weight": 3,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "Literally 'aren't you bored?'. Means never mind, don't bother."
+  },
+  {
+   "id": "kalo_kalokairi",
+   "en": "Have a good summer",
+   "local": "Καλό καλοκαίρι",
+   "say": "ka-LO ka-lo-KEH-ree",
+   "roman": "Kaló kalokaíri",
+   "slots": [],
+   "weight": 3,
+   "situation": "LOCAL",
+   "level": 4,
+   "note": "From June on, as a goodbye."
   }
  ]
 }

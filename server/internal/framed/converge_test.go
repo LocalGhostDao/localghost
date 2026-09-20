@@ -8,13 +8,13 @@ import (
 func TestTallyCountsStages(t *testing.T) {
 	rows := []Audit{
 		// fully converged photo
-		{Hash: "a", Kind: "photo", PreviewPath: "p", ThumbPath: "t", PipeVer: PipelineVersion, Described: true, Titled: true, Tagged: true},
+		{Hash: "a", Kind: "photo", PreviewPath: "p", ThumbPath: "t", PipeVer: PipelineVersion, Described: true, Titled: true, Tagged: true, Categorised: true},
 		// video behind the pipeline, everything else present
-		{Hash: "b", Kind: "video", PreviewPath: "p", ThumbPath: "t", PipeVer: PipelineVersion - 1, Described: true, Titled: true, Tagged: true},
-		// photo at the latest pipeline, no preview, undescribed
+		{Hash: "b", Kind: "video", PreviewPath: "p", ThumbPath: "t", PipeVer: PipelineVersion - 1, Described: true, Titled: true, Tagged: true, Categorised: true},
+		// photo at the latest pipeline, no preview, undescribed, tags without categories
 		{Hash: "c", Kind: "photo", PipeVer: PipelineVersion, Titled: true, Tagged: true},
-		// video described but untitled and untagged
-		{Hash: "d", Kind: "video", PreviewPath: "p", ThumbPath: "t", PipeVer: PipelineVersion, Described: true},
+		// video described but untitled and untagged (nothing to categorise)
+		{Hash: "d", Kind: "video", PreviewPath: "p", ThumbPath: "t", PipeVer: PipelineVersion, Described: true, Categorised: true},
 		// unknown blob: counted, never staged
 		{Hash: "e", Kind: "unknown"},
 	}
@@ -25,7 +25,7 @@ func TestTallyCountsStages(t *testing.T) {
 	if r.AtLatest != 1 {
 		t.Fatalf("AtLatest = %d, want 1", r.AtLatest)
 	}
-	if r.Behind != 1 || r.NoPreview != 1 || r.NoDescription != 1 || r.NoTitle != 1 || r.NoTags != 1 {
+	if r.Behind != 1 || r.NoPreview != 1 || r.NoDescription != 1 || r.NoTitle != 1 || r.NoTags != 1 || r.NoCategory != 1 {
 		t.Fatalf("gaps: %+v", r)
 	}
 }

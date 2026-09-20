@@ -75,6 +75,7 @@ object PhrasePacks {
                 situation = Situation.fromKey(p.optString("situation", "polite")) ?: Situation.POLITE,
                 note = p.optString("note", ""),
                 forms = forms,
+                level = p.optInt("level", 1).coerceIn(1, Levels.MAX),
             ))
         }
         val emergency = ArrayList<EmergencyNumber>()

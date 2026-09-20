@@ -13,7 +13,12 @@ data class Now(
     val pick: PhraseEngine.Pick?,
     val slotKey: String,
     val form: SpeakerForm,
+    /** Phrase ids the person knows in this pack's language , what the walk was built from. */
+    val known: Set<String> = emptySet(),
+    val dayKey: Int = 0,
 ) {
+    /** The level band the walk is drawing from; 1 when there is no pack. */
+    val band: Int get() = pack?.let { PhraseEngine.band(it, known) } ?: 1
     val phrase: Phrase? get() = pick?.phrase
     val slot: Slot get() = pick?.slot ?: Slot.MORNING
     val headline: String
@@ -56,8 +61,10 @@ object PhraseNow {
         val minute = cal.get(Calendar.MINUTE)
         val slot = PhraseEngine.slotFor(hour, minute, late)
         val key = CountryDetect.slotKey(slot, cal)
-        val pick = PhraseEngine.pick(pack, late, hour, minute, PhraseState.manualNext(ctx, key))
-        return Now(where, pack, langs, late, pick, key, form)
+        val known = PhraseState.known(ctx, pack.lang)
+        val dayKey = cal.get(Calendar.YEAR) * 366 + cal.get(Calendar.DAY_OF_YEAR)
+        val pick = PhraseEngine.pick(pack, late, hour, minute, PhraseState.manualNext(ctx, key), known, dayKey)
+        return Now(where, pack, langs, late, pick, key, form, known, dayKey)
     }
 
     /** Milliseconds until the surfaces should redraw: the next rotation tick or the slot boundary,

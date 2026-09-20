@@ -37,6 +37,7 @@ type ConvergeReport struct {
 	NoDescription int           `json:"noDescription"`
 	NoTitle       int           `json:"noTitle"`
 	NoTags        int           `json:"noTags"`
+	NoCategory    int           `json:"noCategory"`   // tagged, but some tags have no category yet (searchd's categorize backfill)
 	Rederived     int           `json:"rederived"`    // rows re-read from their original this pass
 	Previewed     int           `json:"previewed"`    // previews written this pass
 	Notified      int           `json:"notified"`     // ensure notifies handed to searchd
@@ -54,9 +55,9 @@ func (r ConvergeReport) String() string {
 			total, r.Photos, r.Videos, PipelineVersion, r.Took.Round(time.Millisecond))
 	}
 	return fmt.Sprintf("%d frames (%d photos, %d videos): %d at the latest stage; behind v%d: %d; no preview: %d; "+
-		"undescribed: %d; untitled: %d; untagged: %d; unrenderable videos: %d , re-derived %d, previewed %d, asked searchd for %d, %s",
+		"undescribed: %d; untitled: %d; untagged: %d; tags without category: %d; unrenderable videos: %d , re-derived %d, previewed %d, asked searchd for %d, %s",
 		total, r.Photos, r.Videos, r.AtLatest, PipelineVersion, r.Behind, r.NoPreview,
-		r.NoDescription, r.NoTitle, r.NoTags, r.Unrenderable, r.Rederived, r.Previewed, r.Notified, r.Took.Round(time.Millisecond))
+		r.NoDescription, r.NoTitle, r.NoTags, r.NoCategory, r.Unrenderable, r.Rederived, r.Previewed, r.Notified, r.Took.Round(time.Millisecond))
 }
 
 // ConvergeState is the row framed publishes in daemon_state under "converge": the live progress
@@ -124,7 +125,10 @@ func tally(rows []Audit) ConvergeReport {
 		if !a.Tagged {
 			r.NoTags++
 		}
-		if !behind && !noPrev && a.Described && a.Titled && a.Tagged {
+		if a.Tagged && !a.Categorised {
+			r.NoCategory++
+		}
+		if !behind && !noPrev && a.Described && a.Titled && a.Tagged && a.Categorised {
 			r.AtLatest++
 		}
 	}
@@ -156,7 +160,7 @@ func (p *Pipeline) Converge() ConvergeReport {
 		noPrev := a.PreviewPath == "" || a.ThumbPath == ""
 		render := renderFor(a.Kind, a.ArchivePath, a.PreviewPath)
 		takenAt := a.TakenAt
-		touched := behind || noPrev || !a.Described || !a.Titled || !a.Tagged
+		touched := behind || noPrev || !a.Described || !a.Titled || !a.Tagged || (a.Tagged && !a.Categorised)
 		if behind || noPrev {
 			// framed's own repairs: read the original again with today's pipeline. This also
 			// stamps pipe_ver, so the row is not re-read at the next start.
@@ -189,7 +193,7 @@ func (p *Pipeline) Converge() ConvergeReport {
 			work++
 		}
 		if touched {
-			st.Done++
+			st.Done++ // a row that only lacks categories is handled in bulk by searchd's categorize, asked for after the pass
 		}
 		if work/200 > logged {
 			logged = work / 200

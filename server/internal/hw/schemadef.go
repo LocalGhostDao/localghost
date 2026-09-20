@@ -218,9 +218,15 @@ var schemaRegistry = []SchemaTable{
 		{"tag", "TEXT", true, ""},
 		{"source", "TEXT", true, "'model'"},
 		{"created_at", "BIGINT", true, ""},
+		// CATEGORY , one of search.Categories (people, place, object, activity, food, animal,
+		// vehicle, nature, event, text, style); '' = not yet assigned. Grouping tags by category
+		// is what turns a matched photo set into a prompt-sized digest ("places: beach, harbour ·
+		// food: pastel de nata") instead of a flat word list.
+		{"category", "TEXT", true, "''"},
 	}, Indexes: []string{
 		"CREATE INDEX IF NOT EXISTS frame_tags_tag ON frame_tags (tag)",
 		"CREATE INDEX IF NOT EXISTS frame_tags_hash ON frame_tags (hash)",
+		"CREATE INDEX IF NOT EXISTS frame_tags_category ON frame_tags (category)",
 	}},
 	{Name: "location_points", PK: "ts, source", Cols: []SchemaCol{
 		{"ts", "BIGINT", true, ""},

@@ -78,16 +78,13 @@ func (v *VisionOracle) Caption(ctx context.Context, imagePath string) (string, e
 	return resp.Output, nil
 }
 
-// TagPrompt , tags are the retrieval and browsing surface a caption's prose cannot be. Short,
-// lowercase, concrete; the model proposes, the human corrects, and corrections outrank the model.
-const TagPrompt = `From this photo description, output 6-12 short lowercase tags: single words or two-word phrases, concrete things and places and activities only (no colours-as-tags, no counts, no sentences). Reply with ONLY the comma-separated tags.
-
-`
-
 // Tagger extracts tags from a caption. Text-only , cheap compared to the vision pass that made the
 // caption, so tagging rides the same background queue without meaningfully competing.
 type Tagger interface {
-	Tags(ctx context.Context, caption string) ([]string, error)
+	Tags(ctx context.Context, caption string) ([]Tag, error)
+	// Categorize assigns categories to existing bare tags (the backfill); the lexicon is tried
+	// first by the caller, so this only sees what needs a model.
+	Categorize(ctx context.Context, tags []string) ([]Tag, error)
 }
 
 // TagOracle is the oracled-backed Tagger.
@@ -96,22 +93,18 @@ type TagOracle struct {
 	Timeout time.Duration
 }
 
-func (t *TagOracle) Tags(ctx context.Context, caption string) ([]string, error) {
+func (t *TagOracle) Tags(ctx context.Context, caption string) ([]Tag, error) {
 	_ = ctx
 	if t.Client == nil {
 		return nil, ErrNoVision
-	}
-	deadline := t.Timeout
-	if deadline <= 0 {
-		deadline = time.Minute
 	}
 	resp, err := t.Client.Infer(oracle.Request{
 		Capability: "tags",
 		Class:      oracle.ClassLocalSmall,
 		Priority:   oracle.PriorityBackground,
 		Input:      TagPrompt + caption,
-		MaxTokens:  128,
-		DeadlineMS: int(deadline.Milliseconds()),
+		MaxTokens:  160,
+		DeadlineMS: int(t.deadline().Milliseconds()),
 	})
 	if err != nil {
 		return nil, err
@@ -119,22 +112,42 @@ func (t *TagOracle) Tags(ctx context.Context, caption string) ([]string, error) 
 	return ParseTags(resp.Output), nil
 }
 
-// ParseTags normalises the model's comma list: lowercase, trimmed, 2..24 chars, deduped, capped at
-// 12. Defensive by construction , a rambling model yields fewer tags, never garbage rows.
-func ParseTags(raw string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, part := range strings.Split(raw, ",") {
-		tag := strings.ToLower(strings.TrimSpace(part))
-		tag = strings.Trim(tag, ".:;\"'`")
-		if len(tag) < 2 || len(tag) > 24 || strings.ContainsAny(tag, "\n\t") || seen[tag] {
-			continue
-		}
-		seen[tag] = true
-		out = append(out, tag)
-		if len(out) == 12 {
-			break
+func (t *TagOracle) Categorize(ctx context.Context, tags []string) ([]Tag, error) {
+	_ = ctx
+	if t.Client == nil {
+		return nil, ErrNoVision
+	}
+	if len(tags) == 0 {
+		return nil, nil
+	}
+	resp, err := t.Client.Infer(oracle.Request{
+		Capability: "tags",
+		Class:      oracle.ClassLocalSmall,
+		Priority:   oracle.PriorityBackground,
+		Input:      CategorizePrompt + strings.Join(tags, ", "),
+		MaxTokens:  160,
+		DeadlineMS: int(t.deadline().Milliseconds()),
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Only the tags we asked about, whatever the model volunteered.
+	asked := map[string]bool{}
+	for _, tg := range tags {
+		asked[tg] = true
+	}
+	var out []Tag
+	for _, tg := range ParseTags(resp.Output) {
+		if asked[tg.Name] && tg.Category != "" {
+			out = append(out, tg)
 		}
 	}
-	return out
+	return out, nil
+}
+
+func (t *TagOracle) deadline() time.Duration {
+	if t.Timeout <= 0 {
+		return time.Minute
+	}
+	return t.Timeout
 }

@@ -54,6 +54,8 @@ func (w *Worker) tick(ctx context.Context) {
 	}
 	for w.one(ctx, "tag", w.doTags) {
 	}
+	for w.one(ctx, "categorize", w.doCategorize) {
+	}
 	for w.one(ctx, "reconsolidate", w.doReconsolidate) {
 	}
 }
@@ -184,11 +186,13 @@ func (w *Worker) doTags(ctx context.Context, job *Job) error {
 		for _, tag := range tags {
 			// User corrections outrank the model FOREVER: a tag the user removed is a tombstone row
 			// (source 'user_removed'), and this NOT EXISTS keeps the model from resurrecting it.
+			// The category rides in from the tag pass (or the lexicon); '' means a later
+			// categorize job fills it.
 			if err := w.Store.db.Exec(
-				`INSERT INTO frame_tags (hash, tag, source, created_at)
-				 SELECT $1, $2, 'model', $3
+				`INSERT INTO frame_tags (hash, tag, source, created_at, category)
+				 SELECT $1, $2, 'model', $3, $4
 				 WHERE NOT EXISTS (SELECT 1 FROM frame_tags WHERE hash = $1 AND tag = $2)`,
-				hash, tag, time.Now().UTC().Unix()); err != nil {
+				hash, tag.Name, time.Now().UTC().Unix(), tag.Category); err != nil {
 				return err
 			}
 		}
@@ -200,7 +204,7 @@ func (w *Worker) doTags(ctx context.Context, job *Job) error {
 			n = len(tags)
 		}
 		for _, t := range tags[:n] {
-			name += " " + t
+			name += " " + t.Name
 		}
 		if err := w.Store.db.Exec(
 			`UPDATE frames SET display_name = $1 WHERE hash = $2 AND (display_name IS NULL OR display_name = '')`,
@@ -214,11 +218,54 @@ func (w *Worker) doTags(ctx context.Context, job *Job) error {
 		return nil
 	}
 	captured := time.Unix(p.Captured, 0).UTC()
-	ids, err := w.Store.InsertChunksT0("image", p.OrigID, captured, ChunkText("", "tags: "+strings.Join(tags, ", ")))
+	ids, err := w.Store.InsertChunksT0("image", p.OrigID, captured, ChunkText("", "tags: "+strings.Join(TagNames(tags), ", ")))
 	if err != nil {
 		return err
 	}
 	return w.Ingester.enqueueEmbeds(ids)
+}
+
+// doCategorize is the backfill for tags written before categories existed, and for whatever the
+// tag pass left at ''. Lexicon first (free); the model only for the remainder; a tag the model
+// cannot place stays '' and is counted, not guessed. Payload: {"hash": ..., "tags": [...]}.
+func (w *Worker) doCategorize(ctx context.Context, job *Job) error {
+	var p struct {
+		Hash string   `json:"hash"`
+		Tags []string `json:"tags"`
+	}
+	if err := json.Unmarshal(job.Payload, &p); err != nil {
+		return err
+	}
+	if p.Hash == "" || len(p.Tags) == 0 {
+		return nil
+	}
+	set := func(tag, cat string) error {
+		return w.Store.db.Exec(
+			`UPDATE frame_tags SET category = $3 WHERE hash = $1 AND tag = $2 AND category = ''`, p.Hash, tag, cat)
+	}
+	var rest []string
+	for _, t := range p.Tags {
+		if c := Lexicon(t); c != "" {
+			if err := set(t, c); err != nil {
+				return err
+			}
+		} else {
+			rest = append(rest, t)
+		}
+	}
+	if len(rest) == 0 || w.Tag == nil {
+		return nil
+	}
+	got, err := w.Tag.Categorize(ctx, rest)
+	if err != nil {
+		return err
+	}
+	for _, t := range got {
+		if err := set(t.Name, t.Category); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // frameHashFromPath extracts the 32-hex content hash from an archive filename (<hash>.<ext>).

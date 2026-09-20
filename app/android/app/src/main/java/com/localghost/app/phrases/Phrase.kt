@@ -25,17 +25,36 @@ enum class Slot(val label: String, val glyph: String) {
 enum class Situation(val label: String) {
     GREETINGS("greetings"),
     POLITE("being polite"),
+    NUMBERS("numbers & time"),
     CAFE("café"),
     RESTAURANT("restaurant"),
     SHOP("shops"),
     TRANSPORT("getting around"),
     HOTEL("hotel"),
+    OUT("out and about"),
+    SMALLTALK("small talk"),
+    OPINION("what you think"),
+    LOCAL("sounding local"),
     HELP("when stuck"),
     EMERGENCY("emergency");
 
     companion object {
         fun fromKey(k: String): Situation? = entries.firstOrNull { it.name.equals(k, ignoreCase = true) }
     }
+}
+
+/**
+ * How far into a language a phrase sits. The rotation only shows a level once the one below it is
+ * mostly KNOWN (see [PhraseEngine.band]), so a pack of two hundred phrases still opens with good
+ * morning and one coffee, and a person who already has those gets the next layer instead of the
+ * same ten cards for a fortnight. Packs that predate levels are all level 1.
+ */
+object Levels {
+    const val MAX = 4
+    private val names = arrayOf("", "survival", "getting by", "conversation", "sounding local")
+    fun name(level: Int): String = names.getOrElse(level.coerceIn(1, MAX)) { "" }
+    /** A level is done when this share of its phrases is known; then the next one joins the walk. */
+    const val DONE_SHARE = 0.6
 }
 
 /** The speaker's grammatical form, for languages where a phrase changes with who says it
@@ -59,6 +78,7 @@ enum class SpeakerForm(val label: String) {
  * @property note      a short cultural aside, or empty
  * @property forms     speaker-form overrides: "masculine" / "feminine" -> local line (and optional
  *                     "masculineSay" / "feminineSay" for the pronunciation)
+ * @property level     1..[Levels.MAX]: survival, getting by, conversation, sounding local
  */
 data class Phrase(
     val id: String,
@@ -71,6 +91,7 @@ data class Phrase(
     val situation: Situation = Situation.POLITE,
     val note: String = "",
     val forms: Map<String, String> = emptyMap(),
+    val level: Int = 1,
 ) {
     /** The local line for a speaker form, falling back to the default. */
     fun localFor(form: SpeakerForm): String = when (form) {

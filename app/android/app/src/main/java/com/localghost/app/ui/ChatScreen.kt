@@ -143,6 +143,26 @@ fun ChatScreen(
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.clickable { onToggleIncognito() })
         }
+        // Web: the PHONE looks the question up and hands the findings to the box, which itself
+        // never reaches the internet. Off by default; auto only for questions that look like they
+        // need the outside world; on for every question. Tap to cycle. Visible, like incognito ,
+        // a search that leaves the phone for a third party must never be a surprise.
+        run {
+            val wctx = androidx.compose.ui.platform.LocalContext.current
+            var web by remember { mutableStateOf(com.localghost.app.settings.AppSettings.webMode(wctx)) }
+            Row(Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                Text(when (web) {
+                    "on" -> "◉ WEB on , this phone searches for every question (DuckDuckGo, and weather, rates and Wikipedia when asked) and hands the findings to the box"
+                    "auto" -> "◐ web auto , searched on this phone when a question needs the outside world: news, prices, weather, who is, how much"
+                    else -> "○ web off , the box answers from your archive alone"
+                }, color = if (web == "on") TerminalGreen else GhostTextDim,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.clickable {
+                        web = when (web) { "off" -> "auto"; "auto" -> "on"; else -> "off" }
+                        com.localghost.app.settings.AppSettings.setWebMode(wctx, web)
+                    })
+            }
+        }
         val canSend = !streaming && (input.isNotBlank() || pendingAttachments.isNotEmpty())
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
@@ -238,6 +258,36 @@ private fun MessageBubble(msg: Message, selectable: Boolean = true) {
                         Text("◇ $it", color = GhostText,
                             style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.padding(vertical = 1.dp))
+                    }
+                }
+            }
+        }
+        // What the phone found on the web for this turn, numbered as the box saw them: a "[2]" in
+        // the answer is row 2 here, and a tap opens it. Weather, rates and summaries carry a glyph
+        // so a figure reads as a figure, not as a page somebody wrote.
+        if (msg.web.isNotEmpty()) {
+            var webOpen by remember { mutableStateOf(false) }
+            val wctx = androidx.compose.ui.platform.LocalContext.current
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { webOpen = !webOpen }.padding(bottom = 4.dp)) {
+                Text(if (webOpen) "−" else "+", color = TerminalGreen, fontSize = 13.sp,
+                    modifier = Modifier.padding(end = 6.dp))
+                Text("${msg.web.size} from the web · searched on this phone", color = TerminalGreen,
+                    style = MaterialTheme.typography.labelMedium)
+            }
+            if (webOpen) {
+                Column(Modifier.padding(start = 18.dp, bottom = 6.dp)) {
+                    msg.web.forEachIndexed { i, h ->
+                        val glyph = when (h.kind) { "weather" -> "☂"; "rate" -> "€"; "summary" -> "W"; else -> "◇" }
+                        val meta = listOfNotNull(h.site.ifEmpty { null }, h.published.take(10).ifEmpty { null }).joinToString(" · ")
+                        Column(Modifier.fillMaxWidth().clickable {
+                            runCatching { wctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(h.url))) }
+                        }.padding(vertical = 3.dp)) {
+                            Text("[${i + 1}] $glyph ${h.title}", color = GhostText, style = MaterialTheme.typography.labelMedium)
+                            if (meta.isNotEmpty()) Text(meta, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                            val body = h.excerpt.ifEmpty { h.snippet }
+                            if (body.isNotEmpty()) Text(body.take(220) + (if (body.length > 220) "…" else ""), color = GhostTextDim, style = MaterialTheme.typography.labelSmall)
+                        }
                     }
                 }
             }

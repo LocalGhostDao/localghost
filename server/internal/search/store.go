@@ -328,6 +328,68 @@ func (s *Store) OriginalIDByFrameHash(frameHash string) (int64, error) {
 	return id, nil
 }
 
+// EnqueueCategorize queues categorize jobs for frames whose model tags still lack a category, up
+// to limit frames, skipping frames with a job already queued. Returns how many were queued. The
+// stock-take calls it once per pass; a healthy archive queues nothing.
+func (s *Store) EnqueueCategorize(limit int) (int, error) {
+	if limit <= 0 {
+		limit = 2000
+	}
+	rows, err := s.db.Query(`
+		SELECT t.hash, string_agg(t.tag, ',' ORDER BY t.tag)
+		FROM frame_tags t
+		WHERE t.category = '' AND t.source <> 'user_removed'
+		  AND NOT EXISTS (SELECT 1 FROM search.jobs j WHERE j.kind = 'categorize' AND j.payload->>'hash' = t.hash)
+		GROUP BY t.hash
+		LIMIT $1`, limit)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, r := range rows.Vals {
+		if len(r) < 2 || r[0] == nil || r[1] == nil {
+			continue
+		}
+		tags := strings.Split(*r[1], ",")
+		if err := s.EnqueueJob("categorize", map[string]any{"hash": *r[0], "tags": tags}); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// TagDigest groups the tags of a set of frames by category: category -> tags, most frequent
+// first, tombstones excluded, '' shown under "other". This is the prompt-sized summary of a
+// matched photo set and what a gallery groups by.
+func (s *Store) TagDigest(hashes []string, perCategory int) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(hashes) == 0 {
+		return out, nil
+	}
+	if perCategory <= 0 {
+		perCategory = 6
+	}
+	rows, err := s.db.Query(`
+		SELECT coalesce(nullif(category, ''), 'other'), tag, count(*)
+		FROM frame_tags
+		WHERE hash = ANY($1) AND source <> 'user_removed'
+		GROUP BY 1, 2 ORDER BY 1, 3 DESC, 2`, "{"+strings.Join(hashes, ",")+"}")
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows.Vals {
+		if len(r) < 3 || r[0] == nil || r[1] == nil {
+			continue
+		}
+		cat := *r[0]
+		if len(out[cat]) < perCategory {
+			out[cat] = append(out[cat], *r[1])
+		}
+	}
+	return out, nil
+}
+
 // FrameNeedsTagPass is true when the frame with this hash still lacks a title or tags, or is not
 // in frames at all (then the pass runs, as it always did). It keeps the ensure path from paying a
 // model call for a frame that only lacked its description.

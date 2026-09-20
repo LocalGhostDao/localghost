@@ -149,7 +149,8 @@ func main() {
 		// the pass would fail, and "the next start will cover it" would be true at every start.
 		// Wait for it, bounded: a box without searchd still gets framed's half of the pass.
 		waitForSearch(ctx, searchCli, 2*time.Minute, lg)
-		pipe.Converge()
+		rep := pipe.Converge()
+		categorize(searchCli, rep, lg)
 		t := time.NewTicker(time.Duration(cfg.PollSeconds) * time.Second)
 		defer t.Stop()
 		for {
@@ -335,7 +336,7 @@ func main() {
 	ctl.Handle("converge", func(json.RawMessage) (ctlsock.Response, error) {
 		go func() {
 			lg.Info("converge pass starting (may first queue behind a drain)", "fn", "main")
-			pipe.Converge()
+			categorize(searchCli, pipe.Converge(), lg)
 		}()
 		return ctlsock.Response{OK: true, Text: "converge started (watch the log for the summary line)"}, nil
 	})
@@ -391,6 +392,21 @@ func envPort(key string) int {
 func fileOK(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+// categorize asks searchd to queue its tag-category backfill when the pass found tags without
+// one. Bulk, not per row: a few thousand frames is one command and one queue, not thousands of
+// notifies.
+func categorize(cli *ctlsock.Client, rep framed.ConvergeReport, lg *slog.Logger) {
+	if rep.NoCategory == 0 {
+		return
+	}
+	resp, err := cli.Call("categorize", map[string]any{"limit": 5000})
+	if err != nil {
+		lg.Warn("categorize request failed (next pass retries)", "fn", "categorize", "err", err)
+		return
+	}
+	lg.Info("tag categories: "+resp.Text, "fn", "categorize", "framesWithout", rep.NoCategory)
 }
 
 // waitForSearch blocks until searchd answers a ping, the budget runs out, or ctx ends. Returns

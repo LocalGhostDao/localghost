@@ -19,23 +19,24 @@ package main
 
 import (
 	"bufio"
-	"sync"
-	"github.com/LocalGhostDao/localghost/server/internal/hw"
-	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
-	"net/http"
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"flag"
+	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 	"log"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -223,6 +224,10 @@ func main() {
 			// The phone's own copy of the conversation , used only when the box holds none
 			// (incognito, or a chat that never persisted). Bounded the same way as the box's.
 			History []chatTurn `json:"history,omitempty"`
+			// Web results the PHONE fetched for this question. The box has no internet by design,
+			// so anything from the outside world arrives this way, labelled as such in the prompt
+			// and in the transparency record; the person chose to search on the phone.
+			Web []webHit `json:"web,omitempty"`
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -250,9 +255,21 @@ func main() {
 			history = trimHistory(vals)
 		}
 		items := gatherContext(runDir, q.Prompt)
+		web := boundWeb(q.Web)
+		for i, h := range web {
+			why := "searched on your phone; the box itself never reaches the internet"
+			if h.Kind != "page" && h.Kind != "" {
+				why = h.Kind + " fetched by your phone; the box itself never reaches the internet"
+			}
+			items = append(items, sanitize(ctxItem{When: h.Fetched, Source: "web", Snippet: fmt.Sprintf("[%d] %s , %s", i+1, h.Title, h.URL), Why: why}))
+		}
 		input := q.Prompt
-		if block := formatContext(items); block != "" {
-			input = block + "\n\nUsing the context above only where it is actually relevant, answer:\n" + q.Prompt
+		block := formatContext(items)
+		if wb := formatWeb(web); wb != "" {
+			block += wb
+		}
+		if block != "" {
+			input = block + "\n\nUsing the context above only where it is actually relevant (say which source when you use one), answer:\n" + q.Prompt
 		}
 		body, _ := json.Marshal(map[string]any{"prompt": input, "think": q.Think, "image": q.Image, "history": history})
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost,
@@ -570,11 +587,11 @@ func envPort(key string) int {
 // ctxItem is one injected piece of context AND its transparency record , the same struct feeds the
 // model's prompt block and the app's "what I used and why" display, so they can never disagree.
 type ctxItem struct {
-	When    string  `json:"when,omitempty"`   // "2026-04-12" , the item's own date, not today's
-	Source  string  `json:"source"`           // "image", "note", "chat", "location"
-	Snippet string  `json:"snippet"`          // what the model actually saw (truncated, sanitised)
-	Why     string  `json:"why"`              // human-readable reason it was selected
-	Score   float64 `json:"score,omitempty"`  // retrieval score when the source has one
+	When    string  `json:"when,omitempty"`  // "2026-04-12" , the item's own date, not today's
+	Source  string  `json:"source"`          // "image", "note", "chat", "location"
+	Snippet string  `json:"snippet"`         // what the model actually saw (truncated, sanitised)
+	Why     string  `json:"why"`             // human-readable reason it was selected
+	Score   float64 `json:"score,omitempty"` // retrieval score when the source has one
 }
 
 // chatReply is the chat command's wire shape: the answer plus the transparency record.
@@ -587,7 +604,8 @@ type chatReply struct {
 type contextSource func(runDir, prompt string) []ctxItem
 
 var contextSources = []contextSource{
-	memoriesSource, // FIRST: what the box knows about the PERSON outranks document search
+	memoriesSource,    // FIRST: what the box knows about the PERSON outranks document search
+	photoDigestSource, // the matched photo SET, summarised by category , one item, always fits
 	searchdSource,
 	// PLACEHOLDER recentChatsSource: last N turns of this conversation (needs chat storage first ,
 	//   see docs/context-injection-design.md phase 3).
@@ -636,8 +654,12 @@ func gatherContext(runDir, prompt string) []ctxItem {
 // pathological caption must not be able to spend the token budget or fake structure in the block.
 func sanitize(it ctxItem) ctxItem {
 	s := strings.ReplaceAll(it.Snippet, "\n", " ")
-	if len(s) > 240 {
-		s = s[:240] + "…"
+	limit := 240
+	if it.Source == "photos" {
+		limit = 600 // one line for the whole matched set, eleven categories at most
+	}
+	if len(s) > limit {
+		s = s[:limit] + "…"
 	}
 	it.Snippet = s
 	return it
@@ -663,6 +685,218 @@ func formatContext(items []ctxItem) string {
 	}
 	if !wrote {
 		return ""
+	}
+	return b.String()
+}
+
+// photoDigestSource turns the photos that match the question into ONE prompt-sized line: how
+// many, when, where, and their tags grouped by category (people, place, object, activity, food,
+// animal, vehicle, nature, event, text, style). Six caption snippets tell the model about six
+// photos; this tells it what the whole matched set is made of. Same searchd query the snippet
+// source runs, limited to images, then searchd's digest over the frame hashes.
+func photoDigestSource(runDir, prompt string) []ctxItem {
+	c := ctlsock.NewClientTimeout("ghost.searchd", runDir, 3*time.Second)
+	resp, err := c.Call("search", map[string]any{"query": prompt, "limit": 24, "sources": "image"})
+	if err != nil {
+		return nil
+	}
+	var results []struct {
+		Path       string  `json:"path"`
+		CapturedAt int64   `json:"capturedAt"`
+		Score      float64 `json:"score"`
+	}
+	if err := json.Unmarshal(resp.Data, &results); err != nil || len(results) == 0 {
+		return nil
+	}
+	var hashes []string
+	var first, last int64
+	for _, r := range results {
+		h := frameHash(r.Path)
+		if h == "" {
+			continue
+		}
+		hashes = append(hashes, h)
+		if r.CapturedAt > 0 {
+			if first == 0 || r.CapturedAt < first {
+				first = r.CapturedAt
+			}
+			if r.CapturedAt > last {
+				last = r.CapturedAt
+			}
+		}
+	}
+	if len(hashes) == 0 {
+		return nil
+	}
+	dresp, err := c.Call("digest", map[string]any{"hashes": strings.Join(hashes, ","), "per": 6})
+	if err != nil {
+		return nil
+	}
+	var digest map[string][]string
+	if err := json.Unmarshal(dresp.Data, &digest); err != nil || len(digest) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d photos match", len(hashes))
+	if first > 0 {
+		f, l := time.Unix(first, 0).UTC().Format("2006-01-02"), time.Unix(last, 0).UTC().Format("2006-01-02")
+		if f == l {
+			b.WriteString(" (" + f + ")")
+		} else {
+			b.WriteString(" (" + f + " to " + l + ")")
+		}
+	}
+	b.WriteString(": ")
+	sep := ""
+	for _, cat := range digestOrder(digest) {
+		b.WriteString(sep + cat + ": " + strings.Join(digest[cat], ", "))
+		sep = " · "
+	}
+	when := ""
+	if last > 0 {
+		when = time.Unix(last, 0).UTC().Format("2006-01-02")
+	}
+	return []ctxItem{{When: when, Source: "photos", Snippet: b.String(), Why: "the matched photos, summarised by category"}}
+}
+
+// digestOrder lists categories the way a person reads them: who, where, what, doing, eating,
+// then the rest, "other" last.
+func digestOrder(d map[string][]string) []string {
+	order := []string{"people", "place", "object", "activity", "food", "animal", "vehicle", "nature", "event", "text", "style", "other"}
+	var out []string
+	for _, k := range order {
+		if _, ok := d[k]; ok {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// frameHash is the 32-hex identity in an archive filename (<hash>.<ext>), or "".
+func frameHash(path string) string {
+	base := path
+	if i := strings.LastIndexByte(base, '/'); i >= 0 {
+		base = base[i+1:]
+	}
+	if i := strings.LastIndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	if len(base) != 32 || strings.Trim(base, "0123456789abcdef") != "" {
+		return ""
+	}
+	return base
+}
+
+// webHit is one thing the phone fetched. Title, URL and snippet come from the search page; the
+// excerpt is the page's own text, cut on the phone. Kind says what it is , a page the phone read,
+// a Wikipedia summary, a weather forecast, an exchange rate , and published is the page's own
+// date when it had one, so the model can tell a fresh figure from an old article. Everything is
+// bounded again here: the phone is trusted to be the person's, not to be tidy.
+type webHit struct {
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Snippet   string `json:"snippet,omitempty"`
+	Excerpt   string `json:"excerpt,omitempty"`
+	Kind      string `json:"kind,omitempty"`      // page | summary | weather | rate
+	Source    string `json:"source,omitempty"`    // duckduckgo | wikipedia | open-meteo | frankfurter
+	Published string `json:"published,omitempty"` // the page's own date, when it had one
+	Fetched   string `json:"fetched,omitempty"`   // "2026-09-20 10:41 UTC", set by the phone
+}
+
+const (
+	webMaxHits    = 8
+	webMaxExcerpt = 1500
+	webMaxSnippet = 300
+)
+
+var webKinds = map[string]bool{"page": true, "summary": true, "weather": true, "rate": true}
+
+func boundWeb(hits []webHit) []webHit {
+	var out []webHit
+	for _, h := range hits {
+		if strings.TrimSpace(h.URL) == "" && strings.TrimSpace(h.Title) == "" {
+			continue
+		}
+		h.Title = clip(strings.ReplaceAll(h.Title, "\n", " "), 160)
+		h.URL = clip(h.URL, 300)
+		h.Snippet = clip(strings.ReplaceAll(h.Snippet, "\n", " "), webMaxSnippet)
+		h.Excerpt = clip(strings.ReplaceAll(h.Excerpt, "\n", " "), webMaxExcerpt)
+		h.Fetched = clip(h.Fetched, 32)
+		h.Published = clip(h.Published, 32)
+		h.Source = clip(h.Source, 32)
+		if !webKinds[h.Kind] {
+			h.Kind = "page"
+		}
+		out = append(out, h)
+		if len(out) == webMaxHits {
+			break
+		}
+	}
+	return out
+}
+
+// webSite is the host of a hit, the name the model attributes it by.
+func webSite(u string) string {
+	p, err := url.Parse(u)
+	if err != nil || p.Host == "" {
+		return ""
+	}
+	return strings.TrimPrefix(strings.ToLower(p.Host), "www.")
+}
+
+func clip(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
+// formatWeb is the prompt block for the phone's findings. Labelled for what it is, so the model
+// can attribute ("according to <site> [2]") and never mistakes it for the archive; numbered, and
+// the app shows the same numbers, so a citation in the answer is a link the person can open. A
+// figure (weather, a rate) is marked as such: it is a measurement, not somebody's prose, and it
+// is dated. The fetched time is printed once so "today" in a page means the right day.
+func formatWeb(hits []webHit) string {
+	if len(hits) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n\nFound on the web by the user's phone for this question (this box has no internet; these are the only outside facts available). Cite by number, e.g. [2], and by site name, whenever you use one; prefer a dated figure to an undated page; say when the findings do not settle the question.")
+	if f := hits[0].Fetched; f != "" {
+		b.WriteString(" Fetched " + f + ".")
+	}
+	for i, h := range hits {
+		site := webSite(h.URL)
+		if h.Source != "" && h.Source != "duckduckgo" {
+			site = h.Source
+		}
+		label := h.Kind
+		switch h.Kind {
+		case "weather":
+			label = "weather forecast"
+		case "rate":
+			label = "exchange rate"
+		case "summary":
+			label = "encyclopedia summary"
+		}
+		fmt.Fprintf(&b, "\n[%d] %s", i+1, h.Title)
+		if site != "" {
+			b.WriteString(" (" + site)
+			if h.Published != "" {
+				b.WriteString(", " + h.Published)
+			}
+			b.WriteString(")")
+		} else if h.Published != "" {
+			b.WriteString(" (" + h.Published + ")")
+		}
+		b.WriteString(" , " + label + " , " + h.URL)
+		if h.Snippet != "" && h.Kind == "page" {
+			b.WriteString("\n    " + h.Snippet)
+		}
+		if h.Excerpt != "" {
+			b.WriteString("\n    " + h.Excerpt)
+		}
 	}
 	return b.String()
 }

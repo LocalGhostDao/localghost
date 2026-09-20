@@ -122,6 +122,9 @@ type FrameRow struct {
 	Tags    []string `json:"tags,omitempty"` // model + user tags; tombstoned removals excluded
 	Place   string   `json:"place,omitempty"` // reverse-geocoded hierarchy, "" until geo data lands
 	Description string `json:"description,omitempty"` // the caption's SCENE section
+	// The same tags grouped by category (people, place, object, activity, food, animal, vehicle,
+	// nature, event, text, style; "other" for not-yet-categorised) , what the viewer groups by.
+	TagsByCategory map[string][]string `json:"tagsByCategory,omitempty"`
 }
 
 // FramesList pages the archive newest-first: frames with taken_at strictly BEFORE the cursor (pass 0
@@ -180,12 +183,16 @@ func (s *NotifStore) FramesList(slot int, beforeTs int64, limit int) ([]FrameRow
 			in += ",'" + out[i].Hash + "'" // hashes are our own validated hex , no quoting risk
 			idx[out[i].Hash] = i
 		}
-		trows, terr := c.Query("SELECT hash, tag FROM frame_tags WHERE source != 'user_removed' AND hash IN (" + in + ") ORDER BY created_at")
+		trows, terr := c.Query("SELECT hash, tag, coalesce(nullif(category, ''), 'other') FROM frame_tags WHERE source != 'user_removed' AND hash IN (" + in + ") ORDER BY created_at")
 		if terr == nil {
 			for _, v := range trows.Vals {
-				if len(v) >= 2 && v[0] != nil && v[1] != nil {
+				if len(v) >= 3 && v[0] != nil && v[1] != nil && v[2] != nil {
 					if i, ok := idx[*v[0]]; ok {
 						out[i].Tags = append(out[i].Tags, *v[1])
+						if out[i].TagsByCategory == nil {
+							out[i].TagsByCategory = map[string][]string{}
+						}
+						out[i].TagsByCategory[*v[2]] = append(out[i].TagsByCategory[*v[2]], *v[1])
 					}
 				}
 			}

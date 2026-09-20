@@ -257,6 +257,7 @@ object BoxClient {
         @Suppress("UNUSED_PARAMETER") attachments: List<Attachment> = emptyList(),
         @Suppress("UNUSED_PARAMETER") caps: ChatCapabilities = ChatCapabilities(),
         imageB64: String = "",
+        web: org.json.JSONArray? = null, // what the phone found on the web for this question; the box adds it as labelled context
     ): Flow<ChatChunk> = kotlinx.coroutines.flow.channelFlow {
         // REAL STREAMING end-to-end: app -> secd -> ghost.synthd (context injection + transparency)
         // -> ghost.oracled -> llama-server, tokens flowing back as they generate. Event protocol,
@@ -285,7 +286,8 @@ object BoxClient {
                 org.json.JSONObject().put("prompt", prompt).put("think", think)
                     .put("incognito", incognito).put("chatId", chatId)
                     .apply { if (historyJson.length() > 0) put("history", historyJson) }
-                    .apply { if (imageB64.isNotBlank()) put("imageB64", imageB64) }) { line ->
+                    .apply { if (imageB64.isNotBlank()) put("imageB64", imageB64) }
+                    .apply { if (web != null && web.length() > 0) put("web", web) }) { line ->
                 if (!line.startsWith("data: ")) return@postStreamLines true
                 val o = try { org.json.JSONObject(line.removePrefix("data: ")) } catch (_: Exception) { return@postStreamLines true }
                 when {

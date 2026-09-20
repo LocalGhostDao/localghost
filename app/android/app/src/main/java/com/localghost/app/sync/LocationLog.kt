@@ -80,12 +80,15 @@ object LocationLog {
         return Point(ts, p.getFloat("last_lat", 0f).toDouble(), p.getFloat("last_lon", 0f).toDouble())
     }
 
-    /** Append a point unless it is the same place as the last one, recently. Returns whether it
-     *  was kept. */
+    /** Append a point unless it is the same place as the last one, recently, or not newer than
+     *  the last one at all (a cached fix older than what we already hold is not news). Returns
+     *  whether it was kept. Timestamps in the spool are therefore strictly increasing, which is
+     *  what lets a batch be acknowledged by its exact timestamps and nothing else. */
     @Synchronized
     fun record(ctx: Context, pt: Point): Boolean {
         val prev = last(ctx)
         if (prev != null) {
+            if (pt.ts <= prev.ts) return false
             val moved = FloatArray(1).also {
                 Location.distanceBetween(prev.lat, prev.lon, pt.lat, pt.lon, it)
             }[0]
@@ -96,6 +99,7 @@ object LocationLog {
         if (f.length() > MAX_BYTES) trimOldest(f)
         prefs(ctx).edit().putLong("last_ts", pt.ts).putFloat("last_lat", pt.lat.toFloat())
             .putFloat("last_lon", pt.lon.toFloat()).apply()
+        bumpToday(ctx)
         return true
     }
 
@@ -121,14 +125,15 @@ object LocationLog {
 
     fun pendingCount(ctx: Context): Int = pending(ctx).size
 
-    /** Drop the points the box has accepted (everything up to and including [upToTs]). */
+    /** Drop exactly the points the box has accepted , by their timestamps, never by position or
+     *  range, so a point recorded while the batch was in flight is untouched. */
     @Synchronized
-    private fun ack(ctx: Context, upToTs: Long) {
+    private fun ack(ctx: Context, sent: Set<Long>) {
         val f = file(ctx)
         if (!f.exists()) return
         val keep = f.readLines().filter { line ->
             val ts = line.trim().substringBefore(' ').toLongOrNull() ?: return@filter false
-            ts > upToTs
+            ts !in sent
         }
         if (keep.isEmpty()) f.delete() else f.writeText(keep.joinToString("\n", postfix = "\n"))
     }
@@ -224,17 +229,40 @@ object LocationLog {
 
     // --- to the box ---
 
-    /** Hand the spool to the box in batches. True when nothing is left waiting. Quietly false when
-     *  there is no box, no session, or the box is down , the spool keeps everything. */
+    /** The trail's source name on the box: "phone-" plus this phone's stable id. The box keys
+     *  location_points on (ts, source), so two phones in one archive never overwrite each other's
+     *  point at the same second, and a re-sent batch from THIS phone lands on its own rows. */
+    fun source(ctx: Context): String {
+        val id = com.localghost.app.net.BoxClient.stableId(ctx)
+        return if (id.isEmpty()) "phone" else "phone-" + id.take(8)
+    }
+
+    /**
+     * Hand the spool to the box in batches, oldest first. True when nothing is left waiting.
+     * Quietly false when there is no box, no session, or the box is down , the spool keeps
+     * everything.
+     *
+     * NO DUPLICATES, by construction rather than by comparison:
+     *   - a point exists once on the phone (record keeps one per 25 m / hour, timestamps strictly
+     *     increasing) and is removed from the spool only when the box has said 202 for the batch
+     *     it was in (ack, by exact timestamps), so a lost reply re-sends the same points and a
+     *     point recorded mid-flight is never dropped as if sent;
+     *   - the box stores location_points keyed on (ts, source) with ON CONFLICT DO NOTHING, so a
+     *     re-sent batch is absorbed, and the source is per phone, so nothing from another phone
+     *     can collide with it;
+     *   - a batch that fails leaves everything from it onwards in place; the next flush starts
+     *     exactly there. Nothing is ever sent twice AND kept twice.
+     */
     suspend fun flush(ctx: Context): Boolean {
         if (!BoxConfig.isConfigured(ctx) || SessionStore.read(ctx) == null) return false
+        val src = source(ctx)
         while (true) {
             val pts = pending(ctx)
             if (pts.isEmpty()) return true
             val batch = pts.take(BATCH)
             val arr = JSONArray()
             for (pt in batch) arr.put(JSONObject().put("ts", pt.ts).put("lat", pt.lat).put("lon", pt.lon))
-            val body = JSONObject().put("source", "phone").put("points", arr)
+            val body = JSONObject().put("source", src).put("points", arr)
             val code = try {
                 BoxHttp.postJsonCode(ctx, "/v1/locations", body)
             } catch (e: Exception) {
@@ -244,7 +272,7 @@ object LocationLog {
                 android.util.Log.w("LocalGhost", "location flush: box answered HTTP $code")
                 return false
             }
-            ack(ctx, batch.last().ts)
+            ack(ctx, batch.mapTo(HashSet()) { it.ts })
             if (batch.size < BATCH) return true
         }
     }
@@ -259,10 +287,34 @@ object LocationLog {
         WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
+    /** schedule() when the trail is on and allowed; a no-op otherwise. */
+    fun scheduleIfActive(ctx: Context) {
+        if (active(ctx)) schedule(ctx)
+    }
+
     /** The switch went off: no more fixes. What is already in the spool stays until it is flushed
      *  or the person wipes the app; it is theirs. */
     fun stop(ctx: Context) {
         WorkManager.getInstance(ctx).cancelUniqueWork(NAME)
+    }
+
+    /** Points recorded since local midnight , the number the settings line shows. */
+    fun countToday(ctx: Context): Int {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0)
+        val midnight = cal.timeInMillis / 1000
+        return prefs(ctx).getInt("today_n", 0).let { n ->
+            if (prefs(ctx).getLong("today_from", 0L) == midnight) n else 0
+        }
+    }
+
+    internal fun bumpToday(ctx: Context) {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0); cal.set(java.util.Calendar.SECOND, 0)
+        val midnight = cal.timeInMillis / 1000
+        val p = prefs(ctx)
+        val n = if (p.getLong("today_from", 0L) == midnight) p.getInt("today_n", 0) else 0
+        p.edit().putLong("today_from", midnight).putInt("today_n", n + 1).apply()
     }
 
     /** Take a fix now (the welcome screen just got the permission; the app just opened). */

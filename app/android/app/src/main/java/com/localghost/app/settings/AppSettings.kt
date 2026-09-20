@@ -65,6 +65,12 @@ object AppSettings {
     fun welcomeAsked(ctx: Context): Boolean = prefs(ctx).getBoolean("welcome_asked", false)
     fun setWelcomeAsked(ctx: Context, asked: Boolean) = prefs(ctx).edit().putBoolean("welcome_asked", asked).apply()
 
+    /** Web search before a question goes to the box: "off", "auto" (when the question looks like
+     *  it needs the outside world), "on" (every question). The PHONE searches; the box never does.
+     *  Off by default: nothing leaves the phone for a third party unless the person says so. */
+    fun webMode(ctx: Context): String = prefs(ctx).getString("web_mode", "off") ?: "off"
+    fun setWebMode(ctx: Context, m: String) = prefs(ctx).edit().putString("web_mode", m).apply()
+
     /** The location trail: a position every quarter hour, kept on the phone and handed to the box
      *  when there is one. On by default once location is allowed; the switch is on the welcome
      *  screen and in settings, and the permission itself is the second switch. */

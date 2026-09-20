@@ -106,7 +106,7 @@ func TestStockTakeAgainstPostgres(t *testing.T) {
 	if err := db.Exec(`UPDATE frames SET pipe_ver = 1 WHERE hash = $1`, h3); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Exec(`INSERT INTO frame_tags (hash, tag, source, created_at) VALUES ($1, 'sea', 'model', $2)`, h1, now); err != nil {
+	if err := db.Exec(`INSERT INTO frame_tags (hash, tag, source, created_at, category) VALUES ($1, 'sea', 'model', $2, 'nature')`, h1, now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -257,6 +257,39 @@ func TestStockTakeAgainstPostgres(t *testing.T) {
 	}
 	if p.ConvergeUpdatedAt < now {
 		t.Fatalf("converge updated_at: %d", p.ConvergeUpdatedAt)
+	}
+
+	// Tag categories: an uncategorised tag makes the frame "tagged but not categorised", the
+	// categorize backfill queues exactly that frame (once), and the digest groups by category.
+	if err := db.Exec(`INSERT INTO frame_tags (hash, tag, source, created_at) VALUES ($1, 'boat', 'model', $2), ($1, 'gone', 'user_removed', $2)`, h1, now); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := ss.EnqueueCategorize(100); err != nil || n != 1 {
+		t.Fatalf("EnqueueCategorize = %d, %v; want 1", n, err)
+	}
+	if n, err := ss.EnqueueCategorize(100); err != nil || n != 0 {
+		t.Fatalf("EnqueueCategorize again = %d, %v; want 0 (already queued)", n, err)
+	}
+	audit, _ = fs.Audit()
+	for _, a := range audit {
+		byHash[a.Hash] = a
+	}
+	if byHash[h1].Categorised || !byHash[h2].Categorised {
+		t.Fatalf("categorised flags: h1 %v (want false: 'boat' has no category), h2 %v (want true: no tags)", byHash[h1].Categorised, byHash[h2].Categorised)
+	}
+	if err := db.Exec(`UPDATE frame_tags SET category = 'vehicle' WHERE hash = $1 AND tag = 'boat'`, h1); err != nil {
+		t.Fatal(err)
+	}
+	d, err := ss.TagDigest([]string{h1, h2, h3}, 6)
+	if err != nil {
+		t.Fatalf("TagDigest: %v", err)
+	}
+	if len(d["nature"]) != 1 || d["nature"][0] != "sea" || len(d["vehicle"]) != 1 || d["vehicle"][0] != "boat" || len(d) != 2 {
+		t.Fatalf("digest: %v", d)
+	}
+	p2, _ := hw.PipelineProgressFrom(db)
+	if p2.Categorised.Done != 1 || p2.Categorised.Total != 1 || p2.Categorize.Pending != 1 {
+		t.Fatalf("categorised stage: %+v queue %+v", p2.Categorised, p2.Categorize)
 	}
 
 	// Location points from the phone land like a watch's, idempotently.

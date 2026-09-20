@@ -140,15 +140,36 @@ fi
 if [ -n "${GHOST_PIN:-}" ] && systemctl is-active --quiet ghost.secd; then
     echo "graceful halt before the binary swap"
     "$REPO/bin/ghost-cli" --run-dir=/var/lib/ghost/run ghost.secd halt "pin=$GHOST_PIN" || true
-    # halt replies ok unconditionally (PIN-opaque); confirm by watching the volume's services die.
+    # halt replies ok unconditionally (PIN-opaque); confirm by watching the volume's services die,
+    # and SAY WHICH ONES are slow: each survivor is named with the second it finally went, so a
+    # halt that takes 20s points at one daemon instead of at "the cohort".
     _halt0=$(date +%s)
-    for i in $(seq 1 30); do
-        pgrep -f '/var/lib/ghost/mnt/.*/bin/' >/dev/null 2>&1 || break
+    _seen=""
+    _gone=""
+    for i in $(seq 1 45); do
+        _alive=$(pgrep -fa '/var/lib/ghost/mnt/.*/bin/' 2>/dev/null | sed -E 's|.*/bin/([^ ]+).*|\1|' | sort -u | tr '\n' ' ')
+        [ -z "$_alive" ] && break
+        _seen="$_seen $_alive"
+        # anything seen before that is no longer alive: record when it went
+        for n in $(echo "$_seen" | tr ' ' '\n' | sort -u); do
+            [ -z "$n" ] && continue
+            case " $_alive " in *" $n "*) ;; *)
+                case "$_gone" in *" $n="*) ;; *) _gone="$_gone $n=$((i-1))s" ;; esac ;;
+            esac
+        done
+        if [ $((i % 5)) -eq 0 ]; then echo "  still up after ${i}s: $_alive"; fi
         sleep 1
     done
-    echo "cohort down after $(( $(date +%s) - _halt0 ))s"
-    if pgrep -f '/var/lib/ghost/mnt/.*/bin/' >/dev/null 2>&1; then
-        echo "still stopping after 30s (wedged daemon getting SIGKILLed) , hard restart; interrupted work heals on next reprocess"
+    # the last survivors went between the final two polls
+    for n in $(echo "$_seen" | tr ' ' '\n' | sort -u); do
+        [ -z "$n" ] && continue
+        case "$_gone" in *" $n="*) ;; *) _gone="$_gone $n=$((i-1))s" ;; esac
+    done
+    echo "cohort down after $(( $(date +%s) - _halt0 ))s${_gone:+ , slowest:$_gone}"
+    _left=$(pgrep -fa '/var/lib/ghost/mnt/.*/bin/' 2>/dev/null | sed -E 's|.*/bin/([^ ]+).*|\1|' | sort -u | tr '\n' ' ')
+    if [ -n "$_left" ]; then
+        echo "still stopping after 45s: $_left , hard restart; interrupted work heals on the next stock-take"
+        echo "      (per-daemon stop timings are in watchd's log: 'service stopped' and 'cohort down' lines)"
     else
         echo "halted cleanly , cohort down, redis saved, postgres checkpointed."
     fi

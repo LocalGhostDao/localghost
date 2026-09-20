@@ -51,18 +51,77 @@ object PhraseEngine {
         return 60
     }
 
+    /** After this many cards you have not learned yet, one you have comes round again, so a known
+     *  phrase is met about once an hour and not forgotten by October. */
+    const val REVIEW_EVERY = 4
+
+    /** Fewer unlearned cards than this in a slot, and the next level joins early: a walk of two
+     *  cards is not a walk. */
+    const val MIN_DUE = 5
+
+    /** The person's level band in a pack: 1, climbing one level each time the level below is
+     *  mostly known ([Levels.DONE_SHARE]). Emergency lines do not count either way. */
+    fun band(pack: PhrasePack, known: Set<String>): Int {
+        var b = 1
+        while (b < Levels.MAX) {
+            val lvl = pack.phrases.filter { it.level == b && it.situation != Situation.EMERGENCY }
+            if (lvl.isNotEmpty() && lvl.count { it.id in known } < lvl.size * Levels.DONE_SHARE) break
+            b++
+        }
+        return b
+    }
+
     /** The phrases for a slot, in the order the surfaces walk them: greeting first, then by weight;
      *  at equal weight a phrase that BELONGS to this hour beats one that is true at any hour (one
-     *  coffee outranks thank you at eight, the bill outranks it at eleven), and what is left ties
-     *  by pack order, which a native speaker chose. Emergency lines never appear in the rotation ,
-     *  they live in their own place on the screen. */
-    fun order(pack: PhrasePack, slot: Slot): List<Phrase> {
+     *  coffee outranks thank you at eight, the bill outranks it at eleven), then the simpler level,
+     *  and what is left ties by pack order, which a native speaker chose. Emergency lines never
+     *  appear in the rotation , they live in their own place on the screen.
+     *
+     *  With [known] (phrase ids the person has marked, or drilled solid), the walk is the cards
+     *  STILL TO LEARN within the person's level [band], with one known card slipped in after every
+     *  [REVIEW_EVERY] as a review; which known card comes round shifts with [dayKey], so Tuesday's
+     *  reviews are not Monday's. The greeting always leads, known or not: it is the first thing
+     *  you say to anyone, and the card people glance at most. Everything known and nothing left:
+     *  the walk is the known cards, heaviest first , the phrasebook, not a blank. */
+    fun order(pack: PhrasePack, slot: Slot, known: Set<String> = emptySet(), dayKey: Int = 0): List<Phrase> {
         val inSlot = pack.phrases.filter { it.inSlot(slot) && it.situation != Situation.EMERGENCY }
         val greeting = inSlot.filter { it.situation == Situation.GREETINGS && slot in it.slots }
             .maxByOrNull { it.weight }
+        val byWeight = compareByDescending<Phrase> { it.weight }
+            .thenByDescending { if (slot in it.slots) 1 else 0 }
+            .thenBy { it.level }
         val rest = inSlot.filter { it !== greeting }
-            .sortedWith(compareByDescending<Phrase> { it.weight }.thenByDescending { if (slot in it.slots) 1 else 0 })
-        return if (greeting == null) rest else listOf(greeting) + rest
+        var b = band(pack, known)
+        var due = rest.filter { it.id !in known && it.level <= b }
+        while (due.size < MIN_DUE && b < Levels.MAX) { // a thin slot borrows from the next level
+            b++
+            due = rest.filter { it.id !in known && it.level <= b }
+        }
+        due = due.sortedWith(byWeight)
+        val review = rest.filter { it.id in known }.sortedWith(byWeight)
+        if (due.isEmpty()) return listOfNotNull(greeting) + review
+        if (review.isEmpty()) return listOfNotNull(greeting) + due
+        val out = ArrayList<Phrase>(due.size + due.size / REVIEW_EVERY + 2)
+        greeting?.let { out.add(it) }
+        var r = ((dayKey % review.size) + review.size) % review.size
+        var reviews = 0
+        for ((i, p) in due.withIndex()) {
+            out.add(p)
+            if ((i + 1) % REVIEW_EVERY == 0 && reviews < review.size) { // each known card at most once a walk
+                out.add(review[r]); r = (r + 1) % review.size; reviews++
+            }
+        }
+        return out
+    }
+
+    /** Known phrases in a pack, for the progress lines, per level: level -> (known, total). */
+    fun progress(pack: PhrasePack, known: Set<String>): Map<Int, Pair<Int, Int>> {
+        val out = LinkedHashMap<Int, Pair<Int, Int>>()
+        for (l in 1..Levels.MAX) {
+            val lvl = pack.phrases.filter { it.level == l && it.situation != Situation.EMERGENCY }
+            if (lvl.isNotEmpty()) out[l] = lvl.count { it.id in known } to lvl.size
+        }
+        return out
     }
 
     /** Where the rotation cursor sits right now: minutes into the slot over ROTATE_MINUTES, plus the
@@ -94,9 +153,10 @@ object PhraseEngine {
         val next: Phrase? get() = if (list.isEmpty()) null else list[(index + 1) % list.size]
     }
 
-    fun pick(pack: PhrasePack, late: Boolean, hour: Int, minute: Int, manualNext: Int): Pick {
+    fun pick(pack: PhrasePack, late: Boolean, hour: Int, minute: Int, manualNext: Int,
+             known: Set<String> = emptySet(), dayKey: Int = 0): Pick {
         val slot = slotFor(hour, minute, late)
-        val list = order(pack, slot)
+        val list = order(pack, slot, known, dayKey)
         return Pick(slot, list, cursor(minutesIntoSlot(hour, minute, late), manualNext, list.size))
     }
 
