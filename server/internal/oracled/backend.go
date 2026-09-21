@@ -19,10 +19,12 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/oracle"
+	"github.com/LocalGhostDao/localghost/server/internal/procs"
 )
 
 // Backend serves one inference. The queue's single worker calls Infer one request at a time.
@@ -52,6 +54,10 @@ type llamaBackend struct {
 	// context (the app hanging up propagates all the way here).
 	streamClient *http.Client
 	addr         string
+	// What llama-server said about the hardware at startup, and how fast it has been answering ,
+	// the two facts "is the GPU running" is made of. See engine.go.
+	info  *engineInfoBox
+	stats *EngineStats
 }
 
 // NewLlamaBackend prepares (does not start) the backend.
@@ -61,7 +67,17 @@ func NewLlamaBackend(cfg LlamaConfig) *llamaBackend {
 		client:       &http.Client{Timeout: 120 * time.Second}, // a 12B generation can be slow
 		streamClient: &http.Client{},                           // streaming: context-cancelled, never clock-killed
 		addr:         "127.0.0.1:" + strconv.Itoa(cfg.Port),
+		info:         newEngineInfoBox(),
+		stats:        NewEngineStats(),
 	}
+}
+
+// Engine is what the child said about the hardware; Stats how fast it has been answering.
+func (b *llamaBackend) Engine() EngineInfo                  { return b.info.get() }
+func (b *llamaBackend) Stats() StatsSummary                 { return b.stats.Summary() }
+func (b *llamaBackend) RecordStream(kind string, t Timings) { b.stats.Record(kind, t) }
+func (b *llamaBackend) EstimateStream(kind string, tokens int, took time.Duration) {
+	b.stats.Estimate(kind, tokens, took)
 }
 
 func (b *llamaBackend) Name() string { return b.cfg.ModelName }
@@ -119,22 +135,41 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 	}
 	args = append(args, b.cfg.ExtraArgs...)
 
+	// A llama-server already running from this binary is a predecessor's orphan (Pdeathsig only
+	// covers children of THIS build's oracled; one from before it has been seen alive for sixty
+	// days, holding the port and the VRAM, so the next child bound nothing and ran on the CPU).
+	// It has no owner left to stop it: end it here, and say so.
+	if strays := procs.KillStrays(b.cfg.BinPath, 2*time.Second); len(strays) > 0 {
+		slog.Warn("killed a stray llama-server before starting ours , it was holding the port and the GPU", "fn", "Start", "strays", strings.Join(strays, ", "))
+	}
 	cmd := exec.Command(b.cfg.BinPath, args...)
 	// own process group so oracled can signal the whole group on stop, and inherit oracled's env
-	// (GHOST_LOG_LEVEL etc.). stdout/stderr inherited so llama-server's own logs land in oracled's log.
+	// (GHOST_LOG_LEVEL etc.). stdout/stderr pass through to oracled's log THROUGH the engine
+	// watcher, which keeps what the startup lines say about the GPU (engine.go).
 	// Setpgid so oracled can signal the whole group on a graceful stop, AND Pdeathsig so the
 	// KERNEL kills llama-server the moment its parent dies , the orphan systemd caught
 	// ("left-over process llama-server in control group while starting unit") held port 18080
 	// and 9GB of VRAM, so the next oracled's child could not bind and every caption timed out
 	// for an hour. A SIGKILLed parent cannot clean up after itself; the kernel can.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = b.info.watcher(os.Stdout)
+	cmd.Stderr = b.info.watcher(os.Stderr)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start llama-server: %w", err)
 	}
 	b.proc = cmd.Process
-	return b.waitHealthy(ctx, 90*time.Second)
+	if err := b.waitHealthy(ctx, 90*time.Second); err != nil {
+		return err
+	}
+	// The verdict, once, where a person looks: on the GPU with how many layers and how much VRAM,
+	// or a warning naming why not. tools/gpu.sh and the Box Status drill-in read the same facts.
+	info := b.info.get()
+	if info.OnGPU() {
+		slog.Info("llama-server "+info.Verdict(), "fn", "Start", "devices", strings.Join(info.Devices, "; "), "offloaded", info.Offloaded, "gpuMiB", int(info.GPUMiB), "cpuMiB", int(info.CPUMiB))
+	} else {
+		slog.Warn("llama-server "+info.Verdict(), "fn", "Start", "warnings", strings.Join(info.Warnings, " | "), "offloaded", info.Offloaded, "cpuMiB", int(info.CPUMiB))
+	}
+	return nil
 }
 
 func (b *llamaBackend) waitHealthy(ctx context.Context, within time.Duration) error {
@@ -206,9 +241,13 @@ func (b *llamaBackend) Infer(ctx context.Context, req oracle.Request) (oracle.Re
 				Reasoning string `json:"reasoning_content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Timings *Timings `json:"timings"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return oracle.Response{}, err
+	}
+	if out.Timings != nil {
+		b.stats.Record("text", *out.Timings)
 	}
 	if len(out.Choices) == 0 {
 		return oracle.Response{}, fmt.Errorf("chat/completions: empty choices")
@@ -275,9 +314,13 @@ func (b *llamaBackend) inferMultimodal(ctx context.Context, req oracle.Request) 
 				Reasoning string `json:"reasoning_content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Timings *Timings `json:"timings"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return oracle.Response{}, err
+	}
+	if out.Timings != nil {
+		b.stats.Record("image", *out.Timings)
 	}
 	if len(out.Choices) == 0 {
 		return oracle.Response{}, fmt.Errorf("chat/completions: empty choices")

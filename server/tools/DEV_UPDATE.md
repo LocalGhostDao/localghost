@@ -750,3 +750,48 @@ Also in this drop: PhraseSurface.promotedSettingsIntent uses the action string
 "android.settings.MANAGE_APP_PROMOTED_NOTIFICATIONS" (the Settings constant did not resolve
 against the compile SDK) and falls back to the app's notification page when the phone has no
 such screen.
+
+## The 44-second llama-server was a 60-day-old orphan, and "is the GPU running" gets an answer
+
+The stamped redeploy told the story the old one could not: `pid 2306644 · parent 1 · state R ·
+up 5166560s`. The llama-server that outlived every halt was not a corpse being torn down; it was
+ALIVE, parented to init, running for sixty days , a child of an oracled from before Pdeathsig
+existed, which no code path has killed since, because after watchd confirms the cohort down
+nothing looked for what was still running from the volume's bin. It ignored the halt, held the
+volume open (the unmount), held the service's cgroup open (the three-minute `systemctl restart`:
+systemd's stop timeout, then SIGKILL), and very probably held the port and the VRAM the next
+llama-server needed , which is how a CUDA box ends up captioning on the CPU.
+
+Three fixes, one for each place it hid. internal/procs (new): HoldersOf(mnt) (moved from hw) and
+KillStrays(prefix, grace) , every process whose exe starts with the prefix gets SIGTERM, then
+SIGKILL after the grace, each named in the log with its age; zombies count as gone. The lock path
+calls it with `<mount>/bin/` right after watchd confirms the cohort down: nothing legitimate runs
+from there at that moment, so what does is an orphan and it ends. oracled calls it with its own
+llama-server path before spawning: a predecessor's child holding the port and the GPU dies before
+ours starts, and the log says so. redeploy.sh, ten seconds into the halt watch, kills any
+survivor with parent 1 and state R or S (an orphan ignoring the halt, not a teardown), so the
+restart is never systemd's timeout again. Test: procs.KillStrays on a copied /bin/sleep under a
+temp bin, the bystander untouched.
+
+And the GPU question, answered from inside. oracled now tees llama-server's stdout/stderr through
+an EngineWatch that keeps what the startup lines say , `ggml_cuda_init: found 1 CUDA devices`,
+the device name, `offloaded 49/49 layers to GPU`, the CUDA and CPU buffer sizes, and the warnings
+(`no usable GPU found`, cudaMalloc, out of memory) , and logs one verdict line once the model is
+ready: "llama-server on the GPU: NVIDIA GeForce RTX 4070 · 49/49 layers · 8145 MiB VRAM", or a
+WARN naming why not (CPU: no usable GPU; CUDA device found but no layers offloaded; no CUDA
+lines at all = a llama-server built without CUDA). Every answer's `timings` (llama's own tokens
+and milliseconds, on chat completions and on the last stream chunk; estimated from the deltas
+and the clock when absent, and marked so) feed EngineStats: last and tokens-weighted average
+tok/s over the last twenty, prompt tok/s, count. `ghost-cli ghost.oracled models` returns all of
+it plus a speed verdict (under 6 tok/s is CPU speed; under 6 with the GPU claimed is contention
+or throttling; 15+ is GPU speed); secd's daemon drill-in for ghost.oracled shows it on the Box
+Status screen (model · runs · speed · generation · answers since start · what llama-server
+said); health.sh prints the verdict and speed under oracled.
+
+tools/gpu.sh is the debugging pass, five angles that must agree, stamped: nvidia-smi (card,
+memory, WHICH processes hold it, orphans flagged), the llama-server processes (count, age, parent,
+port, -ngl; more than one is the bug), the binary on the volume (linked against CUDA or not),
+oracled's own account and its log's GPU lines, and a timed answer with the GPU's utilization
+sampled while it runs , 0% throughout means the CPU did it whatever anything else says. Exit 0
+when every angle says GPU. Tested with a fake ghost-cli in the sandbox (no card here); the
+parser tests feed real llama.cpp startup lines through the watcher in pipe-sized pieces.

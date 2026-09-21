@@ -104,6 +104,14 @@ for svc in $CHECK; do
             printf '  %s   ' "$(green UP)"
             # status is best-effort: a daemon can be up (ping ok) but mid-init; show whatever it gives.
             "$CLI" "$svc" status 2>/dev/null | head -1 || echo "(no status line)"
+            if [ "$svc" = "ghost.oracled" ]; then
+                # The GPU question, from oracled itself (tools/gpu.sh has the whole picture).
+                m=$("$CLI" ghost.oracled models 2>/dev/null)
+                v=$(echo "$m" | sed -n 's/.*"verdict":"\([^"]*\)".*/\1/p' | head -1)
+                sp=$(echo "$m" | sed -n 's/.*"speed":"\([^"]*\)".*/\1/p' | head -1)
+                [ -n "$v" ] && printf '  model %s\n' "$v"
+                [ -n "$sp" ] && printf '  %s\n' "$sp"
+            fi
         else
             printf '  %s   (socket present but not answering ping , wedged or mid-restart)\n' "$(red STALE)"
             down=$((down + 1))

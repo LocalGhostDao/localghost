@@ -6,9 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/LocalGhostDao/localghost/server/internal/procs"
 )
 
 // DMCryptMounter implements container.Mounter using dm-crypt (LUKS) via cryptsetup. The account's
@@ -134,10 +135,10 @@ func (m *DMCryptMounter) Unmount(slot int) error {
 			msg := strings.TrimSpace(string(out))
 			if !strings.Contains(strings.ToLower(msg), "busy") || time.Since(t0) > unmountPatience {
 				return fmt.Errorf("umount slot %d: %v: %s (after %s; holders: %s)", slot, err, msg,
-					time.Since(t0).Round(time.Second), holdersOf(mnt))
+					time.Since(t0).Round(time.Second), procs.HoldersOf(mnt))
 			}
 			if time.Since(lastLog) >= 5*time.Second {
-				slog.Warn("umount busy, waiting", "fn", "Unmount", "slot", slot, "waitedMs", time.Since(t0).Milliseconds(), "holders", holdersOf(mnt))
+				slog.Warn("umount busy, waiting", "fn", "Unmount", "slot", slot, "waitedMs", time.Since(t0).Milliseconds(), "holders", procs.HoldersOf(mnt))
 				lastLog = time.Now()
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -171,70 +172,6 @@ func isMountpoint(path string) bool {
 // seen to take 44s to leave the process table; a minute covers that with room, and past it the
 // error names the holder so nobody has to guess.
 const unmountPatience = 75 * time.Second
-
-// holdersOf names the processes that keep a mount busy: anything whose executable, working
-// directory, root, an open descriptor or a MEMORY MAPPING lives under it (the mapping is the one
-// `fuser -m` shows and a descriptor scan misses , a model file mmap'd by a dying llama-server).
-// Read from /proc, no tool needed; a process that vanishes mid-scan is simply skipped, and the
-// caller itself is NOT skipped (secd holding its own volume open would be exactly the bug to
-// see). Each is "comm[pid] state" , state D or Z is a corpse the kernel is still clearing, S or R
-// is alive.
-func holdersOf(mnt string) string {
-	prefix := strings.TrimRight(mnt, "/") + "/"
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return "?"
-	}
-	var out []string
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue // not a process entry
-		}
-		dir := "/proc/" + e.Name()
-		holds := false
-		for _, link := range []string{"exe", "cwd", "root"} {
-			if t, err := os.Readlink(dir + "/" + link); err == nil && (strings.HasPrefix(t, prefix) || t == mnt) {
-				holds = true
-				break
-			}
-		}
-		if !holds {
-			if fds, err := os.ReadDir(dir + "/fd"); err == nil {
-				for _, fd := range fds {
-					if t, err := os.Readlink(dir + "/fd/" + fd.Name()); err == nil && strings.HasPrefix(t, prefix) {
-						holds = true
-						break
-					}
-				}
-			}
-		}
-		if !holds {
-			if maps, err := os.ReadFile(dir + "/maps"); err == nil && strings.Contains(string(maps), " "+prefix) {
-				holds = true
-			}
-		}
-		if !holds {
-			continue
-		}
-		comm := "?"
-		if c, err := os.ReadFile(dir + "/comm"); err == nil {
-			comm = strings.TrimSpace(string(c))
-		}
-		state := "?"
-		if st, err := os.ReadFile(dir + "/stat"); err == nil {
-			// "pid (comm) S ppid ..." , the state is the field after the parenthesised comm.
-			if i := strings.LastIndexByte(string(st), ')'); i >= 0 && i+2 < len(st) {
-				state = string(st[i+2])
-			}
-		}
-		out = append(out, fmt.Sprintf("%s[%d] %s", comm, pid, state))
-	}
-	if len(out) == 0 {
-		return "none found in /proc (a mount held from another namespace, or a lazy reference)"
-	}
-	return strings.Join(out, ", ")
-}
 
 func zero(b []byte) {
 	for i := range b {

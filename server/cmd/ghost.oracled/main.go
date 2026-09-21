@@ -12,27 +12,27 @@ package main
 
 import (
 	"bufio"
-	"strings"
-	"net/http"
 	"context"
 	"encoding/json"
 	"flag"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/ghosthealth"
-	"github.com/LocalGhostDao/localghost/server/internal/streamsock"
 	"github.com/LocalGhostDao/localghost/server/internal/oracle"
 	"github.com/LocalGhostDao/localghost/server/internal/oracled"
 	"github.com/LocalGhostDao/localghost/server/internal/rotlog"
+	"github.com/LocalGhostDao/localghost/server/internal/streamsock"
 	"github.com/LocalGhostDao/localghost/server/internal/svcconf"
 )
 
@@ -42,13 +42,13 @@ const service = "ghost.oracled"
 // encrypted volume.
 type conf struct {
 	svcconf.Base
-	QueueDepth int    `json:"queueDepth"` // max waiting requests before backpressure
-	LlamaBin   string `json:"llamaBin"`   // llama-server binary path
-	ModelPath  string `json:"modelPath"`  // gemma gguf on the volume
-	MmprojPath string `json:"mmprojPath"` // multimodal projector on the volume (optional)
-	ModelName  string `json:"modelName"`  // reported in responses
-	LlamaPort  int    `json:"llamaPort"`  // loopback port for the private llama-server
-	ExtraArgs  []string `json:"extraArgs"` // tuning flags appended verbatim (threads, ctx, cache types, mlock...)
+	QueueDepth int      `json:"queueDepth"` // max waiting requests before backpressure
+	LlamaBin   string   `json:"llamaBin"`   // llama-server binary path
+	ModelPath  string   `json:"modelPath"`  // gemma gguf on the volume
+	MmprojPath string   `json:"mmprojPath"` // multimodal projector on the volume (optional)
+	ModelName  string   `json:"modelName"`  // reported in responses
+	LlamaPort  int      `json:"llamaPort"`  // loopback port for the private llama-server
+	ExtraArgs  []string `json:"extraArgs"`  // tuning flags appended verbatim (threads, ctx, cache types, mlock...)
 }
 
 func defaultConf(mount string) conf {
@@ -182,8 +182,20 @@ func main() {
 		data, _ := json.Marshal(resp)
 		return ctlsock.Response{OK: resp.Err == "", Err: resp.Err, Data: data}, nil
 	})
+	// models: which model, whether it is ready, and , the GPU question answered from llama-server's
+	// own startup lines and its own per-answer timings , where it runs and how fast. secd folds
+	// this into the Box Status drill-in for ghost.oracled; tools/gpu.sh and health.sh print it.
 	ctl.Handle("models", func(json.RawMessage) (ctlsock.Response, error) {
-		m := map[string]any{"local-small": cfg.ModelName, "ready": modelReady.Load()}
+		info := llama.Engine()
+		st := llama.Stats()
+		m := map[string]any{
+			"local-small": cfg.ModelName, "ready": modelReady.Load(),
+			"engine":  info,
+			"verdict": info.Verdict(),
+			"stats":   st,
+			"speed":   oracled.SpeedVerdict(st.TokPerSecAvg, info),
+			"onGPU":   info.OnGPU(),
+		}
 		data, _ := json.Marshal(m)
 		return ctlsock.Response{OK: true, Data: data}, nil
 	})
@@ -213,7 +225,7 @@ func main() {
 		var q struct {
 			Prompt  string         `json:"prompt"`
 			Think   string         `json:"think"`
-			Image   string         `json:"image,omitempty"` // base64 jpeg/png , flows to llama as a data URI
+			Image   string         `json:"image,omitempty"`   // base64 jpeg/png , flows to llama as a data URI
 			History []oracled.Turn `json:"history,omitempty"` // prior turns, oldest first (synthd's cut)
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
@@ -227,6 +239,16 @@ func main() {
 			return
 		}
 		defer out.Close()
+		// The stream's timings: llama-server puts them on its final chunk; when it does not, the
+		// content deltas and the clock give an estimate (marked as one in the stats).
+		streamStart := time.Now()
+		tokens := 0
+		timed := false
+		defer func() {
+			if !timed && tokens > 0 {
+				llama.EstimateStream("chat", tokens, time.Since(streamStart))
+			}
+		}()
 		fl, _ := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -253,8 +275,16 @@ func main() {
 						Reasoning string `json:"reasoning_content"`
 					} `json:"delta"`
 				} `json:"choices"`
+				Timings *oracled.Timings `json:"timings"`
 			}
-			if json.Unmarshal([]byte(data), &ev) != nil || len(ev.Choices) == 0 {
+			if json.Unmarshal([]byte(data), &ev) != nil {
+				continue
+			}
+			if ev.Timings != nil && ev.Timings.PredictedN > 0 {
+				llama.RecordStream("chat", *ev.Timings)
+				timed = true
+			}
+			if len(ev.Choices) == 0 {
 				continue
 			}
 			if r := ev.Choices[0].Delta.Reasoning; r != "" {
@@ -265,6 +295,7 @@ func main() {
 				}
 			}
 			if t := ev.Choices[0].Delta.Content; t != "" {
+				tokens++
 				b, _ := json.Marshal(map[string]string{"t": t})
 				_, _ = w.Write([]byte("data: " + string(b) + "\n\n"))
 				if fl != nil {

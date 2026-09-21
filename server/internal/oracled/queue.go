@@ -52,11 +52,11 @@ func (q *pq) Pop() any {
 
 // Queue is the bounded priority queue with a single consumer (the backend worker).
 type Queue struct {
-	mu      sync.Mutex
-	items   pq
-	notify  chan struct{} // signals the worker that an item is available
-	maxLen  int
-	closed  bool
+	mu     sync.Mutex
+	items  pq
+	notify chan struct{} // signals the worker that an item is available
+	maxLen int
+	closed bool
 }
 
 // NewQueue builds a queue that holds at most maxLen waiting requests (backpressure: submits beyond

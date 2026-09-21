@@ -177,6 +177,21 @@ if [ -n "${GHOST_PIN:-}" ] && systemctl is-active --quiet ghost.secd; then
                 ps -o pid=,ppid=,stat=,wchan:28=,etimes=,comm= -p "$pid" 2>/dev/null | sed 's/^/      pid ppid stat wchan up comm: /'
             done
         fi
+        # AN ORPHAN IS NOT A TEARDOWN. Ten seconds in, a survivor whose parent is init and whose
+        # state is R or S is alive and ignoring the halt , the llama-server seen at 60 days old,
+        # parent 1, state R , and nothing else will ever stop it: not the cohort (already down),
+        # not this script's patience, and systemd only after its three-minute timeout, which is
+        # what "systemctl restart took three minutes" was. The new build's lock path kills such
+        # strays itself; this is the same act for the halt that is already under way.
+        if [ "$i" -ge 10 ]; then
+            for pid in $(pgrep -f '/var/lib/ghost/mnt/.*/bin/' 2>/dev/null); do
+                set -- $(ps -o ppid=,stat=,etimes=,comm= -p "$pid" 2>/dev/null)
+                [ "${1:-}" = "1" ] || continue
+                case "${2:-}" in R*|S*) ;; *) continue ;; esac
+                echo "  orphan: ${4:-?} pid $pid (parent 1, state ${2}, up ${3:-?}s) ignores the halt , killing it"
+                kill -TERM "$pid" 2>/dev/null; sleep 2; kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+            done
+        fi
         sleep 1
     done
     for n in $_seen; do [ -n "$n" ] && case " $_left " in *" $n "*) ;; *) echo "  gone after $((i-1))s: $n" ;; esac; done

@@ -15,6 +15,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
+	"github.com/LocalGhostDao/localghost/server/internal/hw"
 	"io"
 	"net/http"
 	"os"
@@ -1129,8 +1131,68 @@ func (s *Server) handleDaemonSummary(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
+	if name == "ghost.oracled" {
+		// The GPU question, answered by oracled itself (its `models` command: what llama-server
+		// said at startup and how fast it has been answering), ahead of the static rows.
+		runDir := fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)
+		kv = append(engineRows(runDir), kv...)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"name": name, "rows": kv})
+}
+
+// engineRows turns oracled's `models` answer into drill-in rows. A daemon that does not answer
+// in two seconds gets one row saying so; the screen must never wait on it.
+func engineRows(runDir string) []hw.DaemonKV {
+	c := ctlsock.NewClientTimeout("ghost.oracled", runDir, 2*time.Second)
+	resp, err := c.Call("models", nil)
+	if err != nil || !resp.OK {
+		return []hw.DaemonKV{{K: "engine", V: "oracled not answering , see Box Status"}}
+	}
+	var m struct {
+		Model   string `json:"local-small"`
+		Ready   bool   `json:"ready"`
+		Verdict string `json:"verdict"`
+		Speed   string `json:"speed"`
+		OnGPU   bool   `json:"onGPU"`
+		Engine  struct {
+			Backend   string   `json:"backend"`
+			Devices   []string `json:"devices"`
+			Offloaded string   `json:"offloaded"`
+			GPUMiB    float64  `json:"gpuMiB"`
+			CPUMiB    float64  `json:"cpuMiB"`
+			Warnings  []string `json:"warnings"`
+		} `json:"engine"`
+		Stats struct {
+			Inferences      int     `json:"inferences"`
+			TokPerSecLast   float64 `json:"tokPerSecLast"`
+			TokPerSecAvg    float64 `json:"tokPerSecAvg"`
+			PromptTokPerSec float64 `json:"promptTokPerSec"`
+			LastAt          string  `json:"lastAt"`
+		} `json:"stats"`
+	}
+	if json.Unmarshal(resp.Data, &m) != nil {
+		return []hw.DaemonKV{{K: "engine", V: "oracled answered something this build does not read"}}
+	}
+	rows := []hw.DaemonKV{
+		{K: "model", V: m.Model + map[bool]string{true: " · ready", false: " · loading"}[m.Ready]},
+		{K: "runs", V: m.Verdict},
+	}
+	if len(m.Engine.Devices) > 1 {
+		rows = append(rows, hw.DaemonKV{K: "devices", V: strings.Join(m.Engine.Devices, "; ")})
+	}
+	if m.Engine.CPUMiB > 0 {
+		rows = append(rows, hw.DaemonKV{K: "left on the CPU", V: fmt.Sprintf("%.0f MiB of model buffers", m.Engine.CPUMiB)})
+	}
+	rows = append(rows, hw.DaemonKV{K: "speed", V: m.Speed})
+	if m.Stats.Inferences > 0 {
+		rows = append(rows, hw.DaemonKV{K: "generation", V: fmt.Sprintf("%.1f tok/s last · %.1f tok/s over the last %d · prompt %.0f tok/s", m.Stats.TokPerSecLast, m.Stats.TokPerSecAvg, min(m.Stats.Inferences, 20), m.Stats.PromptTokPerSec)})
+		rows = append(rows, hw.DaemonKV{K: "answers since start", V: fmt.Sprintf("%d · last %s", m.Stats.Inferences, m.Stats.LastAt)})
+	}
+	for _, w := range m.Engine.Warnings {
+		rows = append(rows, hw.DaemonKV{K: "llama-server said", V: w})
+	}
+	return rows
 }
 
 // handlePipeline , GET /v1/pipeline , the archive's stage-by-stage progress, searchd's queue,

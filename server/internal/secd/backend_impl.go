@@ -19,12 +19,14 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/auth"
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/procs"
 	"github.com/LocalGhostDao/localghost/server/internal/profile"
 	"github.com/LocalGhostDao/localghost/server/internal/rotlog"
 	"github.com/LocalGhostDao/localghost/server/internal/watchd"
@@ -678,6 +680,13 @@ func (b *backend) Lock(slot int, emit func(profile.Progress)) error {
 			}
 		}
 		b.stopWatchd()
+		// The cohort is down and watchd with it; anything STILL running from the volume's bin is
+		// an orphan of an earlier life (a llama-server that outlived its oracled) and would hold
+		// the unmount and the service's cgroup. It has no owner left to stop it; this is where
+		// it ends.
+		if strays := procs.KillStrays(b.mounter.MountPath(slot)+"/bin/", 3*time.Second); len(strays) > 0 {
+			secdLog.Warn("lock: killed stray volume processes", "fn", "lock", "strays", strings.Join(strays, ", "))
+		}
 		return nil
 	})
 	_ = step(profile.StageStopCache, func() error { return b.store.StopCache(slot) })
