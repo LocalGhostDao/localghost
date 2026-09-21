@@ -1,90 +1,121 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ghost.phrased widget: the phrase you need now, glanceable. Same void-and-phosphor as the app.
-     RemoteViews-safe views only (LinearLayout, TextView); the buttons are TextViews with click
-     intents, which is what a lock-screen host can drive without unlocking. -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+     RemoteViews-safe views only (FrameLayout, LinearLayout, ImageView, TextView); the buttons are
+     TextViews with click intents, which is what a lock-screen host can drive without unlocking.
+     The background is an ImageView UNDER the words rather than a background drawable, because an
+     ImageView's alpha is settable through RemoteViews (setImageAlpha) and a background's is not ,
+     the widget's opacity setting lives on that one call. Sizes, colours and which lines show are
+     applied at redraw from PhraseState.widgetLook. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/w_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@drawable/widget_phrase_bg"
-    android:padding="14dp">
+    android:layout_height="match_parent">
 
-    <TextView
-        android:id="@+id/w_head"
+    <ImageView
+        android:id="@+id/w_bg"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="monospace"
-        android:textColor="@color/phrase_dim"
-        android:textSize="11sp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:text="› morning · somewhere" />
-
-    <TextView
-        android:id="@+id/w_local"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:textColor="@color/phrase_text"
-        android:textSize="22sp"
-        android:maxLines="2"
-        android:ellipsize="end"
-        android:text="Bom dia" />
-
-    <TextView
-        android:id="@+id/w_say"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:fontFamily="monospace"
-        android:textColor="@color/phrase_green"
-        android:textSize="13sp"
-        android:maxLines="2"
-        android:ellipsize="end"
-        android:text="bong DEE-ah" />
-
-    <TextView
-        android:id="@+id/w_en"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textColor="@color/phrase_text_dim"
-        android:textSize="12sp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:text="Good morning" />
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/widget_phrase_bg"
+        android:contentDescription="@null" />
 
     <LinearLayout
+        android:id="@+id/w_content"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="14dp">
 
         <TextView
-            android:id="@+id/w_say_btn"
-            android:layout_width="wrap_content"
+            android:id="@+id/w_head"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:textColor="@color/phrase_dim"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="› morning · somewhere" />
+
+        <TextView
+            android:id="@+id/w_local"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:textColor="@color/phrase_text"
+            android:textSize="22sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text="Bom dia" />
+
+        <TextView
+            android:id="@+id/w_say"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:fontFamily="monospace"
             android:textColor="@color/phrase_green"
             android:textSize="13sp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:paddingEnd="18dp"
-            android:paddingStart="0dp"
-            android:text="[ say ]" />
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text="bong DEE-ah" />
 
         <TextView
-            android:id="@+id/w_next_btn"
-            android:layout_width="wrap_content"
+            android:id="@+id/w_en"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:textColor="@color/phrase_green"
-            android:textSize="13sp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:paddingEnd="18dp"
-            android:paddingStart="0dp"
-            android:text="[ next ]" />
+            android:layout_marginTop="2dp"
+            android:textColor="@color/phrase_text_dim"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:text="Good morning" />
+
+        <LinearLayout
+            android:id="@+id/w_buttons"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/w_say_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="@color/phrase_green"
+                android:textSize="13sp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingEnd="18dp"
+                android:paddingStart="0dp"
+                android:text="[ say ]" />
+
+            <TextView
+                android:id="@+id/w_next_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="@color/phrase_green"
+                android:textSize="13sp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingEnd="18dp"
+                android:paddingStart="0dp"
+                android:text="[ next ]" />
+
+            <TextView
+                android:id="@+id/w_got_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:textColor="@color/phrase_green"
+                android:textSize="13sp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingEnd="0dp"
+                android:paddingStart="0dp"
+                android:text="[ got it ]" />
+        </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>

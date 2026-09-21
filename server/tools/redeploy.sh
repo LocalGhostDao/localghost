@@ -54,6 +54,18 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
+# TOOLS HYGIENE. A drop that passed through a Windows machine arrives with CRLF line endings and
+# no execute bit: the shebang then reads "bash\r", env finds no such interpreter, and sudo says
+# "command not found" about a file that is right there. Strip the CR from every script here and
+# make them executable, so the one script that always runs repairs the others.
+for f in "$REPO"/tools/*.sh; do
+    if grep -q $'\r' "$f" 2>/dev/null; then
+        sed -i 's/\r$//' "$f"
+        echo "tools: stripped CRLF from $(basename "$f")"
+    fi
+    [ -x "$f" ] || { chmod +x "$f"; echo "tools: made $(basename "$f") executable"; }
+done
+
 # nginx-only fast path , config change, no binary, no restart, no re-unlock.
 if [ "$NGINX_ONLY" = 1 ]; then
     say "nginx config only"
@@ -195,10 +207,11 @@ if [ -n "${GHOST_PIN:-}" ] && systemctl is-active --quiet ghost.secd; then
                     # process that never returns from the kernel. Once, with the evidence, then quiet.
                     case " $_unkillable " in *" $pid "*) ;; *)
                         _unkillable="$_unkillable $pid"
-                        echo "  UNKILLABLE: ${4:-?} pid $pid survived SIGKILL , it is stuck inside the kernel (state ${2}); no signal, no systemd timeout and no patience ends it. Only a reboot does."
+                        echo "  UNKILLABLE: ${4:-?} pid $pid survived SIGKILL , it is stuck inside the kernel (state ${2}); no signal, no systemd timeout and no patience ends it."
                         echo "      pending signals: $(grep -E '^(ShdPnd|SigPnd)' /proc/$pid/status 2>/dev/null | tr '\n' ' ')"
-                        echo "      kernel stack:    $(head -4 /proc/$pid/stack 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
-                        echo "      GPU faults:      $(dmesg 2>/dev/null | grep -iE 'xid|nvrm' | tail -2 | cut -c1-200 | tr '\n' ' ')"
+                        echo "      kernel stack:    $(head -4 /proc/$pid/stack 2>/dev/null | tr '\n' ' ' | cut -c1-200) (empty = it is ON a cpu right now, spinning)"
+                        echo "      GPU faults:      $(dmesg 2>/dev/null | grep -c 'NVRM: Xid') Xid line(s); first: $(dmesg 2>/dev/null | grep 'NVRM: Xid' | head -1 | cut -c1-160)"
+                        echo "      what now:        sudo ./tools/unwedge.sh  (who, where, since when; --reset for the levers; else a cold reboot)"
                         ;;
                     esac
                     continue ;;
@@ -216,10 +229,10 @@ if [ -n "${GHOST_PIN:-}" ] && systemctl is-active --quiet ghost.secd; then
     if [ -n "$_unkillable" ]; then
         echo "an unkillable process holds the volume and the service's cgroup: the restart below will wait out"
         echo "systemd's stop timeout (minutes), then start the new secd beside it. The volume cannot be fully"
-        echo "locked, and the GPU it holds stays held, until the box REBOOTS: finish this redeploy, then"
-        echo "    sudo reboot"
-        echo "and unlock from the app afterwards. The new build kills strays before they can grow old; a"
-        echo "process the kernel will not release is a driver fault, and dmesg (Xid) names it."
+        echo "locked, and the GPU it holds stays held, until the driver gives it back or the box reboots:"
+        echo "finish this redeploy, then  sudo ./tools/unwedge.sh  , it says which. A card that fell off the"
+        echo "bus (Xid 79) wants a COLD reboot (poweroff, 30s, on), and the app unlocks the volume after."
+        echo "The new build kills strays before they can grow old."
     elif [ -n "$_left" ]; then
         echo "still stopping after 45s: $_left , hard restart; interrupted work heals on the next stock-take"
         echo "      (per-daemon stop timings: watchd's log 'service stopped' / 'cohort down'; llama-server's: oracled's log 'llama-server stop')"

@@ -328,6 +328,13 @@ object PhraseSurface {
         val awm = AppWidgetManager.getInstance(ctx)
         val ids = awm.getAppWidgetIds(ComponentName(ctx, PhraseWidget::class.java))
         if (ids.isEmpty()) return
+        val rv = buildWidget(ctx, snap, index, PhraseState.widgetLook(ctx))
+        for (id in ids) awm.updateAppWidget(id, rv)
+    }
+
+    /** The widget's views for one moment and one look. Separate from the update so the
+     *  configure screen can preview a look without placing anything. */
+    fun buildWidget(ctx: Context, snap: Snapshot, index: Int, look: PhraseState.WidgetLook): RemoteViews {
         val rv = RemoteViews(ctx.packageName, R.layout.widget_phrase)
         val card = snap.cards.getOrNull(index)
         if (card == null) {
@@ -342,10 +349,30 @@ object PhraseSurface {
             rv.setTextViewText(R.id.w_say, card.say + (if (card.roman.isNotEmpty()) "  ·  " + card.roman else ""))
             rv.setTextViewText(R.id.w_en, card.en)
         }
+        // THE LOOK. Opacity is the background layer's image alpha (the one RemoteViews-settable
+        // alpha there is); sizes in sp; lines shown or GONE (GONE so the ones left close up);
+        // the tint on everything phosphor. The card text stays its own grey , the words are the
+        // point, the tint is the frame.
+        rv.setInt(R.id.w_bg, "setImageAlpha", look.alpha255)
+        val sz = look.sizes
+        rv.setTextViewTextSize(R.id.w_local, android.util.TypedValue.COMPLEX_UNIT_SP, sz[0].toFloat())
+        rv.setTextViewTextSize(R.id.w_say, android.util.TypedValue.COMPLEX_UNIT_SP, sz[1].toFloat())
+        rv.setTextViewTextSize(R.id.w_en, android.util.TypedValue.COMPLEX_UNIT_SP, sz[2].toFloat())
+        for (id in intArrayOf(R.id.w_head, R.id.w_say_btn, R.id.w_next_btn, R.id.w_got_btn)) {
+            rv.setTextViewTextSize(id, android.util.TypedValue.COMPLEX_UNIT_SP, sz[3].toFloat())
+        }
+        rv.setViewVisibility(R.id.w_head, if (look.showHead) android.view.View.VISIBLE else android.view.View.GONE)
+        rv.setViewVisibility(R.id.w_say, if (look.showSay) android.view.View.VISIBLE else android.view.View.GONE)
+        rv.setViewVisibility(R.id.w_en, if (look.showEn) android.view.View.VISIBLE else android.view.View.GONE)
+        rv.setViewVisibility(R.id.w_buttons, if (look.showButtons && card != null) android.view.View.VISIBLE else android.view.View.GONE)
+        rv.setTextColor(R.id.w_head, look.accentDim)
+        rv.setTextColor(R.id.w_say, look.accent)
+        for (id in intArrayOf(R.id.w_say_btn, R.id.w_next_btn, R.id.w_got_btn)) rv.setTextColor(id, look.accent)
         rv.setOnClickPendingIntent(R.id.w_root, openApp(ctx))
         rv.setOnClickPendingIntent(R.id.w_say_btn, broadcast(ctx, ACTION_SAY, 1))
         rv.setOnClickPendingIntent(R.id.w_next_btn, broadcast(ctx, ACTION_NEXT, 2))
-        for (id in ids) awm.updateAppWidget(id, rv)
+        rv.setOnClickPendingIntent(R.id.w_got_btn, broadcast(ctx, ACTION_GOT_IT, 3))
+        return rv
     }
 
     /** Ask the launcher to place the widget , the button on the PHRASES screen. False when the

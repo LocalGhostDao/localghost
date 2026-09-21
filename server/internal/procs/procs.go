@@ -92,11 +92,12 @@ func KillStrays(prefix string, grace time.Duration) []string {
 	// SIGKILL cannot be ignored by a process; it can only be outrun by one that never returns
 	// from the kernel. A llama-server spinning inside the GPU driver (state R for weeks, wchan
 	// "-", SIGKILL pending in ShdPnd, a Xid in dmesg) is exactly that, and no signal, no systemd
-	// timeout and no patience will end it , only a reboot. Say so once, precisely, and stop.
+	// timeout and no patience will end it , only the driver returning (a reset under it,
+	// tools/unwedge.sh) or a reboot. Say so once, precisely, and stop.
 	time.Sleep(2 * time.Second)
 	for i, f := range found {
 		if stillRunning(f.pid) {
-			slog.Error("stray survived SIGKILL: stuck inside the kernel (GPU driver?); nothing but a reboot ends it",
+			slog.Error("stray survived SIGKILL: stuck inside the kernel (GPU driver?); root cannot end it, only the driver giving it back or a reboot can: tools/unwedge.sh",
 				"fn", "KillStrays", "pid", f.pid, "comm", f.comm, "state", procState(f.pid), "pendingSignals", pendingSignals(f.pid), "stack", kernelStack(f.pid))
 			names[i] += " (unkillable)"
 		}

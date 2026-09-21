@@ -103,8 +103,8 @@ else
         pend=0
         for v in $(grep -E '^(ShdPnd|SigPnd)' "/proc/$pid/status" 2>/dev/null | awk '{print $2}'); do pend=$(( pend | 0x$v )); done
         if [ $(( pend & 0x100 )) -ne 0 ]; then
-            bad "pid $pid has SIGKILL PENDING and is still running: stuck inside the kernel (GPU driver). Only a reboot ends it, and it holds the VRAM until then.  sudo reboot"
-            echo "      kernel stack: $(head -4 "/proc/$pid/stack" 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+            bad "pid $pid has SIGKILL PENDING and is still running: stuck inside the kernel (GPU driver); it holds the VRAM and a core until the driver gives it back or the box reboots.  sudo ./tools/unwedge.sh"
+            echo "      kernel stack: $(head -4 "/proc/$pid/stack" 2>/dev/null | tr '\n' ' ' | cut -c1-200) (empty = on a cpu right now, spinning)"
         elif [ "$ppid" = "1" ]; then
             bad "pid $pid is an ORPHAN: its oracled is gone and nothing will stop it , it holds the port and the VRAM the next one needs.  sudo kill -9 $pid"
         elif [ "$parent" != "ghost.oracled" ]; then

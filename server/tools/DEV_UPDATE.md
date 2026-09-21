@@ -820,3 +820,77 @@ gpu.sh checks each llama-server for a pending SIGKILL and says "sudo reboot" rat
 -9", bounds nvidia-smi with a 15s timeout (a hung nvidia-smi is the same wedged driver) and
 prints the last Xid lines. Test: pendingSignals on this process (none) and on a stopped child
 with SIGTERM sent (TERM pending); Unkillable false for a live process and for no process.
+
+## The widget gets a look of its own; and "sudo: ./tools/gpu.sh: command not found"
+
+The widget now has settings: opacity of the void behind the words (0-100%, a lock screen shows
+its photo through it), text size (small/normal/large), which lines show (the header, how to say
+it, what it means, the buttons , the phrase itself always shows, and the widget closes up
+around what is left so a two-line one fits the lock screen's smallest slot), and the tint
+(phosphor, white, amber, ice). One look for every widget placed. It is edited from the widget
+itself , the launcher opens PhraseWidgetConfigActivity at placement (configuration_optional lets
+it skip that) and again from long-press › settings (reconfigurable) , and from PHRASES › widget
+› "look", the same editor (ui/WidgetLook.kt): a preview of the current phrase drawn the way the
+widget will, over a wallpaper-ish gradient so opacity means something, and every change saved
+and pushed to the placed widgets at once. In the RemoteViews the background became an ImageView
+under the words (an ImageView's alpha is settable through RemoteViews, a background's is not),
+sizes go through setTextViewTextSize, lines through setViewVisibility(GONE), colours through
+setTextColor; the widget also gains [ got it ]. Verified with the phrases harness: defaults,
+opacity → alpha (85% = 216), sizes, lines, tint colours, the clamp, and the no-card case.
+
+"sudo: ./tools/gpu.sh: command not found" with the file plainly there: the drop passed through
+a Windows machine and arrived with CRLF line endings, so the shebang read "bash\r" and env found
+no such interpreter (reproduced here: the same message from a two-line CRLF script; with LF and
++x it runs). redeploy.sh now strips CR from every tools/*.sh and makes them executable at the
+start, so the one script that always runs repairs the others. By hand, once:
+`sed -i 's/\r$//' tools/*.sh && chmod +x tools/*.sh`.
+
+## The card fell off the bus; what root can and cannot do about pid 2306644
+
+gpu.sh on the box said it in two lines: `Xid 79 (PCI:0000:2e:00) GPU has fallen off the bus`
+and `nvidia-smi: No devices were found`. The card is not on the PCIe bus. Pid 2306644 (the
+59-day-old llama-server, launched by the old oracled with -ngl 0) is spinning inside the nvidia
+module reading 0xffffffff from a device that is not there, with SIGKILL pending, and it will
+spin until the kernel it lives in goes away. Root cannot end it: a signal needs the task to leave
+the kernel (it never does), ptrace needs it to stop (it cannot), a module cannot be unloaded
+while a CPU is executing its code, nvidia-smi has no device to reset. Its /proc/pid/stack is
+empty because it is ON a CPU right now , a running task cannot be unwound from /proc; only an
+NMI backtrace (sysrq l) shows where. The "NVRM: … the NVIDIA kernel module is unloaded" lines the
+redeploy quoted are the tail of the standard Xid message ("run nvidia-bug-report.sh … before the
+module is unloaded"), not a statement that it was; the tail -2 cut the Xid line off.
+
+The Xid was logged at uptime 4274592s, about ten days ago: since then every llama-server has
+started on a box with no GPU and run on the CPU, which is the slowness of the last drops.
+
+tools/unwedge.sh (new, root) is the whole picture on one screen: every process with SIGKILL
+pending that is still running (a /proc scan of ShdPnd/SigPnd bit 9), the card (the nvidia-bound
+PCI address, its config space , 0xffff means off the bus , link state, modules, nvidia-smi under
+a 15s timeout), the kernel log (Xid codes with a plain-words table, the first fault turned into
+a wall-clock time and an age, AER/PCIe errors, lockups), and inside the stuck process: what
+/dev/nvidia* it holds, per thread the state, the CPU it is on, and how much of a core it burns
+in the kernel over two seconds (99% stime = spinning), then an NMI backtrace of that CPU via
+sysrq l (enabled for the one write, restored after) with the [nvidia] frames counted. The verdict
+splits on whether the card answers. Off the bus: nothing ends the process; the clean exit is a
+COLD reboot (poweroff, 30s, on , a warm reboot often leaves a dropped card dropped, the rail never
+falls), and `--reset` offers the one gamble, a PCI remove + rescan of the slot, which sometimes
+retrains the link and binds a fresh device beside the zombie. Wedged but present (Xid 119/120
+GSP timeouts, 109, or nothing logged and nvidia-smi hanging): `--reset` stops ghost.secd (waits
+for the service's other processes to leave the cgroup; systemd keeps waiting on the stuck one,
+which is fine), stops nvidia-persistenced, refuses if anything else holds the card (--force),
+then nvidia-smi -r, a sysfs function-level reset, remove + rescan, each written from a child with
+a 30s bound (a sysfs write that never returns is itself stuck in the kernel, and the script says
+so rather than joining it), each checked; when the process dies the modules are reloaded and the
+card proven with nvidia-smi -L. With nothing stuck it is the after-the-reboot check: the card is
+back, its link, and whether it fell off in this boot too. Exit 0 clear, 1 stuck/reboot, 2 unsure.
+
+Xid 79 has causes, and the reboot does not fix them: power delivery (PSU, the 8-pin, a riser),
+PCIe power management (`pcie_aspm=off` on the kernel command line or off in BIOS), heat, a card
+on its way out. After the box is back: `sudo ./tools/unwedge.sh` (clear?), `sudo ./tools/gpu.sh`
+(on the GPU?), `nvidia-smi -q -d TEMPERATURE,POWER`, and `journalctl -k -b -1 | grep -B5 'Xid'`
+for what preceded the fall last time. redeploy.sh, gpu.sh, procs.KillStrays and the Unmount
+error now all point at unwedge.sh instead of a bare "sudo reboot", and the redeploy's UNKILLABLE
+block prints the Xid count and the first Xid line whole. Verified here: the scan (nothing stuck
+on the sandbox), the --pid path against a dd burning kernel time (99% of a core INSIDE THE
+KERNEL, on cpu 0, syscall running), the bounded write (returns 124 on a write that blocks, 0 on
+one that lands, 1 on a bad path), missing lspci/nvidia-smi said plainly; the levers themselves,
+sysrq and the systemctl dance need the box.

@@ -141,7 +141,7 @@ func (m *DMCryptMounter) Unmount(slot int) error {
 			// amount of waiting frees the mount. Say it now, name it, and stop , the lock stays
 			// partial until the box reboots, and the log says exactly that.
 			if pid, who := procs.UnkillableHolder(mnt); pid > 0 {
-				return fmt.Errorf("umount slot %d: target held by %s, which survives SIGKILL (stuck inside the kernel, GPU driver?) , the volume cannot be fully locked until the box reboots", slot, who)
+				return fmt.Errorf("umount slot %d: target held by %s, which survives SIGKILL (stuck inside the kernel, GPU driver?) , the volume cannot be fully locked until the driver gives it back (tools/unwedge.sh) or the box reboots", slot, who)
 			}
 			if time.Since(lastLog) >= 5*time.Second {
 				slog.Warn("umount busy, waiting", "fn", "Unmount", "slot", slot, "waitedMs", time.Since(t0).Milliseconds(), "holders", procs.HoldersOf(mnt))

@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- A plain home-screen widget is what Android 16 QPR2 offers on the lock screen; no special
-     category needed. updatePeriodMillis is 0 on purpose: our own inexact alarm redraws at each
+     category needed. configure + reconfigurable: the look (opacity, size, lines, tint) is edited
+     from the widget itself , at placement, or later by long-press › settings; configuration_optional
+     lets a launcher place it with the defaults and skip the screen. updatePeriodMillis is 0 on purpose: our own inexact alarm redraws at each
      rotation tick and slot boundary, which is both finer and cheaper than the 30-minute floor. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:minWidth="250dp"
@@ -14,4 +16,6 @@
     android:initialLayout="@layout/widget_phrase"
     android:previewLayout="@layout/widget_phrase"
     android:description="@string/phrase_widget_description"
+    android:configure="com.localghost.app.phrases.PhraseWidgetConfigActivity"
+    android:widgetFeatures="reconfigurable|configuration_optional"
     android:widgetCategory="home_screen" />

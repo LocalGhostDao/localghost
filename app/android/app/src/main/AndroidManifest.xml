@@ -92,6 +92,18 @@
         <receiver android:name=".notify.MuteReceiver" android:exported="false" />
 
         <!-- ghost.phrased , the phrase you need now, on the lock screen and as a widget. -->
+        <!-- The widget's own settings screen: opacity, size, lines, tint. Exported for the launcher,
+             which is the one thing that starts it (APPWIDGET_CONFIGURE), with the widget id. -->
+        <activity
+            android:name=".phrases.PhraseWidgetConfigActivity"
+            android:exported="true"
+            android:label="@string/phrase_widget_label"
+            android:theme="@style/Theme.LocalGhost"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
         <receiver android:name=".phrases.PhraseWidget" android:exported="false"
             android:label="@string/phrase_widget_label">
             <intent-filter>

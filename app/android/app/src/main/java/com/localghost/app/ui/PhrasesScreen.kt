@@ -283,6 +283,15 @@ fun PhrasesScreen() {
                 })
             }
             if (pinNote.isNotEmpty()) Text(pinNote, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            // THE LOOK , opacity, size, lines, tint , the same editor the widget opens from
+            // long-press › settings; here so nobody has to know that gesture.
+            var lookOpen by remember { mutableStateOf(false) }
+            Text(if (lookOpen) "[ hide the look ]" else "[ look: opacity, size, lines, tint ]", color = TerminalGreen,
+                style = MaterialTheme.typography.labelMedium, modifier = Modifier.clickable { lookOpen = !lookOpen }.padding(vertical = 6.dp))
+            if (lookOpen) {
+                Spacer(Modifier.height(6.dp))
+                WidgetLookEditor()
+            }
 
             if (pack?.genderedSpeech == true || form != SpeakerForm.NEUTRAL) {
                 Spacer(Modifier.height(12.dp))

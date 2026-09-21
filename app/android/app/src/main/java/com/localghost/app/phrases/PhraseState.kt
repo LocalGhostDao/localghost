@@ -62,6 +62,62 @@ object PhraseState {
     fun liveUpdate(ctx: Context): Boolean = p(ctx).getBoolean("live", true)
     fun setLiveUpdate(ctx: Context, on: Boolean) = p(ctx).edit().putBoolean("live", on).apply()
 
+    /**
+     * How the widget looks: opacity of the void behind the words (a lock screen shows a photo
+     * through it), text size, which lines show, and the tint. One look for every widget placed;
+     * edited from the widget's own configure screen (long-press › settings, or at placement) and
+     * from PHRASES › widget › look. Read by [PhraseSurface.updateWidgets] on every redraw.
+     */
+    data class WidgetLook(
+        val opacity: Int = 85,          // 0..100, the background's alpha in percent
+        val size: String = "normal",    // small | normal | large
+        val showHead: Boolean = true,   // "› morning · Ελληνικά · 36/178"
+        val showSay: Boolean = true,    // the pronunciation line
+        val showEn: Boolean = true,     // the meaning
+        val showButtons: Boolean = true, // [ say ] [ next ]
+        val tint: String = "phosphor",  // phosphor | white | amber | ice
+    ) {
+        /** The accent colour, ARGB. */
+        val accent: Int get() = when (tint) {
+            "white" -> 0xFFF2F2F2.toInt()
+            "amber" -> 0xFFFFB000.toInt()
+            "ice" -> 0xFF7FDBFF.toInt()
+            else -> 0xFF33FF00.toInt()
+        }
+        /** The pronunciation line's colour: the accent, a little dimmer for the pale tints. */
+        val accentDim: Int get() = when (tint) {
+            "white" -> 0xFFB8B8B8.toInt()
+            "amber" -> 0xFFC98A00.toInt()
+            "ice" -> 0xFF5FA8C8.toInt()
+            else -> 0xFF1A8000.toInt()
+        }
+        /** Text sizes in sp: local, say, en, head/buttons. */
+        val sizes: IntArray get() = when (size) {
+            "small" -> intArrayOf(18, 11, 11, 10)
+            "large" -> intArrayOf(27, 15, 14, 12)
+            else -> intArrayOf(22, 13, 12, 11)
+        }
+        val alpha255: Int get() = (opacity.coerceIn(0, 100) * 255) / 100
+    }
+
+    fun widgetLook(ctx: Context): WidgetLook {
+        val pr = p(ctx)
+        return WidgetLook(
+            opacity = pr.getInt("w.opacity", 85),
+            size = pr.getString("w.size", "normal") ?: "normal",
+            showHead = pr.getBoolean("w.head", true),
+            showSay = pr.getBoolean("w.say", true),
+            showEn = pr.getBoolean("w.en", true),
+            showButtons = pr.getBoolean("w.buttons", true),
+            tint = pr.getString("w.tint", "phosphor") ?: "phosphor",
+        )
+    }
+
+    fun setWidgetLook(ctx: Context, w: WidgetLook) = p(ctx).edit()
+        .putInt("w.opacity", w.opacity.coerceIn(0, 100)).putString("w.size", w.size)
+        .putBoolean("w.head", w.showHead).putBoolean("w.say", w.showSay).putBoolean("w.en", w.showEn)
+        .putBoolean("w.buttons", w.showButtons).putString("w.tint", w.tint).apply()
+
     /** Manual NEXT taps, scoped to the slot they were made in: a new part of the day starts at
      *  its greeting again. Stored as "<yyyyddd>-<slot>:<count>". */
     fun manualNext(ctx: Context, slotKey: String): Int {
