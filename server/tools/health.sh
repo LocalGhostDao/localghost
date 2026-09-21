@@ -84,6 +84,10 @@ done
 CHECK="$ROSTER$EXTRA"
 [ -n "$ONLY" ] && CHECK="$ONLY"
 
+# The clock, once, at the top: a health readout pasted into a chat an hour later still says when
+# it was true, and lines up with the daemon logs it tails (each of which carries its own time).
+printf 'health as of %s on %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$(hostname)"
+
 down=0
 total=0
 for svc in $CHECK; do
@@ -129,9 +133,9 @@ fi
 
 printf '\n----------------------------------------\n'
 if [ "$down" -eq 0 ]; then
-    printf '%s  %d/%d supervised daemons up\n' "$(green ALL UP)" "$total" "$total"
+    printf '%s  %d/%d supervised daemons up  (%s)\n' "$(green ALL UP)" "$total" "$total" "$(date +%H:%M:%S)"
     exit 0
 else
-    printf '%s  %d of %d supervised daemons down , see the DOWN/STALE lines above\n' "$(red DEGRADED)" "$down" "$total"
+    printf '%s  %d of %d supervised daemons down , see the DOWN/STALE lines above  (%s)\n' "$(red DEGRADED)" "$down" "$total" "$(date +%H:%M:%S)"
     exit 1
 fi

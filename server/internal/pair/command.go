@@ -26,6 +26,10 @@ type Options struct {
 	// has no client cert until the scan completes, so nginx's mTLS wall rejects it by design).
 	// Callers set this when stdout is an interactive tty.
 	Animate bool
+	// HoldMillis is how long each rotating frame stays on screen; 0 means defaultHold (one second).
+	// A knob for the field: a phone that keeps missing frames on a particular monitor gets a longer
+	// hold, and nothing else changes.
+	HoldMillis int
 	// EnrolledSignal, if set, returns true once the box has seen its first authenticated device , i.e.
 	// the phone assembled every frame and made real contact through nginx. The rotation loop polls it
 	// and stops on completion, so the operator gets a printed confirmation instead of eyeballing the
@@ -92,7 +96,19 @@ func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error
 			}
 		}
 	}
-	stream, err := NewStream([]byte(link.String()), StreamBlockBudget(budget), 0.5)
+	// ANY 8 OF 12. The frame count is fixed, not derived: the link is cut into exactly
+	// streamDataFrames blocks (each smaller than the budget allows, which only makes the symbols
+	// lighter) plus streamParityFrames parity blocks, so what the person is told is always the
+	// same sentence , twelve codes, any eight get you in , and a lap of the rotation is always the
+	// same twelve seconds. Only a link too long for eight budget-sized blocks (not today's: the DER
+	// identity is ~860 bytes, eight v8 blocks hold ~890) falls back to as many as it takes, still
+	// with half again as parity.
+	payload := []byte(link.String())
+	blockBytes := (len(payload) + streamDataFrames - 1) / streamDataFrames
+	if maxBlock := StreamBlockBudget(budget); blockBytes > maxBlock {
+		blockBytes = maxBlock
+	}
+	stream, err := NewStream(payload, blockBytes, float64(streamParityFrames)/float64(streamDataFrames))
 	if err != nil {
 		return fmt.Errorf("framing the link: %w", err)
 	}
@@ -103,7 +119,17 @@ func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error
 	}
 	fmt.Fprintln(w)
 	if animate {
-		if err := animateFrames(w, frames, stream.K, encodeQR, render, opts.EnrolledSignal); err != nil && err != errEnrolled {
+		hold := time.Duration(opts.HoldMillis) * time.Millisecond
+		if hold <= 0 {
+			hold = defaultHold
+		}
+		// Enter on the terminal ends the rotation; the box seeing the phone enrolled ends it too.
+		stop := make(chan struct{})
+		go func() {
+			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+			close(stop)
+		}()
+		if err := animateFrames(w, frames, stream.K, encodeQR, render, opts.EnrolledSignal, hold, stop); err != nil && err != errEnrolled {
 			return err
 		}
 	} else {
@@ -129,6 +155,20 @@ func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error
 // maxAnimatedVersion is the densest QR the rotating view will draw, whatever the terminal size.
 // The evidence is in frameBudget; the number is here so a test can pin it.
 const maxAnimatedVersion = 8
+
+// The frame set: streamDataFrames data blocks plus streamParityFrames parity blocks, any
+// streamDataFrames of which rebuild the link. Twelve codes, any eight , four misses a lap are free.
+const (
+	streamDataFrames   = 8
+	streamParityFrames = 4
+)
+
+// defaultHold is how long each frame stays on screen. One second: the phone samples every 100ms
+// while assembling (~10 attempts per frame) and a miss costs one frame, not a lap, so the hold only
+// has to cover lock-and-decode (~0.3-0.8s). A lap of twelve is twelve seconds, and the phone is
+// normally done inside one: eight distinct frames, at least eight seconds. The old two seconds
+// doubled all of that for insurance the parity already provides. Options.HoldMillis overrides.
+const defaultHold = 1000 * time.Millisecond
 
 // frameBudget converts terminal geometry into a per-frame payload budget. Height is the binding
 // constraint on most consoles: half-block rendering draws two module rows per text line, captions
@@ -176,7 +216,7 @@ func cellsFit(cols, rows, v int) bool {
 // when the set is complete. No feedback channel exists , or can: pre-enrolment the phone has no
 // client cert, so the box's mTLS edge rejects it, which is the appears-down design doing its job.
 // The rotation is pure display; security posture is unchanged.
-func animateFrames(w io.Writer, frames []string, k int, encodeQR func(string) (Matrix, error), render func(Matrix) string, enrolled func() bool) error {
+func animateFrames(w io.Writer, frames []string, k int, encodeQR func(string) (Matrix, error), render func(Matrix) string, enrolled func() bool, hold time.Duration, stop <-chan struct{}) error {
 	// Pre-encode every frame so the loop never fails mid-rotation.
 	rendered := make([]string, len(frames))
 	for i, f := range frames {
@@ -186,17 +226,9 @@ func animateFrames(w io.Writer, frames []string, k int, encodeQR func(string) (M
 		}
 		rendered[i] = render(m)
 	}
-	done := make(chan struct{})
-	go func() {
-		_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
-		close(done)
-	}()
-	// 2s per frame. The 3.2s the LGQR1 rotation used was insurance against missing a frame, because
-	// a miss cost a whole lap; with erasure coding a miss costs one more frame, so the hold only
-	// has to cover the phone's lock-and-decode (~0.3-0.8s, and it samples every 100ms while
-	// assembling). Twenty attempts per frame is plenty; a lap of 17 frames is 34s and the phone
-	// is normally done after K+1 or K+2 of them.
-	const hold = 2000 * time.Millisecond
+	// The hold is the caller's (defaultHold unless overridden): the 3.2s the LGQR1 rotation used
+	// was insurance against missing a frame, because a miss cost a whole lap; with erasure coding
+	// a miss costs one more frame, so the hold only has to cover the phone's lock-and-decode.
 	// One full clear up front, cursor hidden for the duration (a blinking cursor inside the symbol
 	// helps nobody). Each frame then redraws from HOME with erase-to-end-of-line per line and
 	// erase-below at the end , no full clears in the loop, so there is no flicker, and frames of
@@ -206,14 +238,15 @@ func animateFrames(w io.Writer, frames []string, k int, encodeQR func(string) (M
 	i := 0
 	for {
 		fmt.Fprint(w, "\x1b[H")
-		fmt.Fprintf(w, "QR %d of %d , hold the phone steady; any %d of these complete the enrolment.\x1b[K\n", i%len(frames)+1, len(frames), k)
+		fmt.Fprintf(w, "QR %d of %d , hold the phone steady; any %d of these complete the enrolment (%.1fs each, %.0fs a lap).\x1b[K\n",
+			i%len(frames)+1, len(frames), k, hold.Seconds(), (hold * time.Duration(len(frames))).Seconds())
 		fmt.Fprint(w, "Press Enter here once the app shows the identity assembled.\x1b[K\n\x1b[K\n")
 		for _, line := range strings.Split(rendered[i%len(frames)], "\n") {
 			fmt.Fprint(w, line, "\x1b[K\n")
 		}
 		fmt.Fprint(w, "\x1b[J")
 		select {
-		case <-done:
+		case <-stop:
 			return nil
 		case <-time.After(hold):
 			i++

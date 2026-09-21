@@ -655,3 +655,48 @@ the app's own parser and engine over all eighteen packs (the harness: band, the 
 review sprinkle, progress) and with the surface itself compiled against Android stubs: draw,
 the expanded text, NEXT, GOT IT on a card and on the greeting, the band climbing after
 "I know these", lock screen off, SAY. JUnit: PhraseEngineTest, WebSearchTest.
+
+## The clock on every line, and the 44-second llama-server
+
+redeploy.sh now stamps EVERY line it prints with HH:MM:SS (bash's own printf %T through one
+filter on stdout+stderr, the full date once at the top, the PIN prompt written to the terminal
+directly so buffering cannot hold it): its own messages, make's output, systemctl's status, the
+halt watch. The halt watch itself says more: each daemon is named the second it goes ("gone after
+2s: ghost.searchd"), and every five seconds a survivor is printed with pid, parent, state, kernel
+wait channel and age , the line that tells a process ignoring SIGTERM (state S, parent 1) from a
+corpse the kernel is still clearing (state D or Z, wchan in exit_mmap or the GPU driver). health.sh
+prints "health as of <date time>" at the top and the time on its verdict line.
+
+The paste that prompted this: every ghost.*d gone inside a second, llama-server alone alive for
+44s, then "still stopping after 45s" from a poll race. Two things can produce that and the new
+output separates them; both are handled either way. (1) oracled's Stop now logs each step with
+its time (SIGTERM sent; exited on SIGTERM after Nms; no exit, SIGKILL after 1s; reaped after Nms;
+or SIGKILLed but not reaped in 2s "the kernel is still tearing it down, leaving it to init") and
+never sits in Wait on a corpse long enough for watchd's 5s grace to kill oracled too. (2) secd's
+unmount waits for a busy mount instead of failing on the first "target is busy": up to 75s, retry
+every half second, and every five seconds it logs who holds the mount , a /proc scan of exe,
+cwd, root, open descriptors AND memory mappings (a dying llama-server holds the volume through
+its mmap of the model file, which a descriptor scan misses), as "comm[pid] state". The old
+single-shot umount errored, the LUKS mapping stayed open with the key resident, and the next
+unlock met the mounted-but-dead state it repairs; now the halt finishes what it started and the
+log says what it waited for. Test: internal/hw TestHoldersOf, this process seen by descriptor,
+then by mapping alone, then not at all.
+
+## Twelve codes, any eight; one second each
+
+The enrolment rotation is now a fixed set: the identity link is cut into exactly 8 data frames
+plus 4 parity frames (pair.streamDataFrames/streamParityFrames), any 8 of which rebuild it , the
+erasure code from the LGQR2 work, with the count pinned instead of derived, so the sentence on
+the screen never changes and four misses a lap are free. Blocks are sized to the link (~108
+bytes for today's DER identity), which only makes the symbols lighter than the v8 budget; a link
+too long for eight budget-sized blocks (none today) grows the count with parity still at half.
+Each frame now stays one second instead of two (pair.defaultHold; `ghost-qr --hold-ms` for a
+monitor that needs longer): the phone samples every 100ms while assembling, a miss costs a frame
+not a lap, so the second second was insurance the parity already gives. A lap is twelve seconds
+and eight distinct frames is the floor, so a clean first connect is eight to twelve seconds
+where it was sixteen to twenty-four. The caption prints the hold and the lap. On the phone, a
+code in view is sampled every 150ms (was 250) so the FIRST frame , the one that starts the
+assembly burst , gets ~6 attempts inside its second; assembly stays at 100ms. animateFrames
+takes its stop channel from the caller (Enter on the terminal) instead of reading stdin itself,
+which is what let it be tested: TestFrameSetIsTwelveAnyEight (four sizes, rebuild from frames
+1-4 plus parity, the overlong fallback, the default hold) and TestAnimateFramesCaptionAndHold.

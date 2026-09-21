@@ -2,10 +2,13 @@ package hw
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // DMCryptMounter implements container.Mounter using dm-crypt (LUKS) via cryptsetup. The account's
@@ -34,7 +37,7 @@ func NewDMCryptMounter(stateDir, disk string, keyFor func(slot int, pin string) 
 
 // diskPath is the LUKS container backing the slot. Single-account: it is the raw disk regardless of
 // slot.
-func (m *DMCryptMounter) diskPath(slot int) string  { return m.disk }
+func (m *DMCryptMounter) diskPath(slot int) string   { return m.disk }
 func (m *DMCryptMounter) mapperName(slot int) string { return fmt.Sprintf("ghost-slot%d", slot) }
 func (m *DMCryptMounter) mapperPath(slot int) string { return "/dev/mapper/" + m.mapperName(slot) }
 func (m *DMCryptMounter) mountPath(slot int) string {
@@ -107,11 +110,37 @@ func (m *DMCryptMounter) ensureMounted(slot int) (string, error) {
 }
 
 // Unmount unmounts the filesystem and closes the LUKS mapping, so the key is no longer resident.
+//
+// A busy mount is waited for, up to [unmountPatience], naming what holds it. The cohort is
+// confirmed dead before this runs, but a daemon's CHILD is not the cohort: llama-server, killed
+// with oracled, can spend tens of seconds in the kernel releasing VRAM and the pages the CUDA
+// driver pinned, and until it is fully gone its mmap of the model file holds the volume. The old
+// single umount returned "target is busy" at once, the halt errored, the LUKS mapping stayed open
+// with the key resident, and the next unlock found the mounted-but-dead state it now knows how
+// to repair. Repairable is not good: wait for the corpse, say who it is, then unmount for real.
 func (m *DMCryptMounter) Unmount(slot int) error {
 	mnt := m.mountPath(slot)
 	if isMountpoint(mnt) {
-		if out, err := exec.Command("umount", mnt).CombinedOutput(); err != nil {
-			return fmt.Errorf("umount slot %d: %v: %s", slot, err, strings.TrimSpace(string(out)))
+		t0 := time.Now()
+		var lastLog time.Time
+		for {
+			out, err := exec.Command("umount", mnt).CombinedOutput()
+			if err == nil {
+				if !lastLog.IsZero() {
+					slog.Info("umount succeeded after wait", "fn", "Unmount", "slot", slot, "ms", time.Since(t0).Milliseconds())
+				}
+				break
+			}
+			msg := strings.TrimSpace(string(out))
+			if !strings.Contains(strings.ToLower(msg), "busy") || time.Since(t0) > unmountPatience {
+				return fmt.Errorf("umount slot %d: %v: %s (after %s; holders: %s)", slot, err, msg,
+					time.Since(t0).Round(time.Second), holdersOf(mnt))
+			}
+			if time.Since(lastLog) >= 5*time.Second {
+				slog.Warn("umount busy, waiting", "fn", "Unmount", "slot", slot, "waitedMs", time.Since(t0).Milliseconds(), "holders", holdersOf(mnt))
+				lastLog = time.Now()
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
 	}
 	mapper := m.mapperName(slot)
@@ -136,6 +165,75 @@ func (m *DMCryptMounter) ResizeToFill(slot int) error {
 
 func isMountpoint(path string) bool {
 	return exec.Command("mountpoint", "-q", path).Run() == nil
+}
+
+// unmountPatience is how long a busy unmount is waited for. A SIGKILLed llama-server has been
+// seen to take 44s to leave the process table; a minute covers that with room, and past it the
+// error names the holder so nobody has to guess.
+const unmountPatience = 75 * time.Second
+
+// holdersOf names the processes that keep a mount busy: anything whose executable, working
+// directory, root, an open descriptor or a MEMORY MAPPING lives under it (the mapping is the one
+// `fuser -m` shows and a descriptor scan misses , a model file mmap'd by a dying llama-server).
+// Read from /proc, no tool needed; a process that vanishes mid-scan is simply skipped, and the
+// caller itself is NOT skipped (secd holding its own volume open would be exactly the bug to
+// see). Each is "comm[pid] state" , state D or Z is a corpse the kernel is still clearing, S or R
+// is alive.
+func holdersOf(mnt string) string {
+	prefix := strings.TrimRight(mnt, "/") + "/"
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return "?"
+	}
+	var out []string
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue // not a process entry
+		}
+		dir := "/proc/" + e.Name()
+		holds := false
+		for _, link := range []string{"exe", "cwd", "root"} {
+			if t, err := os.Readlink(dir + "/" + link); err == nil && (strings.HasPrefix(t, prefix) || t == mnt) {
+				holds = true
+				break
+			}
+		}
+		if !holds {
+			if fds, err := os.ReadDir(dir + "/fd"); err == nil {
+				for _, fd := range fds {
+					if t, err := os.Readlink(dir + "/fd/" + fd.Name()); err == nil && strings.HasPrefix(t, prefix) {
+						holds = true
+						break
+					}
+				}
+			}
+		}
+		if !holds {
+			if maps, err := os.ReadFile(dir + "/maps"); err == nil && strings.Contains(string(maps), " "+prefix) {
+				holds = true
+			}
+		}
+		if !holds {
+			continue
+		}
+		comm := "?"
+		if c, err := os.ReadFile(dir + "/comm"); err == nil {
+			comm = strings.TrimSpace(string(c))
+		}
+		state := "?"
+		if st, err := os.ReadFile(dir + "/stat"); err == nil {
+			// "pid (comm) S ppid ..." , the state is the field after the parenthesised comm.
+			if i := strings.LastIndexByte(string(st), ')'); i >= 0 && i+2 < len(st) {
+				state = string(st[i+2])
+			}
+		}
+		out = append(out, fmt.Sprintf("%s[%d] %s", comm, pid, state))
+	}
+	if len(out) == 0 {
+		return "none found in /proc (a mount held from another namespace, or a lazy reference)"
+	}
+	return strings.Join(out, ", ")
 }
 
 func zero(b []byte) {

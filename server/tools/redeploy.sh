@@ -33,10 +33,21 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# STAGE TIMING , "it takes minutes and I have no idea why" is a measurement problem, so every
-# banner carries seconds-since-start. One helper, every stage, no new call sites.
+# EVERY LINE CARRIES THE CLOCK. Stage banners with "+Ns" said how long; they did not say WHEN,
+# and when is what gets lined up against watchd's log, oracled's log and journalctl when a halt
+# takes 46 seconds. So everything this script prints , its own messages, make's output,
+# systemctl's status, the halt watch , goes through one filter that prefixes HH:MM:SS (bash's
+# own printf %T, no process per line); the full date is printed once at the top. The PIN prompt
+# is the one thing written to the terminal directly, so line buffering cannot hold it back.
+_stamp() { while IFS= read -r _l; do printf '%(%H:%M:%S)T %s\n' -1 "$_l"; done; }
+exec > >(_stamp) 2>&1
+_stamp_pid=$!
+# Let the filter drain before the shell goes: the closing banner is the line people read.
+_drain() { exec 1>&- 2>&-; wait "$_stamp_pid" 2>/dev/null || true; }
+trap _drain EXIT
 _t0=$(date +%s)
 say() { printf '\n=== %s ===  (+%ss)\n' "$1" "$(( $(date +%s) - _t0 ))"; }
+printf 'redeploy started %s on %s (nginx-only=%s no-build=%s)\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$(hostname)" "$NGINX_ONLY" "$NO_BUILD"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "run as root (sudo): it restarts a system service and writes $SYSTEM_BIN"
@@ -133,43 +144,46 @@ if ! pgrep -f '/var/lib/ghost/mnt/.*/bin/' >/dev/null 2>&1; then
     echo "volume locked , nothing to halt, skipping straight to the binary swap"
 fi
 if [ -z "${GHOST_PIN:-}" ] && [ -t 0 ] && [ "$NGINX_ONLY" = "0" ] && [ "${VOLUME_LOCKED:-0}" = "0" ]; then
-    printf "main PIN for graceful halt (Enter to skip): "
+    printf "main PIN for graceful halt (Enter to skip): " > /dev/tty
     read -rs GHOST_PIN
-    echo
+    echo > /dev/tty
 fi
 if [ -n "${GHOST_PIN:-}" ] && systemctl is-active --quiet ghost.secd; then
     echo "graceful halt before the binary swap"
     "$REPO/bin/ghost-cli" --run-dir=/var/lib/ghost/run ghost.secd halt "pin=$GHOST_PIN" || true
+    echo "halt sent to secd; watching the volume's processes"
     # halt replies ok unconditionally (PIN-opaque); confirm by watching the volume's services die,
-    # and SAY WHICH ONES are slow: each survivor is named with the second it finally went, so a
-    # halt that takes 20s points at one daemon instead of at "the cohort".
+    # and SAY WHICH ONES are slow: each one is named the second it goes, and a survivor is shown
+    # with its pid, parent, state and kernel wait channel every five seconds , the difference
+    # between a process that is ignoring SIGTERM (state S, parent 1: an orphan nobody signals) and
+    # one the kernel is still tearing down (state D or Z, wchan in exit_mmap or the GPU driver:
+    # already dead, releasing memory), which is the llama-server question.
     _halt0=$(date +%s)
     _seen=""
-    _gone=""
+    _left=""
     for i in $(seq 1 45); do
         _alive=$(pgrep -fa '/var/lib/ghost/mnt/.*/bin/' 2>/dev/null | sed -E 's|.*/bin/([^ ]+).*|\1|' | sort -u | tr '\n' ' ')
-        [ -z "$_alive" ] && break
-        _seen="$_seen $_alive"
-        # anything seen before that is no longer alive: record when it went
+        if [ -z "$_alive" ]; then _left=""; break; fi
+        _left="$_alive"
+        # anything seen before that is no longer alive: say so now, with the second
         for n in $(echo "$_seen" | tr ' ' '\n' | sort -u); do
             [ -z "$n" ] && continue
-            case " $_alive " in *" $n "*) ;; *)
-                case "$_gone" in *" $n="*) ;; *) _gone="$_gone $n=$((i-1))s" ;; esac ;;
-            esac
+            case " $_alive " in *" $n "*) ;; *) echo "  gone after $((i-1))s: $n"; _seen=$(echo " $_seen " | sed "s/ $n / /g") ;; esac
         done
-        if [ $((i % 5)) -eq 0 ]; then echo "  still up after ${i}s: $_alive"; fi
+        for n in $_alive; do case " $_seen " in *" $n "*) ;; *) _seen="$_seen $n" ;; esac; done
+        if [ $((i % 5)) -eq 0 ]; then
+            echo "  still up after ${i}s: $_alive"
+            for pid in $(pgrep -f '/var/lib/ghost/mnt/.*/bin/' 2>/dev/null); do
+                ps -o pid=,ppid=,stat=,wchan:28=,etimes=,comm= -p "$pid" 2>/dev/null | sed 's/^/      pid ppid stat wchan up comm: /'
+            done
+        fi
         sleep 1
     done
-    # the last survivors went between the final two polls
-    for n in $(echo "$_seen" | tr ' ' '\n' | sort -u); do
-        [ -z "$n" ] && continue
-        case "$_gone" in *" $n="*) ;; *) _gone="$_gone $n=$((i-1))s" ;; esac
-    done
-    echo "cohort down after $(( $(date +%s) - _halt0 ))s${_gone:+ , slowest:$_gone}"
-    _left=$(pgrep -fa '/var/lib/ghost/mnt/.*/bin/' 2>/dev/null | sed -E 's|.*/bin/([^ ]+).*|\1|' | sort -u | tr '\n' ' ')
+    for n in $_seen; do [ -n "$n" ] && case " $_left " in *" $n "*) ;; *) echo "  gone after $((i-1))s: $n" ;; esac; done
+    echo "cohort down after $(( $(date +%s) - _halt0 ))s"
     if [ -n "$_left" ]; then
         echo "still stopping after 45s: $_left , hard restart; interrupted work heals on the next stock-take"
-        echo "      (per-daemon stop timings are in watchd's log: 'service stopped' and 'cohort down' lines)"
+        echo "      (per-daemon stop timings: watchd's log 'service stopped' / 'cohort down'; llama-server's: oracled's log 'llama-server stop')"
     else
         echo "halted cleanly , cohort down, redis saved, postgres checkpointed."
     fi
@@ -178,7 +192,9 @@ elif [ "${VOLUME_LOCKED:-0}" = "0" ]; then
     echo "      secd's SIGTERM lock against systemd's kill timeout. For a guaranteed-clean teardown:"
     echo "        sudo GHOST_PIN=<main pin> ./tools/redeploy.sh"
 fi
+echo "systemctl restart ghost.secd"
 systemctl restart ghost.secd
+echo "restart returned"
 sleep 1
 systemctl --no-pager --lines=0 status ghost.secd 2>/dev/null | head -3 || true
 

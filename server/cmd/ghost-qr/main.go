@@ -24,6 +24,7 @@ func main() {
 	port := flag.Int("port", 443, "PUBLIC port in the enrol link the phone connects to (nginx SNI on the hostname; proxies to --secd)")
 	secd := flag.String("secd", "127.0.0.1:8443", "ghost.secd loopback address nginx proxies to")
 	nginxOut := flag.String("nginx-out", "", "optional: write the appears-down nginx config here")
+	holdMs := flag.Int("hold-ms", 0, "how long each rotating QR frame stays on screen (0 = the default, one second)")
 	flag.Parse()
 	if *host == "" {
 		fmt.Fprintln(os.Stderr, "--host is required")
@@ -63,6 +64,7 @@ func main() {
 		BoxName:     *host,
 		IssueDevice: pki.IssueDeviceCertDER,
 		Animate:     term.IsTerminal(int(os.Stdout.Fd())),
+		HoldMillis:  *holdMs,
 	}, pair.EncodeQR); err != nil {
 		fmt.Fprintln(os.Stderr, "render QR:", err)
 		os.Exit(1)

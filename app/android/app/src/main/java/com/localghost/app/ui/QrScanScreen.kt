@@ -299,22 +299,24 @@ fun QrScanScreen(
                 val now = System.currentTimeMillis()
                 val codeInView = now - timing.lastDetectAt < DETECT_WINDOW_MS
                 // Field-tuned down from 180/400: flat-out sampling heats the phone into thermal
-                // throttle, which FEELS like the scanner getting worse the longer you try. 250ms hot
-                // still lands ~12 attempts per rotating frame (3.2s hold); 600ms is plenty to notice
-                // a code entering view within a blink.
+                // throttle, which FEELS like the scanner getting worse the longer you try. 600ms
+                // hunting is plenty to notice a code entering view within a blink.
                 //
-                // EXCEPT during multi-frame ASSEMBLY: capturing the rotating enrol sequence is a
-                // bounded burst measured in seconds, not the indefinite hunt the thermal tuning
-                // protects against , and every rotating frame that fails to decode inside its own
-                // display window costs a FULL cycle of the rotation (the observed "go through the
-                // codes once or twice"). 100ms during assembly is ~32 attempts per displayed frame,
-                // so a marginal decode gets nearly three times the chances before the display moves
-                // on. The burst ends when assembly does, so nothing here can cook the phone.
+                // A code IN VIEW gets 150ms: the box now holds each rotating frame for ONE second
+                // (twelve frames, any eight enough), so the first frame , the one that starts the
+                // assembly burst , has about six attempts inside its window instead of the four
+                // that 250ms left it. A code in view is the enrolment scan or a stray code held up
+                // on purpose, a bounded moment either way, not the hunt the thermal tuning is for.
+                //
+                // During multi-frame ASSEMBLY, 100ms: capturing the rotating sequence is a burst
+                // measured in seconds, ~10 attempts per one-second frame, and with erasure coding a
+                // frame that still fails costs one more frame, not a lap. The burst ends when
+                // assembly does, so nothing here can cook the phone.
                 val assembling = capturedFrames.isNotEmpty() &&
                     frameProgress?.let { it.first < it.second } == true
                 val interval = when {
                     assembling -> 100L
-                    codeInView -> 250L
+                    codeInView -> 150L
                     else -> 600L
                 }
                 if (now - timing.lastDecodeAt < interval) {

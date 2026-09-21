@@ -34,12 +34,12 @@ type Backend interface {
 // LlamaConfig configures the llama-server child. Paths to the weights are on the ENCRYPTED VOLUME, so
 // a locked box cannot read the model , consistent with everything else on the box.
 type LlamaConfig struct {
-	BinPath   string // llama-server binary, e.g. /usr/local/bin/llama-server (the binary is not secret)
-	ModelPath string // <mount>/ai-models/gemma-4-12b-it-Q4_K_M.gguf , weights ON the volume
+	BinPath    string // llama-server binary, e.g. /usr/local/bin/llama-server (the binary is not secret)
+	ModelPath  string // <mount>/ai-models/gemma-4-12b-it-Q4_K_M.gguf , weights ON the volume
 	MmprojPath string // <mount>/ai-models/mmproj-F16.gguf (multimodal projector), optional
-	Port      int    // loopback port oracled picks and tells no one
-	ModelName string // reported back in Response.Model, e.g. "gemma-4-12b"
-	ExtraArgs []string
+	Port       int    // loopback port oracled picks and tells no one
+	ModelName  string // reported back in Response.Model, e.g. "gemma-4-12b"
+	ExtraArgs  []string
 }
 
 // llamaBackend owns a llama-server subprocess.
@@ -57,10 +57,10 @@ type llamaBackend struct {
 // NewLlamaBackend prepares (does not start) the backend.
 func NewLlamaBackend(cfg LlamaConfig) *llamaBackend {
 	return &llamaBackend{
-		cfg:    cfg,
+		cfg:          cfg,
 		client:       &http.Client{Timeout: 120 * time.Second}, // a 12B generation can be slow
-		streamClient: &http.Client{},                            // streaming: context-cancelled, never clock-killed
-		addr:   "127.0.0.1:" + strconv.Itoa(cfg.Port),
+		streamClient: &http.Client{},                           // streaming: context-cancelled, never clock-killed
+		addr:         "127.0.0.1:" + strconv.Itoa(cfg.Port),
 	}
 }
 
@@ -303,24 +303,56 @@ func dataURI(raw []byte) string {
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
 }
 
-// Stop signals llama-server (TERM then KILL) and reaps it. Called on oracled shutdown, which is the
-// lock path, so the model process dies with the mount.
+// Stop signals llama-server (TERM, then KILL after a short grace) and reaps it. Called on oracled
+// shutdown, which is the lock path, so the model process dies with the mount.
+//
+// Every step is logged with how long it took, because "llama-server took 44s to go" is the line
+// a halt gets diagnosed from and the answer has two very different shapes: the process ignoring
+// TERM (it is alive; the KILL settles it in a second) or the process ALREADY DEAD and the kernel
+// still releasing what it held , gigabytes of VRAM and of host pages the CUDA driver pinned ,
+// which no signal can hurry and which shows as state D with a wchan in the driver. The reap
+// wait after KILL is therefore bounded too: oracled must not sit in Wait for a corpse until
+// watchd's 5s grace kills oracled as well; a KILLed child that is still tearing down is left to
+// init, and the log says so, with the pid, so the next `ps` on the box answers the question.
 func (b *llamaBackend) Stop() {
 	if b.proc == nil {
 		return
 	}
+	pid := b.proc.Pid
+	t0 := time.Now()
 	_ = b.proc.Signal(syscall.SIGTERM)
-	done := make(chan struct{})
-	go func() { _, _ = b.proc.Wait(); close(done) }()
+	slog.Info("llama-server stop: SIGTERM sent", "fn", "Stop", "pid", pid)
+	done := make(chan *os.ProcessState, 1)
+	go func() { st, _ := b.proc.Wait(); done <- st }()
 	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		// 2s, down from 10: a model server has nothing to flush, and watchd gives the whole
-		// daemon 5s before it kills us (and, through Pdeathsig, llama with us).
+	case st := <-done:
+		slog.Info("llama-server stop: exited on SIGTERM", "fn", "Stop", "pid", pid, "ms", time.Since(t0).Milliseconds(), "state", stateString(st))
+	case <-time.After(llamaTermGrace):
+		// A model server has nothing to flush; watchd gives the whole daemon 5s before it kills
+		// us (and, through Pdeathsig, llama with us), so TERM gets one second, not a courtesy.
 		_ = b.proc.Kill()
-		<-done
+		slog.Warn("llama-server stop: no exit on SIGTERM, SIGKILL sent", "fn", "Stop", "pid", pid, "afterMs", time.Since(t0).Milliseconds())
+		select {
+		case st := <-done:
+			slog.Info("llama-server stop: reaped after SIGKILL", "fn", "Stop", "pid", pid, "ms", time.Since(t0).Milliseconds(), "state", stateString(st))
+		case <-time.After(llamaReapWait):
+			slog.Warn("llama-server stop: SIGKILLed but not reaped yet , the kernel is still tearing it down (VRAM, pinned pages); leaving it to init, oracled exits",
+				"fn", "Stop", "pid", pid, "afterMs", time.Since(t0).Milliseconds())
+		}
 	}
 	b.proc = nil
+}
+
+const (
+	llamaTermGrace = 1 * time.Second // TERM to KILL
+	llamaReapWait  = 2 * time.Second // KILL to giving up on the reap; oracled has ~5s in all
+)
+
+func stateString(st *os.ProcessState) string {
+	if st == nil {
+		return "?"
+	}
+	return st.String()
 }
 
 // applyThink turns the Think level into an instruction prefix and a token budget. Prompted
