@@ -76,4 +76,10 @@ object AppSettings {
      *  screen and in settings, and the permission itself is the second switch. */
     fun locationTrail(ctx: Context): Boolean = prefs(ctx).getBoolean("location_trail", true)
     fun setLocationTrail(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("location_trail", on).apply()
+
+    /** Where home is, as a country code: the phrases offer themselves when the phone is somewhere
+     *  ELSE. Taken from the SIM at the welcome screen (an operator's home country is the one thing
+     *  a SIM reliably knows), changeable in settings; "" until then. */
+    fun homeCountry(ctx: Context): String = prefs(ctx).getString("home_country", "") ?: ""
+    fun setHomeCountry(ctx: Context, cc: String) = prefs(ctx).edit().putString("home_country", cc.uppercase()).apply()
 }

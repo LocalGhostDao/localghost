@@ -68,6 +68,28 @@ func TestBuildDayPath(t *testing.T) {
 	if g.Features[1].Properties["hash"] != "abc" {
 		t.Fatal("photo feature must carry the frame hash for the app to open the preview")
 	}
+	// The track carries a clock per kept vertex and its length over the raw points: a right angle
+	// of ~695m east then ~1112m north, none of it under the standing-still floor.
+	times, _ := g.Features[0].Properties["times"].([]any)
+	if len(times) != 3 || times[0].(float64) != 10 || times[2].(float64) != 30 {
+		t.Fatalf("times = %v, want [10 20 30] parallel to the coordinates", times)
+	}
+	if d, _ := g.Features[0].Properties["distanceM"].(float64); d < 1780 || d > 1830 {
+		t.Fatalf("distanceM = %v, want ~1806", d)
+	}
+}
+
+func TestTrackDistanceIgnoresJitter(t *testing.T) {
+	still := []TrackPoint{{TS: 1, Lat: 51.5, Lon: 0}, {TS: 2, Lat: 51.50005, Lon: 0}, {TS: 3, Lat: 51.5, Lon: 0.00005}}
+	if d := TrackDistanceM(still); d != 0 {
+		t.Fatalf("a café afternoon walked %.1fm", d)
+	}
+	if d := TrackDistanceM([]TrackPoint{{TS: 1, Lat: 0, Lon: 0}, {TS: 2, Lat: 0, Lon: 1}}); d < 111000 || d > 111400 {
+		t.Fatalf("one degree at the equator = %.0fm, want ~111195", d)
+	}
+	if TrackDistanceM(nil) != 0 || TrackDistanceM(still[:1]) != 0 {
+		t.Fatal("no track, no distance")
+	}
 }
 
 // TestDownscaleDimensions: 3200x1600 at maxEdge 1600 becomes 1600x800; an already-small image is

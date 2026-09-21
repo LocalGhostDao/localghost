@@ -118,8 +118,10 @@ func TestGeoTracksBatch(t *testing.T) {
 	}
 	var got struct {
 		Tracks []struct {
-			Day    string       `json:"day"`
-			Coords [][2]float64 `json:"coords"`
+			Day       string       `json:"day"`
+			Coords    [][2]float64 `json:"coords"`
+			Times     []int64      `json:"times"`
+			DistanceM float64      `json:"distanceM"`
 		} `json:"tracks"`
 	}
 	rr := get("/v1/geo/tracks")
@@ -133,17 +135,17 @@ func TestGeoTracksBatch(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	line := func(day string, coords string) {
+	line := func(day string, coords string, extra string) {
 		doc := `{"type":"FeatureCollection","features":[
 		  {"type":"Feature","geometry":{"type":"Point","coordinates":[0.1,51.5]},"properties":{"kind":"photo"}},
-		  {"type":"Feature","geometry":{"type":"LineString","coordinates":[` + coords + `]},"properties":{"kind":"track","day":"` + day + `"}}]}`
+		  {"type":"Feature","geometry":{"type":"LineString","coordinates":[` + coords + `]},"properties":{"kind":"track","day":"` + day + `"` + extra + `}}]}`
 		if err := os.WriteFile(filepath.Join(dir, day+".geojson"), []byte(doc), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	line("2026-09-16", "[-0.1,51.5],[-0.2,51.6]")
-	line("2026-09-18", "[10.0,45.0],[10.1,45.1],[10.2,45.2]")
-	line("2026-09-17", "[2.0,48.0],[2.1,48.1]")
+	line("2026-09-16", "[-0.1,51.5],[-0.2,51.6]", "")                                                     // a day file from before times existed
+	line("2026-09-18", "[10.0,45.0],[10.1,45.1],[10.2,45.2]", `,"times":[100,200,300],"distanceM":27300`) // a current one
+	line("2026-09-17", "[2.0,48.0],[2.1,48.1]", `,"times":[1,2,3]`)                                       // times that do not match the line: dropped
 	// photo-only day: no LineString
 	if err := os.WriteFile(filepath.Join(dir, "2026-09-15.geojson"),
 		[]byte(`{"type":"FeatureCollection","features":[{"type":"Feature","geometry":{"type":"Point","coordinates":[0,0]},"properties":{}}]}`), 0o644); err != nil {
@@ -164,10 +166,19 @@ func TestGeoTracksBatch(t *testing.T) {
 	if c := got.Tracks[0].Coords; len(c) != 3 || c[0][0] != 45.0 || c[0][1] != 10.0 {
 		t.Fatalf("coords must be [lat,lon]: %+v", c)
 	}
+	if tm := got.Tracks[0].Times; len(tm) != 3 || tm[2] != 300 || got.Tracks[0].DistanceM != 27300 {
+		t.Fatalf("times and distance must pass through: %+v", got.Tracks[0])
+	}
+	if got.Tracks[1].Times != nil {
+		t.Fatalf("mismatched times must be dropped, not served: %+v", got.Tracks[1])
+	}
 	rr = get("/v1/geo/tracks")
 	got.Tracks = nil
 	_ = json.Unmarshal(rr.Body.Bytes(), &got)
 	if len(got.Tracks) != 3 {
 		t.Fatalf("default limit must return every tracked day (3), photo-only day omitted: %+v", got.Tracks)
+	}
+	if got.Tracks[2].Times != nil || got.Tracks[2].DistanceM != 0 {
+		t.Fatalf("an old day file has no times and no distance: %+v", got.Tracks[2])
 	}
 }

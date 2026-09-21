@@ -63,7 +63,22 @@ fun PhrasesScreen() {
     }
     fun changed() { tick++; PhraseSurface.refresh(ctx) }
 
+    var learning by remember { mutableStateOf(false) } // the learning tools, folded away by default
+    val enabled = remember(tick) { PhraseState.enabled(ctx) }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (!enabled) item {
+            // Off: the screen still works as a phrasebook, but says so and offers the switch. This
+            // is where the offer's notification lands, and where someone at home turns it on by hand.
+            Spacer(Modifier.height(6.dp))
+            Column(Modifier.fillMaxWidth().border(1.dp, TerminalGreen, RectangleShape).background(VoidLighter).padding(14.dp)) {
+                Text("phrases are off", color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                Text("they offer themselves once when you land somewhere that is not home (${CountryNames.of(PhraseOffer.homeCountry(ctx)).ifEmpty { "home is not set" }}) · " +
+                    "turned on, the phrase of the hour goes on your lock screen and PHRASES joins the drawer",
+                    color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(8.dp))
+                GhostButton("turn phrases on", onClick = { Thread { PhraseOffer.accept(ctx) }.start(); changed() })
+            }
+        }
         item {
             Spacer(Modifier.height(6.dp))
             // WHERE, and how we know. The source is printed because it is the whole privacy story.
@@ -104,7 +119,6 @@ fun PhrasesScreen() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("${slotView.glyph} ${slotView.label}", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.weight(1f))
-                    if (current != null) Text("L${current.level} ${Levels.name(current.level)} · ", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                     if (list.isNotEmpty()) Text("${index + 1}/${list.size}", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                 }
                 Spacer(Modifier.height(14.dp))
@@ -136,9 +150,11 @@ fun PhrasesScreen() {
                         Act("slow") { say(current, slow = true) }
                         Act("next") { index = (index + 1) % list.size }
                         Act("show") { show = true }
-                        val knownNow = current.id in now.known
-                        Act(if (knownNow) "✓ known" else "got it") {
-                            PhraseState.setKnown(ctx, pack.lang, current.id, !knownNow); changed()
+                        if (learning) {
+                            val knownNow = current.id in now.known
+                            Act(if (knownNow) "✓ known" else "got it") {
+                                PhraseState.setKnown(ctx, pack.lang, current.id, !knownNow); changed()
+                            }
                         }
                     }
                     Spacer(Modifier.height(12.dp))
@@ -173,15 +189,32 @@ fun PhrasesScreen() {
             }
             items(list.size) { i ->
                 val p = list[i]
-                PhraseRow(p, form, selected = i == index, known = p.id in now.known,
+                PhraseRow(p, form, selected = i == index, known = learning && p.id in now.known,
                     onSelect = { index = i }, onSay = { say(p) },
-                    onKnown = { PhraseState.setKnown(ctx, pack.lang, p.id, p.id !in now.known); changed() })
+                    onKnown = if (learning) ({ PhraseState.setKnown(ctx, pack.lang, p.id, p.id !in now.known); changed() }) else null)
             }
 
-            item { Spacer(Modifier.height(8.dp)); LevelsSection(pack, now.known, now.band, onChange = ::changed) }
-            item { Spacer(Modifier.height(8.dp)); Phrasebook(pack, form, now.known, ::say, onChange = ::changed) }
-            item { Spacer(Modifier.height(8.dp)); Drill(pack, form, ::say) }
+            item { Spacer(Modifier.height(8.dp)); Phrasebook(pack, form, if (learning) now.known else emptySet(), ::say, onChange = ::changed, marks = learning) }
             item { Spacer(Modifier.height(8.dp)); Emergency(pack, form, ::say) }
+            // LEARNING, folded. The walk quietly moves on as phrases become known (GOT IT on the
+            // lock screen, three in a row in the drill); the levels, the ✓ marks and the drill are
+            // for someone who wants to steer it, and they stay out of sight until asked for.
+            item {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth().clickable { learning = !learning }, verticalAlignment = Alignment.CenterVertically) {
+                    SectionLabel("LEARNING")
+                    Spacer(Modifier.weight(1f))
+                    Text(if (learning) "▴" else "▾", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                }
+                val learnable = pack.phrases.count { it.situation != Situation.EMERGENCY }
+                Text("${now.known.size} of $learnable known · level ${now.band}, ${Levels.name(now.band)}" +
+                    (if (learning) "" else " · tap for levels, marks and the drill"),
+                    color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            }
+            if (learning) {
+                item { Spacer(Modifier.height(8.dp)); LevelsSection(pack, now.known, now.band, onChange = ::changed) }
+                item { Spacer(Modifier.height(8.dp)); Drill(pack, form, ::say) }
+            }
         }
 
         item {
@@ -196,7 +229,7 @@ fun PhrasesScreen() {
                         color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 }
                 Switch(checked = lock, onCheckedChange = { on ->
-                    lock = on; PhraseState.setLockScreenOn(ctx, on); changed()
+                    lock = on; PhraseState.setLockScreenOn(ctx, on); if (on) PhraseState.setEnabled(ctx, true); changed()
                 }, colors = SwitchDefaults.colors(checkedThumbColor = Void, checkedTrackColor = TerminalGreen,
                     uncheckedThumbColor = GhostTextDim, uncheckedTrackColor = VoidLighter, uncheckedBorderColor = GhostBorder))
             }
@@ -233,7 +266,7 @@ fun PhrasesScreen() {
                 if (live && !canPromote) {
                     Spacer(Modifier.height(4.dp))
                     GhostButton("allow live updates", onClick = {
-                        PhraseSurface.promotedSettingsIntent(ctx)?.let { ctx.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        PhraseSurface.openPromotedSettings(ctx)
                     })
                 }
             }
@@ -305,6 +338,27 @@ fun PhrasesScreen() {
     }
 }
 
+/**
+ * The question, in the app: shown on every screen while an offer is open (the notification is
+ * the same question; whichever is answered first wins). One line, two verbs, gone when answered.
+ */
+@Composable
+fun PhraseOfferBanner(onOpen: () -> Unit) {
+    val ctx = LocalContext.current
+    var tick by remember { mutableStateOf(0) }
+    val line = remember(tick) { PhraseOffer.pendingLine(ctx) }
+    if (line.isEmpty()) return
+    Row(Modifier.fillMaxWidth().background(VoidLighter).border(1.dp, TerminalGreen, RectangleShape)
+        .padding(horizontal = 14.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("» $line", color = GhostText, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.weight(1f).clickable { onOpen() })
+        Text("[ turn on ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.clickable { Thread { PhraseOffer.accept(ctx) }.start(); tick++; onOpen() }.padding(start = 8.dp))
+        Text("[ no ]", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.clickable { PhraseOffer.decline(ctx); tick++ }.padding(start = 8.dp))
+    }
+}
+
 /** The tap targets of the house style: [ verb ]. */
 @Composable
 private fun Act(label: String, onClick: () -> Unit) {
@@ -336,7 +390,7 @@ private fun PhraseRow(p: Phrase, form: SpeakerForm, selected: Boolean, known: Bo
         Text(if (selected) "›" else " ", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(p.localFor(form), color = if (selected) TerminalGreen else if (known) GhostTextDim else GhostText, style = MaterialTheme.typography.bodyLarge)
-            Text("${p.sayItFor(form)}  ·  ${p.en}" + (if (p.level > 1) "  ·  L${p.level}" else ""), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            Text("${p.sayItFor(form)}  ·  ${p.en}", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
         }
         Text("[ say ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.clickable { onSay() }.padding(start = 8.dp, top = 6.dp, bottom = 6.dp))
@@ -392,7 +446,7 @@ private fun LevelsSection(pack: PhrasePack, known: Set<String>, band: Int, onCha
 }
 
 @Composable
-private fun Phrasebook(pack: PhrasePack, form: SpeakerForm, known: Set<String>, say: (Phrase, Boolean) -> Unit, onChange: () -> Unit) {
+private fun Phrasebook(pack: PhrasePack, form: SpeakerForm, known: Set<String>, say: (Phrase, Boolean) -> Unit, onChange: () -> Unit, marks: Boolean = true) {
     val ctx = LocalContext.current
     var open by remember(pack.lang) { mutableStateOf(false) }
     var chapter by remember(pack.lang) { mutableStateOf(Situation.GREETINGS) }
@@ -411,8 +465,8 @@ private fun Phrasebook(pack: PhrasePack, form: SpeakerForm, known: Set<String>, 
         Chips(chapters.map { it.label }, chapters.indexOf(chapter)) { chapter = chapters[it] }
         Spacer(Modifier.height(4.dp))
         pack.phrases.filter { it.situation == chapter }.forEach { p ->
-            PhraseRow(p, form, selected = false, known = p.id in known, onSelect = { say(p, false) }, onSay = { say(p, false) },
-                onKnown = { PhraseState.setKnown(ctx, pack.lang, p.id, p.id !in known); onChange() })
+            PhraseRow(p, form, selected = false, known = marks && p.id in known, onSelect = { say(p, false) }, onSay = { say(p, false) },
+                onKnown = if (marks) ({ PhraseState.setKnown(ctx, pack.lang, p.id, p.id !in known); onChange() }) else null)
         }
     }
 }

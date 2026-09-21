@@ -50,8 +50,10 @@ func BuildDayPath(day time.Time, points []TrackPoint, photos []PhotoPoint) ([]by
 
 	if len(simplified) >= 2 {
 		coords := make([][2]float64, len(simplified))
+		times := make([]int64, len(simplified))
 		for i, p := range simplified {
 			coords[i] = [2]float64{p.Lon, p.Lat} // GeoJSON is lon,lat
+			times[i] = p.TS
 		}
 		features = append(features, feature{
 			Type:     "Feature",
@@ -59,6 +61,12 @@ func BuildDayPath(day time.Time, points []TrackPoint, photos []PhotoPoint) ([]by
 			Properties: map[string]any{
 				"kind": "track", "day": day.Format("2006-01-02"),
 				"points": len(points), "simplified": len(simplified),
+				// times is parallel to coordinates , the second each kept vertex was recorded ,
+				// so the map can put a clock on any point of the line (scrub along the day) and
+				// say when the day's movement began and ended. distanceM is over the RAW points:
+				// the simplified line cuts corners, and a distance is a claim, not a drawing.
+				"times":     times,
+				"distanceM": math.Round(TrackDistanceM(points)),
 			},
 		})
 	}
@@ -73,6 +81,26 @@ func BuildDayPath(day time.Time, points []TrackPoint, photos []PhotoPoint) ([]by
 	}
 	doc := map[string]any{"type": "FeatureCollection", "features": features}
 	return json.MarshalIndent(doc, "", "  ")
+}
+
+// TrackDistanceM is the length of a time-ordered track in metres by the haversine formula, with the
+// GPS jitter of standing still left out: a hop under 15m between consecutive samples (a quarter
+// hour apart, so anything real is further) is not counted, or a day in a café walks a kilometre.
+func TrackDistanceM(pts []TrackPoint) float64 {
+	const r = 6371000.0
+	total := 0.0
+	for i := 1; i < len(pts); i++ {
+		a, b := pts[i-1], pts[i]
+		la1, la2 := a.Lat*math.Pi/180, b.Lat*math.Pi/180
+		dla := la2 - la1
+		dlo := (b.Lon - a.Lon) * math.Pi / 180
+		h := math.Sin(dla/2)*math.Sin(dla/2) + math.Cos(la1)*math.Cos(la2)*math.Sin(dlo/2)*math.Sin(dlo/2)
+		d := 2 * r * math.Asin(math.Min(1, math.Sqrt(h)))
+		if d >= 15 {
+			total += d
+		}
+	}
+	return total
 }
 
 // douglasPeucker simplifies a polyline to within eps (in degrees, planar approximation , fine at the

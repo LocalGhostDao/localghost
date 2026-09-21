@@ -22,16 +22,14 @@ data class Grant(val glyph: String, val title: String, val why: String, val stat
 
 /**
  * The first screen, before any code is scanned: every permission the app will ever want, asked in
- * one place with the reason next to each. Nothing here needs a box. The phrases on the lock screen
- * and the location trail start the moment the person continues, box or no box; the sync and the
- * camera wait for one. Each line stays a switch the person can flip later in the OS settings.
+ * one place with the reason next to each. Nothing here needs a box. The location trail starts
+ * the moment the person continues, box or no box; the sync and the camera wait for one; the
+ * phrases wait for a trip. Each line stays a switch the person can flip later in the OS settings.
  */
 @Composable
 fun WelcomeScreen(
     grants: List<Grant>,
     asking: Boolean,
-    lockScreenOn: Boolean,
-    onLockScreen: (Boolean) -> Unit,
     trailOn: Boolean,
     onTrail: (Boolean) -> Unit,
     onGrant: () -> Unit,
@@ -80,12 +78,12 @@ fun WelcomeScreen(
             Spacer(Modifier.height(24.dp))
             SectionLabel("FROM THE FIRST MINUTE")
             Spacer(Modifier.height(4.dp))
-            ToggleRow("phrase on the lock screen",
-                "the sentence you are likely to need right now, in the language around you · silent, changes with the hour",
-                lockScreenOn, onLockScreen)
             ToggleRow("location trail",
-                "a point every quarter hour, kept on this phone · drawn on your box's map when you have one",
+                "a point every quarter hour, kept on this phone · drawn on the map, by day, with a clock along the line",
                 trailOn, onTrail)
+            Spacer(Modifier.height(6.dp))
+            Text("When you land somewhere that is not home, the phone asks once whether you want the phrase you'll need on the lock screen. Nothing until then.",
+                color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
 
             Spacer(Modifier.height(24.dp))
             GhostButton("CONTINUE", onClick = onContinue, modifier = Modifier.fillMaxWidth(), enabled = !asking)

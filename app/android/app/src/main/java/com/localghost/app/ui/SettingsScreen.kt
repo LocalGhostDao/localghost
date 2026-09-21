@@ -17,6 +17,7 @@ import com.localghost.app.ui.theme.*
 @Composable
 fun SettingsScreen(
     onOpenVerify: () -> Unit = {},
+    onOpenMap: () -> Unit = {},
     allowMobileSync: Boolean,
     onToggleMobileSync: (Boolean) -> Unit,
     thinkLevel: String = "",
@@ -70,6 +71,49 @@ fun SettingsScreen(
                 trailTick++
             },
         )
+        // The trail is drawn on the map , by day, with a clock along the line , and the switch
+        // that records it lives here; one tap joins the two.
+        Text("[ see the trail on the map ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.clickable { onOpenMap() }.padding(vertical = 6.dp))
+
+        Spacer(Modifier.height(24.dp))
+        SectionLabel("PHRASES")
+        Spacer(Modifier.height(8.dp))
+        // Off until the phone lands somewhere that is not home and the person says yes; this is the
+        // manual way in (and out), and where home is set , the SIM's country by default.
+        var phraseTick by remember { mutableIntStateOf(0) }
+        val phrasesOn = remember(phraseTick) { com.localghost.app.phrases.PhraseState.enabled(ctx) }
+        val home = remember(phraseTick) { com.localghost.app.phrases.PhraseOffer.homeCountry(ctx) }
+        val here = remember(phraseTick) { com.localghost.app.phrases.CountryDetect.detect(ctx) }
+        toggleRow(
+            label = "phrases on the lock screen",
+            sub = if (phrasesOn) "on · the phrase of the hour in the language around you · PHRASES is in the drawer"
+                else "off · offered once when you land somewhere that is not home; this switch is the other way in",
+            checked = phrasesOn,
+            onChange = { on ->
+                if (on) com.localghost.app.phrases.PhraseOffer.accept(ctx)
+                else {
+                    com.localghost.app.phrases.PhraseState.setEnabled(ctx, false)
+                    com.localghost.app.phrases.PhraseState.setLockScreenOn(ctx, false)
+                    Thread { com.localghost.app.phrases.PhraseSurface.refresh(ctx) }.start()
+                }
+                phraseTick++
+            },
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("home", color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                Text((if (home.isEmpty()) "not set , the SIM has no country" else com.localghost.app.phrases.CountryNames.of(home)) +
+                    " · the phrases never offer themselves here" +
+                    (if (here.country.isNotEmpty() && here.country != home) " · you seem to be in ${com.localghost.app.phrases.CountryNames.of(here.country)} (${here.source})" else ""),
+                    color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            }
+            if (here.country.isNotEmpty() && here.country != home) {
+                Text("[ home is here ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clickable { com.localghost.app.settings.AppSettings.setHomeCountry(ctx, here.country); phraseTick++ }.padding(6.dp))
+            }
+        }
 
         Spacer(Modifier.height(24.dp))
         SectionLabel("CHAT")

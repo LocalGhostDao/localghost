@@ -173,6 +173,7 @@ fun MainShell(
                     onNewChat = if (dest == Dest.CHAT) onNewConversation else null)
 
                 PermissionBanner(permState, onPermAction)
+                PhraseOfferBanner(onOpen = { dest = Dest.PHRASES })
 
                 Box(Modifier.weight(1f).fillMaxWidth()
                     .padding(bottom = pad.calculateBottomPadding())) {
@@ -212,6 +213,7 @@ fun MainShell(
                         Dest.CODES -> PinManagementScreen(devices)
                         Dest.SETTINGS -> SettingsScreen(
                             onOpenVerify = { dest = Dest.VERIFY },
+                            onOpenMap = { dest = Dest.MAP },
                             allowMobileSync = allowMobileSync,
                             onToggleMobileSync = onToggleMobileSync,
                             thinkLevel = thinkLevel,
@@ -395,9 +397,12 @@ private fun DrawerPanel(
 
             Spacer(Modifier.height(20.dp))
             SectionLabel("YOUR ARCHIVE")
-            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.MEMORIES, Dest.SYNC).forEach {
-                DrawerRow(it, it == current) { onSelect(it) }
-            }
+            // PHRASES appears once the phrases are on , after the offer that comes with landing
+            // somewhere new, or the switch in settings; until then the drawer does not mention it.
+            val phrasesOn = com.localghost.app.phrases.PhraseState.enabled(androidx.compose.ui.platform.LocalContext.current)
+            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.MEMORIES, Dest.SYNC)
+                .filter { it != Dest.PHRASES || phrasesOn || current == Dest.PHRASES }
+                .forEach { DrawerRow(it, it == current) { onSelect(it) } }
 
             Spacer(Modifier.height(20.dp))
             SectionLabel("THE BOX")

@@ -881,6 +881,35 @@ object BoxClient {
         }
     } catch (_: Exception) { null }
 
+    /** One day of the trail as the box has it: the simplified line with, from boxes at or past the
+     *  times build, a clock per vertex and the day's distance over the raw points. */
+    data class DayTrack(val day: String, val lat: DoubleArray, val lon: DoubleArray, val times: LongArray, val distanceM: Double) {
+        val n: Int get() = lat.size
+        val hasTimes: Boolean get() = times.size == lat.size && lat.isNotEmpty()
+    }
+
+    /** The newest [limit] day tracks with their times and distances; null on a box that predates
+     *  /v1/geo/tracks (the map then walks the per-day feed as before). */
+    suspend fun geoDayTracks(ctx: Context, limit: Int = 60): List<DayTrack>? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/geo/tracks?limit=$limit")
+        if (!r.has("tracks")) null
+        else {
+            val a = r.optJSONArray("tracks") ?: org.json.JSONArray()
+            (0 until a.length()).mapNotNull { i ->
+                val o = a.optJSONObject(i) ?: return@mapNotNull null
+                val c = o.optJSONArray("coords") ?: return@mapNotNull null
+                val lat = DoubleArray(c.length()); val lon = DoubleArray(c.length())
+                for (j in 0 until c.length()) {
+                    val p = c.optJSONArray(j) ?: return@mapNotNull null
+                    lat[j] = p.optDouble(0); lon[j] = p.optDouble(1)
+                }
+                val t = o.optJSONArray("times")
+                val times = if (t != null && t.length() == c.length()) LongArray(t.length()) { t.optLong(it) } else LongArray(0)
+                DayTrack(o.optString("day", ""), lat, lon, times, o.optDouble("distanceM", 0.0).let { if (it.isNaN()) 0.0 else it })
+            }
+        }
+    } catch (_: Exception) { null }
+
     /** One day's track as ordered lat/lon pairs, pulled from framed's GeoJSON LineStrings. */
     suspend fun geoDayTrack(ctx: Context, day: String): List<Pair<Double, Double>>? = try {
         val gj = BoxHttp.getJson(ctx, "/v1/geo/day?d=$day")

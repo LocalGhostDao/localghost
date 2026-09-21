@@ -44,6 +44,8 @@ import org.json.JSONObject
  */
 object LocationLog {
     private const val FILE = "location-trail.log"
+    private const val RECENT_FILE = "location-recent.log"
+    private const val RECENT_S = 48 * 3600L // how far back the phone can draw on its own
     private const val PREFS = "lg_location"
     private const val MAX_BYTES = 2_000_000 // ~45k points; the oldest fall off past this
     private const val MIN_MOVE_M = 25.0
@@ -97,10 +99,38 @@ object LocationLog {
         val f = file(ctx)
         f.appendText("${pt.ts} ${pt.lat} ${pt.lon}\n")
         if (f.length() > MAX_BYTES) trimOldest(f)
+        // The recent ring keeps a copy the box's ack never removes, so the map can draw today
+        // (and yesterday) from the phone alone: the spool empties as it syncs, and without this
+        // the last two days would vanish from the map the moment they reached the box.
+        val r = File(ctx.filesDir, RECENT_FILE)
+        r.appendText("${pt.ts} ${pt.lat} ${pt.lon}\n")
+        if (r.length() > 64_000) trimRecent(r, pt.ts)
         prefs(ctx).edit().putLong("last_ts", pt.ts).putFloat("last_lat", pt.lat.toFloat())
             .putFloat("last_lon", pt.lon.toFloat()).apply()
         bumpToday(ctx)
         return true
+    }
+
+    private fun trimRecent(r: File, now: Long) {
+        val keep = r.readLines().filter { (it.trim().substringBefore(' ').toLongOrNull() ?: 0L) >= now - RECENT_S }
+        r.writeText(if (keep.isEmpty()) "" else keep.joinToString("\n", postfix = "\n"))
+    }
+
+    /** The phone's own points from the last [RECENT_S] seconds (synced or not), oldest first ,
+     *  what the map draws for today before and beside what the box has. */
+    @Synchronized
+    fun recent(ctx: Context, sinceTs: Long = System.currentTimeMillis() / 1000 - RECENT_S): List<Point> {
+        val r = File(ctx.filesDir, RECENT_FILE)
+        if (!r.exists()) return emptyList()
+        return r.readLines().mapNotNull { line ->
+            val parts = line.trim().split(' ')
+            if (parts.size != 3) return@mapNotNull null
+            val ts = parts[0].toLongOrNull() ?: return@mapNotNull null
+            if (ts < sinceTs) return@mapNotNull null
+            val lat = parts[1].toDoubleOrNull() ?: return@mapNotNull null
+            val lon = parts[2].toDoubleOrNull() ?: return@mapNotNull null
+            Point(ts, lat, lon)
+        }
     }
 
     private fun trimOldest(f: File) {
@@ -333,10 +363,12 @@ class LocationWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(c
         val pt = LocationLog.sample(ctx)
         if (pt != null) {
             LocationLog.record(ctx, pt)
-            if (LocationLog.geocode(ctx, pt) != null) {
+            LocationLog.geocode(ctx, pt)?.let { cc ->
                 // The country changed: the lock-screen card should speak the new language now, not
-                // at its next rotation tick.
+                // at its next rotation tick , and if the phrases are off and this is not home, this
+                // is the moment they offer themselves, once.
                 com.localghost.app.phrases.PhraseSurface.refresh(ctx)
+                com.localghost.app.phrases.PhraseOffer.maybeOffer(ctx, cc)
             }
         }
         LocationLog.flush(ctx)

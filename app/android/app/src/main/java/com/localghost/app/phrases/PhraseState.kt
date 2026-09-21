@@ -32,10 +32,28 @@ object PhraseState {
         SpeakerForm.entries.firstOrNull { it.name == p(ctx).getString("form", "") } ?: SpeakerForm.NEUTRAL
     fun setSpeakerForm(ctx: Context, f: SpeakerForm) = p(ctx).edit().putString("form", f.name).apply()
 
+    /** Whether ghost.phrased is ON at all. Off until the person says yes , to the offer that
+     *  appears when the phone lands in a country that is not home and has a pack, or to the
+     *  switch in settings. Off means: no drawer entry, no lock-screen card, no refresh alarm;
+     *  the packs sit in the app and cost nothing. A widget placed by hand still draws. */
+    fun enabled(ctx: Context): Boolean = p(ctx).getBoolean("enabled", false)
+    fun setEnabled(ctx: Context, on: Boolean) = p(ctx).edit().putBoolean("enabled", on).apply()
+
     /** The lock-screen card (a silent public notification). Off until the person turns it on ,
-     *  a permanent notification nobody asked for is the opposite of the ethos. */
-    fun lockScreenOn(ctx: Context): Boolean = p(ctx).getBoolean("lockscreen", false)
+     *  a permanent notification nobody asked for is the opposite of the ethos. Only ever true
+     *  together with [enabled]. */
+    fun lockScreenOn(ctx: Context): Boolean = enabled(ctx) && p(ctx).getBoolean("lockscreen", false)
     fun setLockScreenOn(ctx: Context, on: Boolean) = p(ctx).edit().putBoolean("lockscreen", on).apply()
+
+    /** Countries the offer has been made for (accepted or declined): it is made once per
+     *  country, never again for the same one. */
+    fun offered(ctx: Context, cc: String): Boolean = p(ctx).getBoolean("offered.${cc.uppercase()}", false)
+    fun setOffered(ctx: Context, cc: String) = p(ctx).edit().putBoolean("offered.${cc.uppercase()}", true).apply()
+
+    /** The country an offer is currently open for ("" when none): the in-app banner's cue, and
+     *  what TURN ON acts on. */
+    fun offerPending(ctx: Context): String = p(ctx).getString("offer_pending", "") ?: ""
+    fun setOfferPending(ctx: Context, cc: String) = p(ctx).edit().putString("offer_pending", cc.uppercase()).apply()
 
     /** Promote the card to a LIVE UPDATE where the phone offers it (Android 16+: status-bar chip,
      *  top of the lock screen, always-on display, Samsung's Now Bar). On by default: it is the

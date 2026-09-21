@@ -700,3 +700,53 @@ assembly burst , gets ~6 attempts inside its second; assembly stays at 100ms. an
 takes its stop channel from the caller (Enter on the terminal) instead of reading stdin itself,
 which is what let it be tested: TestFrameSetIsTwelveAnyEight (four sizes, rebuild from frames
 1-4 plus parity, the overlong fallback, the default hold) and TestAnimateFramesCaptionAndHold.
+
+## The trail on the map: days, a clock along the line, and today before any sync
+
+The trail was already reaching the map as the dim day lines (phone spool → /v1/locations →
+framed's day GeoJSON → /v1/geo/tracks), but as an anonymous thread: no day, no time, nothing of
+today until a sync. Now framed writes a `times` array parallel to the simplified LineString (the
+second each kept vertex was recorded) and `distanceM` over the RAW points (haversine, hops under
+15m not counted so a café afternoon does not walk a kilometre), and /v1/geo/tracks passes both
+through (times only when they match the line; old day files simply have none). The app asks for
+sixty days in the one round trip.
+
+On the phone, LocationLog keeps a 48-hour ring of its own points that the box's ack never empties
+(location-recent.log), so the map draws today from the phone alone , before a sync, and with no
+box , and the part of a day the box has not seen yet is the dashed green continuation with a dot
+per quarter-hour fix. The map gains a TRAIL line under the canvas ("today 3.2 km · last fix 12
+min ago · 41 days"); open, a strip of days with their distance (a dot after the label means part
+of it is still only on the phone), a tap lights the day in green, frames it, and shows a scrubber
+that walks the line with the clock (HH:MM and the coordinates at that point, drawn on the map
+as a ring with the time). The last fix is a ringed dot wherever the camera is. Settings ›
+LOCATION TRAIL links straight to the map. Verified: BuildDayPath times/distance and
+TrackDistanceM (jitter floor, a degree at the equator) in framed's tests; the tracks handler
+passing times and distance, dropping mismatched times, and serving old files without them, in
+secd's; the map itself is Compose and was desk-checked.
+
+## Phrases, hidden until a trip asks for them
+
+ghost.phrased is OFF on a fresh install and on upgrade: no drawer entry, no lock-screen card, no
+alarm; the welcome screen's phrase switch is gone (a line says what will happen instead). Home is
+the SIM's country, settled once at the welcome screen (Settings › PHRASES shows it, with "home is
+here" when the phone thinks it is somewhere else). When the phone lands in a country that is not
+home and has a pack, it asks ONCE for that country: a silent notification ("Γεια σας , you're in
+Greece … TURN ON / NO THANKS", tap opens PHRASES) and the same question as a line at the top of
+the app until one of them is answered. Yes turns the feature on (lock-screen card on, PHRASES in
+the drawer); no is remembered for that country and never asked again for it. Landing is noticed
+wherever the app already learns the country: the trail's geocoded fix in the background worker
+(the offer arrives on the day you land, app closed), the boot and time-zone broadcasts, and the
+app opening. Settings › PHRASES is the manual way in and out.
+
+The learning tools are folded: the levels, the ✓ marks on rows and the drill sit under a
+collapsed LEARNING section (one line of progress shows; tap for the rest), the hero card no longer
+wears its level, and its "got it" appears only with the fold open. GOT IT on the lock screen
+stays , that is the natural gesture. Verified with the phrases package compiled against the
+Android stubs: home from the SIM, never offered at home or for a country without a pack, offered
+once per country, decline remembered, accept turns everything on and draws the card, settings-off
+re-arms offers for a new country.
+
+Also in this drop: PhraseSurface.promotedSettingsIntent uses the action string
+"android.settings.MANAGE_APP_PROMOTED_NOTIFICATIONS" (the Settings constant did not resolve
+against the compile SDK) and falls back to the app's notification page when the phone has no
+such screen.

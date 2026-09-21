@@ -20,8 +20,8 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -846,8 +846,10 @@ func (s *Server) handleGeoTracks(w http.ResponseWriter, r *http.Request) {
 		limit = 14
 	}
 	type track struct {
-		Day    string       `json:"day"`
-		Coords [][2]float64 `json:"coords"` // [lat, lon], the order the map speaks
+		Day       string       `json:"day"`
+		Coords    [][2]float64 `json:"coords"`              // [lat, lon], the order the map speaks
+		Times     []int64      `json:"times,omitempty"`     // unix seconds, parallel to coords (day files from framed ≥ this build)
+		DistanceM float64      `json:"distanceM,omitempty"` // over the raw points, standing-still jitter excluded
 	}
 	out := []track{}
 	dir := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "paths")
@@ -881,6 +883,10 @@ func (s *Server) handleGeoTracks(w http.ResponseWriter, r *http.Request) {
 					Type   string          `json:"type"`
 					Coords json.RawMessage `json:"coordinates"`
 				} `json:"geometry"`
+				Properties struct {
+					Times     []int64 `json:"times"`
+					DistanceM float64 `json:"distanceM"`
+				} `json:"properties"`
 			} `json:"features"`
 		}
 		if json.Unmarshal(b, &doc) != nil {
@@ -894,9 +900,12 @@ func (s *Server) handleGeoTracks(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(f.Geometry.Coords, &lonlat) != nil || len(lonlat) < 2 {
 				continue
 			}
-			t := track{Day: d, Coords: make([][2]float64, len(lonlat))}
+			t := track{Day: d, Coords: make([][2]float64, len(lonlat)), DistanceM: f.Properties.DistanceM}
 			for i, c := range lonlat {
 				t.Coords[i] = [2]float64{c[1], c[0]} // GeoJSON is lon,lat; the map wants lat,lon
+			}
+			if len(f.Properties.Times) == len(lonlat) {
+				t.Times = f.Properties.Times
 			}
 			out = append(out, t)
 		}

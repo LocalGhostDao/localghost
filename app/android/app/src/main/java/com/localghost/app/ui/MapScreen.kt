@@ -5,17 +5,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
@@ -60,19 +71,93 @@ private class Dot(val x: Double, val y: Double, val cell: BoxClient.GeoCell)
 
 /** One day's movement in map units (Double , it is stroked in screen space, per vertex, so it can
  *  keep a real 2.5px width at any zoom; framed already Douglas-Peucker'd it, so a day is tens to a
- *  few hundred points, never the half-million the landmass is). bbox for culling. */
-private class Track(val xs: DoubleArray, val ys: DoubleArray, val minX: Double, val minY: Double, val maxX: Double, val maxY: Double)
+ *  few hundred points, never the half-million the landmass is). bbox for culling. [times] is a
+ *  clock per vertex when the box supplied one (empty otherwise); [phone] marks the part of a day
+ *  the phone holds and the box has not seen yet (the spool waiting for a sync, or no box at all). */
+private class Track(val day: String, val xs: DoubleArray, val ys: DoubleArray, val times: LongArray, val distanceM: Double, val phone: Boolean,
+                    val minX: Double, val minY: Double, val maxX: Double, val maxY: Double) {
+    val n: Int get() = xs.size
+    val hasTimes: Boolean get() = times.size == xs.size && xs.isNotEmpty()
+}
 
-private fun trackOf(pts: List<Pair<Double, Double>>): Track {
-    val xs = DoubleArray(pts.size); val ys = DoubleArray(pts.size)
+private fun trackOf(day: String, lat: DoubleArray, lon: DoubleArray, times: LongArray, distanceM: Double, phone: Boolean): Track {
+    val xs = DoubleArray(lat.size); val ys = DoubleArray(lat.size)
     var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
-    for (i in pts.indices) {
-        val x = mercXD(pts[i].second); val y = mercYD(pts[i].first)
+    for (i in lat.indices) {
+        val x = mercXD(lon[i]); val y = mercYD(lat[i])
         xs[i] = x; ys[i] = y
         if (x < minX) minX = x; if (x > maxX) maxX = x
         if (y < minY) minY = y; if (y > maxY) maxY = y
     }
-    return Track(xs, ys, minX, minY, maxX, maxY)
+    return Track(day, xs, ys, times, distanceM, phone, minX, minY, maxX, maxY)
+}
+
+private fun trackOf(pts: List<Pair<Double, Double>>): Track =
+    trackOf("", DoubleArray(pts.size) { pts[it].first }, DoubleArray(pts.size) { pts[it].second }, LongArray(0), 0.0, false)
+
+private val dayKeyFmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+private fun dayKeyOf(ts: Long): String = dayKeyFmt.format(java.util.Date(ts * 1000))
+
+/** Distance over the phone's own points, the box's rule (jitter under 15m not counted). */
+private fun distanceOf(pts: List<com.localghost.app.sync.LocationLog.Point>): Double {
+    var total = 0.0
+    val out = FloatArray(1)
+    for (i in 1 until pts.size) {
+        android.location.Location.distanceBetween(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon, out)
+        if (out[0] >= 15f) total += out[0]
+    }
+    return total
+}
+
+/** "today", "yesterday", else "Thu 18 Sep", for a UTC day key. */
+private fun dayLabel(day: String, todayKey: String, yesterdayKey: String): String = when (day) {
+    todayKey -> "today"
+    yesterdayKey -> "yesterday"
+    else -> runCatching {
+        java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.US).format(dayKeyFmt.parse(day)!!)
+    }.getOrDefault(day)
+}
+
+private fun km(m: Double): String = if (m < 950) "${m.toInt()} m" else "%.1f km".format(java.util.Locale.US, m / 1000)
+
+private val clockFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+private fun clock(ts: Long): String = clockFmt.format(java.util.Date(ts * 1000))
+
+private fun ago(sec: Long): String = when {
+    sec < 90 -> "just now"
+    sec < 3600 -> "${sec / 60} min ago"
+    sec < 2 * 86400 -> "${sec / 3600} h ago"
+    else -> "${sec / 86400} days ago"
+}
+
+/** One point of a day for the scrubber: map units and the clock (0 when the box gave none). */
+private class TP(val x: Double, val y: Double, val ts: Long)
+
+private fun dayPoints(dayTracks: List<Track>): List<TP> {
+    val out = ArrayList<TP>()
+    for (t in dayTracks.sortedBy { if (it.phone) 1 else 0 }) for (i in 0 until t.n) out.add(TP(t.xs[i], t.ys[i], if (t.hasTimes) t.times[i] else 0L))
+    return out
+}
+
+/**
+ * THE PHONE'S OWN PART OF THE TRAIL. The box draws what it has been sent; the phone keeps the last
+ * two days itself (LocationLog.recent), so today is on the map before any sync and without any
+ * box. Per UTC day: the points the box's track does not reach yet (after its last clock, or all of
+ * them when the box has none) become one more track, marked phone, drawn as the continuation.
+ */
+private fun phoneTracks(ctx: android.content.Context, box: List<Track>): List<Track> {
+    val recent = com.localghost.app.sync.LocationLog.recent(ctx)
+    if (recent.isEmpty()) return emptyList()
+    val out = ArrayList<Track>()
+    for ((day, pts) in recent.groupBy { dayKeyOf(it.ts) }) {
+        val have = box.firstOrNull { it.day == day }
+        val lastBox = if (have != null && have.hasTimes) have.times.last() else if (have != null) Long.MAX_VALUE else 0L
+        val mine = pts.filter { it.ts > lastBox }.sortedBy { it.ts }
+        if (mine.isEmpty()) continue
+        out.add(trackOf(day, DoubleArray(mine.size) { mine[it].lat }, DoubleArray(mine.size) { mine[it].lon },
+            LongArray(mine.size) { mine[it].ts }, distanceOf(mine), phone = true))
+    }
+    return out
 }
 
 @Composable
@@ -84,6 +169,25 @@ fun MapScreen() {
     var picked by remember { mutableStateOf<BoxClient.GeoCell?>(null) }
     var viewer by remember { mutableStateOf<String?>(null) } // hash open full-screen
     var tracks by remember { mutableStateOf<List<Track>>(emptyList()) }
+    // THE TRAIL PANEL: which day is lit, and where along it the scrubber sits (0..1).
+    var trailOpen by remember { mutableStateOf(false) }
+    var trailDay by remember { mutableStateOf<String?>(null) }
+    var scrub by remember { mutableStateOf(1f) }
+    val lastFix = remember(tracks) { com.localghost.app.sync.LocationLog.last(ctx) }
+    val nowSec = remember(tracks) { System.currentTimeMillis() / 1000 }
+    val todayKey = remember(nowSec) { dayKeyOf(nowSec) }
+    val yesterdayKey = remember(nowSec) { dayKeyOf(nowSec - 86400) }
+    // One row per day, newest first: the box's track and the phone's continuation added up.
+    val days = remember(tracks) {
+        tracks.groupBy { it.day }.entries.filter { it.key.isNotEmpty() }
+            .map { (d, ts) -> Triple(d, ts.sumOf { it.distanceM }, ts) }
+            .sortedByDescending { it.first }
+    }
+    // The lit day as one time-ordered list of points (the box's line, then the phone's continuation).
+    val dayPts = remember(trailDay, tracks) { trailDay?.let { d -> dayPoints(tracks.filter { it.day == d }) } ?: emptyList() }
+    val scrubAt = remember(dayPts, scrub) {
+        if (dayPts.isEmpty()) null else dayPts[(scrub * (dayPts.size - 1)).toInt().coerceIn(0, dayPts.size - 1)]
+    }
     var loadNote by remember { mutableStateOf("loading…") }
     var cells by remember { mutableStateOf<List<BoxClient.GeoCell>>(emptyList()) }
     var level by remember { mutableStateOf(3) }
@@ -120,20 +224,21 @@ fun MapScreen() {
                 if (bw != null) { world = bw; worldNote = note(bw, big.res) }
             }
         }
-        // DAY TRACKS, one round trip. /v1/geo/tracks hands back the newest fortnight of polylines
-        // in a single answer; a box that predates it (null) gets the old days-then-one-per-day walk.
-        val batch = BoxClient.geoTracks(ctx, 14)
+        // DAY TRACKS, one round trip. /v1/geo/tracks hands back the newest sixty days of polylines
+        // (with a clock per vertex and the day's distance, from boxes that write them) in a single
+        // answer; a box that predates it (null) gets the old days-then-one-per-day walk.
+        val batch = BoxClient.geoDayTracks(ctx, 60)
         val loaded = ArrayList<Track>()
         if (batch != null) {
-            for ((_, pts) in batch) if (pts.size >= 2) loaded.add(trackOf(pts))
+            for (t in batch) if (t.n >= 2) loaded.add(trackOf(t.day, t.lat, t.lon, t.times, t.distanceM, phone = false))
         } else {
             val days = BoxClient.geoDays(ctx, 14) ?: emptyList()
             for (d in days) {
                 val pts = BoxClient.geoDayTrack(ctx, d) ?: continue
-                if (pts.size >= 2) loaded.add(trackOf(pts))
+                if (pts.size >= 2) loaded.add(trackOf(pts).let { trackOf(d, DoubleArray(pts.size) { pts[it].first }, DoubleArray(pts.size) { pts[it].second }, LongArray(0), 0.0, false) })
             }
         }
-        tracks = loaded
+        tracks = loaded + phoneTracks(ctx, loaded)
     }
     // One reusable Path for the per-frame track strokes (reset per track, never reallocated).
     val trackPath = remember { androidx.compose.ui.graphics.Path() }
@@ -161,6 +266,19 @@ fun MapScreen() {
             val span = maxOf(xs.max() - xs.min(), ys.max() - ys.min(), 4.0)
             zoom = (WORLD_UNITS / span * 0.6).toFloat().coerceIn(1f, 400f)
         }
+    }
+    // Picking a day frames it: centre on its bbox, zoom to fit with a margin, and never further in
+    // than a street , a day spent at one table is a dot, not a 250,000x view of a paving slab.
+    LaunchedEffect(trailDay) {
+        val d = trailDay ?: return@LaunchedEffect
+        val ts = tracks.filter { it.day == d }
+        if (ts.isEmpty()) return@LaunchedEffect
+        val minX = ts.minOf { it.minX }; val maxX = ts.maxOf { it.maxX }
+        val minY = ts.minOf { it.minY }; val maxY = ts.maxOf { it.maxY }
+        cx = (minX + maxX) / 2.0; cy = (minY + maxY) / 2.0
+        val span = maxOf(maxX - minX, maxY - minY, 0.02)
+        zoom = (WORLD_UNITS / span * 0.7).toFloat().coerceIn(1f, 40000f)
+        openerDone = true
     }
     // Viewport size from layout, not from inside the draw pass (writing state during draw is a
     // redraw loop waiting to happen).
@@ -353,12 +471,41 @@ fun MapScreen() {
                 // day tracks , movement under the moments, drawn OVER the coastline and stroked in
                 // SCREEN space per vertex, so the line stays 2.5px wide from the world view to the
                 // street. Affordable because framed simplified each day already; culled by bbox.
+                // The lit day (the trail panel's pick) is green and wider; the phone's own part of
+                // a day, not yet on the box, is dashed with a dot per fix so the quarter-hour
+                // rhythm shows; every other day is the dim thread it always was.
                 for (t in tracks) {
                     if (t.maxX < vx0 || t.minX > vx1 || t.maxY < vy0 || t.minY > vy1) continue
-                    trackPath.reset()
-                    trackPath.moveTo(sx(t.xs[0]), sy(t.ys[0]))
-                    for (i in 1 until t.xs.size) trackPath.lineTo(sx(t.xs[i]), sy(t.ys[i]))
-                    drawPath(trackPath, TerminalDim, style = Stroke(width = 2.5f))
+                    val lit = t.day.isNotEmpty() && t.day == trailDay
+                    val colour = if (lit || t.phone) TerminalGreen else TerminalDim
+                    val width = if (lit) 3.5f else 2.5f
+                    if (t.n >= 2) {
+                        trackPath.reset()
+                        trackPath.moveTo(sx(t.xs[0]), sy(t.ys[0]))
+                        for (i in 1 until t.n) trackPath.lineTo(sx(t.xs[i]), sy(t.ys[i]))
+                        drawPath(trackPath, colour, style = Stroke(width = width,
+                            pathEffect = if (t.phone) PathEffect.dashPathEffect(floatArrayOf(7f, 7f)) else null))
+                    }
+                    if (t.phone || lit) for (i in 0 until t.n) {
+                        val x = sx(t.xs[i]); val y = sy(t.ys[i])
+                        if (x < -8f || x > sw + 8f || y < -8f || y > sh + 8f) continue
+                        drawCircle(colour, radius = if (t.phone) 3f else 2f, center = Offset(x, y))
+                    }
+                }
+                // Where the phone is now: the last fix, a ring the "trail" line dates.
+                lastFix?.let { f ->
+                    val x = sx(mercXD(f.lon)); val y = sy(mercYD(f.lat))
+                    if (x > -20f && x < sw + 20f && y > -20f && y < sh + 20f) {
+                        drawCircle(TerminalGreen.copy(alpha = 0.25f), radius = 14f, center = Offset(x, y))
+                        drawCircle(TerminalGreen, radius = 9f, center = Offset(x, y), style = Stroke(width = 2f))
+                        drawCircle(TerminalGreen, radius = 3.5f, center = Offset(x, y))
+                    }
+                }
+                // The scrubber's point on the lit day, with its clock.
+                scrubAt?.let { at ->
+                    val x = sx(at.x); val y = sy(at.y)
+                    drawCircle(GhostText, radius = 7f, center = Offset(x, y), style = Stroke(width = 2.5f))
+                    if (at.ts > 0) drawContext.canvas.nativeCanvas.drawText(clock(at.ts), x, y - 12f, labelPaint)
                 }
                 // photo dots , the point of the whole screen. Pre-aggregated by the box: n == 1
                 // is a photo, n > 1 is a cell with a count.
@@ -379,6 +526,54 @@ fun MapScreen() {
                 picked?.let { p ->
                     val x = sx(mercXD(p.lon)); val y = sy(mercYD(p.lat))
                     drawCircle(TerminalGreen, radius = 10f, center = Offset(x, y), style = Stroke(2f))
+                }
+            }
+        }
+        // THE TRAIL , where this phone has been, by day. One line closed; open, a strip of days
+        // with their distance (a dot after the label means part of it is still only on the phone),
+        // and for the lit day a scrubber that walks the line with a clock.
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            val todayM = days.firstOrNull { it.first == todayKey }?.second ?: 0.0
+            Row(verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { trailOpen = !trailOpen }.padding(vertical = 6.dp)) {
+                Text("◎ trail", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (days.isEmpty()) "no points yet , a fix every quarter hour once location is allowed (settings › location trail)"
+                    else "today ${km(todayM)}" + (lastFix?.let { " · last fix ${ago(nowSec - it.ts)}" } ?: "") + " · ${days.size} days",
+                    color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                Text(if (trailOpen) "▴" else "▾", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            }
+            if (trailOpen && days.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    days.forEach { (d, m, ts) ->
+                        val on = d == trailDay
+                        val label = dayLabel(d, todayKey, yesterdayKey) + " " + km(m) + (if (ts.any { it.phone }) " ·" else "")
+                        Text(label, color = if (on) Void else TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(end = 8.dp, bottom = 6.dp)
+                                .border(1.dp, TerminalGreen, RectangleShape)
+                                .background(if (on) TerminalGreen else Void)
+                                .clickable { trailDay = if (on) null else d; scrub = 1f }
+                                .padding(horizontal = 10.dp, vertical = 6.dp))
+                    }
+                }
+                trailDay?.let { d ->
+                    val ts = tracks.filter { it.day == d }
+                    val waiting = ts.filter { it.phone }.sumOf { it.n }
+                    val timed = dayPts.filter { it.ts > 0 }
+                    Text(
+                        dayLabel(d, todayKey, yesterdayKey) + " · " + km(ts.sumOf { it.distanceM }) +
+                            (if (timed.isNotEmpty()) " · ${clock(timed.first().ts)} → ${clock(timed.last().ts)}" else "") +
+                            " · ${dayPts.size} points" + (if (waiting > 0) " · $waiting waiting for the box" else ""),
+                        color = GhostText, style = MaterialTheme.typography.labelMedium)
+                    if (dayPts.size >= 2) {
+                        Slider(value = scrub, onValueChange = { scrub = it },
+                            colors = SliderDefaults.colors(thumbColor = TerminalGreen, activeTrackColor = TerminalGreen, inactiveTrackColor = VoidLighter))
+                        scrubAt?.let { at ->
+                            Text((if (at.ts > 0) clock(at.ts) + " · " else "") + "%.5f, %.5f".format(java.util.Locale.US, invMercY(at.y), invMercX(at.x)),
+                                color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
                 }
             }
         }

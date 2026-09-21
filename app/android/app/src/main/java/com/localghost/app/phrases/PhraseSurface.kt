@@ -225,11 +225,26 @@ object PhraseSurface {
         return runCatching { ctx.getSystemService(NotificationManager::class.java).canPostPromotedNotifications() }.getOrDefault(false)
     }
 
-    /** The settings page where live updates are allowed per app (Android 16+). */
+    /** The settings page where live updates are allowed per app (Android 16+). The action is the
+     *  string, not a Settings constant: the constant did not resolve against the SDK the app is
+     *  built with, and the string is what the intent carries either way. [openPromotedSettings]
+     *  falls back to the app's notification page when the phone has no such screen. */
     fun promotedSettingsIntent(ctx: Context): Intent? {
         if (Build.VERSION.SDK_INT < 36) return null
-        return Intent(android.provider.Settings.ACTION_MANAGE_APP_PROMOTED_NOTIFICATIONS)
+        return Intent("android.settings.MANAGE_APP_PROMOTED_NOTIFICATIONS")
             .putExtra(Intent.EXTRA_PACKAGE_NAME, ctx.packageName)
+    }
+
+    /** Open the live-updates page for this app, or the app's notification settings when the
+     *  phone does not have one (an ActivityNotFoundException is the phone saying so). */
+    fun openPromotedSettings(ctx: Context) {
+        val page = promotedSettingsIntent(ctx)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (page != null && runCatching { ctx.startActivity(page) }.isSuccess) return
+        runCatching {
+            ctx.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     private fun postCard(ctx: Context, snap: Snapshot, index: Int) {
@@ -416,6 +431,8 @@ class PhraseReceiver : BroadcastReceiver() {
         when (intent.action) {
             PhraseSurface.ACTION_NEXT -> PhraseSurface.next(context)
             PhraseSurface.ACTION_GOT_IT -> PhraseSurface.gotIt(context)
+            PhraseOffer.ACTION_ACCEPT -> PhraseOffer.accept(context)
+            PhraseOffer.ACTION_DECLINE -> PhraseOffer.decline(context)
             PhraseSurface.ACTION_SAY -> {
                 // The engine binds asynchronously; a receiver that returns at once can have its
                 // process reaped before the first syllable. goAsync keeps us alive long enough to
@@ -431,9 +448,14 @@ class PhraseReceiver : BroadcastReceiver() {
                 // the background; the phrases redraw too.
                 com.localghost.app.sync.LocationLog.scheduleIfActive(context)
                 PhraseSurface.refresh(context)
+                PhraseOffer.check(context)
+            }
+            Intent.ACTION_TIMEZONE_CHANGED -> {
+                // A new time zone is the cheapest "you have landed" there is.
+                PhraseSurface.refresh(context)
+                PhraseOffer.check(context)
             }
             PhraseSurface.ACTION_REFRESH,
-            Intent.ACTION_TIMEZONE_CHANGED,
             Intent.ACTION_TIME_CHANGED -> PhraseSurface.refresh(context)
         }
     }

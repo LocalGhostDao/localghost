@@ -264,12 +264,13 @@ class MainActivity : ComponentActivity() {
         return rows
     }
 
-    /** CONTINUE on the welcome screen: apply the two switches, start what needs no box, move on. */
-    private fun finishWelcome(lockScreen: Boolean, trail: Boolean, noBox: Boolean) {
-        com.localghost.app.phrases.PhraseState.setLockScreenOn(this, lockScreen)
+    /** CONTINUE on the welcome screen: apply the trail switch, settle home (the SIM's country, for
+     *  the phrases to know when you are away), start what needs no box, move on. */
+    private fun finishWelcome(trail: Boolean, noBox: Boolean) {
+        com.localghost.app.phrases.PhraseOffer.settleHome(this)
         AppSettings.setLocationTrail(this, trail)
         AppSettings.setOnboarded(this, true)
-        Thread { com.localghost.app.phrases.PhraseSurface.refresh(applicationContext) }.start()
+        Thread { com.localghost.app.phrases.PhraseSurface.refresh(applicationContext); com.localghost.app.phrases.PhraseOffer.check(applicationContext) }.start()
         if (com.localghost.app.sync.LocationLog.active(this)) {
             com.localghost.app.sync.LocationLog.schedule(this)
             com.localghost.app.sync.LocationLog.sampleNow(this)
@@ -291,7 +292,11 @@ class MainActivity : ComponentActivity() {
         // off) and arm the next refresh. Runs outside the security gate on purpose , a phrase on the
         // lock screen is the point, and none of it touches the box.
         com.localghost.app.phrases.PhraseSurface.ensureChannel(this)
-        Thread { com.localghost.app.phrases.PhraseSurface.refresh(applicationContext) }.start() // parses the packs; not on the UI thread
+        Thread {
+            com.localghost.app.phrases.PhraseSurface.refresh(applicationContext) // parses the packs; not on the UI thread
+            // Somewhere new since last time? The phrases offer themselves, once per country.
+            if (AppSettings.onboarded(applicationContext)) com.localghost.app.phrases.PhraseOffer.check(applicationContext)
+        }.start()
         PollWorker.schedule(this)
         SyncWorker.schedule(this)          // 15-min background sync, Wi-Fi only
         CrashHandler.pending(this)?.let { screen = Screen.Crash(it) }
@@ -335,17 +340,15 @@ class MainActivity : ComponentActivity() {
                 when (val s = screen) {
                     is Screen.Crash -> CrashScreen(s.report) { CrashHandler.clear(this); screen = Screen.Gate }
                     Screen.Welcome -> {
-                        var lock by rememberSaveable { mutableStateOf(true) }
                         var trail by rememberSaveable { mutableStateOf(true) }
                         WelcomeScreen(
                             grants = run { permTick; welcomeGrants() },
                             asking = permAsking,
-                            lockScreenOn = lock, onLockScreen = { lock = it },
                             trailOn = trail, onTrail = { trail = it },
                             onGrant = ::startWelcomeGrants,
                             onSettings = ::openAppSettings,
-                            onContinue = { finishWelcome(lock, trail, noBox = false) },
-                            onNoBox = { finishWelcome(lock, trail, noBox = true) },
+                            onContinue = { finishWelcome(trail, noBox = false) },
+                            onNoBox = { finishWelcome(trail, noBox = true) },
                         )
                     }
                     Screen.Setup -> SetupScreen(
