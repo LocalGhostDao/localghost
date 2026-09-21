@@ -795,3 +795,28 @@ oracled's own account and its log's GPU lines, and a timed answer with the GPU's
 sampled while it runs , 0% throughout means the CPU did it whatever anything else says. Exit 0
 when every angle says GPU. Tested with a fake ghost-cli in the sandbox (no card here); the
 parser tests feed real llama.cpp startup lines through the watcher in pipe-sized pieces.
+
+## The orphan survives SIGKILL: it is inside the kernel, and only a reboot ends it
+
+Same pid, 2306644, every three seconds, SIGTERM then SIGKILL, and it kept running , state R,
+wchan "-", now sixty days old. Nothing restarts it and there is only one: SIGKILL cannot be
+ignored, it can only be outrun by a process that never comes back from the kernel to receive
+it, and a llama-server spinning inside the GPU driver (a hung CUDA context after a fault, dmesg
+shows an Xid) is exactly that. That is also why systemd's restart took three minutes and then
+started the new secd beside it: systemd's final SIGKILL fares no better, it gives up. The card
+that process holds stays held.
+
+So the code now tells "unkillable" apart from "orphan". procs.KillStrays waits two seconds after
+SIGKILL and, for anything still running, logs an ERROR with the state, the pending signals
+(ShdPnd/SigPnd from /proc/<pid>/status , SIGKILL pending on a running process is the
+signature) and the top of its kernel stack, and marks it "(unkillable)". hw.Unmount stops
+waiting the moment a holder of the mount is unkillable (procs.UnkillableHolder) and names it:
+"the volume cannot be fully locked until the box reboots" , the lock is partial, the log says
+so, and nobody waits 75 seconds for a reboot that has not happened. redeploy.sh kills an orphan
+once; a survivor of SIGKILL is reported once with the pending signals, the kernel stack and the
+last Xid lines, the loop goes quiet, and the closing lines say what the restart will do (wait
+out systemd's timeout, start beside it) and what to do (`sudo reboot`, unlock from the app).
+gpu.sh checks each llama-server for a pending SIGKILL and says "sudo reboot" rather than "kill
+-9", bounds nvidia-smi with a 15s timeout (a hung nvidia-smi is the same wedged driver) and
+prints the last Xid lines. Test: pendingSignals on this process (none) and on a stopped child
+with SIGTERM sent (TERM pending); Unkillable false for a live process and for no process.

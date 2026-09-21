@@ -161,6 +161,8 @@ if [ -n "${GHOST_PIN:-}" ] && systemctl is-active --quiet ghost.secd; then
     _halt0=$(date +%s)
     _seen=""
     _left=""
+    _killed=""
+    _unkillable=""
     for i in $(seq 1 45); do
         _alive=$(pgrep -fa '/var/lib/ghost/mnt/.*/bin/' 2>/dev/null | sed -E 's|.*/bin/([^ ]+).*|\1|' | sort -u | tr '\n' ' ')
         if [ -z "$_alive" ]; then _left=""; break; fi
@@ -188,15 +190,37 @@ if [ -n "${GHOST_PIN:-}" ] && systemctl is-active --quiet ghost.secd; then
                 set -- $(ps -o ppid=,stat=,etimes=,comm= -p "$pid" 2>/dev/null)
                 [ "${1:-}" = "1" ] || continue
                 case "${2:-}" in R*|S*) ;; *) continue ;; esac
+                case " $_killed " in *" $pid "*)
+                    # Already SIGKILLed and still here: SIGKILL cannot be ignored, only outrun by a
+                    # process that never returns from the kernel. Once, with the evidence, then quiet.
+                    case " $_unkillable " in *" $pid "*) ;; *)
+                        _unkillable="$_unkillable $pid"
+                        echo "  UNKILLABLE: ${4:-?} pid $pid survived SIGKILL , it is stuck inside the kernel (state ${2}); no signal, no systemd timeout and no patience ends it. Only a reboot does."
+                        echo "      pending signals: $(grep -E '^(ShdPnd|SigPnd)' /proc/$pid/status 2>/dev/null | tr '\n' ' ')"
+                        echo "      kernel stack:    $(head -4 /proc/$pid/stack 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+                        echo "      GPU faults:      $(dmesg 2>/dev/null | grep -iE 'xid|nvrm' | tail -2 | cut -c1-200 | tr '\n' ' ')"
+                        ;;
+                    esac
+                    continue ;;
+                esac
                 echo "  orphan: ${4:-?} pid $pid (parent 1, state ${2}, up ${3:-?}s) ignores the halt , killing it"
-                kill -TERM "$pid" 2>/dev/null; sleep 2; kill -0 "$pid" 2>/dev/null && kill -KILL "$pid" 2>/dev/null
+                kill -TERM "$pid" 2>/dev/null || true; sleep 2
+                if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid" 2>/dev/null || true; fi
+                _killed="$_killed $pid"
             done
         fi
         sleep 1
     done
     for n in $_seen; do [ -n "$n" ] && case " $_left " in *" $n "*) ;; *) echo "  gone after $((i-1))s: $n" ;; esac; done
     echo "cohort down after $(( $(date +%s) - _halt0 ))s"
-    if [ -n "$_left" ]; then
+    if [ -n "$_unkillable" ]; then
+        echo "an unkillable process holds the volume and the service's cgroup: the restart below will wait out"
+        echo "systemd's stop timeout (minutes), then start the new secd beside it. The volume cannot be fully"
+        echo "locked, and the GPU it holds stays held, until the box REBOOTS: finish this redeploy, then"
+        echo "    sudo reboot"
+        echo "and unlock from the app afterwards. The new build kills strays before they can grow old; a"
+        echo "process the kernel will not release is a driver fault, and dmesg (Xid) names it."
+    elif [ -n "$_left" ]; then
         echo "still stopping after 45s: $_left , hard restart; interrupted work heals on the next stock-take"
         echo "      (per-daemon stop timings: watchd's log 'service stopped' / 'cohort down'; llama-server's: oracled's log 'llama-server stop')"
     else

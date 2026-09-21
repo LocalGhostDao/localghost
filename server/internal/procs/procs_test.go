@@ -87,3 +87,35 @@ func TestKillStraysEndsWhatRunsFromThePrefix(t *testing.T) {
 		t.Fatal("nothing left, nothing killed")
 	}
 }
+
+// pendingSignals reads the kernel's own mask: this process has nothing pending; a SIGKILL sent to
+// a stopped child is delivered-not-acted-on for the instant before it dies , the shape an
+// unkillable process shows for weeks.
+func TestPendingSignalsAndUnkillable(t *testing.T) {
+	if got := pendingSignals(os.Getpid()); got != "none" {
+		t.Fatalf("this process: %q", got)
+	}
+	if Unkillable(os.Getpid()) {
+		t.Fatal("a live process with nothing pending is not unkillable")
+	}
+	if Unkillable(999999999) {
+		t.Fatal("a pid that does not exist is not unkillable")
+	}
+	child := exec.Command("/bin/sleep", "300")
+	if err := child.Start(); err != nil {
+		t.Skip(err)
+	}
+	pid := child.Process.Pid
+	_ = child.Process.Signal(syscall.SIGSTOP)
+	time.Sleep(50 * time.Millisecond)
+	_ = child.Process.Signal(syscall.SIGTERM) // a stopped process keeps TERM pending
+	time.Sleep(50 * time.Millisecond)
+	if got := pendingSignals(pid); !strings.Contains(got, "TERM") {
+		t.Fatalf("stopped child with TERM sent: pending = %q", got)
+	}
+	_ = child.Process.Kill()
+	_, _ = child.Process.Wait()
+	if s := procState(pid); s != "" {
+		t.Fatalf("after wait the process is gone, state %q", s)
+	}
+}

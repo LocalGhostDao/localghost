@@ -50,9 +50,9 @@ echo "gpu check $(date '+%Y-%m-%d %H:%M:%S %Z') on $(hostname)"
 echo
 echo "=== 1. the card (nvidia-smi) ==="
 if command -v nvidia-smi >/dev/null 2>&1; then
-    if smi=$(nvidia-smi --query-gpu=name,driver_version,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader 2>&1); then
+    if smi=$(timeout 15 nvidia-smi --query-gpu=name,driver_version,memory.used,memory.total,utilization.gpu,temperature.gpu --format=csv,noheader 2>&1); then
         echo "  $smi" | sed 's/, / · /g'
-        apps=$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null)
+        apps=$(timeout 15 nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>/dev/null)
         if [ -z "$apps" ]; then
             bad "no process holds the GPU right now , the model is not on it (or nothing has loaded yet)"
         else
@@ -74,11 +74,13 @@ if command -v nvidia-smi >/dev/null 2>&1; then
             esac
         fi
     else
-        unclear "nvidia-smi failed: $smi"
+        bad "nvidia-smi failed or hung (15s): $smi , a hung nvidia-smi is a wedged driver; dmesg: $(dmesg 2>/dev/null | grep -iE 'xid|nvrm' | tail -2 | cut -c1-160 | tr '\n' ' ')"
     fi
 else
     unclear "nvidia-smi not installed , no NVIDIA driver on this box, or not on PATH"
 fi
+xid=$(dmesg 2>/dev/null | grep -iE 'NVRM: Xid' | tail -3)
+[ -n "$xid" ] && { echo "  GPU faults in dmesg (Xid):"; echo "$xid" | cut -c1-200 | sed 's/^/    /'; }
 
 echo
 echo "=== 2. llama-server processes ==="
@@ -96,7 +98,14 @@ else
         ngl=$(echo "$args" | sed -n 's/.*-ngl \([0-9]*\).*/\1/p')
         parent=$(ps -o comm= -p "$ppid" 2>/dev/null || echo "?")
         printf '  pid %s · parent %s (%s) · up %ss (%s) · state %s · port %s · -ngl %s\n' "$pid" "$ppid" "$parent" "$up" "$(( up / 86400 ))d$(( up % 86400 / 3600 ))h" "$stat" "${port:-?}" "${ngl:-none}"
-        if [ "$ppid" = "1" ]; then
+        # SIGKILL pending (bit 9 of the shared or thread mask) on a process that is still running:
+        # delivered, not acted on, which only a process that never returns from the kernel does.
+        pend=0
+        for v in $(grep -E '^(ShdPnd|SigPnd)' "/proc/$pid/status" 2>/dev/null | awk '{print $2}'); do pend=$(( pend | 0x$v )); done
+        if [ $(( pend & 0x100 )) -ne 0 ]; then
+            bad "pid $pid has SIGKILL PENDING and is still running: stuck inside the kernel (GPU driver). Only a reboot ends it, and it holds the VRAM until then.  sudo reboot"
+            echo "      kernel stack: $(head -4 "/proc/$pid/stack" 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+        elif [ "$ppid" = "1" ]; then
             bad "pid $pid is an ORPHAN: its oracled is gone and nothing will stop it , it holds the port and the VRAM the next one needs.  sudo kill -9 $pid"
         elif [ "$parent" != "ghost.oracled" ]; then
             unclear "pid $pid is not a child of ghost.oracled ($parent)"

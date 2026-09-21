@@ -89,7 +89,74 @@ func KillStrays(prefix string, grace time.Duration) []string {
 			}
 		}
 	}
+	// SIGKILL cannot be ignored by a process; it can only be outrun by one that never returns
+	// from the kernel. A llama-server spinning inside the GPU driver (state R for weeks, wchan
+	// "-", SIGKILL pending in ShdPnd, a Xid in dmesg) is exactly that, and no signal, no systemd
+	// timeout and no patience will end it , only a reboot. Say so once, precisely, and stop.
+	time.Sleep(2 * time.Second)
+	for i, f := range found {
+		if stillRunning(f.pid) {
+			slog.Error("stray survived SIGKILL: stuck inside the kernel (GPU driver?); nothing but a reboot ends it",
+				"fn", "KillStrays", "pid", f.pid, "comm", f.comm, "state", procState(f.pid), "pendingSignals", pendingSignals(f.pid), "stack", kernelStack(f.pid))
+			names[i] += " (unkillable)"
+		}
+	}
 	return names
+}
+
+// Unkillable reports a process that has SIGKILL pending and is still running , delivered, not
+// acted on, which only happens to a process that never returns from the kernel.
+func Unkillable(pid int) bool {
+	st := procState(pid)
+	if st == "" || st == "Z" {
+		return false
+	}
+	return strings.Contains(pendingSignals(pid), "KILL")
+}
+
+// pendingSignals names the signals pending for a process (from ShdPnd/SigPnd in /proc/<pid>/status).
+func pendingSignals(pid int) string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/status")
+	if err != nil {
+		return ""
+	}
+	var mask uint64
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(l, "ShdPnd:") || strings.HasPrefix(l, "SigPnd:") {
+			v, _ := strconv.ParseUint(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(l, "ShdPnd:"), "SigPnd:")), 16, 64)
+			mask |= v
+		}
+	}
+	if mask == 0 {
+		return "none"
+	}
+	var out []string
+	for _, sig := range []struct {
+		n    uint
+		name string
+	}{{uint(syscall.SIGKILL) - 1, "KILL"}, {uint(syscall.SIGTERM) - 1, "TERM"}, {uint(syscall.SIGINT) - 1, "INT"}, {uint(syscall.SIGHUP) - 1, "HUP"}} {
+		if mask&(1<<uint64(sig.n)) != 0 {
+			out = append(out, sig.name)
+		}
+	}
+	if len(out) == 0 {
+		return fmt.Sprintf("0x%x", mask)
+	}
+	return strings.Join(out, ",")
+}
+
+// kernelStack is the first frames of /proc/<pid>/stack (root only), the driver's name in them
+// is the evidence; "" when unreadable.
+func kernelStack(pid int) string {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stack")
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) > 4 {
+		lines = lines[:4]
+	}
+	return strings.Join(lines, " | ")
 }
 
 // stillRunning: the process exists and is not a zombie (dead, waiting for a parent's wait).
@@ -110,6 +177,21 @@ func procState(pid int) string {
 	return "?"
 }
 
+// UnkillableHolder finds a holder of the mount that has SIGKILL pending and still runs; 0 when
+// none. The one case where waiting for the mount to free is waiting for a reboot.
+func UnkillableHolder(mnt string) (int, string) {
+	for _, pid := range holderPIDs(mnt) {
+		if Unkillable(pid) {
+			comm := "?"
+			if c, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/comm"); err == nil {
+				comm = strings.TrimSpace(string(c))
+			}
+			return pid, fmt.Sprintf("%s[%d]", comm, pid)
+		}
+	}
+	return 0, ""
+}
+
 // HoldersOf names the processes that keep a mount busy: anything whose executable, working
 // directory, root, an open descriptor or a MEMORY MAPPING lives under it (the mapping is the one
 // `fuser -m` shows and a descriptor scan misses , a model file mmap'd by a dying llama-server).
@@ -118,12 +200,34 @@ func procState(pid int) string {
 // see). Each is "comm[pid] state" , state D or Z is a corpse the kernel is still clearing, S or R
 // is alive.
 func HoldersOf(mnt string) string {
+	var out []string
+	for _, pid := range holderPIDs(mnt) {
+		dir := "/proc/" + strconv.Itoa(pid)
+		comm := "?"
+		if c, err := os.ReadFile(dir + "/comm"); err == nil {
+			comm = strings.TrimSpace(string(c))
+		}
+		state := procState(pid)
+		if state == "" {
+			state = "?"
+		}
+		out = append(out, fmt.Sprintf("%s[%d] %s", comm, pid, state))
+	}
+	if len(out) == 0 {
+		return "none found in /proc (a mount held from another namespace, or a lazy reference)"
+	}
+	return strings.Join(out, ", ")
+}
+
+// holderPIDs is every pid whose exe, cwd, root, an open descriptor or a memory mapping lives
+// under the mount.
+func holderPIDs(mnt string) []int {
 	prefix := strings.TrimRight(mnt, "/") + "/"
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return "?"
+		return nil
 	}
-	var out []string
+	var out []int
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil {
@@ -152,21 +256,9 @@ func HoldersOf(mnt string) string {
 				holds = true
 			}
 		}
-		if !holds {
-			continue
+		if holds {
+			out = append(out, pid)
 		}
-		comm := "?"
-		if c, err := os.ReadFile(dir + "/comm"); err == nil {
-			comm = strings.TrimSpace(string(c))
-		}
-		state := procState(pid)
-		if state == "" {
-			state = "?"
-		}
-		out = append(out, fmt.Sprintf("%s[%d] %s", comm, pid, state))
 	}
-	if len(out) == 0 {
-		return "none found in /proc (a mount held from another namespace, or a lazy reference)"
-	}
-	return strings.Join(out, ", ")
+	return out
 }
