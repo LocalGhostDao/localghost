@@ -39,8 +39,18 @@ import org.json.JSONObject
  * Framework LocationManager only (no Play Services, no library): one fix per worker run, from the
  * fused provider where the OS has one, network otherwise, GPS last. A point is kept when the phone
  * moved at least [MIN_MOVE_M] or [MIN_GAP_S] passed , a parked phone writes a point an hour, a
- * moving one every run. The spool is a plain append-only text file, "ts lat lon" per line, capped
+ * moving one every run. The spool is a plain append-only text file, "ts lat lon [acc]" per line
+ * (acc, the fix's error radius in metres, since this build; older lines have three fields), capped
  * so a phone without a box for a year does not grow it without bound.
+ *
+ * A fix comes with its error radius, and the radius is what tells a cell-tower guess from a GPS
+ * position: a COARSE fix (radius over [COARSE_M]) whose circle still contains the last point is
+ * not evidence the phone moved , it confirms where it was , so it is not written as a new place;
+ * past the hourly gap it is written with the LAST point's coordinates ("still here, as far as the
+ * phone can tell"), never its own, or a parked phone on a tower fix wanders two kilometres every
+ * hour. A HOPELESS fix (radius over [HOPELESS_M]) is never a position, only such a confirmation.
+ * What still gets through (a wrong fix with an honest-looking radius) the trail's rules catch at
+ * draw time, on the phone and on the box alike (TrailClean, framed/clean.go).
  */
 object LocationLog {
     private const val FILE = "location-trail.log"
@@ -50,11 +60,15 @@ object LocationLog {
     private const val MAX_BYTES = 2_000_000 // ~45k points; the oldest fall off past this
     private const val MIN_MOVE_M = 25.0
     private const val MIN_GAP_S = 3600L
+    private const val COARSE_M = 200f   // a fix wider than this is a tower or a wifi guess, not a position
+    private const val HOPELESS_M = 5000f // and wider than this says nothing about where, only that we are somewhere
     private const val BATCH = 4000 // points per POST; a batch is ~200KB, far under the box's 16MB cap
     private const val NAME = "localghost.location"
     private const val NOW_NAME = "localghost.location.now"
 
-    data class Point(val ts: Long, val lat: Double, val lon: Double)
+    /** One fix. [acc] is the OS's 68% error radius in metres, 0 when unknown (older spool lines,
+     *  points the box hands back). It never leaves the phone: the box gets ts/lat/lon. */
+    data class Point(val ts: Long, val lat: Double, val lon: Double, val acc: Float = 0f)
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun file(ctx: Context) = File(ctx.filesDir, FILE)
@@ -87,28 +101,52 @@ object LocationLog {
      *  whether it was kept. Timestamps in the spool are therefore strictly increasing, which is
      *  what lets a batch be acknowledged by its exact timestamps and nothing else. */
     @Synchronized
-    fun record(ctx: Context, pt: Point): Boolean {
+    fun record(ctx: Context, fix: Point): Boolean {
+        var pt = fix
         val prev = last(ctx)
         if (prev != null) {
             if (pt.ts <= prev.ts) return false
             val moved = FloatArray(1).also {
                 Location.distanceBetween(prev.lat, prev.lon, pt.lat, pt.lon, it)
             }[0]
-            if (moved < MIN_MOVE_M && pt.ts - prev.ts < MIN_GAP_S) return false
+            val coarse = pt.acc > COARSE_M
+            if (coarse && (moved < pt.acc || pt.acc > HOPELESS_M)) {
+                // The circle still holds the last point (or is too wide to say): not a move.
+                if (pt.ts - prev.ts < MIN_GAP_S) return false
+                pt = Point(pt.ts, prev.lat, prev.lon, pt.acc) // still here, as far as the phone can tell
+            } else if (pt.acc > HOPELESS_M) {
+                return false // beyond the last point's reach, but "somewhere in a 5 km circle" is not a place
+            } else if (moved < MIN_MOVE_M && pt.ts - prev.ts < MIN_GAP_S) {
+                return false
+            }
+        } else if (pt.acc > HOPELESS_M) {
+            return false
         }
+        val line = "${pt.ts} ${pt.lat} ${pt.lon}" + (if (pt.acc > 0f) " ${pt.acc.toInt()}" else "") + "\n"
         val f = file(ctx)
-        f.appendText("${pt.ts} ${pt.lat} ${pt.lon}\n")
+        f.appendText(line)
         if (f.length() > MAX_BYTES) trimOldest(f)
         // The recent ring keeps a copy the box's ack never removes, so the map can draw today
         // (and yesterday) from the phone alone: the spool empties as it syncs, and without this
         // the last two days would vanish from the map the moment they reached the box.
         val r = File(ctx.filesDir, RECENT_FILE)
-        r.appendText("${pt.ts} ${pt.lat} ${pt.lon}\n")
+        r.appendText(line)
         if (r.length() > 64_000) trimRecent(r, pt.ts)
         prefs(ctx).edit().putLong("last_ts", pt.ts).putFloat("last_lat", pt.lat.toFloat())
             .putFloat("last_lon", pt.lon.toFloat()).apply()
         bumpToday(ctx)
         return true
+    }
+
+    /** A spool line, "ts lat lon [acc]"; null for anything else. */
+    private fun parseLine(line: String): Point? {
+        val parts = line.trim().split(' ')
+        if (parts.size != 3 && parts.size != 4) return null
+        val ts = parts[0].toLongOrNull() ?: return null
+        val lat = parts[1].toDoubleOrNull() ?: return null
+        val lon = parts[2].toDoubleOrNull() ?: return null
+        val acc = if (parts.size == 4) parts[3].toFloatOrNull() ?: 0f else 0f
+        return Point(ts, lat, lon, acc)
     }
 
     private fun trimRecent(r: File, now: Long) {
@@ -122,15 +160,7 @@ object LocationLog {
     fun recent(ctx: Context, sinceTs: Long = System.currentTimeMillis() / 1000 - RECENT_S): List<Point> {
         val r = File(ctx.filesDir, RECENT_FILE)
         if (!r.exists()) return emptyList()
-        return r.readLines().mapNotNull { line ->
-            val parts = line.trim().split(' ')
-            if (parts.size != 3) return@mapNotNull null
-            val ts = parts[0].toLongOrNull() ?: return@mapNotNull null
-            if (ts < sinceTs) return@mapNotNull null
-            val lat = parts[1].toDoubleOrNull() ?: return@mapNotNull null
-            val lon = parts[2].toDoubleOrNull() ?: return@mapNotNull null
-            Point(ts, lat, lon)
-        }
+        return r.readLines().mapNotNull { line -> parseLine(line)?.takeIf { it.ts >= sinceTs } }
     }
 
     private fun trimOldest(f: File) {
@@ -143,14 +173,7 @@ object LocationLog {
     fun pending(ctx: Context): List<Point> {
         val f = file(ctx)
         if (!f.exists()) return emptyList()
-        return f.readLines().mapNotNull { line ->
-            val parts = line.trim().split(' ')
-            if (parts.size != 3) return@mapNotNull null
-            val ts = parts[0].toLongOrNull() ?: return@mapNotNull null
-            val lat = parts[1].toDoubleOrNull() ?: return@mapNotNull null
-            val lon = parts[2].toDoubleOrNull() ?: return@mapNotNull null
-            Point(ts, lat, lon)
-        }
+        return f.readLines().mapNotNull { line -> parseLine(line) }
     }
 
     fun pendingCount(ctx: Context): Int = pending(ctx).size
@@ -192,7 +215,7 @@ object LocationLog {
                 }
                 if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) signal.cancel()
                 val g = got
-                if (g != null) return Point(g.time / 1000, g.latitude, g.longitude)
+                if (g != null) return Point(g.time / 1000, g.latitude, g.longitude, if (g.hasAccuracy()) g.accuracy else 0f)
             }
         } catch (_: SecurityException) {
             return null
@@ -212,7 +235,7 @@ object LocationLog {
         val b = best ?: return null
         // A fix older than two hours says where the phone WAS; the trail wants where it is.
         if (System.currentTimeMillis() - b.time > 2 * 3600_000L) return null
-        return Point(b.time / 1000, b.latitude, b.longitude)
+        return Point(b.time / 1000, b.latitude, b.longitude, if (b.hasAccuracy()) b.accuracy else 0f)
     }
 
     // --- the country the fix is in, for the phrases ---

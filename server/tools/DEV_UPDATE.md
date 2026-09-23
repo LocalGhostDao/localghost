@@ -894,3 +894,94 @@ on the sandbox), the --pid path against a dd burning kernel time (99% of a core 
 KERNEL, on cpu 0, syscall running), the bounded write (returns 124 on a write that blocks, 0 on
 one that lands, 1 on a bad path), missing lspci/nvidia-smi said plainly; the levers themselves,
 sysrq and the systemctl dance need the box.
+
+Then Vlad ran the gamble by hand: `nvidia-smi -r` (no devices), `echo 1 > …/0000:2e:00.0/remove`
+(returned, did not hang), `echo 1 > /sys/bus/pci/rescan`, and lspci listed the card again with
+its real IDs (10de:2786, RTX 4070): the link retrained, the silicon answers, the card is not
+dead. nvidia-smi still said "No devices found": the fresh device at 2e:00.0 either was not bound
+or the probe refused. unwedge.sh gained that third state. Section 2 now also prints the driver's
+own list (/proc/driver/nvidia/gpus), whether nvidia is bound to the slot, the last NVRM lines
+that are not Xid noise (a refused probe says so there) and any BAR/bridge-window trouble on the
+slot; the verdict is "gone" (config space 0xffff / no device), "returned" (Xid 79 in this boot
+but the slot answers now: bound? seen?) or "wedged". `--reset` on a returned card starts with
+lever 0, a bind of nvidia to the fresh device (unbind first when bound but blind, modprobe if the
+module is out), each write bounded; lever 3 (remove + rescan) now binds after a successful rescan
+too; and the ending has a middle outcome: the card is back beside the zombie (nvidia-smi -L lists
+it) → exit 0, start the stack, the zombie keeps one core until the next reboot and the lock path
+reports it unkillable each time and carries on. If the probe refuses, the module's state is
+poisoned by the task still executing in it and cannot be reloaded: cold reboot, knowing the card
+is sound. Verified here with a faked kernel log (Xid 79 + a refused probe line): the returned
+verdict, bound 0, seen 0.
+
+Vlad's next paste: `Kernel driver in use: nvidia`, the driver's information file with the model
+but `GPU UUID: GPU-????` and `Video BIOS: ??`, `RmInitAdapter failed! (0x23:0x65:1552)` every
+10s, `LnkSta: Speed 2.5GT/s (downgraded), Width x2 (downgraded)`, and `ps` showing 2306644 in
+state X. Read: the remove kicked the zombie out of its spin (X = dead, in its final teardown in
+the driver's release path; its 99% is the lifetime average), the driver bound to the returned
+card and cannot bring the chip up, and the link came back at x2 , speed drops at idle are normal,
+width drops are physical (seating, riser, slot) or a hot rescan that never ran equalization.
+unwedge.sh now prints LnkCap beside LnkSta and flags a narrowed width, names the upstream port
+and its link, counts RmInitAdapter failures and says what they mean, calls out state X for what
+it is, and `--reset` on a returned card that is bound but blind offers lever 0b: unbind, a
+function-level reset, a link retrain from the upstream port (setpci, Link Control bit 5), bind
+again, nvidia-smi -L. The closing reboot advice adds "reseat the card, check the 8-pin" when the
+link was narrow, because a reboot alone does not widen a link.
+
+## Trail glitches: the spike to the mainland and back
+
+Vlad's map: a walk on an island, and one dashed line shooting 100 km to the mainland coast and
+straight back. A fix is sometimes not where the phone is , a cell-tower position from the network
+provider, a stale fix from another provider , and the trail drew it as a journey. Two fixes, at
+the two ends of the pipe.
+
+At the source (app sync/LocationLog.kt): a fix now carries its error radius (Location.accuracy,
+the OS's 68% circle), a fourth field on the spool line ("ts lat lon acc"; old three-field lines
+still parse; the box never sees it, the POST stays ts/lat/lon). record() reads it: a COARSE fix
+(radius over 200 m) whose circle still contains the last point is not evidence of movement , it
+confirms where we were , so within the hour it is not written, and past the hourly gap it is
+written with the LAST point's coordinates and the new time ("still here, as far as the phone can
+tell"), never its own, or a parked phone on a tower fix wanders two kilometres every hour. A
+HOPELESS fix (radius over 5 km) is only ever such a confirmation, never a position. A coarse fix
+whose circle does not hold the last point is taken: imprecise, but we moved. Fine fixes go through
+the old 25 m / hour rules untouched.
+
+At the view (framed/clean.go on the box, sync/TrailClean.kt on the phone , the same rules, the
+same numbers, the same haversine on the same 6371 km sphere so a 299 m hop is 299 m on both):
+CleanTrack judges shape and speed, never a coordinate on its own. An IMPOSSIBLE hop (over
+350 m/s, faster than an airliner over the ground) is dropped alone. A FAST hop (over 90 m/s,
+faster than road or rail) that the trail COMES BACK from , within 8 points and 90 minutes it is
+once more within a third of the hop's length from where it left , is a spike: the points out
+there are dropped; a flight is a fast hop that does not come back. A LONE point reached and left
+at 12 m/s or better (43 km/h averaged over a leg, both legs) between walking-pace hops is a spike
+too: nobody goes from a stroll to a forty-kilometre round trip with no fix at the far end and back
+to a stroll inside two sampling gaps. Hops under 300 m are never judged. What is NOT caught, on
+purpose: a slow zigzag between two providers 2 km apart (2 m/s , that is the record-time radius
+rule's job), a real errand with a fix at the far end, a boat, a drive, a day of travel. The raw
+points stay in location_points; the view can be wrong, the record should not be.
+
+Where it runs: BuildDayPath cleans before it simplifies, computes distanceM over the cleaned
+points (a spike is not a journey) and writes "glitches" (how many of the day's raw points fell)
+beside "points"; rebuildDay now fetches two hours either side of the day so a spike at 00:05 is
+judged by its neighbours across midnight, and BuildDayPath keeps only the day's own points.
+/v1/geo/tracks passes glitches through; the phone's DayTrack carries it; the map's phoneTracks
+cleans the whole 48 h ring before splitting it per day, counts the fallen per day; the TRAIL
+panel's lit-day line says "· 2 glitches ignored". The old days on the box are rebuilt on their
+next rebuild (a new point for the day, or a stock-take that touches it).
+
+One fixture, two tests: framed/testdata/trail_glitches.txt (a copy in the app's test resources)
+has eleven cases , island_spike, spike_repeated, flight, lone_errand_slow (8 km, 9 m/s: kept),
+lone_spike_moderate (25 km, 28 m/s: dropped), real_drive, impossible, same_second, zigzag_slow
+(kept), boat, trailing_unconfirmed (a fast hop with nothing after it is kept until the next fix
+says) , each point marked x when it must fall. Go's TestCleanTrackAgainstTheSharedFixture and the
+app's TrailCleanTest read the same file, so a number that drifts on one side fails a test.
+Verified here: both pass the eleven, unsorted input is judged in time order, the midnight case
+(points 4, glitches 1, distance ~290 m, the spike not drawn, yesterday's context not leaked),
+the legacy BuildDayPath test moved into its day, and the phone's record() rules in the trail
+harness against the real LocationLog.kt: a coarse consistent fix within the hour writes nothing,
+after the hour writes the previous place with the new time, a hopeless fix writes nothing, a coarse
+inconsistent one is taken, a fine one lands with its radius as the fourth field, an old three-field
+line reads as radius 0, and the POST to the box has no acc.
+
+Not done: the location_points table has no accuracy column, so the box cannot apply the radius
+rule to Google Timeline imports (Records.json carries "accuracy"); a column plus the same rule in
+timeline.go is the next step if the imported days show tower spikes the shape rules miss.

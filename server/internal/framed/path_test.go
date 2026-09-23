@@ -36,12 +36,13 @@ func TestDouglasPeuckerKeepsCorner(t *testing.T) {
 // TestBuildDayPath: the GeoJSON has one LineString for the track and one Point per photo.
 func TestBuildDayPath(t *testing.T) {
 	day, _ := time.Parse("2006-01-02", "2024-06-01")
+	d0 := day.Unix() // the points must lie in the day: BuildDayPath keeps the day's own and no more
 	pts := []TrackPoint{
-		{TS: 10, Lat: 51.50, Lon: 0.00},
-		{TS: 20, Lat: 51.50, Lon: 0.01},
-		{TS: 30, Lat: 51.51, Lon: 0.01},
+		{TS: d0 + 600, Lat: 51.50, Lon: 0.00},
+		{TS: d0 + 1200, Lat: 51.50, Lon: 0.01},
+		{TS: d0 + 1800, Lat: 51.51, Lon: 0.01},
 	}
-	photos := []PhotoPoint{{Hash: "abc", TakenAt: 15, Lat: 51.505, Lon: 0.005}}
+	photos := []PhotoPoint{{Hash: "abc", TakenAt: d0 + 900, Lat: 51.505, Lon: 0.005}}
 	doc, err := BuildDayPath(day, pts, photos)
 	if err != nil {
 		t.Fatal(err)
@@ -71,8 +72,11 @@ func TestBuildDayPath(t *testing.T) {
 	// The track carries a clock per kept vertex and its length over the raw points: a right angle
 	// of ~695m east then ~1112m north, none of it under the standing-still floor.
 	times, _ := g.Features[0].Properties["times"].([]any)
-	if len(times) != 3 || times[0].(float64) != 10 || times[2].(float64) != 30 {
-		t.Fatalf("times = %v, want [10 20 30] parallel to the coordinates", times)
+	if len(times) != 3 || int64(times[0].(float64)) != d0+600 || int64(times[2].(float64)) != d0+1800 {
+		t.Fatalf("times = %v, want the three clocks parallel to the coordinates", times)
+	}
+	if g.Features[0].Properties["glitches"].(float64) != 0 {
+		t.Fatal("a clean right angle has no glitches")
 	}
 	if d, _ := g.Features[0].Properties["distanceM"].(float64); d < 1780 || d > 1830 {
 		t.Fatalf("distanceM = %v, want ~1806", d)

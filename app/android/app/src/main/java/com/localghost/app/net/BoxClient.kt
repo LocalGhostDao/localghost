@@ -883,7 +883,7 @@ object BoxClient {
 
     /** One day of the trail as the box has it: the simplified line with, from boxes at or past the
      *  times build, a clock per vertex and the day's distance over the raw points. */
-    data class DayTrack(val day: String, val lat: DoubleArray, val lon: DoubleArray, val times: LongArray, val distanceM: Double) {
+    data class DayTrack(val day: String, val lat: DoubleArray, val lon: DoubleArray, val times: LongArray, val distanceM: Double, val glitches: Int = 0) {
         val n: Int get() = lat.size
         val hasTimes: Boolean get() = times.size == lat.size && lat.isNotEmpty()
     }
@@ -905,7 +905,7 @@ object BoxClient {
                 }
                 val t = o.optJSONArray("times")
                 val times = if (t != null && t.length() == c.length()) LongArray(t.length()) { t.optLong(it) } else LongArray(0)
-                DayTrack(o.optString("day", ""), lat, lon, times, o.optDouble("distanceM", 0.0).let { if (it.isNaN()) 0.0 else it })
+                DayTrack(o.optString("day", ""), lat, lon, times, o.optDouble("distanceM", 0.0).let { if (it.isNaN()) 0.0 else it }, o.optInt("glitches", 0))
             }
         }
     } catch (_: Exception) { null }

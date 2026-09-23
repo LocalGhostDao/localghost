@@ -75,12 +75,12 @@ private class Dot(val x: Double, val y: Double, val cell: BoxClient.GeoCell)
  *  clock per vertex when the box supplied one (empty otherwise); [phone] marks the part of a day
  *  the phone holds and the box has not seen yet (the spool waiting for a sync, or no box at all). */
 private class Track(val day: String, val xs: DoubleArray, val ys: DoubleArray, val times: LongArray, val distanceM: Double, val phone: Boolean,
-                    val minX: Double, val minY: Double, val maxX: Double, val maxY: Double) {
+                    val minX: Double, val minY: Double, val maxX: Double, val maxY: Double, val glitches: Int = 0) {
     val n: Int get() = xs.size
     val hasTimes: Boolean get() = times.size == xs.size && xs.isNotEmpty()
 }
 
-private fun trackOf(day: String, lat: DoubleArray, lon: DoubleArray, times: LongArray, distanceM: Double, phone: Boolean): Track {
+private fun trackOf(day: String, lat: DoubleArray, lon: DoubleArray, times: LongArray, distanceM: Double, phone: Boolean, glitches: Int = 0): Track {
     val xs = DoubleArray(lat.size); val ys = DoubleArray(lat.size)
     var minX = Double.MAX_VALUE; var minY = Double.MAX_VALUE; var maxX = -Double.MAX_VALUE; var maxY = -Double.MAX_VALUE
     for (i in lat.indices) {
@@ -89,7 +89,7 @@ private fun trackOf(day: String, lat: DoubleArray, lon: DoubleArray, times: Long
         if (x < minX) minX = x; if (x > maxX) maxX = x
         if (y < minY) minY = y; if (y > maxY) maxY = y
     }
-    return Track(day, xs, ys, times, distanceM, phone, minX, minY, maxX, maxY)
+    return Track(day, xs, ys, times, distanceM, phone, minX, minY, maxX, maxY, glitches)
 }
 
 private fun trackOf(pts: List<Pair<Double, Double>>): Track =
@@ -146,16 +146,23 @@ private fun dayPoints(dayTracks: List<Track>): List<TP> {
  * them when the box has none) become one more track, marked phone, drawn as the continuation.
  */
 private fun phoneTracks(ctx: android.content.Context, box: List<Track>): List<Track> {
-    val recent = com.localghost.app.sync.LocationLog.recent(ctx)
-    if (recent.isEmpty()) return emptyList()
+    val raw = com.localghost.app.sync.LocationLog.recent(ctx)
+    if (raw.isEmpty()) return emptyList()
+    // The glitch rules run over the whole two days at once (a spike at midnight is judged by its
+    // neighbours in the other day), then the survivors are split per day. The count of what fell
+    // is per day too, from the raw points, so the panel can say "2 glitches ignored" for the right day.
+    val cleaned = com.localghost.app.sync.TrailClean.clean(raw)
+    val keptByDay = cleaned.kept.groupBy { dayKeyOf(it.ts) }
     val out = ArrayList<Track>()
-    for ((day, pts) in recent.groupBy { dayKeyOf(it.ts) }) {
+    for ((day, rawPts) in raw.groupBy { dayKeyOf(it.ts) }) {
+        val pts = keptByDay[day] ?: emptyList()
         val have = box.firstOrNull { it.day == day }
         val lastBox = if (have != null && have.hasTimes) have.times.last() else if (have != null) Long.MAX_VALUE else 0L
         val mine = pts.filter { it.ts > lastBox }.sortedBy { it.ts }
+        val glitches = rawPts.count { it.ts > lastBox } - mine.size
         if (mine.isEmpty()) continue
         out.add(trackOf(day, DoubleArray(mine.size) { mine[it].lat }, DoubleArray(mine.size) { mine[it].lon },
-            LongArray(mine.size) { mine[it].ts }, distanceOf(mine), phone = true))
+            LongArray(mine.size) { mine[it].ts }, distanceOf(mine), phone = true, glitches = glitches))
     }
     return out
 }
@@ -230,7 +237,7 @@ fun MapScreen() {
         val batch = BoxClient.geoDayTracks(ctx, 60)
         val loaded = ArrayList<Track>()
         if (batch != null) {
-            for (t in batch) if (t.n >= 2) loaded.add(trackOf(t.day, t.lat, t.lon, t.times, t.distanceM, phone = false))
+            for (t in batch) if (t.n >= 2) loaded.add(trackOf(t.day, t.lat, t.lon, t.times, t.distanceM, phone = false, glitches = t.glitches))
         } else {
             val days = BoxClient.geoDays(ctx, 14) ?: emptyList()
             for (d in days) {
@@ -560,11 +567,13 @@ fun MapScreen() {
                 trailDay?.let { d ->
                     val ts = tracks.filter { it.day == d }
                     val waiting = ts.filter { it.phone }.sumOf { it.n }
+                    val glitches = ts.sumOf { it.glitches }
                     val timed = dayPts.filter { it.ts > 0 }
                     Text(
                         dayLabel(d, todayKey, yesterdayKey) + " · " + km(ts.sumOf { it.distanceM }) +
                             (if (timed.isNotEmpty()) " · ${clock(timed.first().ts)} → ${clock(timed.last().ts)}" else "") +
-                            " · ${dayPts.size} points" + (if (waiting > 0) " · $waiting waiting for the box" else ""),
+                            " · ${dayPts.size} points" + (if (waiting > 0) " · $waiting waiting for the box" else "") +
+                            (if (glitches > 0) " · $glitches glitch${if (glitches > 1) "es" else ""} ignored" else ""),
                         color = GhostText, style = MaterialTheme.typography.labelMedium)
                     if (dayPts.size >= 2) {
                         Slider(value = scrub, onValueChange = { scrub = it },

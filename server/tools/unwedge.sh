@@ -83,6 +83,7 @@ if [ -z "$STUCK" ]; then
 fi
 for p in $STUCK; do
     set -- $(statrest "/proc/$p/stat")
+    [ "$1" = X ] && say "pid $p is in state X (dead): it has acted on the SIGKILL and is in its final teardown, stuck in the driver's release path, no longer in its ioctl"
     say "pid $p · $(cat /proc/$p/comm 2>/dev/null) · state $1 · parent $(awk '/^PPid/{print $2}' /proc/$p/status) · threads $(awk '/^Threads/{print $2}' /proc/$p/status) · started $(date -d "@$(( BOOT + ${20:-0} / HZ ))" '+%Y-%m-%d %H:%M' 2>/dev/null) · cmd: $(tr '\0' ' ' < /proc/$p/cmdline | cut -c1-120)"
 done
 
@@ -93,7 +94,7 @@ if [ -z "$GPU" ]; then
     [ -z "$GPU" ] && GPU=$(lspci -Dd 10de: 2>/dev/null | grep -Ei 'VGA|3D' | awk '{print $1}' | head -1)
     [ -z "$GPU" ] && GPU=$(lspci -Dd 10de: 2>/dev/null | awk '{print $1}' | head -1)
 fi
-CARD_GONE=0; CARD_ABSENT=0
+CARD_GONE=0; CARD_ABSENT=0; LINK_NARROW=0; PARENT=""
 if [ -z "$GPU" ]; then
     if command -v lspci >/dev/null; then say "no NVIDIA device on the PCI bus at all (lspci -d 10de: is empty) , the card is off the bus, or this is not the box"
     else say "no nvidia-bound device in /sys and no lspci to look further (apt install pciutils)"; fi
@@ -109,19 +110,38 @@ else
             say "config space answers (vendor 0x${vend:2:2}${vend:0:2}) · driver: $(basename "$(readlink "/sys/bus/pci/devices/$GPU/driver" 2>/dev/null)" 2>/dev/null || echo none) · power: $(cat "/sys/bus/pci/devices/$GPU/power/runtime_status" 2>/dev/null || echo ?)"
         fi
     fi
-    lnk=$(lspci -vv -s "$GPU" 2>/dev/null | grep -E 'LnkSta:|DevSta:' | sed 's/^[[:space:]]*//' | tr '\n' ' ' | cut -c1-160)
+    lnk=$(lspci -vv -s "$GPU" 2>/dev/null | grep -E 'LnkCap:|LnkSta:' | sed 's/^[[:space:]]*//' | tr '\n' ' ' | cut -c1-200)
     [ -n "$lnk" ] && say "$lnk"
+    LINK_NARROW=0
+    if echo "$lnk" | grep -q 'LnkSta:.*Width x[0-9]* (downgraded)'; then
+        LINK_NARROW=1
+        say "the link came up NARROWER than the card supports: speed drops at idle are normal, width drops are not , seating, a riser, the slot, or a hot rescan that never ran equalization (--reset retrains it)"
+    fi
+    PARENT=$(basename "$(dirname "$(readlink -f "/sys/bus/pci/devices/$GPU" 2>/dev/null)")" 2>/dev/null)
+    case "$PARENT" in 0000:*) say "upstream port $PARENT · $(lspci -vv -s "$PARENT" 2>/dev/null | grep -E 'LnkSta:' | sed 's/^[[:space:]]*//' | cut -c1-120)" ;; *) PARENT="" ;; esac
 fi
 mods=$(lsmod 2>/dev/null | awk '/^nvidia/{printf "%s(%s) ", $1, $3}')
 say "modules: ${mods:-none loaded}"
+DRIVER_BOUND=0; [ -n "$GPU" ] && [ -e "/sys/bus/pci/devices/$GPU/driver" ] && DRIVER_BOUND=1
+known=$(ls /proc/driver/nvidia/gpus/ 2>/dev/null | tr '\n' ' ')
+say "the driver's own list (/proc/driver/nvidia/gpus): ${known:-empty , it knows no GPU}"
 smi=$(timeout 15 nvidia-smi --query-gpu=index,name,pci.bus_id,memory.used,memory.total,temperature.gpu --format=csv,noheader 2>&1); rc=$?
 command -v nvidia-smi >/dev/null || rc=127
+SMI_SEES=0
 case $rc in
     127) say "nvidia-smi: not installed here" ;;
-    0) say "nvidia-smi: $(echo "$smi" | head -3 | tr '\n' ';')" ;;
+    0) say "nvidia-smi: $(echo "$smi" | head -3 | tr '\n' ';')"; SMI_SEES=1 ;;
     124) say "nvidia-smi HANGS (15s): the driver is wedged for everyone, not only the stuck process" ;;
     *) say "nvidia-smi: $(echo "$smi" | head -1 | cut -c1-120)" ;;
 esac
+nvrm=$(kmsg | grep -E 'NVRM' | grep -vE 'Xid|nvidia-bug-report|module is unloaded' | tail -3)
+[ -n "$nvrm" ] && { say "the driver's last words (NVRM, not Xid):"; echo "$nvrm" | sed 's/^/      /' | cut -c1-160; }
+INIT_FAILS=$(kmsg | grep -c 'RmInitAdapter failed')
+[ "$INIT_FAILS" -gt 0 ] && say "RmInitAdapter failed ×$INIT_FAILS: the driver is bound and knows the card but cannot bring the chip up (each open of /dev/nvidia0 retries it; the link above is the first suspect)"
+if [ -n "$GPU" ]; then
+    bar=$(kmsg | grep -E "${GPU#0000:}.*(BAR|can't assign|no space|failed to assign|bridge window)" | tail -2)
+    [ -n "$bar" ] && { say "PCI resource trouble on the slot:"; echo "$bar" | sed 's/^/      /' | cut -c1-160; }
+fi
 
 # ---------------------------------------------------------------- 3. the kernel's account
 head_ "3. the kernel log"
@@ -164,7 +184,11 @@ lock=$(kmsg | grep -E 'soft lockup|hard LOCKUP|rcu: INFO|hung task' | tail -3)
         echo "nothing is stuck, but there is NO CARD: it fell off the bus in this boot and nothing held it. Cold reboot."
         exit 1
     fi
-    if [ "$XID79" = 1 ]; then echo "the card is back, and it fell off the bus in THIS boot too: the cause is still there (power, pcie_aspm, heat)."; exit 1; fi
+    if [ "$XID79" = 1 ]; then
+        echo "the card answers on the bus, and it fell off the bus in THIS boot: the cause is still there (power, pcie_aspm, heat)."
+        [ "$SMI_SEES" = 1 ] || echo "and the driver does not see it (bound: $DRIVER_BOUND): --reset binds it to the fresh device; else cold reboot."
+        exit 1
+    fi
     echo "clear: nothing stuck, the card answers. (gpu.sh says whether the model is on it.)"
     exit 0
 }
@@ -222,7 +246,7 @@ fi
 
 # ---------------------------------------------------------------- 5. verdict
 head_ "5. verdict"
-if [ "$CARD_GONE" = 1 ] || [ "$CARD_ABSENT" = 1 ] || [ "$XID79" = 1 ]; then
+if [ "$CARD_GONE" = 1 ] || [ "$CARD_ABSENT" = 1 ]; then
     cat <<EOF
   the card is OFF THE BUS and $STUCK spins in the driver reading a device that is not there.
   Nothing root can do ends the process: signals need it to leave the kernel (it never does),
@@ -235,6 +259,18 @@ if [ "$CARD_GONE" = 1 ] || [ "$CARD_ABSENT" = 1 ] || [ "$XID79" = 1 ]; then
   back, run this again: it says whether the card fell off in that boot too.
 EOF
     VERDICT=gone
+elif [ "$XID79" = 1 ]; then
+    cat <<EOF
+  the card fell off the bus earlier in this boot and answers again now (the link retrained, by
+  itself or through a rescan), but $STUCK still spins in the driver's memory of the old device.
+  driver bound to ${GPU:-?}: $DRIVER_BOUND · nvidia-smi sees a GPU: $SMI_SEES
+  --reset binds the driver to the fresh device (unbinding first when it is bound but blind); if the
+  probe takes, there is a GPU again beside the zombie, which keeps one core and its memory until
+  the next reboot (the lock path reports it unkillable each time and carries on). If the probe
+  refuses (the NVRM lines above), the module's state is poisoned by the zombie and cannot be
+  reloaded while a CPU executes it: cold reboot, knowing the card itself is sound.
+EOF
+    VERDICT=returned
 else
     cat <<EOF
   the card answers but $STUCK spins inside the driver on it. --reset tries, in order:
@@ -258,6 +294,28 @@ bounded_write() { # value path seconds
     for i in $(seq 1 "$3"); do kill -0 "$w" 2>/dev/null || { wait "$w" 2>/dev/null; return $?; }; sleep 1; done
     say "the write to $2 has not returned after $3s: it is stuck in the kernel too (a shell in state D); nothing more from here"
     return 124
+}
+card_seen() { timeout 20 nvidia-smi -L 2>/dev/null | grep -q GPU; }
+retrain_link() { # ask the upstream port to retrain the link (Link Control bit 5), then read the width
+    [ -n "${PARENT:-}" ] && command -v setpci >/dev/null || { say "no upstream port known or no setpci (pciutils); skipping the retrain"; return 1; }
+    local v; v=$(setpci -s "$PARENT" CAP_EXP+10.w 2>/dev/null) || return 1
+    setpci -s "$PARENT" CAP_EXP+10.w="$(printf '%04x' $(( 0x$v | 0x20 )))" 2>/dev/null || return 1
+    sleep 2
+    say "after retrain: $(lspci -vv -s "$GPU" 2>/dev/null | grep -E 'LnkSta:' | sed 's/^[[:space:]]*//' | cut -c1-120)"
+}
+nvrm_tail() { kmsg | grep -E 'NVRM' | grep -vE 'Xid|nvidia-bug-report|module is unloaded' | tail -4 | sed 's/^/      /' | cut -c1-160; }
+bind_driver() { # (re)bind nvidia to the device at $GPU and let the probe speak
+    [ -n "$GPU" ] && [ -e "/sys/bus/pci/devices/$GPU" ] || { say "no device at ${GPU:-?} to bind"; return 1; }
+    [ -d /sys/bus/pci/drivers/nvidia ] || modprobe nvidia 2>&1 | sed 's/^/      /'
+    if [ -e "/sys/bus/pci/devices/$GPU/driver" ]; then
+        say "unbinding $(basename "$(readlink "/sys/bus/pci/devices/$GPU/driver")") from $GPU"
+        bounded_write "$GPU" "/sys/bus/pci/devices/$GPU/driver/unbind" 30 || return 1
+        sleep 1
+    fi
+    say "binding nvidia to $GPU"
+    bounded_write "$GPU" /sys/bus/pci/drivers/nvidia/bind 60; local rc=$?
+    sleep 2; nvrm_tail
+    [ $rc = 0 ] && [ -e "/sys/bus/pci/devices/$GPU/driver" ]
 }
 
 if systemctl is-active --quiet ghost.secd 2>/dev/null; then
@@ -287,6 +345,19 @@ for d in /proc/[0-9]*; do
 done
 if [ -n "$others" ] && [ "$FORCE" = 0 ]; then say "others hold the card:$others , stop them, or --force to crash them"; exit 2; fi
 
+if [ "$VERDICT" = returned ] && ! card_seen; then
+    if [ "$DRIVER_BOUND" = 0 ] && ask "lever 0: bind the driver to the fresh device at $GPU ?"; then
+        bind_driver && say "bound" || say "the bind did not take"
+        card_seen && say "nvidia-smi sees the card"
+    fi
+    if ! card_seen && ask "lever 0b: unbind, function-level reset of $GPU, retrain the link from ${PARENT:-the upstream port}, bind again ?"; then
+        if [ -e "/sys/bus/pci/devices/$GPU/driver" ]; then bounded_write "$GPU" "/sys/bus/pci/devices/$GPU/driver/unbind" 30 && say "unbound"; sleep 1; fi
+        bounded_write 1 "/sys/bus/pci/devices/$GPU/reset" 30 && say "reset returned"
+        retrain_link
+        bind_driver && say "bound" || say "the bind did not take"
+        card_seen && say "nvidia-smi sees the card"
+    fi
+fi
 if [ "$VERDICT" = wedged ]; then
     if command -v nvidia-smi >/dev/null && ask "lever 1: nvidia-smi -r on $GPU ?"; then
         timeout 30 nvidia-smi -r -i "$GPU" 2>&1 | sed 's/^/      /' | head -5
@@ -297,7 +368,8 @@ if [ "$VERDICT" = wedged ]; then
         wait_gone 20 && say "the stuck process is gone"
     fi
 fi
-if ! gone_all && ask "lever 3: remove the device and rescan the bus (echo 1 > .../${GPU:-?}/remove; echo 1 > /sys/bus/pci/rescan) ?"; then
+need3=1; gone_all && need3=0; [ "$VERDICT" = returned ] && card_seen && need3=0
+if [ "$need3" = 1 ] && ask "lever 3: remove the device and rescan the bus (echo 1 > .../${GPU:-?}/remove; echo 1 > /sys/bus/pci/rescan) ?"; then
     if [ -n "$GPU" ] && [ -e "/sys/bus/pci/devices/$GPU" ]; then
         bounded_write 1 "/sys/bus/pci/devices/$GPU/remove" 30 && say "remove returned"
         sleep 2
@@ -309,7 +381,12 @@ if ! gone_all && ask "lever 3: remove the device and rescan the bus (echo 1 > ..
     [ -z "$GPU" ] && GPU=$(ls /sys/bus/pci/drivers/nvidia/ 2>/dev/null | grep -E '^[0-9a-f]{4}:' | head -1)
     if [ -n "$GPU" ] && [ -e "/sys/bus/pci/devices/$GPU" ]; then
         vend=$(od -An -tx1 -N2 "/sys/bus/pci/devices/$GPU/config" 2>/dev/null | tr -d ' ')
-        [ "$vend" = ffff ] && say "the slot still answers nothing: the link did not retrain" || say "the device is back on the bus (vendor 0x${vend:2:2}${vend:0:2}) · driver: $(basename "$(readlink "/sys/bus/pci/devices/$GPU/driver" 2>/dev/null)" 2>/dev/null || echo none)"
+        if [ "$vend" = ffff ]; then say "the slot still answers nothing: the link did not retrain"
+        else
+            say "the device is back on the bus (vendor 0x${vend:2:2}${vend:0:2}) · driver: $(basename "$(readlink "/sys/bus/pci/devices/$GPU/driver" 2>/dev/null)" 2>/dev/null || echo none)"
+            nvrm_tail
+            if ! card_seen; then bind_driver && card_seen && say "nvidia-smi sees the card"; fi
+        fi
     else
         say "the device did not come back on rescan: the link is down for good until the power drops"
     fi
@@ -331,7 +408,15 @@ if gone_all; then
     say "the process is gone but the card is not answering ($(echo "$smi" | head -1 | cut -c1-100)): reboot, cold"
     exit 1
 fi
+if card_seen; then
+    [ "$PERSIST" = 1 ] && systemctl start nvidia-persistenced
+    say "the card is back beside the zombie: $(timeout 20 nvidia-smi -L 2>/dev/null | head -1)"
+    say "$STUCK keeps one core and its memory until the next reboot; the lock path reports it unkillable each time and carries on."
+    say "start the stack: sudo ./tools/redeploy.sh (or systemctl start ghost.secd, then unlock from the app); then sudo ./tools/gpu.sh"
+    exit 0
+fi
 say "still there. the driver will not give it back; the exit is the reboot:"
 say "    sudo poweroff     # wait 30s, power on , not 'reboot': a dropped card needs the rail to drop"
+[ "${LINK_NARROW:-0}" = 1 ] && say "    and while it is off: reseat the card (and the riser, if any), check the 8-pin , the link came back narrow, and a reboot alone does not fix a narrow link"
 if [ "$PERSIST" = 1 ]; then systemctl start nvidia-persistenced; fi
 exit 1

@@ -851,7 +851,8 @@ func (s *Server) handleGeoTracks(w http.ResponseWriter, r *http.Request) {
 		Day       string       `json:"day"`
 		Coords    [][2]float64 `json:"coords"`              // [lat, lon], the order the map speaks
 		Times     []int64      `json:"times,omitempty"`     // unix seconds, parallel to coords (day files from framed ≥ this build)
-		DistanceM float64      `json:"distanceM,omitempty"` // over the raw points, standing-still jitter excluded
+		DistanceM float64      `json:"distanceM,omitempty"` // over the cleaned points, standing-still jitter excluded
+		Glitches  int          `json:"glitches,omitempty"`  // raw points framed's rules threw out (spikes to a cell tower and back)
 	}
 	out := []track{}
 	dir := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "paths")
@@ -888,6 +889,7 @@ func (s *Server) handleGeoTracks(w http.ResponseWriter, r *http.Request) {
 				Properties struct {
 					Times     []int64 `json:"times"`
 					DistanceM float64 `json:"distanceM"`
+					Glitches  int     `json:"glitches"`
 				} `json:"properties"`
 			} `json:"features"`
 		}
@@ -902,7 +904,7 @@ func (s *Server) handleGeoTracks(w http.ResponseWriter, r *http.Request) {
 			if json.Unmarshal(f.Geometry.Coords, &lonlat) != nil || len(lonlat) < 2 {
 				continue
 			}
-			t := track{Day: d, Coords: make([][2]float64, len(lonlat)), DistanceM: f.Properties.DistanceM}
+			t := track{Day: d, Coords: make([][2]float64, len(lonlat)), DistanceM: f.Properties.DistanceM, Glitches: f.Properties.Glitches}
 			for i, c := range lonlat {
 				t.Coords[i] = [2]float64{c[1], c[0]} // GeoJSON is lon,lat; the map wants lat,lon
 			}

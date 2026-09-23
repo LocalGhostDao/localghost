@@ -513,7 +513,9 @@ func (p *Pipeline) RebuildDay(day string) {
 	}
 	start := t.UTC().Unix()
 	end := t.UTC().Add(24 * time.Hour).Unix()
-	pts, err := p.store.DayPoints(start, end)
+	// Two hours either side: the glitch rules judge a hop by what comes before and after it, and
+	// a spike at midnight has its neighbours in the other day. BuildDayPath keeps only the day.
+	pts, err := p.store.DayPoints(start-2*3600, end+2*3600)
 	if err != nil {
 		p.log.Warn("day points query failed", "fn", "rebuildDay", "day", day, "err", err)
 		return

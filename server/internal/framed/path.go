@@ -10,7 +10,6 @@ package framed
 import (
 	"encoding/json"
 	"math"
-	"sort"
 	"time"
 )
 
@@ -35,10 +34,27 @@ type PhotoPoint struct {
 const simplifyEpsilonDeg = 0.0001
 
 // BuildDayPath assembles the GeoJSON for one day from raw points and photo positions. Points are
-// sorted by time and simplified; photos become Point features with the frame hash as id so the app
-// can tap a marker and open the preview.
+// sorted by time, cleaned of glitches (clean.go) and simplified; photos become Point features with
+// the frame hash as id so the app can tap a marker and open the preview. The points may reach a
+// little outside the day: the glitch rules look at what comes before and after a hop, and a spike
+// at midnight is judged by its neighbours across the boundary; only the day's own points are drawn
+// and counted.
 func BuildDayPath(day time.Time, points []TrackPoint, photos []PhotoPoint) ([]byte, error) {
-	sort.Slice(points, func(i, j int) bool { return points[i].TS < points[j].TS })
+	dayStart := time.Date(day.UTC().Year(), day.UTC().Month(), day.UTC().Day(), 0, 0, 0, 0, time.UTC).Unix()
+	dayEnd := dayStart + 86400
+	inDay := func(pts []TrackPoint) []TrackPoint {
+		out := pts[:0:0]
+		for _, p := range pts {
+			if p.TS >= dayStart && p.TS < dayEnd {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	raw := inDay(points)
+	cleaned, _ := CleanTrack(points)
+	points = inDay(cleaned)
+	glitches := len(raw) - len(points)
 	simplified := douglasPeucker(points, simplifyEpsilonDeg)
 
 	type feature struct {
@@ -60,11 +76,15 @@ func BuildDayPath(day time.Time, points []TrackPoint, photos []PhotoPoint) ([]by
 			Geometry: map[string]any{"type": "LineString", "coordinates": coords},
 			Properties: map[string]any{
 				"kind": "track", "day": day.Format("2006-01-02"),
-				"points": len(points), "simplified": len(simplified),
+				"points": len(raw), "simplified": len(simplified),
+				// glitches is how many of the day's raw points the rules in clean.go threw out ,
+				// spikes to a cell tower and back, hops faster than anything flies.
+				"glitches": glitches,
 				// times is parallel to coordinates , the second each kept vertex was recorded ,
 				// so the map can put a clock on any point of the line (scrub along the day) and
-				// say when the day's movement began and ended. distanceM is over the RAW points:
-				// the simplified line cuts corners, and a distance is a claim, not a drawing.
+				// say when the day's movement began and ended. distanceM is over the cleaned but
+				// UNSIMPLIFIED points: the simplified line cuts corners, and a distance is a
+				// claim, not a drawing.
 				"times":     times,
 				"distanceM": math.Round(TrackDistanceM(points)),
 			},
@@ -86,17 +106,11 @@ func BuildDayPath(day time.Time, points []TrackPoint, photos []PhotoPoint) ([]by
 // TrackDistanceM is the length of a time-ordered track in metres by the haversine formula, with the
 // GPS jitter of standing still left out: a hop under 15m between consecutive samples (a quarter
 // hour apart, so anything real is further) is not counted, or a day in a café walks a kilometre.
+// Callers pass cleaned points (CleanTrack): a distance is a claim, and a spike is not a journey.
 func TrackDistanceM(pts []TrackPoint) float64 {
-	const r = 6371000.0
 	total := 0.0
 	for i := 1; i < len(pts); i++ {
-		a, b := pts[i-1], pts[i]
-		la1, la2 := a.Lat*math.Pi/180, b.Lat*math.Pi/180
-		dla := la2 - la1
-		dlo := (b.Lon - a.Lon) * math.Pi / 180
-		h := math.Sin(dla/2)*math.Sin(dla/2) + math.Cos(la1)*math.Cos(la2)*math.Sin(dlo/2)*math.Sin(dlo/2)
-		d := 2 * r * math.Asin(math.Min(1, math.Sqrt(h)))
-		if d >= 15 {
+		if d := HaversineM(pts[i-1], pts[i]); d >= 15 {
 			total += d
 		}
 	}
