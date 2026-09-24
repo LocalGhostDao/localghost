@@ -125,7 +125,14 @@ func (b *backend) Mount(slot int, key []byte) error {
 	if _, err := b.mounter.MapWithKey(slot, key); err != nil {
 		return err
 	}
-	return b.mounter.ResizeToFill(slot)
+	// Grow-to-fill is a nicety (the filesystem uses a device that was enlarged); a mounted volume
+	// that could not grow is a working box. It never fails the unlock , it did, after a power cut
+	// left the filesystem flagged and resize2fs refused, and the box stayed dark behind a PIN that
+	// was right.
+	if err := b.mounter.ResizeToFill(slot); err != nil {
+		secdLog.Warn("grow-to-fill skipped, the volume is mounted and serves", "fn", "Mount", "slot", slot, "err", err)
+	}
+	return nil
 }
 
 func (b *backend) StartDB(slot int) error {

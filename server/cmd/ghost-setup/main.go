@@ -2,6 +2,7 @@
 // then renders the enrolment QR and prints the one-time pairing code to start ghost.secd with.
 //
 // Flow:
+//
 //	ghost-setup --disk /dev/nvme0n1 --host 192.168.1.50 --plan      # dry run, shows what it will do
 //	ghost-setup --disk /dev/nvme0n1 --host 192.168.1.50 --apply     # provisions, then prints QR+code
 //
@@ -12,6 +13,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/hw"
 	"net"
 	"os"
 	"os/exec"
@@ -106,6 +108,26 @@ func listDisks() ([]diskInfo, error) {
 	return disks, nil
 }
 
+// diskHasData says why a disk looks like it holds someone's data (mounted, or a filesystem or
+// partition signature that is not a LUKS container), or "" when it looks blank or is our container.
+func diskHasData(path string) string {
+	if mp, _ := exec.Command("lsblk", "-no", "MOUNTPOINTS", path).Output(); len(strings.TrimSpace(string(mp))) > 0 {
+		return "is MOUNTED (" + strings.Join(strings.Fields(string(mp)), ", ") + ")"
+	}
+	out, _ := exec.Command("lsblk", "-no", "FSTYPE", path).Output()
+	for _, f := range strings.Fields(string(out)) {
+		if f != "crypto_LUKS" {
+			return "holds a " + f + " filesystem"
+		}
+	}
+	if pt, _ := exec.Command("blkid", "-o", "value", "-s", "PTTYPE", path).Output(); len(strings.TrimSpace(string(pt))) > 0 {
+		if lk, _ := exec.Command("lsblk", "-dno", "FSTYPE", path).Output(); strings.TrimSpace(string(lk)) != "crypto_LUKS" {
+			return "has a " + strings.TrimSpace(string(pt)) + " partition table"
+		}
+	}
+	return ""
+}
+
 // pickDisk shows the disks and returns the chosen path. It refuses to pre-select an in-use disk: if
 // the user picks one that is in use, it requires an extra explicit confirmation, because picking the
 // wrong disk on this box (blockchain nodes, live DBs) is the one truly catastrophic mistake.
@@ -146,7 +168,8 @@ func pickDisk() (string, error) {
 }
 
 func main() {
-	disk := flag.String("disk", "", "disk to provision, e.g. /dev/nvme0n1 (DESTRUCTIVE, whole disk)")
+	disk := flag.String("disk", "", "disk to provision, e.g. /dev/disk/by-id/nvme-eui.... (DESTRUCTIVE, whole disk)")
+	eraseData := flag.Bool("erase-disk-with-data", false, "allow --disk to name a disk that is mounted or holds a filesystem (it will be ERASED)")
 	host := flag.String("host", "", "box LAN IP/hostname the phone connects to")
 	domain := flag.String("domain", "", "optional public domain (omit for the zero-server QR default)")
 	caDir := flag.String("ca", "/etc/ghost/ca", "box CA + cert directory")
@@ -252,9 +275,15 @@ func main() {
 	if withDomain {
 		nginxConf = setup.DomainConfig{Domain: domainVal}.NginxConfig(ghostSecdAddr)
 	}
+	// The unit names the disk by its STABLE name: /dev/nvmeXn1 is handed out in probe order, which
+	// changed across one power cut on the reference box and pointed secd at the bitcoin SSD.
+	unitDisk := hw.StableDiskName(diskVal)
+	if unitDisk != diskVal {
+		fmt.Printf("  the unit will name %s as %s (a name that survives reboots)\n", diskVal, unitDisk)
+	}
 	units := setup.SystemdUnits(*execDir, setup.DaemonConfig{
 		RunUser: *svcUser,
-		Host: hostVal, CaDir: *caDir, StateDir: *stateDir, Disk: diskVal, Port: *port,
+		Host:    hostVal, CaDir: *caDir, StateDir: *stateDir, Disk: unitDisk, Port: *port,
 	})
 
 	// The DNS step's Do: resolve the domain and report how it relates to this box. Hard failure ONLY
@@ -328,6 +357,20 @@ func main() {
 			fmt.Fprintln(os.Stderr, "To start over (DESTROYS ALL DATA): wipe the disk first, e.g.")
 			fmt.Fprintf(os.Stderr, "    cryptsetup erase %s && wipefs -a %s\n", diskVal, diskVal)
 			fmt.Fprintln(os.Stderr, "then run ghost-setup again. To change the PIN, use the resetup console command.")
+			os.Exit(1)
+		}
+	}
+
+	// A disk given by FLAG gets the same in-use check the picker does, and a harder answer: a
+	// command line from the README or shell history names /dev/nvme1n1, and after a reboot that can
+	// be a different disk entirely (it was: the bitcoin SSD). Mounted, or carrying a filesystem or
+	// partition table that is not our LUKS container, is refused outright unless the flag that says
+	// "I know it has data" is given too.
+	if *apply && !interactive {
+		if why := diskHasData(diskVal); why != "" && !*eraseData {
+			fmt.Fprintf(os.Stderr, "\nghost-setup: %s %s , refusing to erase it.\n", diskVal, why)
+			fmt.Fprintln(os.Stderr, "Disk names like /dev/nvme1n1 can point at a different disk after a reboot; check lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT,MODEL.")
+			fmt.Fprintln(os.Stderr, "If this really is the disk to erase, add --erase-disk-with-data.")
 			os.Exit(1)
 		}
 	}

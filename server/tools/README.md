@@ -2,9 +2,13 @@
 
 Who runs what, in order. Two users: `root` for anything that touches the system (packages, user
 grants, the disk, nginx, systemd) and the service user , `ghost` by default, or `--user <name>` for a
-dev box where you want the daemons under your own account. The data disk in these examples is
-`/dev/nvme1n1`, the clean NVMe with NO partitions in lsblk. Setup destroys whatever is on the disk
-you pass it. Read the plan output before apply.
+dev box where you want the daemons under your own account. Name the data disk by its STABLE name,
+`/dev/disk/by-id/nvme-eui.…` (`ls -l /dev/disk/by-id/` shows which one points at the clean NVMe with
+NO partitions in lsblk), never `/dev/nvmeXn1`: those numbers follow the order the kernel probed the
+disks in, and on the reference box one power cut swapped them, so the old `/dev/nvme1n1` became the
+bitcoin SSD. Setup destroys whatever is on the disk you pass it; given by flag, it now refuses a disk
+that is mounted or holds a filesystem unless `--erase-disk-with-data` is added. Read the plan output
+before apply.
 
 The order matters at one point: build and INSTALL the app on the phone BEFORE ghost-setup renders
 the QR. The QR contains the device certificate and private key , it is a credential , so the right
@@ -84,7 +88,7 @@ and VERIFY.md covers proving the APK matches the source.
 
 ## 4. Dry run , root
 
-    ./bin/ghost-setup --user <name> --disk /dev/nvme1n1 \
+    ./bin/ghost-setup --user <name> --disk /dev/disk/by-id/<the data disk> \
         --host box.example.com --domain box.example.com
 
 No flag needed: the dry run IS the default , provisioning requires the explicit --apply. Prints

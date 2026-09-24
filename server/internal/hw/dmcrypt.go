@@ -69,15 +69,161 @@ func (m *DMCryptMounter) MapWithKey(slot int, key []byte) (string, error) {
 	if exec.Command("cryptsetup", "status", mapper).Run() == nil {
 		return m.ensureMounted(slot)
 	}
-	// luksOpen reading the key from stdin. --keyfile-size=32 reads EXACTLY 32 bytes: the AMK is
-	// random binary and may contain a 0x0A byte that cryptsetup would otherwise treat as end-of-key.
-	// This MUST match the keyfile-size used at luksFormat (setup), or the key would differ.
-	open := exec.Command("cryptsetup", "luksOpen", "--key-file", "-", "--keyfile-size", "32", m.diskPath(slot), mapper)
-	open.Stdin = strings.NewReader(string(key))
-	if out, err := open.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("luksOpen slot %d: %v: %s", slot, err, strings.TrimSpace(string(out)))
+	disk := m.diskPath(slot)
+	// THE DISK MAY HAVE MOVED. NVMe (and SATA) names are handed out in probe order, and probe order
+	// is not stable across boots: after a power cut /dev/nvme1n1 can be the OS disk and the volume
+	// /dev/nvme0n1. When the configured path is not a LUKS container, every LUKS container on the
+	// box is tried with the key , a luksOpen with the wrong key changes nothing and fails, and the
+	// AMK is random and unique, so the one that opens IS the volume. The journal then names the
+	// stable /dev/disk/by-id path to put in the unit, so it never depends on luck again.
+	if !isLuks(disk) {
+		cands := luksDevices()
+		slog.Warn("configured disk is not a LUKS container , the disk names may have moved at boot; trying every LUKS container with the key",
+			"fn", "MapWithKey", "configured", disk, "candidates", strings.Join(cands, " "))
+		found, err := findByKey(cands, func(dev string) error { return luksOpen(dev, mapper, key) })
+		if err != nil {
+			return "", fmt.Errorf("luksOpen slot %d: %s is not a LUKS container (disk names move between boots) and no LUKS container on the box opens with this key (%v); lsblk -o NAME,SIZE,FSTYPE shows the disks, and --disk in the ghost.secd unit should be a /dev/disk/by-id path", slot, disk, err)
+		}
+		slog.Warn("found the volume at a different name: point --disk in the ghost.secd unit at the stable name so the next boot does not have to search",
+			"fn", "MapWithKey", "configured", disk, "found", found, "stable", stableName(found, "/dev/disk/by-id"))
+		return m.ensureMounted(slot)
+	}
+	if err := luksOpen(disk, mapper, key); err != nil {
+		return "", fmt.Errorf("luksOpen slot %d: %w", slot, err)
 	}
 	return m.ensureMounted(slot)
+}
+
+// luksOpen maps dev as mapper with the key on stdin. --keyfile-size=32 reads EXACTLY 32 bytes: the
+// AMK is random binary and may contain a 0x0A byte that cryptsetup would otherwise treat as the end
+// of the key. This MUST match the keyfile-size used at luksFormat (setup), or the key would differ.
+func luksOpen(dev, mapper string, key []byte) error {
+	open := exec.Command("cryptsetup", "luksOpen", "--key-file", "-", "--keyfile-size", "32", dev, mapper)
+	open.Stdin = strings.NewReader(string(key))
+	if out, err := open.CombinedOutput(); err != nil {
+		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func isLuks(dev string) bool { return exec.Command("cryptsetup", "isLuks", dev).Run() == nil }
+
+// luksDevices is every block device blkid reports as a LUKS container.
+func luksDevices() []string {
+	out, err := exec.Command("blkid", "-t", "TYPE=crypto_LUKS", "-o", "device").Output()
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}
+
+// findByKey tries open on each candidate in turn and returns the first that takes, or the errors.
+func findByKey(cands []string, open func(dev string) error) (string, error) {
+	if len(cands) == 0 {
+		return "", fmt.Errorf("blkid lists no LUKS container at all")
+	}
+	var errs []string
+	for _, dev := range cands {
+		if err := open(dev); err != nil {
+			errs = append(errs, dev+": "+firstLine(err.Error()))
+			continue
+		}
+		return dev, nil
+	}
+	return "", fmt.Errorf("%s", strings.Join(errs, "; "))
+}
+
+// StableDiskName is the /dev/disk/by-id name for a disk path like /dev/nvme0n1 (unchanged when it
+// already is one, or when no stable link exists). Setup writes this into the ghost.secd unit so the
+// volume never depends on the order the kernel probed the disks in.
+func StableDiskName(dev string) string {
+	if strings.HasPrefix(dev, "/dev/disk/") {
+		return dev
+	}
+	return stableName(dev, "/dev/disk/by-id")
+}
+
+// stableName is the /dev/disk/by-id link that resolves to dev (whole disks only, not -partN; a wwn-
+// or eui. name preferred, as those follow the device across ports and controllers), or dev itself.
+func stableName(dev, dir string) string {
+	real, err := filepath.EvalSymlinks(dev)
+	if err != nil {
+		real = dev
+	}
+	es, err := os.ReadDir(dir)
+	if err != nil {
+		return dev
+	}
+	best := ""
+	for _, e := range es {
+		name := e.Name()
+		if strings.Contains(name, "-part") {
+			continue
+		}
+		target, err := filepath.EvalSymlinks(filepath.Join(dir, name))
+		if err != nil || target != real {
+			continue
+		}
+		if best == "" || (strings.HasPrefix(name, "wwn-") || strings.Contains(name, "eui.")) && !(strings.HasPrefix(best, "wwn-") || strings.Contains(best, "eui.")) {
+			best = name
+		}
+	}
+	if best == "" {
+		return dev
+	}
+	return filepath.Join(dir, best)
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// preen checks the filesystem on the open mapping before it is mounted, the way the boot does for
+// the OS disk and nothing did for this one. After an unclean shutdown ext4 either replays its
+// journal (a second) or has an error flagged that a mount tolerates and resize2fs refuses; e2fsck -p
+// fixes what is safe to fix without asking and says when a person must look. Only ext2/3/4.
+func preen(dev string) error {
+	fsType, _ := exec.Command("blkid", "-o", "value", "-s", "TYPE", dev).Output()
+	switch strings.TrimSpace(string(fsType)) {
+	case "ext2", "ext3", "ext4":
+	default:
+		return nil
+	}
+	t0 := time.Now()
+	slog.Info("checking the filesystem before mount (seconds when clean; minutes after an unclean shutdown that left errors)", "fn", "preen", "dev", dev)
+	out, err := exec.Command("e2fsck", "-p", dev).CombinedOutput()
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		return fmt.Errorf("e2fsck did not run: %w", err)
+	}
+	return preenVerdict(dev, code, strings.TrimSpace(string(out)), time.Since(t0))
+}
+
+// preenVerdict reads e2fsck's exit bits: 0 clean, 1 errors corrected, 2 corrected and a reboot
+// advised (meaningful for the root filesystem only), 4 and up a person must run it.
+func preenVerdict(dev string, code int, out string, took time.Duration) error {
+	switch {
+	case code == 0:
+		slog.Info("filesystem clean", "fn", "preen", "dev", dev, "took", took.Round(time.Millisecond).String())
+		return nil
+	case code&^3 == 0:
+		slog.Warn("filesystem repaired after an unclean shutdown", "fn", "preen", "dev", dev, "code", code, "took", took.Round(time.Millisecond).String(), "e2fsck", lastLines(out, 4))
+		return nil
+	}
+	return fmt.Errorf("the filesystem needs a check e2fsck will not make on its own (exit %d): the volume is unlocked but NOT mounted, so from the host run  sudo e2fsck -f %s  , answer its questions, then unlock again. e2fsck said: %s", code, dev, lastLines(out, 3))
+}
+
+func lastLines(s string, n int) string {
+	ls := strings.Split(strings.TrimSpace(s), "\n")
+	if len(ls) > n {
+		ls = ls[len(ls)-n:]
+	}
+	return strings.Join(ls, " | ")
 }
 
 // IsMounted reports whether the slot's filesystem is currently mounted (a warm account).
@@ -102,6 +248,9 @@ func (m *DMCryptMounter) ensureMounted(slot int) (string, error) {
 	// Mounted already?
 	if isMountpoint(mnt) {
 		return mnt, nil
+	}
+	if err := preen(m.mapperPath(slot)); err != nil {
+		return "", fmt.Errorf("mount slot %d: %w", slot, err)
 	}
 	mount := exec.Command("mount", m.mapperPath(slot), mnt)
 	if out, err := mount.CombinedOutput(); err != nil {

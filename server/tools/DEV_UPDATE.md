@@ -1114,3 +1114,55 @@ harbour and village placed, out-of-radius and unlisted codes dropped, the reason
 bearing, the per-interest cap, no taste → nothing), SpotCodes and KindName, geoKind's S. The SQL
 (frames + tags + trail in outingPass, the taste aggregate, the bbox spot and photo-cell queries)
 is read, not run: no Postgres here.
+
+## "failed at mounting store" after the power cycle: preen before mount, find the disk by its key, grow-to-fill never fatal
+
+The box came back locked (as it always does), secd and nginx up, the phone's location worker
+reaching secd every 15 minutes with a session that died with the reboot. The PIN got past
+"unsealing key" and failed at "mounting store". The MOUNT stage is luksOpen + mount + resize2fs,
+and a hard power-off can break each of them in its own way; the fixes make all three survivable:
+
+- PREEN BEFORE MOUNT (hw.preen in ensureMounted, both the cold path and the already-open one).
+  The OS disk gets an fsck at boot; this volume never did. `e2fsck -p` on the open mapping before
+  mount: a clean ext4 answers in milliseconds, a journal to replay in a second, an error-flagged
+  filesystem gets a forced check and is repaired (exit 1-3 are successes, logged WARN with
+  e2fsck's last lines). Exit 4 and up fails the stage with the exact command: the volume is
+  UNLOCKED BUT NOT MOUNTED, so `sudo e2fsck -f /dev/mapper/ghost-slot0` from the host needs no
+  key (the mapping is in the kernel), then unlock again. Non-ext filesystems are left alone.
+- GROW-TO-FILL NEVER FAILS AN UNLOCK (backend.Mount). resize2fs refuses a filesystem flagged with
+  errors ("Please run 'e2fsck -f' first" , reproduced here on an ext4 image with state=2), and a
+  refused resize used to fail the whole MOUNT stage with the volume already mounted behind it. A
+  mounted volume that could not grow is a working box: WARN and carry on.
+- THE DISK FOUND BY ITS KEY (MapWithKey). NVMe names follow probe order, which is not stable across
+  boots. When --disk is not a LUKS container, every LUKS container blkid lists is tried with the
+  key (a wrong key changes nothing; the AMK is random and unique, so the one that opens is the
+  volume), and the journal names the stable /dev/disk/by-id path (whole disk, eui./wwn- preferred)
+  to put in the unit. A configured disk that IS LUKS but refuses the key is not sprayed around.
+- Tests: findByKey (stops at the first that opens, first-line errors, no candidates), stableName
+  (whole-disk eui link over the model name, -part skipped, no link → the device), preenVerdict
+  (0, 1-3 repaired, 4 → the command and "NOT mounted", 8), and preen against a real ext4 image in
+  the sandbox: clean in 4 ms, error-flagged → forced check, repaired, exit 1 → success.
+
+Setup still writes --disk as /dev/nvmeXn1; making it write the by-id name is the next small step.
+
+It was the disk names. The journal: `luksOpen slot 0: Device /dev/nvme1n1 is not a valid LUKS
+device`; lsblk: nvme0n1 7.3T crypto_LUKS (the volume), nvme1n1 7.3T xfs mounted at
+/data/bitcoin-ssd. The power cycle swapped the probe order. Nothing was damaged (luksOpen on the
+xfs disk only reads the header). The immediate fix on the box: point --disk in
+/etc/systemd/system/ghost.secd.service at the /dev/disk/by-id name of nvme0n1, daemon-reload,
+restart, unlock (redeploy does not rewrite the unit). The new secd would also have found it by the
+key. Two more things so it cannot happen, or cost more, again:
+
+- ghost-setup writes the STABLE name into the unit (hw.StableDiskName: the by-id link that resolves
+  to the chosen disk, eui./wwn- preferred, -part skipped) and prints the translation.
+- ghost-setup given --disk by FLAG now refuses a disk that is mounted or carries a filesystem or a
+  partition table that is not a LUKS container, unless --erase-disk-with-data is added. The
+  README's own example named /dev/nvme1n1: after this reboot, re-running it verbatim and typing
+  "yes" would have luksFormatted the bitcoin SSD. The picker already warned; the flag path did not.
+  README says to use /dev/disk/by-id and why.
+
+Also seen, left alone: lsblk lists nvme0n1p1 (69.4G) and nvme0n1p2 (943.8G) under the whole-disk
+LUKS container , a stale partition table (most likely the backup GPT at the end of the disk, which
+luksFormat of the whole disk does not overwrite). Harmless while nothing touches those partition
+nodes; removing it must be surgical (wipefs -o <offset of the backup GPT only>, after a
+luksHeaderBackup), never sgdisk --zap-all or wipefs -a, which would take the LUKS header with it.
