@@ -300,7 +300,9 @@ ALTER TABLE frames ADD COLUMN IF NOT EXISTS taken_src TEXT NOT NULL DEFAULT 'mti
 ALTER TABLE frames ADD COLUMN IF NOT EXISTS place TEXT NOT NULL DEFAULT '';
 -- On-box reverse geocoding, DB-backed: the full GeoNames set is millions of rows , RAM was the
 -- wrong home. Imported once by ghost-cli ghost.framed geo-import; the lat/lon btrees make the
--- expanding-bbox nearest queries cheap. kind: P populated, K park/reserve, F physical feature.
+-- expanding-bbox nearest queries cheap. kind: P populated, K park/reserve, F physical feature,
+-- S spot (beaches, harbours, castles, ruins, monasteries, museums, caves ... , the places a taste
+-- can point at; outings.SpotCodes lists them; geo-import again on a box that predates them).
 CREATE TABLE IF NOT EXISTS geo_points (
   geonameid BIGINT PRIMARY KEY,
   name      TEXT NOT NULL,
@@ -385,6 +387,9 @@ CREATE INDEX IF NOT EXISTS journal_ts ON journal_entries (ts);
 CREATE INDEX IF NOT EXISTS frame_tags_hash ON frame_tags (hash);
 CREATE INDEX IF NOT EXISTS journal_undistilled ON journal_entries (ts DESC) WHERE NOT distilled;
 ALTER TABLE memories ADD COLUMN IF NOT EXISTS source_ref TEXT NOT NULL DEFAULT '';
+-- meta: structured detail beside the prose for machine-assembled memories (kind='outing': the
+-- photos, days, place, tags, cover frames and distance synthd's outing pass computed). NULL else.
+ALTER TABLE memories ADD COLUMN IF NOT EXISTS meta JSONB;
 -- The long description (the caption's SCENE section, 2-4 sentences). display_name stays SHORT ,
 -- date plus two tags , because tags, description and place carry the detail; a name is a label,
 -- not a summary.

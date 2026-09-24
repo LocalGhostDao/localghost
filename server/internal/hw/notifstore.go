@@ -3,16 +3,18 @@ package hw
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"log/slog"
+	"math"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 	"github.com/LocalGhostDao/localghost/server/internal/apparedis"
+	"github.com/LocalGhostDao/localghost/server/internal/outings"
+	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 )
 
 // NotifStore is the per-account notification data model, living INSIDE the encrypted volume (Redis
@@ -74,7 +76,7 @@ type NotifStore struct {
 	pgSocketFor func(slot int) string
 	mu          sync.Mutex
 	rw          map[int]*poltergres.ReadWrite // per-slot ghost_rw pg connection
-	rd          map[int]*apparedis.ReadWrite // per-slot ghost_rw redis connection
+	rd          map[int]*apparedis.ReadWrite  // per-slot ghost_rw redis connection
 }
 
 // FramesLatest reports the newest taken_at per media kind in the slot's frames table , the box-side
@@ -114,14 +116,14 @@ func (s *NotifStore) FramesLatest(slot int) (photoTs, videoTs int64, err error) 
 
 // FrameRow is one gallery entry , enough for the app to render a grid cell and ask for the thumb.
 type FrameRow struct {
-	Hash    string   `json:"hash"`
-	TakenAt int64    `json:"takenAt"`
-	Kind    string   `json:"kind"`
-	Bytes   int64    `json:"bytes"`
-	Name    string   `json:"name,omitempty"` // derived (date + tags) until a user rename exists
-	Tags    []string `json:"tags,omitempty"` // model + user tags; tombstoned removals excluded
-	Place   string   `json:"place,omitempty"` // reverse-geocoded hierarchy, "" until geo data lands
-	Description string `json:"description,omitempty"` // the caption's SCENE section
+	Hash        string   `json:"hash"`
+	TakenAt     int64    `json:"takenAt"`
+	Kind        string   `json:"kind"`
+	Bytes       int64    `json:"bytes"`
+	Name        string   `json:"name,omitempty"`        // derived (date + tags) until a user rename exists
+	Tags        []string `json:"tags,omitempty"`        // model + user tags; tombstoned removals excluded
+	Place       string   `json:"place,omitempty"`       // reverse-geocoded hierarchy, "" until geo data lands
+	Description string   `json:"description,omitempty"` // the caption's SCENE section
 	// The same tags grouped by category (people, place, object, activity, food, animal, vehicle,
 	// nature, event, text, style; "other" for not-yet-categorised) , what the viewer groups by.
 	TagsByCategory map[string][]string `json:"tagsByCategory,omitempty"`
@@ -900,9 +902,6 @@ func (s *NotifStore) redis(slot int, args ...string) error {
 	return err
 }
 
-
-
-
 // ChatRename sets a conversation's title. The one WRITE in the otherwise read-only chats surface
 // secd exposes , justified the same way the tag override was: a title the PERSON chose outranks the
 // derived one, permanently (synthd's auto-titling only ever fills empty titles, so a rename sticks).
@@ -1046,12 +1045,13 @@ func (s *NotifStore) FramesSearch(slot int, q string, limit int) ([]FrameRow, er
 
 // MemoryRow is one distilled memory for the app's MEMORIES screen.
 type MemoryRow struct {
-	ID        int64  `json:"id"`
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	Kind      string `json:"kind"`
-	Source    int64  `json:"source_chat,omitempty"`
-	CreatedAt int64  `json:"created_at"`
+	ID        int64           `json:"id"`
+	Title     string          `json:"title"`
+	Body      string          `json:"body"`
+	Kind      string          `json:"kind"`
+	Source    int64           `json:"source_chat,omitempty"`
+	CreatedAt int64           `json:"created_at"`
+	Meta      json.RawMessage `json:"meta,omitempty"` // kind='outing': the structured detail synthd computed
 }
 
 // MemoriesList returns live (non-tombstoned) memories, newest first.
@@ -1064,7 +1064,7 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		limit = 200
 	}
 	rows, err := c.Query(
-		"SELECT id, title, body, kind, COALESCE(source_chat,0), created_at FROM memories WHERE NOT tombstoned ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit))
+		"SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text FROM memories WHERE NOT tombstoned ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -1074,6 +1074,9 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 			continue
 		}
 		var m MemoryRow
+		if len(v) > 6 && v[6] != nil && json.Valid([]byte(*v[6])) {
+			m.Meta = json.RawMessage(*v[6])
+		}
 		m.ID, _ = strconv.ParseInt(*v[0], 10, 64)
 		if v[1] != nil {
 			m.Title = *v[1]
@@ -1093,6 +1096,113 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		out = append(out, m)
 	}
 	return out, nil
+}
+
+// TasteJSON is what synthd last wrote about what the person likes to photograph (settings
+// 'synthd_taste'), raw; "" when no pass has run yet.
+func (s *NotifStore) TasteJSON(slot int) (string, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return "", err
+	}
+	rows, err := c.Query("SELECT value FROM settings WHERE key = 'synthd_taste'")
+	if err != nil {
+		return "", err
+	}
+	if len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
+		return *rows.Vals[0][0], nil
+	}
+	return "", nil
+}
+
+// SpotsNear is the GeoNames points within about km of (lat, lon) that a taste can point at:
+// spots (S), parks (K), physical features (F) and villages (P/PPL). Bounded; the ranking in
+// internal/outings does the rest.
+func (s *NotifStore) SpotsNear(slot int, lat, lon, km float64) ([]outings.Spot, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, err
+	}
+	dLat := km / 111.0
+	cosLat := math.Cos(lat * math.Pi / 180)
+	if cosLat < 0.05 {
+		cosLat = 0.05
+	}
+	dLon := km / (111.0 * cosLat)
+	rows, err := c.Query(`
+		SELECT name, fcode, lat, lon, country, admin1 FROM geo_points
+		WHERE lat BETWEEN $1 AND $2 AND lon BETWEEN $3 AND $4
+		  AND (kind IN ('S','K','F') OR (kind = 'P' AND fcode = 'PPL'))
+		LIMIT 3000`, lat-dLat, lat+dLat, lon-dLon, lon+dLon)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]outings.Spot, 0, len(rows.Vals))
+	for _, v := range rows.Vals {
+		if len(v) < 6 || v[0] == nil || v[1] == nil || v[2] == nil || v[3] == nil {
+			continue
+		}
+		sp := outings.Spot{Name: *v[0], FCode: *v[1]}
+		sp.Lat, _ = strconv.ParseFloat(*v[2], 64)
+		sp.Lon, _ = strconv.ParseFloat(*v[3], 64)
+		if v[4] != nil {
+			sp.Country = *v[4]
+		}
+		if v[5] != nil {
+			sp.Admin1 = *v[5]
+		}
+		out = append(out, sp)
+	}
+	return out, nil
+}
+
+// PhotoCellsNear counts the person's geotagged photos within about km of (lat, lon) on a ~1 km
+// grid (two decimals of a degree), so "have I photographed near this spot" is a lookup in a small
+// map rather than a query per candidate. The key is "lat2,lon2" as the grid rounds it.
+func (s *NotifStore) PhotoCellsNear(slot int, lat, lon, km float64) (map[[2]int]int, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, err
+	}
+	dLat := km / 111.0
+	cosLat := math.Cos(lat * math.Pi / 180)
+	if cosLat < 0.05 {
+		cosLat = 0.05
+	}
+	dLon := km / (111.0 * cosLat)
+	rows, err := c.Query(`
+		SELECT round(lat::numeric, 2)::text, round(lon::numeric, 2)::text, count(*)::text FROM frames
+		WHERE has_gps AND lat BETWEEN $1 AND $2 AND lon BETWEEN $3 AND $4
+		GROUP BY 1, 2`, lat-dLat, lat+dLat, lon-dLon, lon+dLon)
+	if err != nil {
+		return nil, err
+	}
+	out := map[[2]int]int{}
+	for _, v := range rows.Vals {
+		if len(v) < 3 || v[0] == nil || v[1] == nil || v[2] == nil {
+			continue
+		}
+		la, _ := strconv.ParseFloat(*v[0], 64)
+		lo, _ := strconv.ParseFloat(*v[1], 64)
+		n, _ := strconv.Atoi(*v[2])
+		out[[2]int{int(math.Round(la * 100)), int(math.Round(lo * 100))}] += n
+	}
+	return out, nil
+}
+
+// PhotosNearFunc turns the grid into the lookup Rank wants: the photos in the cell of a point and
+// its eight neighbours , a kilometre, give or take the grid.
+func PhotosNearFunc(cells map[[2]int]int) func(lat, lon float64) int {
+	return func(lat, lon float64) int {
+		la, lo := int(math.Round(lat*100)), int(math.Round(lon*100))
+		n := 0
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				n += cells[[2]int{la + dy, lo + dx}]
+			}
+		}
+		return n
+	}
 }
 
 // MemoryTombstone soft-deletes a memory: the row stays (so re-distillation of the same source chat
@@ -1147,12 +1257,12 @@ func (s *NotifStore) MemoryEdit(slot int, id int64, title, body string) (bool, e
 // DaySummary is what framed knows about one day , the prefill data for the daily check-in ("how
 // are you feeling and why") and anything else that wants "what did today look like" in one row.
 type DaySummary struct {
-	Photos int      `json:"photos"`
-	Videos int      `json:"videos"`
-	Places []string `json:"places,omitempty"`
-	First  int64    `json:"first,omitempty"` // earliest capture, unix seconds
-	Last   int64    `json:"last,omitempty"`
-	Notes  []string `json:"notes,omitempty"` // journal entry titles from today (all sources)
+	Photos          int      `json:"photos"`
+	Videos          int      `json:"videos"`
+	Places          []string `json:"places,omitempty"`
+	First           int64    `json:"first,omitempty"` // earliest capture, unix seconds
+	Last            int64    `json:"last,omitempty"`
+	Notes           []string `json:"notes,omitempty"` // journal entry titles from today (all sources)
 	Steps           int      `json:"steps,omitempty"`
 	SleepMinutes    int      `json:"sleep_minutes,omitempty"`
 	ExerciseMinutes int      `json:"exercise_minutes,omitempty"`
@@ -1702,7 +1812,7 @@ func (s *NotifStore) CheckinHistory(slot, n int) ([]CheckinRow, error) {
 		n = 30
 	}
 	rows, err := c.Query(
-		"SELECT body FROM journal_entries WHERE source = 'ghost.noted' AND title LIKE 'Daily check-in%' ORDER BY ts DESC LIMIT "+strconv.Itoa(n))
+		"SELECT body FROM journal_entries WHERE source = 'ghost.noted' AND title LIKE 'Daily check-in%' ORDER BY ts DESC LIMIT " + strconv.Itoa(n))
 	if err != nil {
 		return nil, err
 	}

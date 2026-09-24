@@ -538,6 +538,35 @@ func main() {
 			data, _ := json.Marshal(map[string]any{"ready": engine.Ready(), "size": engine.Size()})
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
+		// OUTINGS , the memories made from the photos, and the taste they add up to; "rebuild"
+		// forces the pass now (the loop otherwise waits for the archive to change and 30 minutes).
+		ctl.Handle("outings", func(args json.RawMessage) (ctlsock.Response, error) {
+			var a struct {
+				Rebuild bool `json:"rebuild"`
+			}
+			if len(args) > 0 {
+				_ = json.Unmarshal(args, &a)
+			}
+			db := chatStore(mount)
+			if db == nil {
+				return ctlsock.Response{OK: false, Err: "no database (box locked?)"}, nil
+			}
+			out := map[string]any{}
+			if a.Rebuild {
+				lastOutingPass = time.Time{}
+				_ = db.Exec("DELETE FROM settings WHERE key = 'synthd_outings_sig'")
+				n, err := outingPass(db, lg)
+				if err != nil {
+					return ctlsock.Response{OK: false, Err: err.Error()}, nil
+				}
+				out["written"] = n
+			}
+			for k, v := range outingsSummary(db) {
+				out[k] = v
+			}
+			data, _ := json.Marshal(out)
+			return ctlsock.Response{OK: true, Data: data}, nil
+		})
 		defer ctl.Cleanup()
 		go func() {
 			if err := ctl.Serve(ctx); err != nil {
@@ -1001,6 +1030,11 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 			lg.Warn("episode pass failed", "fn", "distillLoop", "err", eerr)
 		} else if en > 0 {
 			lg.Info("day episodes updated", "fn", "distillLoop", "episodes", en)
+		}
+		if on, oerr := outingPass(db, lg); oerr != nil {
+			lg.Warn("outing pass failed", "fn", "distillLoop", "err", oerr)
+		} else if on > 0 {
+			lg.Info("outings updated", "fn", "distillLoop", "outings", on)
 		}
 	}
 }

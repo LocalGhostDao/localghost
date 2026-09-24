@@ -13,6 +13,7 @@
 #   sudo ./tools/unwedge.sh --reset    # diagnose, then the levers, one at a time, asking first
 #   sudo ./tools/unwedge.sh --pid N    # this process rather than the one found
 #   sudo ./tools/unwedge.sh --gpu 0000:2e:00.0
+#   sudo ./tools/unwedge.sh --reset --button   # "someone can press the power button right now"
 #
 # With nothing stuck it is the after-the-reboot check: the card is back, what the PCIe link and
 # its power management say, whether it fell off in this boot as well.
@@ -20,6 +21,16 @@
 # Diagnose writes nothing but a backtrace request into the kernel log (sysrq l). --reset stops the
 # stack first (a reset crashes whatever is on the card), asks before each lever, checks after each.
 # Exit: 0 nothing stuck (or cleared), 1 stuck and the reboot is the way, 2 could not tell.
+#
+# READ THIS BEFORE --reset. On 2026-09-23 the unbind → reset → bind of a card whose driver was
+# failing RmInitAdapter, with a dead task still in the driver's release path, froze the whole box ,
+# no network, no console , and nobody was home to press the button for eight hours. A driver in
+# that state is exactly the one most likely to take the kernel with it when poked. So --reset now
+# refuses to touch the driver unless a hardware watchdog is armed (a hard lockup then resets the
+# box by itself within a minute; tools/watchdog.sh arms one) or you type that someone can reach the
+# power button right now. And the one lever that never touches the driver , retraining the PCIe
+# link from the upstream port , comes first: if the link stays narrow after it, the fault is
+# physical and no driver lever is worth the freeze, so the sequence stops there.
 
 set -u
 _stamp() { while IFS= read -r _l; do printf '%(%H:%M:%S)T %s\n' -1 "$_l"; done; }
@@ -27,7 +38,7 @@ exec > >(_stamp) 2>&1
 _stamp_pid=$!
 trap 'exec 1>&- 2>&-; wait "$_stamp_pid" 2>/dev/null || true' EXIT
 
-RESET=0; PID=""; GPU=""; SYSRQ=1; FORCE=0
+RESET=0; PID=""; GPU=""; SYSRQ=1; FORCE=0; BUTTON=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --reset) RESET=1 ;;
@@ -35,7 +46,8 @@ while [ $# -gt 0 ]; do
         --gpu) GPU="${2:-}"; shift ;;
         --no-sysrq) SYSRQ=0 ;;
         --force) FORCE=1 ;;
-        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+        --button) BUTTON=1 ;;
+        -h|--help) sed -n '2,/^set -u/p' "$0" | sed '$d'; exit 0 ;;
         *) echo "unknown flag $1 (see --help)"; exit 2 ;;
     esac
     shift
@@ -285,7 +297,7 @@ fi
 
 # ---------------------------------------------------------------- 6. the levers
 head_ "6. --reset"
-ask() { local a; printf '  %s [y/N] ' "$1" > /dev/tty; read -r a < /dev/tty; [ "$a" = y ] || [ "$a" = Y ]; }
+ask() { local a=""; { printf '  %s [y/N] ' "$1" > /dev/tty; read -r a < /dev/tty; } 2>/dev/null || a=""; [ "$a" = y ] || [ "$a" = Y ]; }
 gone_all() { local p; for p in $STUCK; do alive "$p" && return 1; done; return 0; }
 wait_gone() { local i; for i in $(seq 1 "$1"); do gone_all && return 0; sleep 1; done; return 1; }
 # a sysfs write that may never return is done from a child, with a bound.
@@ -318,6 +330,23 @@ bind_driver() { # (re)bind nvidia to the device at $GPU and let the probe speak
     [ $rc = 0 ] && [ -e "/sys/bus/pci/devices/$GPU/driver" ]
 }
 
+# THE GATE. Poking a broken driver can freeze the kernel; a frozen kernel needs the power button
+# or a hardware watchdog. One of the two must be there before anything below runs.
+wd=$(systemctl show -p RuntimeWatchdogUSec --value 2>/dev/null)
+if [ -n "$wd" ] && [ "$wd" != 0 ] && [ -e /dev/watchdog ]; then
+    say "a hardware watchdog is armed (RuntimeWatchdogSec=$wd, /dev/watchdog present): a hard lockup resets the box on its own"
+elif [ "$BUTTON" = 1 ]; then
+    say "--button: you have said someone can power-cycle this box right now"
+else
+    say "the driver levers can FREEZE THE BOX (they did, 2026-09-23: eight hours dark). No hardware watchdog is armed"
+    say "(tools/watchdog.sh --arm fixes that for next time). Type   button   if someone can press the power"
+    say "button on this box right now, anything else to stop here:"
+    a=""
+    { printf '  > ' > /dev/tty; read -r a < /dev/tty; } 2>/dev/null || a=""
+    [ "$a" = button ] || { say "stopped: nothing touched. Diagnose mode is safe any time; --reset when someone is home, or after tools/watchdog.sh --arm"; exit 1; }
+    BUTTON=1
+fi
+
 if systemctl is-active --quiet ghost.secd 2>/dev/null; then
     ask "stop ghost.secd (locks the volume; the app unlocks it after) ?" || { say "not without the stack down: a reset crashes whatever is on the card"; exit 1; }
     systemctl stop --no-block ghost.secd
@@ -345,15 +374,29 @@ for d in /proc/[0-9]*; do
 done
 if [ -n "$others" ] && [ "$FORCE" = 0 ]; then say "others hold the card:$others , stop them, or --force to crash them"; exit 2; fi
 
+link_narrow_now() { lspci -vv -s "$GPU" 2>/dev/null | grep -qE 'LnkSta:.*Width x[0-9]+ \(downgraded\)'; }
 if [ "$VERDICT" = returned ] && ! card_seen; then
+    # lever 0a , the only lever that never touches the driver: ask the upstream port to retrain
+    # the link. A hot rescan brings a card up without the equalization a power-on does; this is
+    # the second chance. If the width stays downgraded after it, the fault is in the slot, the
+    # riser or the card, and no driver lever is worth the freeze: the sequence ends here.
+    if [ "$LINK_NARROW" = 1 ] && ask "lever 0a: retrain the PCIe link from ${PARENT:-the upstream port} (touches no driver) ?"; then
+        retrain_link
+        if link_narrow_now; then
+            say "the link is still narrow after a retrain: physical (slot, riser, card). Stopping before any driver lever."
+            say "    cold boot with the card reseated is the fix; a reboot alone will not widen a link."
+            [ "$PERSIST" = 1 ] && systemctl start nvidia-persistenced
+            exit 1
+        fi
+        say "the link came back to full width"
+    fi
     if [ "$DRIVER_BOUND" = 0 ] && ask "lever 0: bind the driver to the fresh device at $GPU ?"; then
         bind_driver && say "bound" || say "the bind did not take"
         card_seen && say "nvidia-smi sees the card"
     fi
-    if ! card_seen && ask "lever 0b: unbind, function-level reset of $GPU, retrain the link from ${PARENT:-the upstream port}, bind again ?"; then
+    if ! card_seen && ask "lever 0b: unbind, function-level reset of $GPU, bind again (THIS is the lever that froze the box on 2026-09-23) ?"; then
         if [ -e "/sys/bus/pci/devices/$GPU/driver" ]; then bounded_write "$GPU" "/sys/bus/pci/devices/$GPU/driver/unbind" 30 && say "unbound"; sleep 1; fi
         bounded_write 1 "/sys/bus/pci/devices/$GPU/reset" 30 && say "reset returned"
-        retrain_link
         bind_driver && say "bound" || say "the bind did not take"
         card_seen && say "nvidia-smi sees the card"
     fi

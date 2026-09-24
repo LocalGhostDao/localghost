@@ -9,6 +9,7 @@ package framed
 import (
 	"bufio"
 	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/outings"
 	"log/slog"
 	"math"
 	"os"
@@ -265,6 +266,17 @@ func (s *Store) ImportGeo(dir string, log *slog.Logger) (points int64, names int
 	return points, names, nil
 }
 
+// spotCodes is the S kind: the GeoNames codes the interests (internal/outings) can point a
+// person at , beaches, harbours, castles, ruins, monasteries, museums, caves , none of which the
+// geocoder needs, all of which "what is near me that I would like" does.
+var spotCodes = func() map[string]bool {
+	m := map[string]bool{}
+	for _, c := range outings.SpotCodes() {
+		m[c] = true
+	}
+	return m
+}()
+
 func geoKind(fclass, fcode string) byte {
 	switch {
 	case fclass == "P":
@@ -275,6 +287,8 @@ func geoKind(fclass, fcode string) byte {
 		fclass == "T" && (fcode == "PK" || fcode == "MT" || fcode == "VLC"),
 		fclass == "R" && fcode == "TRL":
 		return 'F'
+	case spotCodes[fcode] && fclass != "A" && fclass != "P":
+		return 'S'
 	}
 	return 0
 }

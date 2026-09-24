@@ -26,7 +26,7 @@ import (
 )
 
 // SchemaCol is one column's desired shape. Type is postgres DDL syntax; Default is the literal
-// default expression ('' means none). BIGSERIAL is only meaningful at table creation , a serial
+// default expression (” means none). BIGSERIAL is only meaningful at table creation , a serial
 // can never be retrofitted onto an existing table by this engine (and never needs to be: serial
 // PKs exist from birth).
 type SchemaCol struct {
@@ -182,6 +182,9 @@ var schemaRegistry = []SchemaTable{
 		{"tombstoned", "BOOLEAN", true, "FALSE"},
 		{"emb", "JSONB", false, ""},
 		{"source_ref", "TEXT", true, "''"},
+		// META , structured detail beside the prose, for memories a machine assembled from data
+		// (kind='outing': photos, days, place, tags, cover frames, distance). NULL for the rest.
+		{"meta", "JSONB", false, ""},
 	}, Indexes: []string{
 		"CREATE INDEX IF NOT EXISTS memories_source ON memories (source_chat)",
 	}},

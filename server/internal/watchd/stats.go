@@ -19,11 +19,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/gpu"
 	"log/slog"
 	"math"
 	"net/http"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
@@ -42,8 +42,8 @@ const (
 )
 
 type statEntry struct {
-	T int64   `json:"t"`
-	C uint8   `json:"c"`
+	T int64 `json:"t"`
+	C uint8 `json:"c"`
 	// V is ALWAYS encoded , 0 is a real reading (an idle GPU, a 0.00 load), not absent data. The
 	// first version used omitempty + a nonzero guard in the rollups, which silently excluded
 	// genuine zeros and skewed every average upward. Targets without a numeric (the daemons) just
@@ -257,27 +257,21 @@ func (sp *StatsSampler) sampleAll(now int64) map[string]statEntry {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// Through the shared probe: one nvidia-smi serves this tick and any status poll near
+		// it, and a card the driver cannot bring up is left alone for minutes at a time rather
+		// than poked every ten seconds (each poke was two RmInitAdapter lines in the kernel log).
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		outB, err := exec.CommandContext(ctx, "nvidia-smi",
-			"--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits").Output()
+		g, err := gpu.Query(ctx)
 		if err != nil {
-			put("host.gpu", statEntry{C: 2, D: "not visible"})
+			put("host.gpu", statEntry{C: 2, D: "not visible: " + err.Error()})
 			return
 		}
-		f := strings.Split(strings.TrimSpace(strings.SplitN(string(outB), "\n", 2)[0]), ",")
-		if len(f) != 3 {
-			put("host.gpu", statEntry{C: 2, D: "unparseable"})
-			return
-		}
-		used, _ := strconv.ParseFloat(strings.TrimSpace(f[0]), 64)
-		total, _ := strconv.ParseFloat(strings.TrimSpace(f[1]), 64)
-		util, _ := strconv.ParseFloat(strings.TrimSpace(f[2]), 64)
 		c := uint8(0)
-		if total > 0 && used/total > 0.97 {
+		if g.TotalMiB > 0 && g.UsedMiB/g.TotalMiB > 0.97 {
 			c = 1
 		}
-		put("host.gpu", statEntry{C: c, V: util, D: fmt.Sprintf("%.1f/%.1f GB", used/1024, total/1024)})
+		put("host.gpu", statEntry{C: c, V: g.Util, D: fmt.Sprintf("%.1f/%.1f GB", g.UsedMiB/1024, g.TotalMiB/1024)})
 	}()
 
 	wg.Wait()

@@ -729,7 +729,23 @@ object BoxClient {
         BoxHttp.postJson(ctx, "/v1/notes", org.json.JSONObject().put("text", text)); true
     } catch (_: Exception) { false }
 
-    data class MemRow(val id: Long, val title: String, val body: String, val kind: String, val createdAt: Long)
+    /** One memory row. [meta] is the structured detail synthd computed for a machine-assembled
+     *  memory (kind "outing": photos, days, place, tags, covers, distanceM, away); null otherwise. */
+    data class MemRow(val id: Long, val title: String, val body: String, val kind: String, val createdAt: Long,
+                      val meta: org.json.JSONObject? = null) {
+        val covers: List<String> get() = meta?.optJSONArray("covers")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() } } ?: emptyList()
+        val outingLine: String? get() = meta?.let { m ->
+            val photos = m.optInt("photos"); val days = m.optInt("days")
+            if (photos == 0) return@let null
+            val parts = ArrayList<String>()
+            parts.add("$photos photo${if (photos == 1) "" else "s"}")
+            if (days > 1) parts.add("$days days")
+            val km = m.optDouble("distanceM", 0.0)
+            if (km >= 950) parts.add(if (km < 10000) "%.1f km".format(java.util.Locale.US, km / 1000) else "${(km / 1000).toInt()} km")
+            if (m.optBoolean("away")) parts.add("a trip")
+            parts.joinToString(" · ")
+        }
+    }
 
     suspend fun memoriesList(ctx: Context): List<MemRow>? = try {
         val r = BoxHttp.getJson(ctx, "/v1/memories")
@@ -737,9 +753,45 @@ object BoxClient {
         (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             MemRow(o.optLong("id"), o.optString("title"), o.optString("body"),
-                o.optString("kind"), o.optLong("created_at"))
+                o.optString("kind"), o.optLong("created_at"), o.optJSONObject("meta"))
         }
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "memories: ${e.message}"); null }
+
+    /** WHAT THE PHOTOS SAY YOU LIKE , synthd's taste: the tags that recur across the days with a
+     *  camera out (share = the fraction of those days), folded onto the fixed interests. */
+    data class Like(val tag: String, val category: String, val share: Double, val days: Int)
+    data class Interest(val name: String, val weight: Double, val tags: List<String>)
+    data class Taste(val summary: String, val days: Int, val photos: Int, val likes: List<Like>, val interests: List<Interest>, val note: String)
+
+    suspend fun taste(ctx: Context): Taste? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/taste")
+        val likes = r.optJSONArray("likes")?.let { a -> (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            Like(o.optString("tag"), o.optString("category"), o.optDouble("share", 0.0), o.optInt("days"))
+        } } ?: emptyList()
+        val interests = r.optJSONArray("interests")?.let { a -> (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            val tags = o.optJSONArray("tags")?.let { t -> (0 until t.length()).map { t.optString(it) } } ?: emptyList()
+            Interest(o.optString("name"), o.optDouble("weight", 0.0), tags)
+        } } ?: emptyList()
+        Taste(r.optString("summary"), r.optInt("days"), r.optInt("photos"), likes, interests, r.optString("note"))
+    } catch (e: Exception) { android.util.Log.w("LocalGhost", "taste: ${e.message}"); null }
+
+    /** PLACES NEAR A POSITION THAT FIT THE TASTE , from the box's own geo data, ranked, with the
+     *  reason and how many of your photos lie within a kilometre (0 = new to you). */
+    data class Suggestion(val name: String, val kind: String, val interest: String, val distanceKm: Double, val bearing: String,
+                          val why: String, val beenThere: Int, val lat: Double, val lon: Double)
+    data class Nearby(val suggestions: List<Suggestion>, val note: String, val km: Double)
+
+    suspend fun nearby(ctx: Context, lat: Double, lon: Double, km: Int = 15): Nearby? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/nearby?lat=${"%.5f".format(java.util.Locale.US, lat)}&lon=${"%.5f".format(java.util.Locale.US, lon)}&km=$km")
+        val list = r.optJSONArray("suggestions")?.let { a -> (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            Suggestion(o.optString("name"), o.optString("kind"), o.optString("interest"), o.optDouble("distanceKm", 0.0),
+                o.optString("bearing"), o.optString("why"), o.optInt("beenThere"), o.optDouble("lat", 0.0), o.optDouble("lon", 0.0))
+        } } ?: emptyList()
+        Nearby(list, r.optString("note"), r.optDouble("km", km.toDouble()))
+    } catch (e: Exception) { android.util.Log.w("LocalGhost", "nearby: ${e.message}"); null }
 
     suspend fun memoryAdd(ctx: Context, title: String, body: String): Boolean = try {
         BoxHttp.postJson(ctx, "/v1/memories/add", org.json.JSONObject().put("title", title).put("body", body)); true

@@ -112,6 +112,15 @@ for svc in $CHECK; do
                 [ -n "$v" ] && printf '  model %s\n' "$v"
                 [ -n "$sp" ] && printf '  %s\n' "$sp"
             fi
+            if [ "$svc" = "ghost.synthd" ]; then
+                # The memories made from the photos, and the taste , built without the model.
+                o=$("$CLI" ghost.synthd outings 2>/dev/null)
+                n=$(echo "$o" | sed -n 's/.*"outings":\([0-9]*\).*/\1/p' | head -1)
+                tr_=$(echo "$o" | sed -n 's/.*"trips":\([0-9]*\).*/\1/p' | head -1)
+                ts=$(echo "$o" | sed -n 's/.*"taste":"\([^"]*\)".*/\1/p' | head -1)
+                [ -n "$n" ] && printf '  outings %s (%s trips)\n' "$n" "${tr_:-0}"
+                [ -n "$ts" ] && printf '  taste: %s\n' "$(echo "$ts" | cut -c1-140)"
+            fi
         else
             printf '  %s   (socket present but not answering ping , wedged or mid-restart)\n' "$(red STALE)"
             down=$((down + 1))

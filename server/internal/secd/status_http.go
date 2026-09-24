@@ -7,20 +7,20 @@ package secd
 // missing session is indistinguishable from the box being down.
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/gpu"
+	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"math"
+	"net/http"
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
-	"context"
-	"fmt"
-	"math"
 	"sync"
 	"syscall"
 	"time"
-	"github.com/LocalGhostDao/localghost/server/internal/hw"
-	"encoding/json"
-	"net/http"
 )
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -106,9 +106,11 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// HOST VITALS , the machine under everything. Load and memory from /proc (no exec, no cost);
-	// GPU from nvidia-smi under a hard 400ms timeout (a wedged driver must not stall status). The
-	// GPU block is ABSENT rather than zeroed when not visible , "no GPU reported" and "GPU at 0%"
-	// are different facts and the app should not have to guess which one it is looking at.
+	// GPU through the shared probe (internal/gpu: an answer reused for seconds, a failing card
+	// left alone for minutes, no exec when the driver lists no card) under a hard 400ms timeout
+	// (a wedged driver must not stall status). The GPU block is ABSENT rather than zeroed when
+	// not visible , "no GPU reported" and "GPU at 0%" are different facts and the app should not
+	// have to guess which one it is looking at; "gpuNote" says why it is absent.
 	host := map[string]any{"cores": runtime.NumCPU()}
 	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
 		if f := strings.Fields(string(b)); len(f) > 0 {
@@ -141,23 +143,16 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	{
 		gctx, gcancel := context.WithTimeout(r.Context(), 400*time.Millisecond)
-		out, gerr := exec.CommandContext(gctx, "nvidia-smi",
-			"--query-gpu=memory.used,memory.total,utilization.gpu", "--format=csv,noheader,nounits").Output()
+		g, gerr := gpu.Query(gctx)
 		gcancel()
 		if gerr == nil {
-			f := strings.Split(strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0]), ",")
-			if len(f) == 3 {
-				usedMB, e1 := strconv.ParseFloat(strings.TrimSpace(f[0]), 64)
-				totalMB, e2 := strconv.ParseFloat(strings.TrimSpace(f[1]), 64)
-				util, e3 := strconv.ParseFloat(strings.TrimSpace(f[2]), 64)
-				if e1 == nil && e2 == nil && e3 == nil {
-					host["gpu"] = map[string]any{
-						"vramUsedGB":  math.Round(usedMB/1024*10) / 10,
-						"vramTotalGB": math.Round(totalMB/1024*10) / 10,
-						"util":        util,
-					}
-				}
+			host["gpu"] = map[string]any{
+				"vramUsedGB":  math.Round(g.UsedMiB/1024*10) / 10,
+				"vramTotalGB": math.Round(g.TotalMiB/1024*10) / 10,
+				"util":        g.Util,
 			}
+		} else {
+			host["gpuNote"] = gerr.Error()
 		}
 	}
 	// Datastores get LIVE probes, not process-is-running optimism: a Postgres that accepts

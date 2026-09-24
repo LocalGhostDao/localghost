@@ -154,6 +154,23 @@ of the loop. On VERIFIED, remove the OS packages , ghost.secd prefers the volume
 automatically from the next unlock, and falls back to PATH only if the bundle is absent. From then
 on the databases are version-pinned to their own data and an apt upgrade cannot touch them.
 
+## 1b. The watchdog , root, once, before the box is ever left alone
+
+    sudo ./tools/watchdog.sh --arm
+
+The board's hardware watchdog (iTCO on Intel, sp5100_tco on AMD; softdog as the fallback), fed by
+systemd every few seconds: a kernel that stops scheduling , a GPU driver that took the wrong lock,
+a hard lockup , is reset by the chip within a minute, and the box comes back locked for the app to
+unlock. Without it a frozen box waits for a hand on the power button (2026-09-23: eight hours). A
+smart plug on the mains with the BIOS set to "power on after AC loss" is the other half.
+
+## 1c. When the GPU misbehaves , root
+
+    sudo ./tools/gpu.sh          # is the model on the card, and is the card doing the work
+    sudo ./tools/unwedge.sh      # a process that survives SIGKILL, a card off the bus: who, where, why
+    sudo ./tools/unwedge.sh --reset   # the levers, one at a time , ONLY with the watchdog armed or
+                                      # someone at the power button; the driver levers can freeze the box
+
 ## 8. First unlock , the checklist
 
 If the fTPM is in dictionary-attack lockout from earlier attempts (Intel PTT here), COLD power cycle

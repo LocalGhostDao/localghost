@@ -44,6 +44,21 @@ fun MemoriesScreen(context: LifeContext?) {
     LaunchedEffect(Unit) { checkinHist = BoxClient.checkins(ctx) ?: emptyList() }
     var jotting by remember { mutableStateOf(false) }
     var jotSent by remember { mutableStateOf(false) }
+    // WHAT YOU PHOTOGRAPH and NEAR YOU , the taste synthd distils from the photos' tags, and the
+    // places around the phone's last fix that fit it. Both load on tap, from the box, never the net.
+    var tasteOpen by remember { mutableStateOf(false) }
+    var taste by remember { mutableStateOf<BoxClient.Taste?>(null) }
+    var tasteLoading by remember { mutableStateOf(false) }
+    var nearOpen by remember { mutableStateOf(false) }
+    var near by remember { mutableStateOf<BoxClient.Nearby?>(null) }
+    var nearLoading by remember { mutableStateOf(false) }
+    var nearKm by remember { mutableStateOf(15) }
+    val lastFix = remember { com.localghost.app.sync.LocationLog.last(ctx) }
+    fun loadNear() {
+        val fix = lastFix ?: return
+        nearLoading = true
+        scope.launch { near = BoxClient.nearby(ctx, fix.lat, fix.lon, nearKm); nearLoading = false }
+    }
     fun reload() { scope.launch { rows = BoxClient.memoriesList(ctx) } }
     LaunchedEffect(Unit) { reload() }
 
@@ -85,6 +100,54 @@ fun MemoriesScreen(context: LifeContext?) {
                     Text("${r.day} · ${r.feelings}", color = GhostTextDim,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(vertical = 2.dp))
+                }
+            }
+        }
+        item {
+            // WHAT YOU PHOTOGRAPH , the taste. Tags ranked by the share of photo days they appear on,
+            // so a burst of five hundred beach photos on one day counts as one day; then the interests
+            // (beaches, harbours, peaks ...) those tags add up to. Assembled on the box from the tags,
+            // no model call, refreshed as the pipeline tags more.
+            Text(if (tasteOpen) "[ − what you photograph ]" else "[ + what you photograph , what the archive says you like ]",
+                color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.clickable {
+                    tasteOpen = !tasteOpen
+                    if (tasteOpen && taste == null && !tasteLoading) {
+                        tasteLoading = true
+                        scope.launch { taste = BoxClient.taste(ctx); tasteLoading = false }
+                    }
+                })
+            if (tasteOpen) {
+                val t = taste
+                when {
+                    tasteLoading -> Text("reading the tags…", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                    t == null -> Text("! the box did not answer", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                    t.likes.isEmpty() -> {
+                        val msg = if (t.note.isNotBlank()) t.note else if (t.summary.isNotBlank()) t.summary else "nothing tagged yet"
+                        Text("! $msg", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                    }
+                    else -> TasteCard(t)
+                }
+            }
+        }
+        item {
+            // NEAR YOU , the taste laid over the box's own map data around the phone's last fix:
+            // "a beach 2 km north-east you have never photographed". The position goes to the box,
+            // which answers from its own tables; nothing leaves it.
+            Text(if (nearOpen) "[ − near you ]" else "[ + near you , places that fit, from your own map data ]",
+                color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.clickable {
+                    nearOpen = !nearOpen
+                    if (nearOpen && near == null && !nearLoading) loadNear()
+                })
+            if (nearOpen) {
+                val n = near
+                when {
+                    lastFix == null -> Text("! no position yet , turn on the location trail (settings) and the box can say what is around you",
+                        color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                    nearLoading -> Text("asking the box what is within $nearKm km…", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                    n == null -> Text("! the box did not answer", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                    else -> NearbyCard(n, nearKm, onKm = { k -> nearKm = k; near = null; loadNear() })
                 }
             }
         }
@@ -330,12 +393,24 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onEdit: (String, String) -> Unit,
                         modifier = Modifier.clickable { confirmDel = true })
                 }
             }
+            // AN OUTING carries its photos: the cover frames synthd picked, spread across the days.
+            if (m.kind == "outing" && m.covers.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                CoverStrip(m.covers)
+            }
             if (m.body.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
                 Text(m.body, color = GhostTextDim, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(4.dp))
-            Text((if (m.kind == "user") "yours" else "distilled") + " · " +
+            val line = m.outingLine
+            val origin = when (m.kind) {
+                "user" -> "yours"
+                "outing" -> if (line != null) "from your photos · $line" else "from your photos"
+                "episode" -> "a day"
+                else -> "distilled"
+            }
+            Text(origin + " · " +
                 java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
                     .format(java.util.Date(m.createdAt)),
                 color = TerminalDim, style = MaterialTheme.typography.labelMedium)
@@ -366,6 +441,81 @@ private fun MemoryEditor(initTitle: String, initBody: String, onSave: (String, S
             Spacer(Modifier.width(12.dp))
             Text("[ cancel ]", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable { onCancel() })
+        }
+    }
+}
+
+/** The cover frames of an outing, thumbnails off /v1/frames/thumb, loaded as they scroll in. */
+@Composable
+private fun CoverStrip(hashes: List<String>) {
+    val ctx = LocalContext.current
+    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(hashes, key = { it }) { hash ->
+            var bmp by remember(hash) { mutableStateOf<android.graphics.Bitmap?>(null) }
+            LaunchedEffect(hash) {
+                bmp = BoxClient.frameThumb(ctx, hash)?.let { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }
+            }
+            bmp?.let {
+                androidx.compose.foundation.Image(bitmap = it.asImageBitmap(), contentDescription = null,
+                    modifier = Modifier.size(84.dp).border(1.dp, GhostBorder, RectangleShape))
+            } ?: Box(Modifier.size(84.dp).border(1.dp, GhostBorder, RectangleShape))
+        }
+    }
+}
+
+/** The taste: one sentence, then the likes by category with their share of photo days, then the
+ *  interests the box will match places against. */
+@Composable
+private fun TasteCard(t: BoxClient.Taste) {
+    Column(Modifier.fillMaxWidth().animateContentSize().border(1.dp, GhostBorder, RectangleShape).background(Void).padding(12.dp)) {
+        Text(t.summary, color = GhostText, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(6.dp))
+        Text("over ${t.days} days with a camera out · ${t.photos} photos", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(6.dp))
+        val order = listOf("place", "nature", "activity", "food", "animal", "vehicle", "object", "people", "event", "")
+        val byCat: Map<String, List<BoxClient.Like>> = t.likes.groupBy { it.category }
+        val cats = ArrayList<String>()
+        for (c in order) if (byCat.containsKey(c)) cats.add(c)
+        for (c in byCat.keys) if (c !in cats) cats.add(c)
+        for (cat in cats) {
+            val ls = byCat[cat] ?: continue
+            Text((cat.ifBlank { "other" }) + ": " + ls.joinToString(" · ") { "${it.tag} ${(it.share * 100).toInt()}%" },
+                color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 1.dp))
+        }
+        if (t.interests.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text("places to your taste: " + t.interests.take(6).joinToString(" · ") { it.name },
+                color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+/** What is around the last fix and fits: name, kind, distance and bearing, then why the box
+ *  thinks so and whether you have photographed there before. */
+@Composable
+private fun NearbyCard(n: BoxClient.Nearby, km: Int, onKm: (Int) -> Unit) {
+    Column(Modifier.fillMaxWidth().animateContentSize().border(1.dp, GhostBorder, RectangleShape).background(Void).padding(12.dp)) {
+        Row {
+            for (k in listOf(5, 15, 40)) {
+                val on = k == km
+                Text("$k km", color = if (on) Void else TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(end = 8.dp).border(1.dp, TerminalGreen, RectangleShape)
+                        .background(if (on) TerminalGreen else Void).clickable { if (!on) onKm(k) }
+                        .padding(horizontal = 10.dp, vertical = 4.dp))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (n.suggestions.isEmpty()) {
+            val msg = if (n.note.isNotBlank()) n.note else "nothing within $km km that fits what you photograph"
+            Text("! $msg", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+        }
+        n.suggestions.forEach { s ->
+            Column(Modifier.padding(vertical = 4.dp)) {
+                Text("${s.name} · ${s.kind} · ${if (s.distanceKm < 1) "${(s.distanceKm * 1000).toInt()} m" else "%.1f km".format(java.util.Locale.US, s.distanceKm)} ${s.bearing}" +
+                    (if (s.beenThere == 0) "  · new" else ""),
+                    color = if (s.beenThere == 0) GhostText else GhostTextDim, style = MaterialTheme.typography.bodySmall)
+                Text(s.why, color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
 }

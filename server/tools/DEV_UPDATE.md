@@ -985,3 +985,132 @@ line reads as radius 0, and the POST to the box has no acc.
 Not done: the location_points table has no accuracy column, so the box cannot apply the radius
 rule to Google Timeline imports (Records.json carries "accuracy"); a column plus the same rule in
 timeline.go is the next step if the imported days show tower spikes the shape rules miss.
+
+## The 10-second RmInitAdapter drumbeat was ours: one GPU probe for the whole box
+
+"It would be something we did or ran, one of the services." It was: watchd's stats sampler ran
+nvidia-smi every ten seconds (stats.go, the 10s ticker), and secd's /v1/status ran it again on
+every Box Status poll. Cheap on a healthy card. On a card the driver cannot bring up, every
+nvidia-smi opens /dev/nvidia0, the driver tries RmInitAdapter, fails, writes two lines to the
+kernel log , 17k lines a day , and a recovery attempt (a reset, a rebind) races a sampler that
+opens the device mid-sequence. internal/gpu (new) is now the one place the box asks: Query()
+reuses an answer for 5 s for whoever asks next; after a failure it leaves the card alone for a
+minute, doubling to fifteen, and answers from memory ("No devices were found (next look in 4m)");
+it does not exec at all when the driver's own list (/proc/driver/nvidia/gpus, a read that touches
+no hardware) is empty; the exec is bounded at 2 s under the caller's own bound with a WaitDelay,
+because an nvidia-smi stuck in a wedged driver does not die on SIGKILL either and Output() would
+otherwise wait on its pipe forever. Known() is the driver's list. watchd's host.gpu entry now
+carries the reason when not visible; /v1/status keeps the GPU block absent when not visible and
+adds host.gpuNote saying why. Tests: no exec and a backoff when the driver lists no card; a
+failing card is asked once and then answered from memory across the next five ticks, the wait
+doubling 1m → 4m and capping at 15m; a card that comes back is asked once and reused for the TTL,
+asked again past it; a hung nvidia-smi returns "did not answer in time" inside the caller's bound.
+
+Note for the recovery itself: the manual retrain block and unwedge.sh --reset should run with
+the stack down (unwedge.sh stops ghost.secd first; the manual block does not), otherwise the
+sampler , this build or the old one , can open the device between the unbind and the bind.
+
+## The box froze under unwedge.sh --reset; the gate, the order, and the watchdog
+
+Vlad ran `unwedge.sh --reset` on the returned-but-blind card (driver bound, RmInitAdapter failing
+every open, the old process in state X inside the driver's release path, link x2) and the box
+went dark , no network, no console , with nobody home for eight hours. The script never reboots
+(every acting line grepped: reboot/poweroff appear only in printed advice); it was the unbind →
+reset → bind of lever 0b, on the one driver state most likely to take the kernel with it, and I
+had rated that freeze "rare". Owned in the chat; fixed in the tools:
+
+- unwedge.sh --reset now refuses to touch the driver unless a hardware watchdog is armed (systemd's
+  RuntimeWatchdogUSec non-zero and /dev/watchdog present , a hard lockup then resets the box on
+  its own) or the person types `button` at a prompt (or passes --button) saying someone can
+  power-cycle the box right now. No tty counts as no. The header says why, with the date.
+- The levers are reordered: 0a retrains the PCIe link from the upstream port FIRST , the one lever
+  that never touches the driver , and if the width is still downgraded after it, the sequence
+  stops there ("physical: slot, riser, card; a reboot alone will not widen a link"), because no
+  driver lever is worth the freeze against a fault that is not in the driver. Only a link back at
+  full width goes on to bind (0), and 0b is labelled as the lever that froze the box.
+- tools/watchdog.sh (new): status (devices, modules, wdctl, cpu vendor → which chip driver,
+  RuntimeWatchdogSec/RebootWatchdogSec, armed or not) and --arm (load iTCO_wdt/sp5100_tco in the
+  vendor's order, persist in /etc/modules-load.d, softdog as the honest fallback , catches a wedged
+  userspace and most oopses, not a hard lockup with interrupts off , then a systemd drop-in
+  RuntimeWatchdogSec=60 / RebootWatchdogSec=10min, daemon-reexec, verify). README 1b says to run
+  it once before the box is ever left alone, and pairs it with a smart plug + "power on after AC
+  loss" in the BIOS. Sandbox: status mode runs (no device here, says so); --arm needs the box.
+
+For whoever gets home: hold the power button ten seconds (a frozen kernel ignores the ACPI tap),
+wait thirty, press once; reseat the card and check the 8-pin if easy. Then from anywhere: unlock
+from the app, `sudo ./tools/unwedge.sh` for the link width in the fresh boot, `sudo ./tools/gpu.sh`,
+and `sudo ./tools/watchdog.sh --arm` before anything else is tried.
+
+## Memories from the photos: outings, the taste, and what is near you
+
+Vlad, waiting for someone to get home and press the button: "add a few more features, based on
+location and a summary of the pictures I usually take: memories out of the pictures with things I
+like, and in the future recommend things close by based on my memories." Built without the model
+on purpose , the GPU is dead and a memory of a trip should exist the week it happened, not when a
+card gets around to it. Three pieces, all on the box, nothing on the network.
+
+OUTINGS (internal/outings, synthd's outingPass). Photos with a time are sorted and grouped into
+outings: a new one starts after 36 h of silence, when a geotagged photo lands 30 km from the
+group's running centre, or when a group would span more than ten days. Groups under three photos
+are noise. HOME is the ~5 km cell with the most distinct photo days (five at least); an outing
+farther than 25 km from it is a trip. Each outing gets: the place (the most photographed on-box
+hierarchy's last name, and the country from the hierarchy's second part), the distinct places
+(≤ 4), the tags across its photos with counts, a cover (the frame with the most tags) and six
+covers spread across its days, the distance moved (the trail between first and last photo,
+cleaned with the glitch rules, jitter excluded), how far from home. Title "Antipaxos · 19-23 Sep
+2026"; body from a template over real numbers: "30 photos over 5 days around Antipaxos, Greece.
+Mostly beach, boat, sea, sunset and taverna; also dog and harbour. Places: Antipaxos, Gaios.
+27 km on the move. 2,300 km from home." (text and style tags never make the sentence). Written
+to memories as kind='outing', source_ref='outing:<day>', created_at = the outing's end, plus the
+new memories.meta JSONB column (the structured detail for the app's cards; schemadef + ALTER
+converge it). The person's edits and tombstones outrank regeneration; outings that dissolve on a
+re-clustering are deleted unless touched. The pass runs inside distillLoop after the episodes,
+at most every 30 minutes and only when the archive's signature (frames, newest photo, tag count,
+trail points) changed; `ghost-cli ghost.synthd outings` shows counts and the taste line,
+`rebuild=true` forces the pass. health.sh prints them under synthd.
+
+THE TASTE (outings.BuildTaste, tastePass → settings 'synthd_taste', GET /v1/taste). Every tag's
+presence is counted in DISTINCT PHOTO DAYS, not photos, so five hundred beach photos on one day
+weigh one day and a boat photographed on thirty separate days wins: the taste is what the person
+keeps coming back to. Text and style tags out, two days minimum, six per category so the list
+stays varied, thirty likes at most, share = days with the tag / days with any photo. The likes
+fold onto thirteen fixed INTERESTS (beaches, harbours, islands and capes, peaks and trails, lakes
+and waterfalls, parks and nature, castles and ruins, monasteries and shrines, museums, caves, hot
+springs, food and markets, old towns and villages), each a list of the plain words a caption model
+uses and the GeoNames feature codes that ARE that kind of place; an interest's weight is the
+summed share of the likes that name it. One sentence for the person: "You photograph sea, beach
+and boat most , sea on 40% of your days with a camera out , then street, coffee and dog. Places to
+your taste: beaches, harbours and old towns and villages."
+
+NEAR YOU (GET /v1/nearby?lat&lon&km, outings.Rank). geo-import now keeps a fourth kind, S, the
+spots the interests name and the geocoder never needed: beaches, coves, harbours, marinas,
+capes, cliffs, lighthouses, castles, ruins, forts, archaeological and historical sites,
+amphitheatres, monuments, towers, palaces, temples, monasteries, mosques, shrines, churches,
+museums, caves, spas, restaurants, markets, vineyards, gardens, zoos (outings.SpotCodes; a box
+that predates this needs `ghost-cli ghost.framed geo-import` once to gain them; P/K/F rows are
+untouched). The handler reads the taste, pulls the S/K/F points and the villages (P/PPL) in the
+radius's bbox (≤ 3000), counts the person's own geotagged photos on a ~1 km grid over the same
+bbox in one query, and ranks: interest weight × sqrt(1 − distance/radius), halved when the
+person has photographed within a kilometre of it (a memory is not a discovery, but still a place
+they liked), at most four per interest, twenty in all, each with the plain kind, distance,
+compass bearing, and the why: "you photograph sea and beach (78% of your days) · new to you".
+A box without geo data, or without a taste yet, answers an empty list with a note, never an
+error the app reads as down.
+
+THE APP (MemoriesScreen). Two folds above ON THIS DAY: "[ + what you photograph ]" (the sentence,
+the likes by category with their shares, the interests) and "[ + near you ]" (5/15/40 km chips
+over the phone's last fix; no fix → "turn on the location trail"; each row name · kind · distance
+bearing · "new", then the why). Outing memories render with a strip of their cover thumbnails
+(off /v1/frames/thumb) and a footer "from your photos · 30 photos · 5 days · 27 km · a trip".
+BoxClient: MemRow gains meta (covers, outingLine), taste(), nearby().
+
+Tests: outings (a London home of seventeen days plus a five-day island trip: home found, one trip,
+photos/days/place/country/places/from-home, the cover with the most tags, the covers spread, the
+title, the body with every clause; splits on distance and silence, no home under five days, a
+title without a place, two photos are not a memory; DateRange's four shapes), taste (ranked by
+days, style/text/one-day/empty tags out, the per-category cap, the interests' weights, the
+sentence, the empty case), Rank (the near photographed beach halved below a farther new one, the
+harbour and village placed, out-of-radius and unlisted codes dropped, the reason strings, the
+bearing, the per-interest cap, no taste → nothing), SpotCodes and KindName, geoKind's S. The SQL
+(frames + tags + trail in outingPass, the taste aggregate, the bbox spot and photo-cell queries)
+is read, not run: no Postgres here.
