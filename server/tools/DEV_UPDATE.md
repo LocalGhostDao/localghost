@@ -1166,3 +1166,24 @@ LUKS container , a stale partition table (most likely the backup GPT at the end 
 luksFormat of the whole disk does not overwrite). Harmless while nothing touches those partition
 nodes; removing it must be surgical (wipefs -o <offset of the backup GPT only>, after a
 luksHeaderBackup), never sgdisk --zap-all or wipefs -a, which would take the LUKS header with it.
+
+## Back up; host.gpu gets a drill-in that never touches the card
+
+The box is up and unlocked (the by-id unit fix). Box Status: host.gpu "not visible", "no drill-in
+for this daemon yet"; the pipeline describing at 24/h on the CPU, 3399 left, "about 6 days". So
+after a COLD boot the card is still not usable, and the question is which layer , the answer to
+which decides between the screwdriver and the PSU.
+
+internal/gpu/diagnose.go: Cards() reads every NVIDIA display device (vendor 0x10de, class 0x03)
+from sysfs , bound driver, current_link_width/max_link_width, current/max link speed, power
+state, and whether config space answers (0xffff = off the bus) , which the kernel serves from PCI
+config space without waking the nvidia driver: no /dev/nvidia0 open, no RmInitAdapter, safe to
+ask on every tap. Diagnose() adds the driver's own list, the shared probe's last nvidia-smi answer
+(never a fresh exec), and the kernel log read through syslog(2) (no exec; secd is root): Xid count
+and last line, RmInitAdapter failure count. The verdict, first match wins: no card on the bus;
+listed but off the bus; no driver bound; a link narrower than the card (physical: reseat, riser,
+slot , plus the init failures it most likely causes); the driver bound but failing to bring the
+chip up (power or a failing card); the driver listing nothing; working (with any faults logged).
+secd's /v1/daemon/summary?name=host.gpu now answers with these rows (verdict first), so the phone's
+drill-in is the diagnosis. Tests on fake sysfs trees (an Intel iGPU and an NVIDIA NIC ignored):
+x2 of x16 with two init failures, no card, off the bus with Xid 79, unbound, working at x16.

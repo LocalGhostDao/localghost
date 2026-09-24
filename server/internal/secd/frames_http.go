@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
+	"github.com/LocalGhostDao/localghost/server/internal/gpu"
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
 	"io"
 	"net/http"
@@ -1132,6 +1133,15 @@ func (s *Server) handleDaemonSummary(w http.ResponseWriter, r *http.Request) {
 		secdLog.Warn("daemon summary failed", "fn", "handleDaemonSummary", "name", name, "err", err)
 		s.appearsDown(w)
 		return
+	}
+	if name == "host.gpu" {
+		// The card from the host's side: sysfs link width and driver, the driver's own list, the
+		// last nvidia-smi answer (the shared probe's, never a fresh one), Xid and RmInitAdapter
+		// lines from the kernel log , a diagnosis from the phone that never opens the device.
+		kv = kv[:0]
+		for _, row := range gpu.Diagnose().Rows() {
+			kv = append(kv, hw.DaemonKV{K: row[0], V: row[1]})
+		}
 	}
 	if name == "ghost.oracled" {
 		// The GPU question, answered by oracled itself (its `models` command: what llama-server
