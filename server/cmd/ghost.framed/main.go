@@ -25,14 +25,16 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/landtiles"
 	"log"
 	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
@@ -234,6 +236,43 @@ func main() {
 		}()
 		return ctlsock.Response{OK: true, Text: "geo import started (watch the log; then run reprocess)"}, nil
 	})
+	// geo-tiles: cut OpenStreetMap's land polygons (land_polygons.shp under <mount>/geo, from
+	// tools/fetch_geo.sh) into one-degree tiles under <mount>/landtiles, which secd serves to the
+	// map as it zooms in (internal/landtiles). Minutes and a couple of GB of RAM for the whole
+	// world, once; background, idempotent, the old tiles stay served until the new set is whole.
+	// Also runs by itself at start when the shapefile is newer than the tiles.
+	tilesOut := filepath.Join(*mount, "landtiles")
+	var tilesBusy sync.Mutex
+	buildTiles := func(why string) string {
+		shp := landtiles.FindShapefile(filepath.Join(*mount, "geo"))
+		if shp == "" {
+			return "no land_polygons.shp under " + filepath.Join(*mount, "geo") + " , fetch it with tools/fetch_geo.sh (OpenStreetMap land polygons, complete, 4326) and copy it in"
+		}
+		if !tilesBusy.TryLock() {
+			return "a tile build is already running (watch the log)"
+		}
+		go func() {
+			defer tilesBusy.Unlock()
+			lg.Info("land tiles: building", "fn", "geo-tiles", "why", why, "from", shp, "to", tilesOut)
+			_ = store.SetState("landtiles", []byte(`{"state":"building"}`))
+			st, err := landtiles.Build(shp, tilesOut, func(p string) { lg.Info("land tiles: "+p, "fn", "geo-tiles") })
+			if err != nil {
+				lg.Error("land tiles: build failed", "fn", "geo-tiles", "err", err)
+				_ = store.SetState("landtiles", []byte(`{"state":"failed"}`))
+				return
+			}
+			lg.Info("land tiles: done , "+st.String(), "fn", "geo-tiles")
+			b, _ := json.Marshal(map[string]any{"state": "ready", "coastTiles": st.CoastCell, "landCells": st.LandCells, "points": st.Points, "bytes": st.Bytes})
+			_ = store.SetState("landtiles", b)
+		}()
+		return "land tile build started from " + shp + " (watch the log)"
+	}
+	ctl.Handle("geo-tiles", func(json.RawMessage) (ctlsock.Response, error) {
+		return ctlsock.Response{OK: true, Text: buildTiles("asked")}, nil
+	})
+	if shp := landtiles.FindShapefile(filepath.Join(*mount, "geo")); shp != "" && landtiles.Stale(shp, tilesOut) {
+		buildTiles("the shapefile is newer than the tiles")
+	}
 	// reprocess: converge the archive's derived state , frame records, previews (force=true also
 	// re-derives EXISTING previews, the orientation-fix case), search notifies, day paths. Runs in
 	// the background: a full archive pass takes minutes and the socket should answer now.

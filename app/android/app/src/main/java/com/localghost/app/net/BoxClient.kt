@@ -1047,6 +1047,44 @@ object BoxClient {
         return Pair(if (cache.exists()) cache else null, prefs.getString(tagKey, "") ?: "")
     }
 
+    /** THE HIGH-RESOLUTION COAST's index: 64,800 one-degree cells, 0 water / 1 coast / 2 land,
+     *  ETag-revalidated and cached on the phone; null when the box has no tiles (the map keeps its
+     *  10m base). A new index means a new cut: the cached tiles are dropped with the old one. */
+    suspend fun landTileIndex(ctx: Context): ByteArray? {
+        val dir = java.io.File(ctx.filesDir, "landtiles").apply { mkdirs() }
+        val cache = java.io.File(dir, "index.bin")
+        val prefs = ctx.getSharedPreferences("ghost_geo", Context.MODE_PRIVATE)
+        val old = prefs.getString("landtiles_etag", null)
+        try {
+            val (fresh, tag) = BoxHttp.getBytesEtag(ctx, "/v1/geo/landtiles/index", if (cache.exists()) old else null)
+            if (fresh != null && com.localghost.app.ui.LandTileGeom.index(fresh) != null) {
+                if (tag != old) dir.listFiles()?.forEach { if (it.name.endsWith(".lgt")) it.delete() }
+                cache.writeBytes(fresh)
+                prefs.edit().putString("landtiles_etag", tag ?: "").apply()
+            }
+        } catch (_: Exception) { /* offline: the cached index still draws */ }
+        return if (cache.exists()) com.localghost.app.ui.LandTileGeom.index(runCatching { cache.readBytes() }.getOrNull()) else null
+    }
+
+    /** One coast tile, from the phone's disk when it has it, else from the box (then kept). The
+     *  cache is trimmed to ~200 MB, oldest first , the places you look at stay. */
+    suspend fun landTile(ctx: Context, x: Int, y: Int): ByteArray? {
+        val dir = java.io.File(ctx.filesDir, "landtiles").apply { mkdirs() }
+        val f = java.io.File(dir, "%03d_%03d.lgt".format(java.util.Locale.US, x, y))
+        if (f.exists()) return runCatching { f.setLastModified(System.currentTimeMillis()); f.readBytes() }.getOrNull()
+        val b = BoxHttp.getBytes(ctx, "/v1/geo/landtile?x=$x&y=$y") ?: return null
+        runCatching {
+            f.writeBytes(b)
+            val tiles = dir.listFiles { g -> g.name.endsWith(".lgt") } ?: emptyArray()
+            var total = tiles.sumOf { it.length() }
+            if (total > 200L * 1024 * 1024) for (g in tiles.sortedBy { it.lastModified() }) {
+                if (total <= 150L * 1024 * 1024) break
+                total -= g.length(); g.delete()
+            }
+        }
+        return b
+    }
+
     /** Rename a persisted chat , the person's title outranks the derived one, permanently. */
     suspend fun renameChat(ctx: Context, id: Long, title: String): Boolean = try {
         BoxHttp.postJson(ctx, "/v1/chats/rename", org.json.JSONObject().put("id", id).put("title", title))

@@ -168,6 +168,21 @@ a hard lockup , is reset by the chip within a minute, and the box comes back loc
 unlock. Without it a frozen box waits for a hand on the power button (2026-09-23: eight hours). A
 smart plug on the mains with the BIOS set to "power on after AC loss" is the other half.
 
+## 1b'. The coastline at full detail , root, once (optional, several hundred MB)
+
+The map's base is Natural Earth: right for a continent, a smudge for an island. OpenStreetMap's land
+polygons draw every cove; `tools/fetch_geo.sh` fetches them at setup. On a box that is already
+running, fetch and copy them in, then ask framed to cut them into one-degree tiles:
+
+    cd /tmp && curl -fLO https://osmdata.openstreetmap.de/download/land-polygons-complete-4326.zip
+    unzip -q land-polygons-complete-4326.zip
+    sudo cp -r land-polygons-complete-4326 /proc/$(pidof ghost.secd)/root/var/lib/ghost/mnt/slot0/geo/
+    sudo ./tools/ns.sh ./bin/ghost-cli ghost.framed geo-tiles     # background; watch framed's log
+
+Minutes and a couple of GB of RAM, once; the tiles land in `<volume>/landtiles` and the phone fetches
+only the ones under its view when zoomed in. framed rebuilds by itself whenever the shapefile is newer
+than the tiles. The map credits "© OpenStreetMap contributors" (ODbL) wherever it draws them.
+
 ## 1c. When the GPU misbehaves , root
 
     sudo ./tools/gpu.sh          # is the model on the card, and is the card doing the work

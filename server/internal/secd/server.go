@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
-	"github.com/LocalGhostDao/localghost/server/internal/profile"
 	"github.com/LocalGhostDao/localghost/server/internal/models"
+	"github.com/LocalGhostDao/localghost/server/internal/profile"
 )
 
 // Server is the ghost.secd HTTP surface the phone talks to. It wires the library packages into the
@@ -22,18 +22,18 @@ import (
 // here is already from an enrolled device. The PIN (account selection) is then proven at /unlock.
 type Server struct {
 	// cached run-user credentials for spool-file handoff (see spoolCred in frames_http.go)
-	credOnce sync.Once
-	credUID  int
-	credGID  int
+	credOnce       sync.Once
+	credUID        int
+	credGID        int
 	enrolFlagField // one-time "a verified device reached us" marker for provisioning's rotation loop
-	cfg      Config
-	models   *models.Registry
-	mu       sync.Mutex
-	mounted  int // currently mounted slot, -1 if locked
-	unlock   *unlockService
-	session  *sessionManager // the one live session token (foreground + poller share it)
-	mute     *hw.MuteStore   // notification mute read/write (in-volume Postgres/Redis), per scope
-	notif    *hw.NotifStore  // notification produce/read/seen/delete (in-volume Postgres/Redis)
+	cfg            Config
+	models         *models.Registry
+	mu             sync.Mutex
+	mounted        int // currently mounted slot, -1 if locked
+	unlock         *unlockService
+	session        *sessionManager // the one live session token (foreground + poller share it)
+	mute           *hw.MuteStore   // notification mute read/write (in-volume Postgres/Redis), per scope
+	notif          *hw.NotifStore  // notification produce/read/seen/delete (in-volume Postgres/Redis)
 }
 
 type Config struct {
@@ -192,50 +192,52 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/notifications/delete", s.handleNotificationDelete)
 	mux.HandleFunc("/v1/notifications/answer", s.handleNotificationAnswer)
 	mux.HandleFunc("/v1/frames/upload", s.handleFrameUpload)
-	mux.HandleFunc("/v1/frames/latest", s.handleFramesLatest) // where-was-I for the app's sync cursor
-	mux.HandleFunc("/v1/frames/list", s.handleFramesList)     // gallery paging, newest first
-	mux.HandleFunc("/v1/frames/thumb", s.handleFrameThumb)    // one thumbnail's bytes
-	mux.HandleFunc("/v1/frames/preview", s.handleFramePreview) // full-size for the pinch-zoom viewer
-	mux.HandleFunc("/v1/frames/original", s.handleFrameOriginal) // untouched archive bytes, mime-typed
-	mux.HandleFunc("/v1/frames/exists", s.handleFramesExists) // pre-upload dedup by content hash
-	mux.HandleFunc("/v1/sync/cursor", s.handleSyncCursor)     // device sync position, survives reinstall
-	mux.HandleFunc("/v1/frames/tag", s.handleFrameTag)        // user tag corrections (tombstoned removes)
-	mux.HandleFunc("/v1/services/summary", s.handleServicesSummary) // latest sample + 24h blob per target
-	mux.HandleFunc("/v1/services/detail", s.handleServiceDetail)    // ring buffers for one target (sparklines)
-	mux.HandleFunc("/v1/chats", s.handleChatsList)            // persisted conversations: list + search + paging
-	mux.HandleFunc("/v1/chats/messages", s.handleChatMessages) // one conversation's history, paged
-	mux.HandleFunc("/v1/chats/rename", s.handleChatRename)     // the person's title outranks the derived one
-	mux.HandleFunc("/v1/chats/delete", s.handleChatDelete)     // real deletion: rows gone, not flagged
-	mux.HandleFunc("/v1/frames/geo", s.handleFramesGeo)        // GPS frames as dots, for the map
-	mux.HandleFunc("/v1/frames/search", s.handleFramesSearch)  // place + name + tags, AND per term
-	mux.HandleFunc("/v1/geo/world", s.handleGeoWorld)           // landmass GeoJSON, ?res= picks a cut
-	mux.HandleFunc("/v1/geo/world/index", s.handleGeoWorldIndex) // which cuts exist (open small, refine big)
-	mux.HandleFunc("/v1/daemon/summary", s.handleDaemonSummary) // per-daemon drill-in
-	mux.HandleFunc("/v1/pipeline", s.handlePipeline)            // stage-by-stage archive progress + ETA
-	mux.HandleFunc("/v1/frames/geo/lod", s.handleFramesGeoLOD) // 4-level map aggregation
-	mux.HandleFunc("/v1/frames/newest", s.handleFramesNewest)  // map's opening view
-	mux.HandleFunc("/v1/geo/days", s.handleGeoDays)            // which day tracks exist
-	mux.HandleFunc("/v1/geo/tracks", s.handleGeoTracks)        // newest N day tracks in one answer
-	mux.HandleFunc("/v1/geo/day", s.handleGeoDay)              // one day's track, as framed wrote it          // operator-provided base-map GeoJSON
-	mux.HandleFunc("/v1/memories", s.handleMemories)           // the distilled corpus, live rows
-	mux.HandleFunc("/v1/memories/delete", s.handleMemoryDelete) // tombstone: deletion outranks the model
-	mux.HandleFunc("/v1/memories/add", s.handleMemoryAdd)       // user-authored, sovereign from birth
-	mux.HandleFunc("/v1/memories/edit", s.handleMemoryEdit)     // the person's version IS the memory
-	mux.HandleFunc("/v1/taste", s.handleTaste)                  // what the photos say you like (synthd's outing pass)
-	mux.HandleFunc("/v1/nearby", s.handleNearby)                // places around you that fit the taste, from the box's own geo data
-	mux.HandleFunc("/v1/notes", s.handleNoteAdd)                // app -> noted inbox -> journal
-	mux.HandleFunc("/v1/onthisday", s.handleOnThisDay)          // synthd's retrospective, cached per day
-	mux.HandleFunc("/v1/devices/name", s.handleDeviceName)      // a device names itself
-	mux.HandleFunc("/v1/devices", s.handleDevices)              // enrolled phones, honest stats
-	mux.HandleFunc("/v1/sync/reset", s.handleSyncReset)         // rewind this device's cursors
-	mux.HandleFunc("/v1/checkins", s.handleCheckins)            // past check-ins, newest first
-	mux.HandleFunc("/v1/day/summary", s.handleDaySummary)       // one day at a glance, check-in prefill
-	mux.HandleFunc("/v1/health/upload", s.handleHealthUpload)   // Health Connect readout -> tallyd inbox
+	mux.HandleFunc("/v1/frames/latest", s.handleFramesLatest)        // where-was-I for the app's sync cursor
+	mux.HandleFunc("/v1/frames/list", s.handleFramesList)            // gallery paging, newest first
+	mux.HandleFunc("/v1/frames/thumb", s.handleFrameThumb)           // one thumbnail's bytes
+	mux.HandleFunc("/v1/frames/preview", s.handleFramePreview)       // full-size for the pinch-zoom viewer
+	mux.HandleFunc("/v1/frames/original", s.handleFrameOriginal)     // untouched archive bytes, mime-typed
+	mux.HandleFunc("/v1/frames/exists", s.handleFramesExists)        // pre-upload dedup by content hash
+	mux.HandleFunc("/v1/sync/cursor", s.handleSyncCursor)            // device sync position, survives reinstall
+	mux.HandleFunc("/v1/frames/tag", s.handleFrameTag)               // user tag corrections (tombstoned removes)
+	mux.HandleFunc("/v1/services/summary", s.handleServicesSummary)  // latest sample + 24h blob per target
+	mux.HandleFunc("/v1/services/detail", s.handleServiceDetail)     // ring buffers for one target (sparklines)
+	mux.HandleFunc("/v1/chats", s.handleChatsList)                   // persisted conversations: list + search + paging
+	mux.HandleFunc("/v1/chats/messages", s.handleChatMessages)       // one conversation's history, paged
+	mux.HandleFunc("/v1/chats/rename", s.handleChatRename)           // the person's title outranks the derived one
+	mux.HandleFunc("/v1/chats/delete", s.handleChatDelete)           // real deletion: rows gone, not flagged
+	mux.HandleFunc("/v1/frames/geo", s.handleFramesGeo)              // GPS frames as dots, for the map
+	mux.HandleFunc("/v1/frames/search", s.handleFramesSearch)        // place + name + tags, AND per term
+	mux.HandleFunc("/v1/geo/world", s.handleGeoWorld)                // landmass GeoJSON, ?res= picks a cut
+	mux.HandleFunc("/v1/geo/world/index", s.handleGeoWorldIndex)     // which cuts exist (open small, refine big)
+	mux.HandleFunc("/v1/geo/landtiles/index", s.handleLandTileIndex) // high-res coast: which 1° cells are water, coast, land
+	mux.HandleFunc("/v1/geo/landtile", s.handleLandTile)             // one coast cell (?x=&y=), fetched only when zoomed in over it
+	mux.HandleFunc("/v1/daemon/summary", s.handleDaemonSummary)      // per-daemon drill-in
+	mux.HandleFunc("/v1/pipeline", s.handlePipeline)                 // stage-by-stage archive progress + ETA
+	mux.HandleFunc("/v1/frames/geo/lod", s.handleFramesGeoLOD)       // 4-level map aggregation
+	mux.HandleFunc("/v1/frames/newest", s.handleFramesNewest)        // map's opening view
+	mux.HandleFunc("/v1/geo/days", s.handleGeoDays)                  // which day tracks exist
+	mux.HandleFunc("/v1/geo/tracks", s.handleGeoTracks)              // newest N day tracks in one answer
+	mux.HandleFunc("/v1/geo/day", s.handleGeoDay)                    // one day's track, as framed wrote it          // operator-provided base-map GeoJSON
+	mux.HandleFunc("/v1/memories", s.handleMemories)                 // the distilled corpus, live rows
+	mux.HandleFunc("/v1/memories/delete", s.handleMemoryDelete)      // tombstone: deletion outranks the model
+	mux.HandleFunc("/v1/memories/add", s.handleMemoryAdd)            // user-authored, sovereign from birth
+	mux.HandleFunc("/v1/memories/edit", s.handleMemoryEdit)          // the person's version IS the memory
+	mux.HandleFunc("/v1/taste", s.handleTaste)                       // what the photos say you like (synthd's outing pass)
+	mux.HandleFunc("/v1/nearby", s.handleNearby)                     // places around you that fit the taste, from the box's own geo data
+	mux.HandleFunc("/v1/notes", s.handleNoteAdd)                     // app -> noted inbox -> journal
+	mux.HandleFunc("/v1/onthisday", s.handleOnThisDay)               // synthd's retrospective, cached per day
+	mux.HandleFunc("/v1/devices/name", s.handleDeviceName)           // a device names itself
+	mux.HandleFunc("/v1/devices", s.handleDevices)                   // enrolled phones, honest stats
+	mux.HandleFunc("/v1/sync/reset", s.handleSyncReset)              // rewind this device's cursors
+	mux.HandleFunc("/v1/checkins", s.handleCheckins)                 // past check-ins, newest first
+	mux.HandleFunc("/v1/day/summary", s.handleDaySummary)            // one day at a glance, check-in prefill
+	mux.HandleFunc("/v1/health/upload", s.handleHealthUpload)        // Health Connect readout -> tallyd inbox
 	// NOTE: bare /v1/health was ALREADY the box health endpoint , registering the upload there
 	// too made mux panic at startup and secd die before binding. Route names are a namespace;
 	// grep before you claim one.
-	mux.HandleFunc("/v1/health/stats", s.handleHealthStats)     // daily series per metric
-	mux.HandleFunc("/v1/chat", s.handleChat)                  // ask the box's model (via synthd's retrieval seam)
+	mux.HandleFunc("/v1/health/stats", s.handleHealthStats) // daily series per metric
+	mux.HandleFunc("/v1/chat", s.handleChat)                // ask the box's model (via synthd's retrieval seam)
 	mux.HandleFunc("/v1/locations", s.handleLocations)
 	mux.HandleFunc("/v1/models", s.handleModels)
 	mux.HandleFunc("/v1/models/", s.handleModelBytes) // /v1/models/{id}

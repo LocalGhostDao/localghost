@@ -32,6 +32,9 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -59,6 +62,12 @@ import kotlin.math.sinh
  */
 
 private const val WORLD = 1024f // == WORLD_UNITS, the Float twin for screen-space arithmetic
+
+// A MAP, not a wireframe: the sea a deep blue-black, the land a shade lighter and greener, the coast
+// the dim phosphor line it always was. Dark on purpose , the dots and the day's trail are the bright
+// things on this screen, and the land is where they sit.
+private val MapWater = androidx.compose.ui.graphics.Color(0xFF0A1620)
+private val MapLand = androidx.compose.ui.graphics.Color(0xFF16211A)
 
 private fun invMercX(x: Double): Double = x / WORLD_UNITS * 360.0 - 180.0
 private fun invMercY(y: Double): Double {
@@ -195,6 +204,13 @@ fun MapScreen() {
     val scrubAt = remember(dayPts, scrub) {
         if (dayPts.isEmpty()) null else dayPts[(scrub * (dayPts.size - 1)).toInt().coerceIn(0, dayPts.size - 1)]
     }
+    // THE COAST AT FULL DETAIL: the box's one-degree land tiles (LandTiles.kt), the index loaded
+    // with the world, a tile fetched only when zoomed in over its cell. tileTick bumps when one
+    // lands, which is what redraws the canvas.
+    var tileIndex by remember { mutableStateOf<ByteArray?>(null) }
+    val tileCache = remember { LandTileCache() }
+    var tileTick by remember { mutableIntStateOf(0) }
+    val mapScope = rememberCoroutineScope()
     var loadNote by remember { mutableStateOf("loading…") }
     var cells by remember { mutableStateOf<List<BoxClient.GeoCell>>(emptyList()) }
     var level by remember { mutableStateOf(3) }
@@ -231,6 +247,7 @@ fun MapScreen() {
                 if (bw != null) { world = bw; worldNote = note(bw, big.res) }
             }
         }
+        tileIndex = BoxClient.landTileIndex(ctx)
         // DAY TRACKS, one round trip. /v1/geo/tracks hands back the newest sixty days of polylines
         // (with a clock per vertex and the day's distance, from boxes that write them) in a single
         // answer; a box that predates it (null) gets the old days-then-one-per-day walk.
@@ -379,7 +396,19 @@ fun MapScreen() {
                 // The hatch , whatever the camera got into, one tap is the whole world again.
                 cx = WORLD_UNITS / 2; cy = WORLD_UNITS / 2; zoom = 1f; worldFallback = false
             }.padding(vertical = 4.dp))
-        Text(loadNote + (if (worldNote.isNotEmpty()) " · " + worldNote else ""),
+        // The tiles the view needs, asked for as the camera settles on them (equal lists do not
+        // re-fire, so a pan within the same cells costs nothing).
+        val pxzNow = if (viewW > 0f && viewH > 0f) (minOf(viewW, viewH) / WORLD) * zoom else 0f
+        val wantTiles = remember(tileIndex, cx, cy, pxzNow, viewW, viewH) {
+            val idx = tileIndex
+            if (idx == null || pxzNow < LandTileGeom.TILE_PXZ) emptyList()
+            else LandTileGeom.cellsFor(invMercX(cx - viewW / 2.0 / pxzNow), invMercX(cx + viewW / 2.0 / pxzNow),
+                invMercY(cy + viewH / 2.0 / pxzNow), invMercY(cy - viewH / 2.0 / pxzNow))
+                .filter { idx[it].toInt() == LandTileGeom.COAST }
+        }
+        LaunchedEffect(wantTiles) { if (wantTiles.isNotEmpty()) tileCache.ensure(mapScope, ctx, wantTiles) { tileTick++ } }
+        Text(loadNote + (if (worldNote.isNotEmpty()) " · " + worldNote else "") +
+            (if (tileIndex != null) " · coast © OpenStreetMap contributors" else ""),
             color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 16.dp))
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp).background(Void)) {
@@ -431,6 +460,9 @@ fun MapScreen() {
                     }
                 }) {
                 val sw = size.width; val sh = size.height
+                @Suppress("UNUSED_VARIABLE") val tilesLanded = tileTick // read, so a landed tile redraws
+                // THE SEA first: the canvas is water, the land is painted on it.
+                drawRect(MapWater)
                 val pxzD = (minOf(sw, sh) / WORLD).toDouble() * zoom
                 val pxz = pxzD.toFloat()
                 // Screen origin of map coordinate (0,0), in Double , the one subtraction that
@@ -473,8 +505,55 @@ fun MapScreen() {
                         }
                     }
                 }
-                // landmass outlines at the detail level that is under a pixel of error right now
-                world?.let { w -> drawRings(w.levels[World.levelFor(pxz)], TerminalDim, 1.5f) }
+                fun fillRings(rings: List<Ring>, color: androidx.compose.ui.graphics.Color) {
+                    for (r in rings) {
+                        if (r.maxX < vx0 || r.minX > vx1 || r.maxY < vy0 || r.minY > vy1) continue
+                        withTransform({
+                            translate(sx(r.ox.toDouble()), sy(r.oy.toDouble()))
+                            scale(pxz, pxz, pivot = Offset.Zero)
+                        }) { drawPath(r.path, color) }
+                    }
+                }
+                // THE BASE: Natural Earth land filled over the sea, its outline the coast (and the
+                // borders), at the detail level that is under a pixel of error right now.
+                fun drawBase() {
+                    world?.let { w ->
+                        val lv = w.levels[World.levelFor(pxz)]
+                        fillRings(lv, MapLand)
+                        drawRings(lv, TerminalDim, 1.5f)
+                    }
+                }
+                // THE DETAIL: zoomed in past what the base can show, every one-degree cell under the
+                // view is drawn from the box's land tiles , sea left as sea, solid land filled, a
+                // coast cell from its tile (the base, clipped to the cell, until the tile lands).
+                val idx = tileIndex
+                val tileCells = if (idx != null && pxz >= LandTileGeom.TILE_PXZ)
+                    LandTileGeom.cellsFor(invMercX(vx0), invMercX(vx1), invMercY(vy1), invMercY(vy0)) else emptyList()
+                if (tileCells.isEmpty()) drawBase() else {
+                    val lv = LandTileGeom.levelFor(pxz)
+                    val coastStroke = Stroke(width = if (pxz > 400f) 0f else 1.5f / pxz)
+                    for (key in tileCells) {
+                        val lon0 = key % LandTileGeom.COLS - 180.0; val lat0 = key / LandTileGeom.COLS - 90.0
+                        val left = sx(mercXD(lon0)); val right = sx(mercXD(lon0 + 1))
+                        val top = sy(mercYD(lat0 + 1)); val bottom = sy(mercYD(lat0))
+                        when (idx!![key].toInt()) {
+                            LandTileGeom.LAND -> drawRect(MapLand, Offset(left, top), androidx.compose.ui.geometry.Size(right - left, bottom - top))
+                            LandTileGeom.COAST -> {
+                                val t = tileCache.get(key)
+                                if (t != null) {
+                                    withTransform({
+                                        translate(sx(t.ox), sy(t.oy))
+                                        scale(pxz, pxz, pivot = Offset.Zero)
+                                    }) {
+                                        drawPath(t.fill[lv], MapLand)
+                                        drawPath(t.coast[lv], TerminalDim, style = coastStroke)
+                                    }
+                                } else clipRect(left, top, right, bottom) { drawBase() }
+                            }
+                            else -> {} // sea
+                        }
+                    }
+                }
                 // day tracks , movement under the moments, drawn OVER the coastline and stroked in
                 // SCREEN space per vertex, so the line stays 2.5px wide from the world view to the
                 // street. Affordable because framed simplified each day already; culled by bbox.

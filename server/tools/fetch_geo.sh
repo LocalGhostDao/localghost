@@ -75,3 +75,22 @@ for res in 110m 50m; do
         echo "  note: could not fetch world-$res.geojson , the map opens on the full-detail file (slower first draw)"
     fi
 done
+
+# THE COASTLINE AT FULL DETAIL. Natural Earth's 10m file is the base for the world and the
+# continents; zoomed in on an island it is a smudge (Paxos is a handful of vertices). OpenStreetMap's
+# land polygons draw every cove. The box cuts them into one-degree tiles (ghost.framed geo-tiles, run
+# by itself when this file is newer than the tiles) and the phone fetches only the tiles under its
+# viewport. Several hundred MB, once, at setup like everything here; ODbL: the map credits
+# "© OpenStreetMap contributors" wherever it draws them. GHOST_GEO_NO_OSM=1 skips it.
+OSM="https://osmdata.openstreetmap.de/download/land-polygons-complete-4326.zip"
+if [ -n "${GHOST_GEO_NO_OSM:-}" ]; then
+    echo "  geo: OpenStreetMap land polygons skipped (GHOST_GEO_NO_OSM set) , the map keeps the 10m coast"
+elif [ -s "$DEST/land-polygons-complete-4326/land_polygons.shp" ] && [ -z "$FORCE" ]; then
+    echo "  geo: OpenStreetMap land polygons already present"
+elif command -v unzip >/dev/null 2>&1 && get "$OSM" "$DEST/land-polygons-complete-4326.zip"; then
+    unzip -q -o "$DEST/land-polygons-complete-4326.zip" -d "$DEST" && rm -f "$DEST/land-polygons-complete-4326.zip"
+    echo "  geo: fetched + unpacked OpenStreetMap land polygons ($(du -sh "$DEST/land-polygons-complete-4326" 2>/dev/null | cut -f1))"
+else
+    echo "  note: could not fetch the OpenStreetMap land polygons , the map keeps the 10m coast when zoomed in"
+fi
+

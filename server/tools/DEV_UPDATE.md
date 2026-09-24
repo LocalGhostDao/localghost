@@ -1238,3 +1238,62 @@ keeps three; Greek cut on rune boundaries), here's validity. Kotlin , the real W
 harness: the Brave parser (tags stripped, entities decoded, empty url skipped, page_age → date, bad
 JSON → nothing), Engine.brave, and every existing WebSearch check; a JUnit twin in WebSearchTest.
 Not run here: Brave's live endpoint (no key, no egress), the phone UI, the box end to end.
+
+## The map looks like a map: sea and land, and the coast at full detail when zoomed in
+
+Vlad: "make the map look a bit more like a map, a different thing for water; on zoom in send the
+points for the extra detailed map , for Paxos we get nothing special in shape; split the extra
+high-resolution points and load them when we need them."
+
+SEA AND LAND. The canvas is water now (a deep blue-black), the Natural Earth rings are FILLED as
+land (a shade lighter and greener) and stroked as the coast and borders in the dim phosphor line;
+the graticule sits under the land, so it reads as a grid on the sea. The dots and the trail stay
+the bright things on the screen.
+
+THE COAST AT FULL DETAIL. Natural Earth's 10m file (the finest cut on the box, 548k points for the
+world) draws Paxos as a handful of vertices, and there is nothing finer in Natural Earth.
+OpenStreetMap's land polygons (osmdata.openstreetmap.de, land-polygons-complete-4326, ODbL) draw
+every cove , and the world at that resolution is tens of millions of points, exactly what must not
+go to a phone whole. internal/landtiles (new, stdlib only) cuts it once, on the box:
+
+- a hand-written shapefile reader (100-byte header, big-endian record headers, little-endian
+  Polygon/PolygonZ/PolygonM bodies; everything else skipped; the .dbf and .shx are not needed);
+- recursive bisection on WHOLE DEGREES (Sutherland–Hodgman against one line at a time, orientation
+  kept), so a continent-sized ring is cut in O(n log cells) , a 3-million-point ring the size of
+  a small continent cuts in about a second here , and every artificial edge the cutting makes lies
+  exactly on a one-degree cell border;
+- per one-degree cell of the 360×180 grid: no land → water, no file; land covering the cell →
+  "land", no file; otherwise a COAST tile: the rings clipped to the cell, each vertex quantised to
+  1/65535 of a degree (under two metres) as two uint16s, four bytes a vertex, repeated points
+  dropped, slivers dropped; plus index.bin, one byte per cell (0 water, 1 coast, 2 land) behind a
+  magic, 64,800 bytes. Written into a .tmp directory and swapped in whole.
+
+ghost.framed: `ghost-cli ghost.framed geo-tiles` builds from land_polygons.shp under <mount>/geo
+(or one level down, where the zip unpacks) into <mount>/landtiles, in the background, one build at a
+time, state in daemon_state ("landtiles"); framed also builds by itself at start when the shapefile
+is newer than the tiles. secd: GET /v1/geo/landtiles/index (204 when none) and
+GET /v1/geo/landtile?x=&y= (range-checked), static files with an mtime+size ETag and 304s.
+tools/fetch_geo.sh fetches and unpacks the OSM file at setup (GHOST_GEO_NO_OSM=1 skips it); README
+1b' has the commands for a box already running.
+
+The phone (ui/LandTileGeom.kt, pure; ui/LandTiles.kt, Paths and the cache): the index is fetched
+with the world (ETag-cached; a new index drops the cached tiles, since it means a new cut). Zoomed in
+past 150 screen px per map unit (about 1.5 degrees across a phone screen), every visible cell is drawn
+from the index: sea left as sea, land filled solid, a coast cell from its tile , fetched then, four at
+a time, from disk when the phone has it (cache trimmed at 200 MB, least recently looked-at first),
+built off the main thread into three levels (tolerances ~280 m, ~28 m, every point, picked by zoom;
+border vertices always kept) , and the base clipped to the cell while the tile is on its way. Fill:
+all of a tile's rings in one Path, non-zero, so a lake stays water. Coast: the edges that run along
+the cell border (both ends on the same side) are skipped, so tile seams never show. The tile origin is
+kept in Double (a Float origin is pixels off at street zoom). The note line credits "coast ©
+OpenStreetMap contributors" when the tiles are there.
+
+Tests: Go , the L-shaped (concave) ring across three cells keeps its area and orientation and never
+leaves its cells; a ring touching the next cell's edge stays home; quantise/encode/decode; a
+synthetic shapefile (island, a 2×2-degree block of solid land, a square across four cells, a full cell
+with a lake, a null and a point record skipped) → index states, tile contents, no file for land or
+sea, the atomic swap; garbage rejected; the static serving's ETag/304. A golden tile written by the
+encoder (internal/landtiles/testdata/tile_fixture.lgt, re-checked by its own test) is decoded by the
+phone's code in the harness and in LandTileGeomTest: the island is one closed coast run, the mainland
+corner's two border edges are skipped, simplify keeps border vertices, the cell window for Paxos is
+one cell. Not run here: the real OSM file (no egress), the phone drawing.
