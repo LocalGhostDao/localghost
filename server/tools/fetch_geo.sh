@@ -1,7 +1,8 @@
 #!/bin/sh
 # fetch_geo.sh <dest-dir> , downloads the public geodata the box geocodes and draws maps with:
-# GeoNames (CC-BY: allCountries + admin1/admin2 code names + countryInfo) and the Natural Earth
-# 110m countries GeoJSON (public domain). ~400MB compressed, one-time, at SETUP , before any
+# GeoNames (CC-BY: allCountries + admin1/admin2 code names + countryInfo), the Natural Earth
+# countries GeoJSON (public domain) and OpenStreetMap's coastline (ODbL), from the localghost.ai
+# mirror when it answers and from each upstream otherwise. ~400MB compressed, one-time, at SETUP , before any
 # personal data exists, so the only thing revealed is "this IP provisioned a box once", the same
 # class of disclosure as the apt installs setup already performs. NEVER run this against personal
 # coordinates or from a running box's context; the whole point of on-box geocoding is that photo
@@ -32,49 +33,115 @@ get() { # get <url> <outfile>
     fi
 }
 
-for f in admin1CodesASCII.txt admin2Codes.txt countryInfo.txt; do
-    if [ -s "$DEST/$f" ] && [ -z "$FORCE" ]; then
-        echo "  geo: $f already present (GHOST_GEO_REFRESH=1 to re-fetch)"
-    elif get "$GN/$f" "$DEST/$f"; then
-        echo "  geo: fetched $f"
-    else
-        echo "  note: could not fetch $f , place names will use raw codes until it is provided"
+# THE MIRROR FIRST. https://localghost.ai/mirror carries these same files , and the coastline already
+# cut into the map's tiles, so this box skips a several-hundred-MB download and a 2 GB build , under
+# a sha256 manifest signed by the same gpg key as the releases. tools/mirror_fetch.sh checks the
+# signature against tools/mirror-key.asc (in this repo), then every file's hash, before anything lands
+# here; a web host that was broken into can make it fail, never make it install something else.
+# Whatever the mirror does not deliver, the upstream downloads below still fetch.
+# GHOST_MIRROR=<url> points at another copy (a LAN mirror); GHOST_MIRROR=off skips it.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+FETCH="$HERE/mirror_fetch.sh"
+TILES="${GHOST_TILES_DIR:-$(dirname "$DEST")/landtiles}"
+MIRROR_GEO=0
+MIRROR_TILES=0
+geo_missing() {
+    for f in admin1CodesASCII.txt admin2Codes.txt countryInfo.txt allCountries.txt world.geojson world-50m.geojson world-110m.geojson; do
+        [ -s "$DEST/$f" ] || return 0
+    done
+    return 1
+}
+rc=0
+if [ "${GHOST_MIRROR:-}" = off ]; then
+    echo "  geo: mirror off (GHOST_MIRROR=off) , straight to the upstreams"
+    rc=3
+elif [ -n "$FORCE" ] || geo_missing; then
+    STAGE="$DEST/.mirror-dl"
+    sh "$FETCH" geo "$STAGE"
+    rc=$?
+    # whatever arrived verified goes in (a file that failed is only a hidden .part, left to resume)
+    for f in "$STAGE"/*; do
+        [ -f "$f" ] || continue
+        case "$f" in
+            *.zip) command -v unzip >/dev/null 2>&1 && unzip -q -o "$f" -d "$DEST" && rm -f "$f" ;;
+            *)     mv -f "$f" "$DEST/" ;;
+        esac
+    done
+    case "$rc" in
+        0) MIRROR_GEO=1
+           rm -rf "$STAGE"
+           echo "  geo: GeoNames + Natural Earth from the mirror, signature and hashes checked (terms beside them)" ;;
+        3) rm -rf "$STAGE"
+           echo "  geo: the mirror has nothing for this box (the line above says why) , straight to the upstreams" ;;
+        *) echo "  geo: the mirror did not deliver all of it , the upstreams below fetch what is missing" ;;
+    esac
+fi
+if [ "$rc" != 3 ] && [ -z "${GHOST_GEO_NO_OSM:-}" ] && { [ -n "$FORCE" ] || [ ! -s "$TILES/index.bin" ]; }; then
+    TST="$TILES.mirror-dl"
+    if sh "$FETCH" landtiles "$TST" && [ -s "$TST/landtiles.tar.gz" ]; then
+        # unpacked beside the live tiles and swapped in whole: secd serves the old set or the new one
+        rm -rf "$TILES.new" && mkdir -p "$TILES.new"
+        if tar -xzf "$TST/landtiles.tar.gz" -C "$TILES.new" && [ -s "$TILES.new/index.bin" ]; then
+            cp "$TST"/TERMS-*.txt "$TST"/NOTICE.txt "$TILES.new/" 2>/dev/null || true
+            rm -rf "$TILES.old"
+            [ -d "$TILES" ] && mv "$TILES" "$TILES.old"
+            mv "$TILES.new" "$TILES" && rm -rf "$TILES.old" "$TST"
+            MIRROR_TILES=1
+            echo "  geo: the coastline tiles from the mirror, checked, in $TILES (no shapefile, no build)"
+        else
+            rm -rf "$TILES.new"
+            echo "  note: the mirror's tile archive did not unpack , the upstream shapefile below instead"
+        fi
     fi
-done
-
-if [ -s "$DEST/allCountries.txt" ] && [ -z "$FORCE" ]; then
-    echo "  geo: allCountries.txt already present (GHOST_GEO_REFRESH=1 to re-fetch)"
-elif command -v unzip >/dev/null 2>&1 && get "$GN/allCountries.zip" "$DEST/allCountries.zip"; then
-    unzip -q -o "$DEST/allCountries.zip" -d "$DEST" && rm -f "$DEST/allCountries.zip"
-    echo "  geo: fetched + unpacked allCountries.txt ($(du -h "$DEST/allCountries.txt" 2>/dev/null | cut -f1))"
-else
-    echo "  note: could not fetch allCountries.zip (or unzip missing) , geocoding stays off until"
-    echo "        the operator drops GeoNames TSVs in $DEST and runs geo-import"
+elif [ -z "$FORCE" ] && [ -s "$TILES/index.bin" ]; then
+    MIRROR_TILES=1   # tiles already here: the shapefile is only needed to cut them
 fi
 
-if [ -s "$DEST/world.geojson" ] && [ -z "$FORCE" ]; then
-    echo "  geo: world.geojson already present"
-elif get "$NE" "$DEST/world.geojson"; then
-    echo "  geo: fetched Natural Earth world.geojson"
-else
-    echo "  note: could not fetch world.geojson , the MAP draws graticule + dots without landmass"
-fi
+if [ "$MIRROR_GEO" = 0 ]; then
+    for f in admin1CodesASCII.txt admin2Codes.txt countryInfo.txt; do
+        if [ -s "$DEST/$f" ] && [ -z "$FORCE" ]; then
+            echo "  geo: $f already present (GHOST_GEO_REFRESH=1 to re-fetch)"
+        elif get "$GN/$f" "$DEST/$f"; then
+            echo "  geo: fetched $f"
+        else
+            echo "  note: could not fetch $f , place names will use raw codes until it is provided"
+        fi
+    done
 
-# THE COARSE CUTS. The 10m file is the truth for a zoomed-in coastline and 24MB of truth is the wrong
-# thing to hand a phone before it can draw anything. Natural Earth publishes the same countries at
-# 110m (~800KB) and 50m (~4.5MB); the box serves whatever world*.geojson it has
-# (/v1/geo/world/index), the app opens on the smallest and refines with the largest once it is
-# cached. Existing boxes: drop these two files in <volume>/geo through ns.sh, nothing to restart.
-for res in 110m 50m; do
-    url="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_${res}_admin_0_countries.geojson"
-    if [ -s "$DEST/world-$res.geojson" ] && [ -z "$FORCE" ]; then
-        echo "  geo: world-$res.geojson already present"
-    elif get "$url" "$DEST/world-$res.geojson"; then
-        echo "  geo: fetched Natural Earth world-$res.geojson"
+    if [ -s "$DEST/allCountries.txt" ] && [ -z "$FORCE" ]; then
+        echo "  geo: allCountries.txt already present (GHOST_GEO_REFRESH=1 to re-fetch)"
+    elif command -v unzip >/dev/null 2>&1 && get "$GN/allCountries.zip" "$DEST/allCountries.zip"; then
+        unzip -q -o "$DEST/allCountries.zip" -d "$DEST" && rm -f "$DEST/allCountries.zip"
+        echo "  geo: fetched + unpacked allCountries.txt ($(du -h "$DEST/allCountries.txt" 2>/dev/null | cut -f1))"
     else
-        echo "  note: could not fetch world-$res.geojson , the map opens on the full-detail file (slower first draw)"
+        echo "  note: could not fetch allCountries.zip (or unzip missing) , geocoding stays off until"
+        echo "        the operator drops GeoNames TSVs in $DEST and runs geo-import"
     fi
-done
+
+    if [ -s "$DEST/world.geojson" ] && [ -z "$FORCE" ]; then
+        echo "  geo: world.geojson already present"
+    elif get "$NE" "$DEST/world.geojson"; then
+        echo "  geo: fetched Natural Earth world.geojson"
+    else
+        echo "  note: could not fetch world.geojson , the MAP draws graticule + dots without landmass"
+    fi
+
+    # THE COARSE CUTS. The 10m file is the truth for a zoomed-in coastline and 24MB of truth is the wrong
+    # thing to hand a phone before it can draw anything. Natural Earth publishes the same countries at
+    # 110m (~800KB) and 50m (~4.5MB); the box serves whatever world*.geojson it has
+    # (/v1/geo/world/index), the app opens on the smallest and refines with the largest once it is
+    # cached. Existing boxes: drop these two files in <volume>/geo through ns.sh, nothing to restart.
+    for res in 110m 50m; do
+        url="https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_${res}_admin_0_countries.geojson"
+        if [ -s "$DEST/world-$res.geojson" ] && [ -z "$FORCE" ]; then
+            echo "  geo: world-$res.geojson already present"
+        elif get "$url" "$DEST/world-$res.geojson"; then
+            echo "  geo: fetched Natural Earth world-$res.geojson"
+        else
+            echo "  note: could not fetch world-$res.geojson , the map opens on the full-detail file (slower first draw)"
+        fi
+    done
+fi
 
 # THE COASTLINE AT FULL DETAIL. Natural Earth's 10m file is the base for the world and the
 # continents; zoomed in on an island it is a smudge (Paxos is a handful of vertices). OpenStreetMap's
@@ -83,7 +150,9 @@ done
 # viewport. Several hundred MB, once, at setup like everything here; ODbL: the map credits
 # "© OpenStreetMap contributors" wherever it draws them. GHOST_GEO_NO_OSM=1 skips it.
 OSM="https://osmdata.openstreetmap.de/download/land-polygons-complete-4326.zip"
-if [ -n "${GHOST_GEO_NO_OSM:-}" ]; then
+if [ "$MIRROR_TILES" = 1 ]; then
+    : # the tiles are here, cut; the shapefile is only needed to cut them
+elif [ -n "${GHOST_GEO_NO_OSM:-}" ]; then
     echo "  geo: OpenStreetMap land polygons skipped (GHOST_GEO_NO_OSM set) , the map keeps the 10m coast"
 elif [ -s "$DEST/land-polygons-complete-4326/land_polygons.shp" ] && [ -z "$FORCE" ]; then
     echo "  geo: OpenStreetMap land polygons already present"

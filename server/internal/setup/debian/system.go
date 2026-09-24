@@ -560,6 +560,14 @@ func (s *System) provisionVolumeInterior(mount string) error {
 			if err := run(fetcher, geoDir); err != nil {
 				fmt.Printf("  note: geo fetch reported trouble (%v) , geocoding stays off until geo-import\n", err)
 			}
+			// fetch_geo.sh runs as root and, from the localghost.ai mirror, also lays down the coastline
+			// tiles beside geo/. Both belong to the service user: framed re-cuts the tiles in place when
+			// a newer shapefile arrives, and a root-owned tree would stop it halfway.
+			for _, d := range []string{geoDir, filepath.Join(mount, "landtiles")} {
+				if _, err := os.Stat(d); err == nil {
+					_ = run("chown", "-R", user+":"+user, d)
+				}
+			}
 		} else {
 			fmt.Println("  note: fetch_geo.sh not found , geocoding stays off until the operator provides data")
 		}

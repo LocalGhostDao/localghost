@@ -82,22 +82,37 @@ else
     TARBALL="go${GO_PIN}.linux-${ARCH}.tar.gz"
     echo "  go: installing ${GO_PIN} system-wide (/usr/local/go)..."
     TMPD="$(mktemp -d)"
-    curl -fsSL -o "$TMPD/$TARBALL" "https://dl.google.com/go/$TARBALL"
-    # include=all is required: the default manifest lists only the LATEST patch of each stable branch,
-    # and a pinned older patch (ours) would come back "not found" , which is a lookup gap, not a
-    # missing checksum.
-    curl -fsSL 'https://go.dev/dl/?mode=json&include=all' -o "$TMPD/manifest.json"
-    WANT_SHA="$(tr ',' '\n' < "$TMPD/manifest.json" | grep -A8 "\"filename\": \"$TARBALL\"" | grep '"sha256"' | head -1 | sed 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/')"
-    GOT_SHA="$(sha256sum "$TMPD/$TARBALL" | awk '{print $1}')"
-    if [ -z "$WANT_SHA" ]; then
-        echo "  go: $TARBALL not found in the release manifest , refusing to install unverified"
-        echo "  (manifest entries near our version, for debugging:)"
-        grep -o '"version": "go1\.[0-9.]*"' "$TMPD/manifest.json" 2>/dev/null | sort -u | head -8 | sed 's/^/    /'
-        rm -rf "$TMPD"
-        exit 1
+    # THE MIRROR FIRST. tools/mirror_fetch.sh takes the tarball from https://localghost.ai/mirror only
+    # if the manifest's gpg signature verifies against tools/mirror-key.asc (the key in this repo, the
+    # one that signs the releases) and the file's SHA-256 matches that manifest , the publisher checked
+    # it against go.dev's own checksum before signing. It is shell and gpg, so it works before Go exists.
+    # No mirror (GHOST_MIRROR=off, not set up, down): go.dev's checksum list, as before.
+    command -v gpg >/dev/null 2>&1 || apt-get install -y gpg >/dev/null 2>&1 || true
+    WANT_SHA=""
+    GOT_SHA=""
+    if sh "$REPO/tools/mirror_fetch.sh" go "$TMPD/mirror" "$TARBALL" && [ -s "$TMPD/mirror/$TARBALL" ]; then
+        mv "$TMPD/mirror/$TARBALL" "$TMPD/$TARBALL"
+        GOT_SHA="$(sha256sum "$TMPD/$TARBALL" | awk '{print $1}')"
+        WANT_SHA="$GOT_SHA"
+        echo "  go: $TARBALL from the mirror, signature and hash checked"
+    else
+        curl -fsSL -o "$TMPD/$TARBALL" "https://dl.google.com/go/$TARBALL"
+        # include=all is required: the default manifest lists only the LATEST patch of each stable branch,
+        # and a pinned older patch (ours) would come back "not found" , which is a lookup gap, not a
+        # missing checksum.
+        curl -fsSL 'https://go.dev/dl/?mode=json&include=all' -o "$TMPD/manifest.json"
+        WANT_SHA="$(tr ',' '\n' < "$TMPD/manifest.json" | grep -A8 "\"filename\": \"$TARBALL\"" | grep '"sha256"' | head -1 | sed 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/')"
+        GOT_SHA="$(sha256sum "$TMPD/$TARBALL" | awk '{print $1}')"
+        if [ -z "$WANT_SHA" ]; then
+            echo "  go: $TARBALL not found in the release manifest , refusing to install unverified"
+            echo "  (manifest entries near our version, for debugging:)"
+            grep -o '"version": "go1\.[0-9.]*"' "$TMPD/manifest.json" 2>/dev/null | sort -u | head -8 | sed 's/^/    /'
+            rm -rf "$TMPD"
+            exit 1
+        fi
     fi
     if [ "$WANT_SHA" != "$GOT_SHA" ]; then
-        echo "  go: CHECKSUM MISMATCH (want $WANT_SHA, got $GOT_SHA) , refusing to install"
+        echo "  go: CHECKSUM MISMATCH (want $WANT_SHA, got ${GOT_SHA:-nothing}) , refusing to install"
         rm -rf "$TMPD"
         exit 1
     fi

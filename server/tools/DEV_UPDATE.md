@@ -1297,3 +1297,85 @@ encoder (internal/landtiles/testdata/tile_fixture.lgt, re-checked by its own tes
 phone's code in the harness and in LandTileGeomTest: the island is one closed coast run, the mainland
 corner's two border edges are skipped, simplify keeps border vertices, the cell window for Paxos is
 one cell. Not run here: the real OSM file (no egress), the phone drawing.
+
+## Setup pulls from localghost.ai/mirror, signed like the releases
+
+Vlad: "can we just host everything on localghost.ai? i can run the scripts to host it there and we
+can just pull it on setup from there" , then: "i can do it all on the server, i already sign the
+releases with a key [a sha256sum deploy manifest, gpg --detach-sign --local-user info@localghost.ai];
+can't i do the same under localghost.ai/mirror, with the signature and the terms there as well , for
+the open map, for Gemma, for the other map with GPS I downloaded, and future models?"
+
+Yes, and that is what it is now: shell, gpg and sha256sum, the release script's own pattern.
+
+THE SERVER (the web repo, LocalGhostDao/web, mirror/, so the site and its data are deployed
+together; data outside the repo and outside the deploy directory, never on GitHub). mirror/publish.sh
+<data-dir> [set ...] reads mirror/mirror.conf (`set file terms source [check=godev]`), refuses a data
+dir inside the repo, and writes:
+  <root>/<build>/<set>/<file>             a directory per publish (20260924T120000Z), never changed after
+  <root>/<build>/<set>/TERMS-<name>.txt   the terms each file travels under (mirror/terms/)
+  <root>/<build>/<set>/NOTICE.txt         which file, which terms, where from
+  <root>/MANIFEST.txt(.asc)               "# LocalGhost Mirror Manifest", "# Build:", "# Signed:", then
+                                          sha256sum lines "/<build>/<set>/<file>", gpg --detach-sign
+                                          --local-user info@localghost.ai , the release script's lines
+Sources: an https URL (cached; `curl -z` fetches again only when upstream changed), a path on the
+server (a model, a map), or landtiles:<zip> , the OSM land polygons cut on the server by
+cmd/ghost-landtiles (new, 30 lines around internal/landtiles.Build) and packed with GNU tar
+--sort=name --mtime --owner=0 | gzip -n, so an unchanged coastline packs to the same bytes (and is
+cached by the zip's hash, never cut twice). check=godev: the Go tarball must match go.dev's checksum.
+A refreshed set is rebuilt from the conf alone; the others are hard-linked from the previous build (no
+copies, the old build untouched). Nothing changed = no new build. The manifest pair is the last thing
+written; the last two builds are kept, so a box mid-download of the previous manifest still finishes.
+One publish at a time (flock); a build directory is never reused (two publishes in one second wait);
+any stop before the manifest moves removes the half-built directory. The first run exports the public
+key to the web repo's mirror/mirror-key.asc; copied here as tools/mirror-key.asc and committed, it is
+what boxes trust. cmd/ghost-landtiles (this repo) is the cutter the web server runs.
+
+TERMS. mirror/terms/ in the web repo: geonames (CC BY 4.0 attribution), naturalearth (public domain),
+osm-odbl (the ODbL notice + "© OpenStreetMap contributors"; the tiles are a derivative database,
+offered under the ODbL, method = internal/landtiles), go-bsd, llama-mit, apache-2.0 (its first line
+"#fetch https://www.apache.org/licenses/LICENSE-2.0.txt": the full text is fetched at publish),
+gemma4 (Gemma 4 is Apache 2.0 since March 2026; the GGUFs are conversions, Q4_K_M modifies the weights,
+so the file says who converted them , EDIT-ME until filled), gemma-terms (EmbeddingGemma is under the
+Gemma Terms of Use, which must be passed on in full with its use restrictions , EDIT-ME until the
+text is pasted in). A terms file that says EDIT-ME stops the publish of anything that uses it. A new
+dataset or model: a line in mirror.conf (a set of its own) and a terms file.
+
+THE BOX. tools/mirror_fetch.sh <set> <dir> [file]: fetches MANIFEST.txt(.asc), imports
+tools/mirror-key.asc into a throwaway gpg home, requires a VALIDSIG (three tries three seconds apart:
+a publish swaps the pair one after the other), requires the "# LocalGhost Mirror Manifest" header (a
+release manifest signed by the same key is not accepted as a mirror one) and a build line; refuses a
+build older than the one this box last used (/var/lib/ghost/mirror-build; a replayed manifest) unless
+GHOST_MIRROR_ALLOW_OLD=1; takes only lines "/<build>/<set>/<name>" with names that cannot climb;
+downloads each to a hidden .part (resumes with curl -C -, starts over when the server cannot resume,
+gives up under 1 KB/s for a minute), checks the SHA-256, and only then gives it its name. Files
+already there with the right hash are kept. Writes <dir>/.mirror-files (the set's names). Exit 0 all
+here, 1 something failed (callers fall back), 3 nothing to offer (off, no key in the repo, no gpg, no
+such set). https only, except loopback or GHOST_MIRROR_ALLOW_HTTP=1.
+
+Callers: fetch_geo.sh (geo when something is missing or on refresh: verified files moved in,
+allCountries.zip unzipped, the TERMS and NOTICE beside the data; landtiles when there is no index.bin:
+unpacked beside the live tiles and swapped in whole; the upstream blocks fill whatever the mirror did
+not deliver, and with tiles present the shapefile is not downloaded); setup.sh (the Go tarball,
+before Go exists, gpg installed first if missing; no mirror → go.dev's checksum list as before);
+setup_llama.sh (pinned llama.cpp source: a tarball with a new name replaces the folder whole, build
+included, so it rebuilds; an existing git checkout keeps pulling unless --from-mirror; the weights
+when neither --models nor --model-url, no Hugging Face token; gpg added to its apt line).
+Provisioning chowns geo/ and landtiles/ to the service user after the fetch.
+
+Replaced before it shipped: the first cut of this (an ed25519-signed JSON manifest, a Go client, a
+content-addressed store, a pins file for Go) , one mechanism now, the one the releases already use.
+
+Tested here with a real gpg key (ed25519, uid info@localghost.ai): publish against fake upstreams
+(GeoNames, Natural Earth, a shapefile in a zip cut into tiles, Go checked against a fake go.dev list,
+a local "map" with two terms files, one fetched), the layout and manifest above; fetch_geo.sh twice
+(second: nothing fetched) and with GHOST_GEO_REFRESH=1; a tampered file on the host (that file
+refused, the rest in, the rerun fetches only it); a repo holding a different key; a tampered
+manifest; a release manifest signed by the same key; off / no key / no set / plain http to a LAN
+address; a stale .part against a server without Range (starts over); a 404 (curl's reason shown);
+a republish with nothing changed; a geo-only republish (the rest hard-linked); a replayed older
+manifest refused, then allowed with the override; pruning to two builds; Go from the mirror and with
+the mirror off; llama.cpp from the mirror, again (kept, build/ kept), and a new pin (replaced); an
+EDIT-ME terms file stopping the publish; two publishes at once (the second refused); a failing
+source leaving no directory behind. Not run: the real upstreams (no egress), the world-size cut on
+the real server, nginx.

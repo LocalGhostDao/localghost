@@ -26,6 +26,30 @@ flow is scan-immediately-and-clear-the-screen, not leave-it-on-screen-while-grad
 - pgvector installs automatically in step 1 (postgresql-<ver>-pgvector). If it fails or you skip it,
   nothing breaks: search runs in the documented FTS-only degraded mode and says so in health.
 
+## 0b. Where setup downloads from , https://localghost.ai/mirror
+
+Setup-time downloads (GeoNames, Natural Earth, the OpenStreetMap coastline already cut into the map's
+tiles, the Go toolchain, and, once listed, a pinned llama.cpp and the model weights) come from
+`https://localghost.ai/mirror` first and from each upstream when the mirror cannot deliver. The rule
+that matters is unchanged: the box reaches the network at SETUP only.
+
+It is signed the way the site deploys are: `MANIFEST.txt` is a sha256sum list, detach-signed with gpg
+by info@localghost.ai. `tools/mirror_fetch.sh` checks the signature against `tools/mirror-key.asc` (the
+public key, committed in this repo), then every file's hash, before anything gets its real name. A web
+host that was broken into can make setup fall back to the upstreams; it cannot make a box install
+anything else. It is shell and gpg, so the Go toolchain goes through it too, before any Go exists.
+`GHOST_MIRROR=off` turns it off, `GHOST_MIRROR=<url>` points at another copy. Debian 13 does not
+always ship gpg; setup installs it (`apt-get install gpg`) before it verifies anything.
+
+The publishing side lives in the web repo (LocalGhostDao/web, `mirror/`: `publish.sh`, `mirror.conf`,
+`terms/`, with its own README): run on the web server, data outside the repo, served at /mirror/ with
+no access log. It uses `cmd/ghost-landtiles` from this repo to cut the coastline:
+
+    cd server && CGO_ENABLED=0 go build -o /usr/local/bin/ghost-landtiles ./cmd/ghost-landtiles
+
+Its first run exports the public key to the web repo's `mirror/mirror-key.asc`; copy that here as
+`tools/mirror-key.asc` and commit it. Until that file exists, boxes skip the mirror (exit 3, "not set up").
+
 ## 1. System prep , root
 
     cd server
@@ -171,8 +195,14 @@ smart plug on the mains with the BIOS set to "power on after AC loss" is the oth
 ## 1b'. The coastline at full detail , root, once (optional, several hundred MB)
 
 The map's base is Natural Earth: right for a continent, a smudge for an island. OpenStreetMap's land
-polygons draw every cove; `tools/fetch_geo.sh` fetches them at setup. On a box that is already
-running, fetch and copy them in, then ask framed to cut them into one-degree tiles:
+polygons draw every cove; `tools/fetch_geo.sh` fetches them at setup, already cut into tiles, from the
+mirror (0b). On a box that is already running, the same, straight onto the unlocked volume (it fetches
+only what is missing, here the tiles):
+
+    sudo ./tools/ns.sh ./tools/fetch_geo.sh /var/lib/ghost/mnt/slot0/geo
+    sudo ./tools/ns.sh chown -R coder:coder /var/lib/ghost/mnt/slot0/landtiles
+
+Without the mirror, fetch the shapefile and copy it in, then ask framed to cut it into one-degree tiles:
 
     cd /tmp && curl -fLO https://osmdata.openstreetmap.de/download/land-polygons-complete-4326.zip
     unzip -q land-polygons-complete-4326.zip

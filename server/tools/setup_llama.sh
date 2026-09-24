@@ -12,6 +12,15 @@
 #   sudo ./tools/setup_llama.sh --models /path/to/dir-with-ggufs
 #   sudo ./tools/setup_llama.sh --model-url URL [--mmproj-url URL] [--embed-url URL] [--hf-token TOKEN]
 #   sudo ./tools/setup_llama.sh --build-only
+#   sudo ./tools/setup_llama.sh                     # source + weights from the localghost.ai mirror
+#
+# THE MIRROR (tools/mirror_fetch.sh; published from the web repo, LocalGhostDao/web mirror/): when
+# https://localghost.ai/mirror lists them,
+# llama.cpp's source comes from it at the commit the publisher pinned , every box builds the same
+# engine, not whatever master was that morning , and so do the weights, without a Hugging Face token.
+# Both only after the manifest's gpg signature verifies against tools/mirror-key.asc and each file's
+# SHA-256 matches it. A box with a git checkout keeps pulling as before unless --from-mirror.
+# GHOST_MIRROR=off turns the mirror off.
 #
 # HONEST NOTE on the model download: Gemma weights on Hugging Face are LICENSE-GATED , a fully
 # unattended download needs an HF token (--hf-token or HF_TOKEN env) from an account that accepted
@@ -28,6 +37,7 @@ MMPROJ_URL=""
 EMBED_URL=""
 HF_TOKEN="${HF_TOKEN:-}"
 BUILD_ONLY=0
+FROM_MIRROR=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --models)     MODELS_DIR="$2"; shift 2 ;;
@@ -36,18 +46,51 @@ while [ $# -gt 0 ]; do
         --embed-url)  EMBED_URL="$2"; shift 2 ;;
         --hf-token)   HF_TOKEN="$2"; shift 2 ;;
         --build-only) BUILD_ONLY=1; shift ;;
+        --from-mirror) FROM_MIRROR=1; shift ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
 
 echo "=== 1/4  build dependencies ==="
-apt-get install -y --no-install-recommends git cmake build-essential ca-certificates curl libcurl4-openssl-dev
+apt-get install -y --no-install-recommends git cmake build-essential ca-certificates curl libcurl4-openssl-dev gpg
 
-echo "=== 2/4  llama.cpp , clone + build in its own folder ==="
-if [ ! -d "$LLAMA_DIR/.git" ]; then
-    git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_DIR"
-else
+FETCH="$(pwd)/tools/mirror_fetch.sh"
+SRC_DL="$LLAMA_DIR.mirror-dl"   # the verified source tarball stays here: a rerun finds it current
+
+# from_mirror , llama.cpp's source from the mirror; a tarball with a new name (a new pinned commit)
+# replaces the folder whole, build/ included, so the build below runs again
+from_mirror() {
+    sh "$FETCH" llama "$SRC_DL" || return 1
+    TB="$(grep '\.tar\.gz$' "$SRC_DL/.mirror-files" | head -1)"
+    [ -n "$TB" ] && [ -s "$SRC_DL/$TB" ] || return 1
+    for f in "$SRC_DL"/*.tar.gz; do   # an older pin's tarball goes
+        [ "$(basename "$f")" = "$TB" ] || rm -f "$f"
+    done
+    TB="$SRC_DL/$TB"
+    if [ "$(cat "$LLAMA_DIR/.mirror-src" 2>/dev/null)" = "$(basename "$TB")" ]; then
+        echo "-- llama.cpp from the mirror: $(basename "$TB") already here"
+        return 0
+    fi
+    rm -rf "$LLAMA_DIR.new" && mkdir -p "$LLAMA_DIR.new"
+    tar -xzf "$TB" -C "$LLAMA_DIR.new" --strip-components=1 || { rm -rf "$LLAMA_DIR.new"; return 1; }
+    basename "$TB" > "$LLAMA_DIR.new/.mirror-src"
+    cp "$SRC_DL"/TERMS-*.txt "$LLAMA_DIR.new/" 2>/dev/null || true
+    rm -rf "$LLAMA_DIR.old"
+    [ -d "$LLAMA_DIR" ] && mv "$LLAMA_DIR" "$LLAMA_DIR.old"
+    mv "$LLAMA_DIR.new" "$LLAMA_DIR" && rm -rf "$LLAMA_DIR.old"
+    echo "-- llama.cpp source from the mirror: $(basename "$TB"), signature and hash checked"
+}
+
+echo "=== 2/4  llama.cpp , source + build in its own folder ==="
+mkdir -p "$(dirname "$LLAMA_DIR")"
+if [ -d "$LLAMA_DIR/.git" ] && [ "$FROM_MIRROR" -eq 0 ]; then
     git -C "$LLAMA_DIR" pull --ff-only || echo "-- pull failed (offline?), building what is checked out"
+elif from_mirror; then
+    :
+elif [ -f "$LLAMA_DIR/.mirror-src" ]; then
+    echo "-- the mirror did not answer , building the mirror's copy already here"
+elif [ ! -d "$LLAMA_DIR/.git" ]; then
+    git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LLAMA_DIR"
 fi
 if [ ! -x "$LLAMA_DIR/build/bin/llama-server" ]; then
     # STATIC single-binary CPU build. Static matters: the binary is seeded onto the ENCRYPTED VOLUME
@@ -96,11 +139,18 @@ fi
 
 echo "=== 3/4  model weights ==="
 DL=/var/lib/ghost/staging/download
-if [ -z "$MODELS_DIR" ]; then
-    if [ -z "$MODEL_URL" ]; then
-        echo "!! no --models dir and no --model-url. Download the ggufs elsewhere and re-run with --models." >&2
+if [ -z "$MODELS_DIR" ] && [ -z "$MODEL_URL" ]; then
+    mkdir -p "$DL"; chmod 700 "$DL"
+    if sh "$FETCH" models "$DL"; then
+        echo "-- weights from the mirror, checked"
+        MODELS_DIR="$DL"
+    else
+        echo "!! no --models dir, no --model-url, and no weights from the mirror. Download the ggufs" >&2
+        echo "   elsewhere and re-run with --models." >&2
         exit 3
     fi
+fi
+if [ -z "$MODELS_DIR" ]; then
     mkdir -p "$DL"; chmod 700 "$DL"
     AUTH=()
     [ -n "$HF_TOKEN" ] && AUTH=(-H "Authorization: Bearer $HF_TOKEN")
