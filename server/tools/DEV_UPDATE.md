@@ -1187,3 +1187,54 @@ chip up (power or a failing card); the driver listing nothing; working (with any
 secd's /v1/daemon/summary?name=host.gpu now answers with these rows (verdict first), so the phone's
 drill-in is the diagnosis. Tests on fake sysfs trees (an Intel iGPU and an NVIDIA NIC ignored):
 x2 of x16 with two init failures, no card, off the bus with Xid 79, unbound, working at x16.
+
+## Chat end to end: search on the phone, the box adds you, the answer comes back , and says why it waits
+
+Vlad: "can I have the chat work end to end: search on google and scrape a few websites on the app,
+pass the context to the server, the server adds our own memories, we get the response." Most of
+the road existed (WebSearch v2 on the phone: plan, DuckDuckGo, top three pages read with the
+readability pass, weather/rates/Wikipedia tools; secd forwards web; synthd labels it, numbers it,
+adds the archive; oracled streams). What was missing, and is now there:
+
+GOOGLE, honestly: its results page forbids scripts and answers them with consent walls and
+captchas; the Custom Search JSON API is closed to new customers and is discontinued on
+1 January 2027 (developers.google.com/custom-search/v1/overview). So the phone gains BRAVE as a
+second engine: the Brave Search API with the person's own key (X-Subscription-Token; JSON
+web.results → title, url, description with its <strong> marks stripped, page_age as the page's
+date), $5 per 1,000 searches after a $5 monthly credit, with DuckDuckGo behind it so a bad key or a
+spent credit degrades to the keyless search, not to nothing. Settings › WEB SEARCH: engine chips,
+the key field (masked, kept on the phone, the box never sees it). A page's own date now only
+replaces the engine's when the page states one.
+
+THE PERSON, better: memoriesSource matched on every word of three letters or more, so "the",
+"what", "did" matched every memory the box had; memoryTerms drops a stopword list first (six
+content terms, deduplicated). And when a question asks for a suggestion or a plan (wantsTaste:
+recommend, should I, what to do, where can we, near here, a day out, swim, eat ...), synthd adds
+the TASTE sentence from the outing pass and, when the phone sent where it is (`here`: its last fix
+under six hours old, range-checked in secd), up to four places near it that fit, ranked by
+internal/outings.Rank over the box's own GeoNames spots, each with its reason ("Voutoumi (beach,
+1.8 km NE from where you are) , new to you"). The geo SQL is shared: hw.QuerySpotsNear /
+QueryPhotoCellsNear over a small Querier interface, used by secd's /v1/nearby and synthd alike.
+
+THE WAIT, explained and bounded: on a CPU-only box (as now) a 4B model reads a prompt at tens of
+tokens a second, and eight web pages of 1,500 characters is two minutes of reading before the
+first word , the chat looked dead. synthd now asks oracled `models` (cached a minute) for the
+measured prefill speed (defaults: 40 t/s on CPU, 1,500 on GPU), budgets the context to about
+twenty seconds of reading, and fitWeb trims the phone's findings to fit: the lowest hits lose their
+page text first (title, URL and snippet stay, so they are still citable), the rest are shortened
+evenly on rune boundaries, never below three hits or 1,800 characters. The first event of the
+stream carries a `note` when the read is long or something was cut ("reading 1,300 words of
+context on the CPU (no GPU right now) , about 35s before the first word · web pages shortened to
+keep it there"). The app shows a live status line in the answer's place from the first tap:
+"searching the web on this phone (Brave)…" → "5 found, 3 read on this phone , asking your box…" →
+the box's note → the first reasoning or word replaces it; a stream that ends with nothing says so
+instead of leaving the status standing. Message gains `status`, BoxClient.ChatChunk gains Status,
+BoxClient.chat gains `here`.
+
+Tests: Go , memoryTerms (the question's content words, the cap), wantsTaste (six that ask, three
+that do not), the budget arithmetic and the note, fitWeb (generous budget cuts nothing; a CPU budget
+keeps the top two's text, keeps every trimmed hit citable, lands under budget; a hopeless budget
+keeps three; Greek cut on rune boundaries), here's validity. Kotlin , the real WebSearch.kt in the
+harness: the Brave parser (tags stripped, entities decoded, empty url skipped, page_age → date, bad
+JSON → nothing), Engine.brave, and every existing WebSearch check; a JUnit twin in WebSearchTest.
+Not run here: Brave's live endpoint (no key, no egress), the phone UI, the box end to end.

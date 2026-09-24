@@ -245,6 +245,9 @@ object BoxClient {
         data class ChatId(val id: Long) : ChatChunk
         data class Reasoning(val text: String) : ChatChunk
         data class Token(val text: String) : ChatChunk
+        /** A line from the box about the wait itself ("reading 1,300 words of context on the CPU ,
+         *  about 35s before the first word"), shown until the first word arrives. */
+        data class Status(val text: String) : ChatChunk
         data object Done : ChatChunk
     }
 
@@ -258,6 +261,7 @@ object BoxClient {
         @Suppress("UNUSED_PARAMETER") caps: ChatCapabilities = ChatCapabilities(),
         imageB64: String = "",
         web: org.json.JSONArray? = null, // what the phone found on the web for this question; the box adds it as labelled context
+        here: Pair<Double, Double>? = null, // the phone's last fix when recent: "near here" means somewhere, against the box's own map data
     ): Flow<ChatChunk> = kotlinx.coroutines.flow.channelFlow {
         // REAL STREAMING end-to-end: app -> secd -> ghost.synthd (context injection + transparency)
         // -> ghost.oracled -> llama-server, tokens flowing back as they generate. Event protocol,
@@ -287,7 +291,8 @@ object BoxClient {
                     .put("incognito", incognito).put("chatId", chatId)
                     .apply { if (historyJson.length() > 0) put("history", historyJson) }
                     .apply { if (imageB64.isNotBlank()) put("imageB64", imageB64) }
-                    .apply { if (web != null && web.length() > 0) put("web", web) }) { line ->
+                    .apply { if (web != null && web.length() > 0) put("web", web) }
+                    .apply { if (here != null) put("here", org.json.JSONObject().put("lat", here.first).put("lon", here.second)) }) { line ->
                 if (!line.startsWith("data: ")) return@postStreamLines true
                 val o = try { org.json.JSONObject(line.removePrefix("data: ")) } catch (_: Exception) { return@postStreamLines true }
                 when {
@@ -303,6 +308,7 @@ object BoxClient {
                             }
                             if (mems.isNotEmpty()) channel.trySendBlocking(ChatChunk.Memories(mems))
                         }
+                        o.optString("note").takeIf { it.isNotBlank() }?.let { channel.trySendBlocking(ChatChunk.Status(it)) }
                         true
                     }
                     o.has("r") -> { channel.trySendBlocking(ChatChunk.Reasoning(o.optString("r"))); true }

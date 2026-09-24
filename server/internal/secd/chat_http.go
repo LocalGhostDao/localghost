@@ -15,7 +15,6 @@ import (
 
 	"github.com/LocalGhostDao/localghost/server/internal/streamsock"
 	"time"
-
 )
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +54,12 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		// the phone did, on the person's say-so, and hands the findings in. Opaque here, bounded
 		// downstream.
 		Web json.RawMessage `json:"web,omitempty"`
+		// The phone's last fix when it is recent, so "anywhere good near here?" means somewhere.
+		// Checked for range here; synthd uses it against the box's own map data only.
+		Here *struct {
+			Lat float64 `json:"lat"`
+			Lon float64 `json:"lon"`
+		} `json:"here,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil || req.Prompt == "" {
 		s.appearsDown(w)
@@ -73,6 +78,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Web) > 0 && len(req.Web) <= 32<<10 {
 		fwd["web"] = req.Web
+	}
+	if h := req.Here; h != nil && h.Lat >= -90 && h.Lat <= 90 && h.Lon >= -180 && h.Lon <= 180 {
+		fwd["here"] = map[string]float64{"lat": h.Lat, "lon": h.Lon}
 	}
 	body, _ := json.Marshal(fwd)
 	runDir := fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)
@@ -121,4 +129,3 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	secdLog.Info("chat streamed", "fn", "handleChat", "took", time.Since(t0).Round(time.Millisecond).String())
 }
-

@@ -121,4 +121,22 @@ class WebSearchTest {
         assertEquals("thunderstorm", t.code(95))
         assertEquals("unknown", t.code(-1))
     }
+
+    @Test fun braveApiJson() {
+        val j = """{"web":{"results":[
+          {"title":"Voutoumi <strong>Beach</strong> , Antipaxos","url":"https://www.example.gr/voutoumi","description":"The <strong>beach</strong> everyone photographs.","page_age":"2026-06-02T10:00:00"},
+          {"title":"No url","url":"","description":"skipped"},
+          {"title":"","url":"https://example.org/untitled","description":"<b>bold</b> text &amp; more"}
+        ]}}"""
+        val hits = WebSearch.parseBrave(j)
+        assertEquals(2, hits.size)
+        assertEquals("Voutoumi Beach , Antipaxos", hits[0].title)
+        assertEquals("brave", hits[0].source)
+        assertEquals("2026-06-02", hits[0].published)
+        assertEquals("https://example.org/untitled", hits[1].title)
+        assertEquals("bold text & more", hits[1].snippet)
+        assertTrue(WebSearch.parseBrave("not json").isEmpty())
+        assertTrue(WebSearch.Engine("brave", "k").brave)
+        assertTrue(!WebSearch.Engine("brave", "").brave)
+    }
 }

@@ -1,5 +1,7 @@
 package com.localghost.app.ui
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -132,6 +134,48 @@ fun SettingsScreen(
             }
             Text(when (thinkLevel) { "brief" -> "[ BRIEF ]"; "deep" -> "[ DEEP ]"; else -> "[ OFF ]" },
                 color = TerminalGreen, style = MaterialTheme.typography.bodyMedium)
+        }
+
+        Spacer(Modifier.height(16.dp))
+        // WEB SEARCH , the engine the PHONE uses when a question goes to the web (the box never
+        // does). DuckDuckGo needs nothing and is scraped HTML, which it sometimes answers with a
+        // bot check; Brave is a real API with the person's own key and DuckDuckGo behind it.
+        // Google offers neither: its results page forbids scripts, and its search API is closed
+        // to new customers and ends on 1 January 2027.
+        var engine by remember { mutableStateOf(com.localghost.app.settings.AppSettings.searchEngine(ctx)) }
+        var braveKey by remember { mutableStateOf(com.localghost.app.settings.AppSettings.braveKey(ctx)) }
+        Text("web search engine", color = GhostText, style = MaterialTheme.typography.bodyLarge)
+        Text(if (engine == "brave") (if (braveKey.isBlank()) "Brave , paste your API key below; until then DuckDuckGo answers" else "Brave with your key , DuckDuckGo if it fails")
+            else "DuckDuckGo , no key, nothing to set up",
+            color = GhostTextDim, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(6.dp))
+        Row {
+            for ((id, label) in listOf("duckduckgo" to "DuckDuckGo", "brave" to "Brave (your key)")) {
+                val on = engine == id
+                Text(label, color = if (on) Void else TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(end = 8.dp)
+                        .border(1.dp, TerminalGreen, androidx.compose.ui.graphics.RectangleShape)
+                        .background(if (on) TerminalGreen else Void)
+                        .clickable { engine = id; com.localghost.app.settings.AppSettings.setSearchEngine(ctx, id) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp))
+            }
+        }
+        if (engine == "brave") {
+            Spacer(Modifier.height(8.dp))
+            androidx.compose.foundation.text.BasicTextField(braveKey, {
+                braveKey = it.trim(); com.localghost.app.settings.AppSettings.setBraveKey(ctx, braveKey)
+            }, singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall.copy(color = GhostText),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(TerminalGreen),
+                visualTransformation = if (braveKey.isEmpty()) androidx.compose.ui.text.input.VisualTransformation.None
+                    else androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                decorationBox = { inner -> Box(Modifier.fillMaxWidth()
+                    .border(1.dp, GhostBorder, androidx.compose.ui.graphics.RectangleShape).padding(8.dp)) {
+                    if (braveKey.isEmpty()) Text("Brave Search API key (api-dashboard.search.brave.com)", color = TerminalDim,
+                        style = MaterialTheme.typography.bodySmall); inner() } },
+                modifier = Modifier.fillMaxWidth())
+            Text("kept on this phone only · the box never sees it · Brave charges per 1,000 searches after a monthly free credit",
+                color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }
 
         Spacer(Modifier.height(24.dp))

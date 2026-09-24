@@ -228,6 +228,9 @@ func main() {
 			// so anything from the outside world arrives this way, labelled as such in the prompt
 			// and in the transparency record; the person chose to search on the phone.
 			Web []webHit `json:"web,omitempty"`
+			// The phone's last fix (recent ones only), so a question about going somewhere can be
+			// answered with places near it that fit what the person likes. Never leaves the box.
+			Here *hereT `json:"here,omitempty"`
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -255,7 +258,31 @@ func main() {
 			history = trimHistory(vals)
 		}
 		items := gatherContext(runDir, q.Prompt)
+		// THE PERSON'S TASTE, when the question asks for a suggestion or a plan, and the places
+		// around the phone that fit it. Samples (the empty-index placeholders) make way.
+		if extra := tasteItems(chatStore(mount), q.Prompt, q.Here); len(extra) > 0 {
+			real := items[:0:0]
+			for _, it := range items {
+				if it.Source != "sample" {
+					real = append(real, it)
+				}
+			}
+			items = append(real, extra...)
+		}
 		web := boundWeb(q.Web)
+		// THE BUDGET: what the model can read in about twenty seconds at its measured prefill
+		// speed. Only asked when there is something big to fit (the web, a long history).
+		var speed engineSpeed
+		trimmed := false
+		histChars := 0
+		for _, t := range history {
+			histChars += len(t.Content)
+		}
+		if len(web) > 0 || histChars > 4000 {
+			speed = currentSpeed(runDir)
+			used := len(formatContext(items)) + len(q.Prompt) + histChars
+			web, trimmed = fitWeb(web, speed.contextBudget()-used)
+		}
 		for i, h := range web {
 			why := "searched on your phone; the box itself never reaches the internet"
 			if h.Kind != "page" && h.Kind != "" {
@@ -294,7 +321,13 @@ func main() {
 		fl, _ := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		ctxEv, _ := json.Marshal(map[string]any{"context": items})
+		ev := map[string]any{"context": items}
+		if !speed.at.IsZero() {
+			if note := readingNote(speed, len(input)+histChars, trimmed); note != "" {
+				ev["note"] = note
+			}
+		}
+		ctxEv, _ := json.Marshal(ev)
 		_, _ = w.Write([]byte("data: " + string(ctxEv) + "\n\n"))
 		if fl != nil {
 			fl.Flush()
@@ -1145,16 +1178,7 @@ var memDB *poltergres.ReadWrite
 // invisible here as everywhere , and user-authored rows compete equally with distilled ones. Top 2
 // by term hits then recency: memories season the chat, they do not flood it.
 func memoriesSource(runDir, prompt string) []ctxItem {
-	terms := make([]string, 0, 6)
-	for _, w := range strings.Fields(strings.ToLower(prompt)) {
-		w = strings.Trim(w, ".,!?\"'()[]:;")
-		if len(w) > 2 {
-			terms = append(terms, w)
-		}
-		if len(terms) == 6 {
-			break
-		}
-	}
+	terms := memoryTerms(prompt) // the words that carry meaning; "the" matched every memory
 	if len(terms) == 0 {
 		return nil
 	}

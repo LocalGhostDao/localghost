@@ -296,6 +296,10 @@ private fun MessageBubble(msg: Message, selectable: Boolean = true) {
             Text("⊹ attached  ${msg.attachments.joinToString(" · ") { it.name }}", color = TerminalDim,
                 style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 4.dp))
         }
+        if (msg.status.isNotEmpty() && msg.text.isEmpty()) {
+            Text("› " + msg.status, color = TerminalDim, style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp, end = 12.dp))
+        }
         // The model's reasoning, collapsed behind a toggle. It STREAMS while expanded (the message
         // object is replaced per chunk, so this just recomposes), doubles as the progress indicator
         // before the first answer token, and stays readable after the answer lands.

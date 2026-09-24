@@ -522,19 +522,31 @@ class MainActivity : ComponentActivity() {
         var web: org.json.JSONArray? = null
         var webHits: List<com.localghost.app.net.WebSearch.Hit> = emptyList()
         val mode = AppSettings.webMode(this)
-        if (com.localghost.app.net.WebSearch.shouldSearch(mode, text)) {
-            messages.add(Message(Message.Role.GHOST, "", reasoning = "searching the web on this phone…"))
-            // The last fix, when recent, lets "what's the weather like?" mean here; it never leaves
-            // the phone except as the coordinates of a weather query, and only for that question.
-            val here = com.localghost.app.sync.LocationLog.last(this)?.takeIf { System.currentTimeMillis() / 1000 - it.ts < 6 * 3600 }
-                ?.let { com.localghost.app.net.WebSearch.Here(it.lat, it.lon) }
-            webHits = com.localghost.app.net.WebSearch.search(text, here)
-            if (webHits.isNotEmpty()) web = com.localghost.app.net.WebSearch.toJson(webHits)
-            if (messages.lastOrNull()?.role == Message.Role.GHOST && messages.last().text.isEmpty()) messages.removeAt(messages.size - 1)
+        // The last fix, when recent: "what's the weather like?" means here on the web side, and
+        // "anywhere good near here?" means here on the box, against its own map data.
+        val fix = com.localghost.app.sync.LocationLog.last(this)?.takeIf { System.currentTimeMillis() / 1000 - it.ts < 6 * 3600 }
+        // A status line in the answer's place until the first word: what is happening right now.
+        fun status(s: String) {
+            if (messages.lastOrNull()?.role == Message.Role.GHOST && messages.last().text.isEmpty())
+                messages[messages.size - 1] = Message(Message.Role.GHOST, "", status = s)
+            else messages.add(Message(Message.Role.GHOST, "", status = s))
         }
-        BoxClient.chat(incognito = incognitoState, chatId = if (incognitoState) 0L else currentChatId, messages.toList(), text, activeConvId, atts, chatCaps, imageB64 = imageB64, web = web).collect { chunk ->
+        if (com.localghost.app.net.WebSearch.shouldSearch(mode, text)) {
+            val engine = com.localghost.app.net.WebSearch.Engine(AppSettings.searchEngine(this), AppSettings.braveKey(this))
+            status("searching the web on this phone" + (if (engine.brave) " (Brave)" else "") + "…")
+            webHits = com.localghost.app.net.WebSearch.search(text, fix?.let { com.localghost.app.net.WebSearch.Here(it.lat, it.lon) }, engine)
+            if (webHits.isNotEmpty()) web = com.localghost.app.net.WebSearch.toJson(webHits)
+            val read = webHits.count { it.excerpt.isNotBlank() }
+            status(if (webHits.isEmpty()) "nothing found on the web , asking your box from your archive alone…"
+                else "${webHits.size} found, $read read on this phone , asking your box…")
+        } else {
+            status("asking your box…")
+        }
+        BoxClient.chat(incognito = incognitoState, chatId = if (incognitoState) 0L else currentChatId, messages.toList(), text, activeConvId, atts, chatCaps, imageB64 = imageB64, web = web,
+            here = fix?.let { it.lat to it.lon }).collect { chunk ->
             when (chunk) {
                 is BoxClient.ChatChunk.Memories -> mems = chunk.ids
+                is BoxClient.ChatChunk.Status -> if (reply.isEmpty() && reasoning.isEmpty()) status(chunk.text)
                 is BoxClient.ChatChunk.ChatId -> {
                     currentChatId = chunk.id
                     // Persisted so the conversation survives the PROCESS, not just the box , the box
@@ -564,6 +576,9 @@ class MainActivity : ComponentActivity() {
                 }
                 BoxClient.ChatChunk.Done -> {
                     streaming = false
+                    // A stream that ended without a word must not leave "asking your box…" standing forever.
+                    if (reply.isEmpty() && reasoning.isEmpty() && messages.lastOrNull()?.role == Message.Role.GHOST && messages.last().text.isEmpty())
+                        messages[messages.size - 1] = Message(Message.Role.GHOST, "The box sent no answer , Box Status says whether the model is up.")
                     // DEBUG tok/s , chars/4 approximates tokens well enough for a health readout;
                     // timed from FIRST answer token so model thinking does not dilute the rate.
                     if (genStartMs > 0 && genChars > 0) {

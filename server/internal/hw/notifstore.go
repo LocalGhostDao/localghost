@@ -1123,6 +1123,17 @@ func (s *NotifStore) SpotsNear(slot int, lat, lon, km float64) ([]outings.Spot, 
 	if err != nil {
 		return nil, err
 	}
+	return QuerySpotsNear(c, lat, lon, km)
+}
+
+// Querier is anything that runs a parameterised query , a ReadWrite or a ReadOnly connection ,
+// so synthd (its own connection) and secd (NotifStore's) share one copy of the geo SQL.
+type Querier interface {
+	Query(sql string, args ...any) (*poltergres.Rows, error)
+}
+
+// QuerySpotsNear is SpotsNear over any connection.
+func QuerySpotsNear(c Querier, lat, lon, km float64) ([]outings.Spot, error) {
 	dLat := km / 111.0
 	cosLat := math.Cos(lat * math.Pi / 180)
 	if cosLat < 0.05 {
@@ -1164,6 +1175,11 @@ func (s *NotifStore) PhotoCellsNear(slot int, lat, lon, km float64) (map[[2]int]
 	if err != nil {
 		return nil, err
 	}
+	return QueryPhotoCellsNear(c, lat, lon, km)
+}
+
+// QueryPhotoCellsNear is PhotoCellsNear over any connection.
+func QueryPhotoCellsNear(c Querier, lat, lon, km float64) (map[[2]int]int, error) {
 	dLat := km / 111.0
 	cosLat := math.Cos(lat * math.Pi / 180)
 	if cosLat < 0.05 {

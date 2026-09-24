@@ -71,6 +71,15 @@ object AppSettings {
     fun webMode(ctx: Context): String = prefs(ctx).getString("web_mode", "off") ?: "off"
     fun setWebMode(ctx: Context, m: String) = prefs(ctx).edit().putString("web_mode", m).apply()
 
+    /** Which engine the phone searches with: "duckduckgo" (default, no key, scraped HTML) or
+     *  "brave" (the Brave Search API with the person's own key , a real API, sturdier than a
+     *  scraped page, a few dollars of free credit a month). Google offers neither: its results page
+     *  forbids scripts and its search API takes no new customers. */
+    fun searchEngine(ctx: Context): String = prefs(ctx).getString("search_engine", "duckduckgo") ?: "duckduckgo"
+    fun setSearchEngine(ctx: Context, e: String) = prefs(ctx).edit().putString("search_engine", e).apply()
+    fun braveKey(ctx: Context): String = prefs(ctx).getString("brave_key", "") ?: ""
+    fun setBraveKey(ctx: Context, k: String) = prefs(ctx).edit().putString("brave_key", k.trim()).apply()
+
     /** The location trail: a position every quarter hour, kept on the phone and handed to the box
      *  when there is one. On by default once location is allowed; the switch is on the welcome
      *  screen and in settings, and the permission itself is the second switch. */

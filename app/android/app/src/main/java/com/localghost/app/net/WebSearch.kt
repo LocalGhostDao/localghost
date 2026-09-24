@@ -145,15 +145,20 @@ object WebSearch {
     // --- the whole thing ---
 
     /** Search and read, bounded; empty on any failure. Call from a coroutine (IO inside). */
-    suspend fun search(question: String, here: Here? = null): List<Hit> = withContext(Dispatchers.IO) {
-        val key = cacheKey(question, here)
+    /** Which engine, and the key when it needs one. */
+    class Engine(val name: String = "duckduckgo", val key: String = "") {
+        val brave: Boolean get() = name == "brave" && key.isNotBlank()
+    }
+
+    suspend fun search(question: String, here: Here? = null, engine: Engine = Engine()): List<Hit> = withContext(Dispatchers.IO) {
+        val key = cacheKey(question, here) + (if (engine.brave) "#b" else "")
         synchronized(cache) { cache[key]?.let { (at, hits) -> if (System.currentTimeMillis() - at < CACHE_TTL_MS) return@withContext hits } }
-        val out = run(question, here)
+        val out = run(question, here, engine)
         if (out.isNotEmpty()) synchronized(cache) { cache[key] = System.currentTimeMillis() to out }
         out
     }
 
-    private fun run(question: String, here: Here?): List<Hit> {
+    private fun run(question: String, here: Here?, engine: Engine = Engine()): List<Hit> {
         val pool = Executors.newFixedThreadPool(FETCH_TOP + 2)
         try {
             // Tools and the first search leave together; the extra queries only when the first
@@ -165,7 +170,7 @@ object WebSearch {
             val agree = HashMap<String, Int>()
             for (q in queries) {
                 if (!q.always && pages.size >= 3) continue // enough already
-                val found = try { results(q.text) } catch (e: Exception) {
+                val found = try { results(q.text, engine) } catch (e: Exception) {
                     android.util.Log.w("LocalGhost", "web search failed: ${e.message}"); emptyList()
                 }
                 for (h in found) {
@@ -221,10 +226,56 @@ object WebSearch {
     /** DuckDuckGo, HTML first, lite as the fallback. Empty when both come back empty or with the
      *  bot check (DuckDuckGo answers a burst of requests with a challenge page instead of results;
      *  the lite endpoint is rate-limited separately). */
-    private fun results(query: String): List<Hit> {
+    private fun results(query: String, engine: Engine = Engine()): List<Hit> {
+        // Brave first when the person gave a key; DuckDuckGo behind it either way, so a spent
+        // credit or a bad key degrades to the keyless search instead of to nothing.
+        if (engine.brave) {
+            val b = try { brave(query, engine.key) } catch (e: Exception) {
+                android.util.Log.w("LocalGhost", "brave search failed: ${e.message}"); emptyList()
+            }
+            if (b.isNotEmpty()) return b
+        }
         val html = try { ddgHtml(query) } catch (e: Exception) { emptyList() }
         if (html.isNotEmpty()) return html
         return try { ddgLite(query) } catch (e: Exception) { emptyList() }
+    }
+
+    /** The Brave Search API: GET /res/v1/web/search with the key in X-Subscription-Token; JSON back. */
+    private fun brave(query: String, key: String): List<Hit> {
+        val conn = (URL("https://api.search.brave.com/res/v1/web/search?count=$MAX_HITS&q=" + URLEncoder.encode(query, "UTF-8"))
+            .openConnection() as HttpURLConnection).apply {
+            connectTimeout = 6000; readTimeout = 6000
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("X-Subscription-Token", key)
+        }
+        try {
+            if (conn.responseCode !in 200..299) {
+                android.util.Log.w("LocalGhost", "brave search: HTTP ${conn.responseCode}")
+                return emptyList()
+            }
+            return parseBrave(readCapped(conn))
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** web.results[] → hits: title, url, the description (Brave marks the matched words with
+     *  <strong>, which comes out), and page_age as the page's own date when it has one. */
+    internal fun parseBrave(json: String): List<Hit> {
+        val root = try { JSONObject(json) } catch (_: Exception) { return emptyList() }
+        val arr = root.optJSONObject("web")?.optJSONArray("results") ?: return emptyList()
+        val out = ArrayList<Hit>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val url = o.optString("url")
+            if (!url.startsWith("http")) continue
+            val title = clean(o.optString("title").replace(Regex("<[^>]+>"), ""))
+            val snippet = clean(o.optString("description").replace(Regex("<[^>]+>"), ""))
+            val age = o.optString("page_age").takeIf { it.length >= 10 }?.substring(0, 10) ?: ""
+            out.add(Hit(title.ifBlank { url }, url, snippet, "", "page", "brave", age))
+            if (out.size == MAX_HITS) break
+        }
+        return out
     }
 
     private fun ddgHtml(query: String): List<Hit> {
@@ -304,11 +355,12 @@ object WebSearch {
         val wiki = Regex("^https?://([a-z]{2,3})\\.(?:m\\.)?wikipedia\\.org/wiki/([^#?]+)").find(h.url)
         if (wiki != null) {
             val s = runCatching { Tools.wikipediaSummary(wiki.groupValues[2], wiki.groupValues[1]) }.getOrNull()
-            if (s != null) { h.excerpt = s.excerpt; h.published = s.published; return }
+            if (s != null) { h.excerpt = s.excerpt; if (s.published.isNotBlank()) h.published = s.published; return }
         }
         val page = fetchPage(h.url) ?: return
         h.excerpt = page.excerptFor(terms)
-        h.published = page.published
+        // The page's own date when it states one; otherwise keep what the search engine knew (Brave's page_age).
+        if (page.published.isNotBlank()) h.published = page.published
     }
 
     /** What a page says about itself and what it says. */

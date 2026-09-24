@@ -21,6 +21,10 @@ data class Message(
     // the box saw them, so a "[2]" in the answer is a link the person can open. Kept with the
     // reply, not the question: it is part of how the answer was made.
     val web: List<com.localghost.app.net.WebSearch.Hit> = emptyList(),
+    // What is happening before the first word ("searching the web on this phone…", "3 found, 2
+    // read , asking your box…", "reading 1,300 words on the CPU , about 35s"). Shown only while
+    // the answer is empty; the first reasoning or answer chunk replaces the message without it.
+    val status: String = "",
 ) {
     enum class Role { USER, GHOST }
 }
