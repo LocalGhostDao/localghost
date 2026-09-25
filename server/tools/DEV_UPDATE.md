@@ -1490,3 +1490,43 @@ Three fixes from that:
 Tests: a JPEG with a damaged scan (Go refuses it) re-encoded through ffmpeg and decoded at its
 size (skipped where there is no ffmpeg); the pace re-asking after the model loads. Not run here:
 dwebp on a real WebP preview (no dwebp in this sandbox; the code path is the same as oracled's).
+
+## The map's coast: the contract checked end to end, and a line on the screen that says what it is doing
+
+Vlad: the tiles are cut (6,903 coast tiles, 313 MB, six seconds through the mirror) but "the new
+maps stuff does not work on the mobile , make sure we're serving the right things from the right
+places and the api definitions are the same".
+
+Checked, both sides, byte by byte:
+- Files: ghost-landtiles wrote <mount>/landtiles/{index.bin, XXX_YYY.lgt}; secd serves them from
+  <state>/mnt/slot<N>/landtiles, the same place seen from inside its namespace, the same shape as
+  the world cuts under geo/ that already draw.
+- Routes: GET /v1/geo/landtiles/index and GET /v1/geo/landtile?x=&y= (secd server.go), bearer
+  session like every other GET, nginx proxies all of /. 204 = no index yet; 404 = no tile for
+  that cell; 304 on a matching ETag ("t-<mtime>-<size>").
+- Index: 4-byte LE magic "LGI1" + 64,800 bytes (one per cell, y*360+x; 0 water, 1 coast, 2 land),
+  64,804 bytes total; the phone refuses any other size. Tile: LE "LGT1", u16 x, u16 y, u32 rings,
+  per ring u32 n and n×(u16, u16) at 1/65535° from the cell's SW corner. The phone's decoder was
+  proven against a golden tile written by the Go encoder (LandTileGeomTest).
+- Names: server TileName "%03d_%03d.lgt" (x, y); the phone asks ?x=key%360&y=key/360 and caches
+  under the same name.
+- Geometry: the phone projects each vertex with the same Mercator as the world (WORLD 1024 units
+  = 360°), origin at the cell's NW corner in Double, positive down; drawn with translate(origin) +
+  scale(pxz). The detail switches on at TILE_PXZ = 150 px per map unit = 427 px per degree, about
+  2.5° across a 1080-px screen , at "Greece" zoom the base still draws, at "Paxos" zoom the tiles.
+Nothing disagrees. What I cannot see from here is the phone.
+
+So the map now SAYS what the coast is doing, in the note line under it: "coast: no tile index from
+the box" (the index never arrived: server side, or an old build), "coast © OpenStreetMap
+contributors (zoom in for detail)" (index here, not zoomed in past 427 px/°), or "tiles N wanted,
+M here[, K failed: <reason>]" with the last failure's reason (not 200 from the box / bytes the
+phone could not decode). logcat (tag LocalGhost) gets the index fetch's outcome (http code, wrong
+size, 204) and every tile failure. And a cell that failed is asked again after a minute instead of
+being dead for the session (a dropped connection is not a missing tile). health.sh prints the
+server half under ghost.framed: "map base: <cuts>" and "map coast: N tiles, size, index ok" (or
+the exact reason it is not).
+
+Not run here: the app (no Android SDK in this sandbox; the structural check cannot see Compose
+state, so it says nothing useful about MapScreen). If the note line says "no tile index" with
+health.sh saying "index ok", the phone never asked or was refused: adb logcat -s LocalGhost while
+opening the map has the http code.

@@ -112,6 +112,25 @@ for svc in $CHECK; do
                 [ -n "$v" ] && printf '  model %s\n' "$v"
                 [ -n "$sp" ] && printf '  %s\n' "$sp"
             fi
+            if [ "$svc" = "ghost.framed" ]; then
+                # What the MAP can draw from this box: the Natural Earth cuts under geo/, and the
+                # coast tiles under landtiles/ (index.bin is what the phone asks for first; 64,804
+                # bytes or it is refused). No tiles = the map keeps the 10m coast when zoomed in.
+                cuts=$(ls "$MOUNT"/geo/world*.geojson 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')
+                printf '  map base: %s\n' "${cuts:-none (fetch_geo.sh)}"
+                if [ -s "$MOUNT/landtiles/index.bin" ]; then
+                    ib=$(stat -c %s "$MOUNT/landtiles/index.bin" 2>/dev/null)
+                    nt=$(ls "$MOUNT"/landtiles/*.lgt 2>/dev/null | wc -l)
+                    sz=$(du -sh "$MOUNT/landtiles" 2>/dev/null | cut -f1)
+                    if [ "$ib" = 64804 ]; then
+                        printf '  map coast: %s tiles, %s, index ok\n' "$nt" "$sz"
+                    else
+                        printf '  map coast: index.bin is %s bytes, want 64804 , the phone refuses it; re-cut (fetch_geo.sh)\n' "$ib"
+                    fi
+                else
+                    printf '  map coast: no tiles (tools/fetch_geo.sh <mount>/geo fetches the polygons and cuts them)\n'
+                fi
+            fi
             if [ "$svc" = "ghost.synthd" ]; then
                 # The memories made from the photos, and the taste , built without the model.
                 o=$("$CLI" ghost.synthd outings 2>/dev/null)

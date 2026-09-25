@@ -407,8 +407,20 @@ fun MapScreen() {
                 .filter { idx[it].toInt() == LandTileGeom.COAST }
         }
         LaunchedEffect(wantTiles) { if (wantTiles.isNotEmpty()) tileCache.ensure(mapScope, ctx, wantTiles) { tileTick++ } }
-        Text(loadNote + (if (worldNote.isNotEmpty()) " · " + worldNote else "") +
-            (if (tileIndex != null) " · coast © OpenStreetMap contributors" else ""),
+        // The note says what the coast is doing, so "the map does not work" has a line to quote:
+        // no index (the box has no tiles, or the phone never got the index), not zoomed in yet,
+        // or tiles wanted / here / failed, with the last failure's reason.
+        @Suppress("UNUSED_VARIABLE") val tilesTick = tileTick
+        val coastNote = when {
+            tileIndex == null -> " · coast: no tile index from the box"
+            pxzNow < LandTileGeom.TILE_PXZ -> " · coast © OpenStreetMap contributors (zoom in for detail)"
+            else -> {
+                val here = wantTiles.count { tileCache.get(it) != null }
+                " · coast © OpenStreetMap contributors · tiles ${wantTiles.size} wanted, $here here" +
+                    (if (tileCache.failures > 0) ", ${tileCache.failures} failed: ${tileCache.lastError}" else "")
+            }
+        }
+        Text(loadNote + (if (worldNote.isNotEmpty()) " · " + worldNote else "") + coastNote,
             color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 16.dp))
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp).background(Void)) {

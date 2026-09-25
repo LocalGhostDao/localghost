@@ -1061,6 +1061,10 @@ object BoxClient {
                 if (tag != old) dir.listFiles()?.forEach { if (it.name.endsWith(".lgt")) it.delete() }
                 cache.writeBytes(fresh)
                 prefs.edit().putString("landtiles_etag", tag ?: "").apply()
+            } else if (fresh != null) {
+                android.util.Log.w("LocalGhost", "land tile index: ${fresh.size} bytes, not an index (want 64804 behind LGI1)")
+            } else if (tag == null) {
+                android.util.Log.i("LocalGhost", "land tile index: none from the box (204 = no tiles cut yet)")
             }
         } catch (_: Exception) { /* offline: the cached index still draws */ }
         return if (cache.exists()) com.localghost.app.ui.LandTileGeom.index(runCatching { cache.readBytes() }.getOrNull()) else null

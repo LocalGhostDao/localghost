@@ -56,22 +56,45 @@ internal class LandTileCache(private val max: Int = 40) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, LandTile>?) = size > max
     }
     private val inFlight = ConcurrentHashMap.newKeySet<Int>()
-    private val failed = ConcurrentHashMap.newKeySet<Int>()
+    /** Cells that failed, with when: asked again after a minute (a dropped connection is not a
+     *  missing tile), and the failure counted so the note line can say so. */
+    private val failed = ConcurrentHashMap<Int, Long>()
     private val gate = Semaphore(4) // four tiles at a time: the box answers fast, the phone builds
+    @Volatile var failures = 0
+        private set
+    @Volatile var lastError: String = ""
+        private set
 
     @Synchronized fun get(key: Int): LandTile? = built[key]
     @Synchronized private fun put(t: LandTile) { built[t.key] = t }
+    @Synchronized fun builtCount(): Int = built.size
+    fun inFlightCount(): Int = inFlight.size
 
     /** Fetch and build what is missing, in scope (the screen's, so panning does not cancel it). */
     fun ensure(scope: CoroutineScope, ctx: Context, keys: List<Int>, landed: () -> Unit) {
+        val now = System.currentTimeMillis()
         for (key in keys) {
-            if (get(key) != null || failed.contains(key) || !inFlight.add(key)) continue
+            if (get(key) != null) continue
+            val f = failed[key]
+            if (f != null && now - f < 60_000L) continue
+            if (!inFlight.add(key)) continue
             scope.launch(Dispatchers.IO) {
                 try {
                     gate.withPermit {
-                        val bytes = com.localghost.app.net.BoxClient.landTile(ctx, key % LandTileGeom.COLS, key / LandTileGeom.COLS)
+                        val x = key % LandTileGeom.COLS; val y = key / LandTileGeom.COLS
+                        val bytes = com.localghost.app.net.BoxClient.landTile(ctx, x, y)
                         val t = bytes?.let { LandTiles.build(it) }
-                        if (t != null) { put(t); withContext(Dispatchers.Main) { landed() } } else failed.add(key)
+                        if (t != null) {
+                            failed.remove(key)
+                            put(t)
+                            withContext(Dispatchers.Main) { landed() }
+                        } else {
+                            failed[key] = System.currentTimeMillis()
+                            failures++
+                            lastError = if (bytes == null) "tile $x,$y: no answer from the box (not 200)"
+                                else "tile $x,$y: ${bytes.size} bytes the phone could not decode"
+                            android.util.Log.w("LocalGhost", "land " + lastError)
+                        }
                     }
                 } finally {
                     inFlight.remove(key)

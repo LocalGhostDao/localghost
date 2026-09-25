@@ -106,12 +106,12 @@ object BoxHttp {
             try {
                 val conn = open(ctx, path, "GET")
                 if (!etag.isNullOrEmpty()) conn.setRequestProperty("If-None-Match", etag)
-                when (conn.responseCode) {
+                when (val code = conn.responseCode) {
                     304 -> { conn.disconnect(); Pair(null, etag) }
                     200 -> Pair(conn.inputStream.use { it.readBytes() }, conn.getHeaderField("ETag"))
-                    else -> { conn.disconnect(); Pair(null, null) }
+                    else -> { conn.disconnect(); android.util.Log.w("LocalGhost", "GET $path: http $code"); Pair(null, null) }
                 }
-            } catch (e: Exception) { Pair(null, null) }
+            } catch (e: Exception) { android.util.Log.w("LocalGhost", "GET $path: ${e.message}"); Pair(null, null) }
         }
 
     suspend fun getJson(ctx: Context, path: String): JSONObject = withContext(Dispatchers.IO) {
