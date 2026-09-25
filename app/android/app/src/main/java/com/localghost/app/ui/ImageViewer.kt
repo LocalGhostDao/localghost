@@ -22,11 +22,20 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.localghost.app.net.BoxClient
 import com.localghost.app.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
- * Full-screen photo viewer with pinch-zoom and pan , the box's own preview JPEG, fetched on open,
- * never cached to disk (the archive is the box's job; the phone is a window, not a second copy).
- * Double-tap toggles fit/3x, single tap dismisses, drag pans while zoomed.
+ * Full-screen photo viewer with pinch-zoom and pan , fetched on open, never cached to disk (the
+ * archive is the box's job; the phone is a window, not a second copy). Double-tap toggles fit/3x,
+ * single tap dismisses, drag pans while zoomed.
+ *
+ * SMALL FIRST. It used to fetch the ORIGINAL, the preview AND the thumb before showing anything ,
+ * three round trips, the first of them a 5-12 MB file decoded at 12 megapixels , so every tap on a
+ * photo was a black screen for seconds. Now: the thumb (a few KB, mostly already in the gallery's
+ * cache) is on screen within a frame, the box's 1600px preview replaces it a moment later, and the
+ * original is fetched only when zoomed in past 1.5x or asked for with [ full ], decoded to at most
+ * ~4000px on its long edge so a 48-megapixel shot does not become a 200 MB bitmap.
  */
 @Composable
 fun ImageViewer(hash: String, caption: String = "", onDismiss: () -> Unit) {
@@ -34,27 +43,32 @@ fun ImageViewer(hash: String, caption: String = "", onDismiss: () -> Unit) {
     var bmp by remember(hash) { mutableStateOf<android.graphics.Bitmap?>(null) }
     var failed by remember(hash) { mutableStateOf(false) }
     var quality by remember(hash) { mutableStateOf("") }
+    var wantFull by remember(hash) { mutableStateOf(false) }
+    var fullState by remember(hash) { mutableStateOf("") } // "", "loading", "shown", "failed"
     LaunchedEffect(hash) {
-        // ORIGINAL first , the untouched archive bytes (the phone can decode jpeg/heic/png
-        // natively). Preview then thumb are FALLBACKS for originals the codec refuses, not the
-        // ceiling. The quality tag says which one you are looking at , no silent downgrades.
-        for ((label, bytes) in listOf(
-            "original" to BoxClient.frameOriginal(ctx, hash),
-            "preview" to BoxClient.framePreview(ctx, hash),
-            "thumb" to BoxClient.frameThumb(ctx, hash))) {
-            if (bytes == null) continue
-            val b = decodeUpright(bytes)
-            if (b != null) {
-                bmp = b
-                quality = label
-                return@LaunchedEffect
-            }
+        // decodes off the main thread: a 1600px JPEG is tens of milliseconds, a sampled original
+        // a few hundred, and the screen keeps animating either way
+        val thumb = BoxClient.frameThumb(ctx, hash)?.let { b -> withContext(Dispatchers.Default) { decodeUpright(b) } }
+        if (thumb != null && bmp == null) { bmp = thumb; quality = "thumb" }
+        val preview = BoxClient.framePreview(ctx, hash)?.let { b -> withContext(Dispatchers.Default) { decodeUpright(b) } }
+        if (preview != null) { bmp = preview; quality = "preview" }
+        if (bmp == null) {
+            // nothing derived on the box (a frame its pipeline could not read): the original is
+            // the only picture there is
+            wantFull = true
         }
-        failed = true
+    }
+    LaunchedEffect(hash, wantFull) {
+        if (!wantFull || fullState == "shown" || fullState == "loading") return@LaunchedEffect
+        fullState = "loading"
+        val full = BoxClient.frameOriginal(ctx, hash)?.let { b -> withContext(Dispatchers.Default) { decodeUpright(b, maxEdge = 4096) } }
+        if (full != null) { bmp = full; quality = "original"; fullState = "shown" }
+        else { fullState = "failed"; if (bmp == null) failed = true }
     }
     var scale by remember(hash) { mutableStateOf(1f) }
     var offX by remember(hash) { mutableStateOf(0f) }
     var offY by remember(hash) { mutableStateOf(0f) }
+    LaunchedEffect(scale) { if (scale > 1.5f) wantFull = true }
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
@@ -93,10 +107,16 @@ fun ImageViewer(hash: String, caption: String = "", onDismiss: () -> Unit) {
             }
             Text("[ close ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).clickable { onDismiss() })
-            if (quality.isNotEmpty() && quality != "original" && scale <= 1.05f) {
-                Text("showing $quality , original would not decode on this phone",
-                    color = TerminalDim, style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp))
+            if (bmp != null && scale <= 1.05f) {
+                val line = when {
+                    fullState == "shown" -> "original"
+                    fullState == "loading" -> "$quality · fetching the original…"
+                    fullState == "failed" -> "$quality · the original would not load"
+                    else -> "$quality · [ full ]"
+                }
+                Text(line, color = TerminalDim, style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+                        .clickable { if (fullState == "") wantFull = true })
             }
         }
     }
@@ -105,8 +125,20 @@ fun ImageViewer(hash: String, caption: String = "", onDismiss: () -> Unit) {
 /** Decode honouring EXIF orientation , BitmapFactory ignores the tag, so ORIGINALS (unlike the
  *  box's pre-uprighted thumbs) arrived sideways. The framework ExifInterface reads the tag from
  *  the bytes (no extra dependency); one Matrix applies rotation and mirroring. */
-private fun decodeUpright(bytes: ByteArray): android.graphics.Bitmap? {
-    val b = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+private fun decodeUpright(bytes: ByteArray, maxEdge: Int = 0): android.graphics.Bitmap? {
+    val opts = android.graphics.BitmapFactory.Options()
+    if (maxEdge > 0) {
+        // measure first, then decode at the largest power-of-two subsample that keeps the long
+        // edge under maxEdge , the decoder skips the pixels it drops, so this is faster, not
+        // just smaller
+        opts.inJustDecodeBounds = true
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        var sample = 1
+        while (maxOf(opts.outWidth, opts.outHeight) / (sample * 2) >= maxEdge) sample *= 2
+        opts.inJustDecodeBounds = false
+        opts.inSampleSize = sample
+    }
+    val b = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null
     val o = try {
         android.media.ExifInterface(java.io.ByteArrayInputStream(bytes))
             .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION,

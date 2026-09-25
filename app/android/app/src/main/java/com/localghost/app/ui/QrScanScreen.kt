@@ -180,7 +180,6 @@ fun QrScanScreen(
         }
 
         val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
-        DisposableEffect(Unit) { onDispose { analysisExecutor.shutdown() } }
 
         // The PreviewView is created once and kept; the camera is bound to the lifecycle in a
         // LaunchedEffect below, NOT in the view factory. Binding in the factory ran once and never
@@ -204,24 +203,47 @@ fun QrScanScreen(
         // two or three distinct pixels to vote with. The phone's own zoom is real detail (720p is
         // a downscale of the sensor), so after a sustained no-decode streak on a small code, zoom
         // 2x; back out when the code grows past what the frame holds comfortably.
+        // The two thresholds must not meet across the 2x: zooming in doubles px/module, so a code at
+        // 4.9 px/module became 9.8, which was past the old 9.5 back-out line, which put it back at
+        // 4.9, which zoomed it in again , the scanner breathed in and out every half second. Now
+        // the back-out line is 14 (a code that was 7 unzoomed, comfortably readable) and no zoom
+        // change follows another within two seconds; back out also when no code has been seen at
+        // all for a while (the person moved on), so the next code starts wide.
         var zoomed by remember { mutableStateOf(false) }
+        var zoomChangedAt by remember { mutableLongStateOf(0L) }
         LaunchedEffect(Unit) {
             while (true) {
                 val cam = camera
                 val streak = com.localghost.app.qr.QrSampler.ScanGeom.noDecodeStreak
                 val mod = com.localghost.app.qr.QrSampler.ScanGeom.moduleLenPx
-                if (cam != null) {
+                val now = System.currentTimeMillis()
+                if (cam != null && now - zoomChangedAt > 2000) {
                     val maxZoom = cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
-                    if (!zoomed && streak >= 6 && mod in 0.1..5.0 && maxZoom >= 1.9f) {
+                    val codeSeen = now - timing.lastDetectAt < DETECT_WINDOW_MS
+                    if (!zoomed && codeSeen && streak >= 6 && mod in 0.1..5.0 && maxZoom >= 1.9f) {
                         runCatching { cam.cameraControl.setZoomRatio(2f) }
-                        zoomed = true
+                        zoomed = true; zoomChangedAt = now
                         ScanDiag.last = "zoomed 2x (${"%.1f".format(mod)} px/module)"
-                    } else if (zoomed && mod > 9.5) {
+                    } else if (zoomed && ((codeSeen && mod > 14.0) || now - timing.lastDetectAt > 4000)) {
                         runCatching { cam.cameraControl.setZoomRatio(1f) }
-                        zoomed = false
+                        zoomed = false; zoomChangedAt = now
                     }
                 }
                 kotlinx.coroutines.delay(250)
+            }
+        }
+        // Leaving the screen (a decode, back, the app going away): the torch OFF and the camera
+        // unbound, explicitly. bindToLifecycle follows the ACTIVITY's lifecycle, which stays alive
+        // when this composable leaves, so without this the torch stayed lit and the camera stayed
+        // open until the app was backgrounded.
+        DisposableEffect(Unit) {
+            onDispose {
+                runCatching {
+                    camera?.cameraControl?.enableTorch(false)
+                    camera?.cameraControl?.setZoomRatio(1f)
+                    ProcessCameraProvider.getInstance(context).get().unbindAll()
+                }
+                analysisExecutor.shutdown()
             }
         }
         // Tap-to-focus feedback ring: where the last tap landed and its fade clock. tapTick (not the
@@ -700,7 +722,9 @@ fun QrScanScreen(
                         )
                     }
                 }
-                if (diag.isNotEmpty()) {
+                // The decoder's own commentary is for debugging (settings › debug mode); a person
+                // scanning sees the coaching line above and the frame pips, nothing else.
+                if (diag.isNotEmpty() && com.localghost.app.settings.AppSettings.debugMode(context)) {
                     Spacer(Modifier.height(3.dp))
                     Text("· $diag", color = GhostTextDim, style = MaterialTheme.typography.labelSmall)
                 }

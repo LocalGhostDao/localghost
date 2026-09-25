@@ -1574,3 +1574,37 @@ upload (exit 4); models_check.sh finding the old mmproj, --fix replacing it (old
 new mode 600, hashes match), then all matching. Found on the way: the default branch ignored a
 lone --mmproj (condition checked only --model); fixed. Not run: the real 7 GB download, the real
 mirror's models set, the oracled restart through watchd.
+
+## The app: the scanner breathing, the torch left on, the map's chatter, slow photos, trails, land over text
+
+Vlad: "the app is weird: it zooms in and out randomly on the QR code, and it turns on the light but
+does not turn it off after; the map has a lot of text , an option to enable debug on the app to
+show all that; the images are slow to load when we select them; I want the trails by day drawn as
+well; and the land overlaps the text."
+
+- THE SCANNER BREATHED because its two zoom thresholds met across the 2x: a code at 4.9 px/module
+  zoomed in (under 5), became 9.8 (over the 9.5 back-out line), zoomed out, became 4.9, zoomed in ,
+  every half second. The back-out line is 14 now (a code that was 7 unzoomed), no zoom change
+  follows another within two seconds, zoom-in needs a code actually in view, and the scanner backs
+  out by itself when no code has been seen for four seconds so the next one starts wide.
+- THE TORCH STAYED ON because bindToLifecycle follows the ACTIVITY, which outlives the scanner
+  screen: a decode or back left the camera bound and the torch lit until the app was backgrounded.
+  The screen's onDispose now turns the torch off, resets the zoom and unbinds the camera.
+- THE MAP'S TEXT: the note line (photo count, detail level, landmass rings and points, the coast
+  tiles' state) shows only in DEBUG MODE (settings › "set app in debug mode", the switch that
+  already gates the tok/s); otherwise the map says nothing, except the one line that explains an
+  empty map. The scanner's decoder commentary is behind the same switch.
+- SLOW PHOTOS: ImageViewer fetched the ORIGINAL, the preview AND the thumb before showing anything
+  (`listOf("original" to fetch(), ...)` evaluates every fetch first), then decoded the original at
+  full resolution , a black screen for seconds per tap. Now the thumb is on screen at once, the
+  1600px preview replaces it a moment later, and the original comes only when zoomed past 1.5x or
+  on [ full ], decoded with inSampleSize to at most ~4000px on the long edge; decodes run off the
+  main thread. The corner line says what is on screen.
+- TRAILS: the other days' trails were drawn in the coast's own dim green over land the same
+  shade; they vanished into the coastline. Amber now, every trail on a dark halo; the lit day and
+  the phone's part stay green.
+- LAND OVER TEXT: Compose does not clip a Canvas to its box, and a filled continent at street zoom
+  is a rectangle the size of the screen , it painted over the title, the note and the trail panel
+  below (strokes never showed this; the new fills did). clipToBounds on the map canvas.
+
+Not run here: the app (no Android SDK in this sandbox).

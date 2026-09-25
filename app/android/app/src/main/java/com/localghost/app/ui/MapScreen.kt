@@ -29,6 +29,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -67,6 +68,9 @@ private const val WORLD = 1024f // == WORLD_UNITS, the Float twin for screen-spa
 // the dim phosphor line it always was. Dark on purpose , the dots and the day's trail are the bright
 // things on this screen, and the land is where they sit.
 private val MapWater = androidx.compose.ui.graphics.Color(0xFF0A1620)
+// The trail of a day that is not lit: amber, so it reads as a path over land and coast alike , in
+// the coast's own dim green it vanished into the coastline. Every trail sits on a dark halo.
+private val MapTrail = androidx.compose.ui.graphics.Color(0xFFD9A441)
 private val MapLand = androidx.compose.ui.graphics.Color(0xFF16211A)
 
 private fun invMercX(x: Double): Double = x / WORLD_UNITS * 360.0 - 180.0
@@ -420,7 +424,14 @@ fun MapScreen() {
                     (if (tileCache.failures > 0) ", ${tileCache.failures} failed: ${tileCache.lastError}" else "")
             }
         }
-        Text(loadNote + (if (worldNote.isNotEmpty()) " · " + worldNote else "") + coastNote,
+        // What the map says about itself: in DEBUG MODE (settings) everything , the photo count and
+        // detail level, the landmass file's ring and point counts, the coast tiles' state , and
+        // otherwise only what a person needs: nothing while it has photos to show, the one line
+        // that says why when it has none.
+        val debug = remember { com.localghost.app.settings.AppSettings.debugMode(ctx) }
+        val mapNote = if (debug) loadNote + (if (worldNote.isNotEmpty()) " · " + worldNote else "") + coastNote
+            else if (cells.isEmpty()) loadNote else ""
+        if (mapNote.isNotEmpty()) Text(mapNote,
             color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 16.dp))
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp).background(Void)) {
@@ -429,7 +440,10 @@ fun MapScreen() {
             if (!cx.isFinite() || !cy.isFinite() || !zoom.isFinite() || zoom <= 0f) {
                 cx = WORLD_UNITS / 2; cy = WORLD_UNITS / 2; zoom = 1f; worldFallback = false
             }
-            Canvas(Modifier.fillMaxSize()
+            // clipToBounds: Compose does not clip a Canvas to its own box, and a filled continent
+            // at street zoom is a rectangle the size of the screen , it painted over the title, the
+            // note and the trail panel. Strokes never showed it; fills did.
+            Canvas(Modifier.fillMaxSize().clipToBounds()
                 .onSizeChanged { viewW = it.width.toFloat(); viewH = it.height.toFloat() }
                 .pointerInput(Unit) {
                     detectTransformGestures { centroid, pan, gz, _ ->
@@ -575,12 +589,15 @@ fun MapScreen() {
                 for (t in tracks) {
                     if (t.maxX < vx0 || t.minX > vx1 || t.maxY < vy0 || t.minY > vy1) continue
                     val lit = t.day.isNotEmpty() && t.day == trailDay
-                    val colour = if (lit || t.phone) TerminalGreen else TerminalDim
+                    val colour = if (lit || t.phone) TerminalGreen else MapTrail
                     val width = if (lit) 3.5f else 2.5f
                     if (t.n >= 2) {
                         trackPath.reset()
                         trackPath.moveTo(sx(t.xs[0]), sy(t.ys[0]))
                         for (i in 1 until t.n) trackPath.lineTo(sx(t.xs[i]), sy(t.ys[i]))
+                        // the halo first: a dark edge either side, so the line stands off the land
+                        // fill and the coast strokes whatever colour is under it
+                        drawPath(trackPath, MapWater, style = Stroke(width = width + 2.5f))
                         drawPath(trackPath, colour, style = Stroke(width = width,
                             pathEffect = if (t.phone) PathEffect.dashPathEffect(floatArrayOf(7f, 7f)) else null))
                     }
