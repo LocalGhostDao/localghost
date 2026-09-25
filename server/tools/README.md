@@ -166,20 +166,31 @@ Entry in `/var/lib/ghost/models/catalog.json`:
 Downloads resume across drops (Range). The box never fetches models itself , you put them there,
 deliberately.
 
-**7b. Box inference weights , service user, ENCRYPTED volume, after the first unlock.** These are
-what ghost.oracled (chat + vision + captions) and ghost.searchd (embeddings) load. They live inside
-the mount so they die with it:
+**7b. Box inference weights , ENCRYPTED volume.** These are what ghost.oracled (chat + vision +
+captions) and ghost.searchd (embeddings) load. They live inside the mount so they die with it. The
+weights are PINNED: `tools/model.pins` names the exact files (Unsloth's Gemma 4 12B GGUF build,
+Apache 2.0, no account or token needed) with their SHA-256 and size, and nothing else is accepted
+under those names , not from the mirror, not from Hugging Face, not from a USB stick. A Hugging Face
+upload that changed under the same name (Unsloth's mmproj did, before their F32 patch_embd fix) is
+refused, not staged. No Python, no huggingface-cli anywhere: curl and sha256sum.
 
-    # unlocked, as the service user (paths for slot 0)
-    mkdir -p /var/lib/ghost/mnt/slot0/ai-models
-    cp gemma-4-12b-it-Q4_K_M.gguf mmproj-F16.gguf embeddinggemma-300m-q8.gguf \
-        /var/lib/ghost/mnt/slot0/ai-models/
-    chown ghost:ghost /var/lib/ghost/mnt/slot0/ai-models/*
-    shred -u <the source copies on the unencrypted disk>
+Before the first unlock, `tools/setup_llama.sh` gets them (the mirror, then Hugging Face, each file
+checked against its pin) and stages them; the unlock ingests them onto the volume. Files you already
+have go in by path, checked the same way:
 
-Missing weights are a named degraded mode, not a crash: oracled reports no model, searchd falls back
-to FTS-only, both say so in health. Restart the two daemons (or relock/unlock) after copying and they
-pick the weights up.
+    sudo ./tools/setup_llama.sh                                    # mirror, then Hugging Face, by pin
+    sudo ./tools/setup_llama.sh --models /media/usb/ggufs          # a directory of them
+    sudo ./tools/setup_llama.sh --model /media/usb/gemma-4-12b-it-Q4_K_M.gguf --mmproj /media/usb/mmproj-F16.gguf
+
+A box that is already running: is what it has the pinned build, and if not, replace it (the mirror
+or the pin's upstream, checked, swapped in, ghost.oracled restarted , ten seconds without a model):
+
+    sudo ./tools/ns.sh ./tools/models_check.sh
+    sudo ./tools/ns.sh ./tools/models_check.sh --fix
+
+`embeddinggemma-300m-q8.gguf` (search's embedder) is not pinned yet and not on the mirror; it is
+accepted from any source. Missing weights are a named degraded mode, not a crash: oracled reports no
+model, searchd falls back to FTS-only, both say so in health.
 
 ## 7c. Move the database binaries onto the volume , service user, after first unlock
 

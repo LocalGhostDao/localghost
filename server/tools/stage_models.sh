@@ -84,6 +84,7 @@ if [ "$NEED" -gt 0 ] && [ "$AVAIL" -lt $((NEED + 1073741824)) ]; then  # need + 
     exit 5
 fi
 
+. "$(dirname "$0")/model_pins.sh"
 COUNT=0
 for name in $WANTED; do
     f="$SRC/$name"
@@ -94,6 +95,12 @@ for name in $WANTED; do
     SIZE=$(stat -c%s "$f")
     if [ "$SIZE" -lt 1048576 ]; then
         echo "!! skipping $name , ${SIZE} bytes is not a model (interrupted download?)" >&2
+        continue
+    fi
+    # the pinned build or nothing: a file under a pinned name that is not that file is never
+    # staged (GHOST_MODEL_PINS_SKIP=1 stages it anyway, for a deliberate experiment)
+    if ! pin_check "$f" && [ "${GHOST_MODEL_PINS_SKIP:-}" != 1 ]; then
+        echo "!! $name not staged (GHOST_MODEL_PINS_SKIP=1 to stage it anyway)" >&2
         continue
     fi
     echo "-- staging $name ($((SIZE / 1048576))MB)"

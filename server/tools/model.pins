@@ -1,0 +1,17 @@
+# model.pins , the exact weights a box runs: name, SHA-256, bytes, where they come from.
+#
+# Read by tools/setup_llama.sh (a download or a copied file is accepted only if it matches),
+# tools/stage_models.sh (the same check before staging) and tools/models_check.sh (what an
+# installed box has, and --fix to replace what does not match). The mirror (tools/mirror_fetch.sh)
+# carries the same files under its signed manifest; the pins here are the second, independent
+# statement of what "the model" is, so a Hugging Face upload that changes under the same name
+# (Unsloth's mmproj did, before their F32 patch_embd fix) is caught wherever the bytes come from.
+#
+# Gemma 4 12B, Unsloth's GGUF build (Apache 2.0, no account, no token):
+#   https://huggingface.co/unsloth/gemma-4-12b-it-GGUF
+#
+# name  sha256  bytes  upstream
+gemma-4-12b-it-Q4_K_M.gguf  0a270ec9fe6b34f4a0d33992b6135117b484ebc4766ab76b51d4ae8c457e4c42  7121861440  https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/gemma-4-12b-it-Q4_K_M.gguf
+mmproj-F16.gguf             91f086971e56d7a7d8d39e271873fccdb49541bd259d6e02c401a4f1cb7a219e  175115840   https://huggingface.co/unsloth/gemma-4-12b-it-GGUF/resolve/main/mmproj-F16.gguf
+# embeddinggemma-300m-q8.gguf: not pinned yet (its source is being settled; the Gemma Terms of Use
+# go with it). Until then it is accepted from any source, unchecked, and the mirror does not carry it.

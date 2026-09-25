@@ -5,14 +5,23 @@
 #   1. installs build deps (git, cmake, compiler)
 #   2. clones llama.cpp into ITS OWN FOLDER (/opt/localghost/llama.cpp) and builds llama-server there
 #   3. symlinks the built binary to /usr/local/bin/llama-server (oracled's default llamaBin)
-#   4. downloads the model ggufs if URLs are provided, or takes a local dir of ggufs
+#   4. gets the model weights: the mirror, then Hugging Face, or files you copied over (a USB
+#      stick, scp) , every file checked against tools/model.pins before it is accepted
 #   5. hands everything to stage_models.sh , the next unlock ingests onto the encrypted volume
 #
 # Usage:
-#   sudo ./tools/setup_llama.sh --models /path/to/dir-with-ggufs
-#   sudo ./tools/setup_llama.sh --model-url URL [--mmproj-url URL] [--embed-url URL] [--hf-token TOKEN]
+#   sudo ./tools/setup_llama.sh                       # llama.cpp + weights from the mirror, Hugging Face as the fallback
+#   sudo ./tools/setup_llama.sh --models /path/to/dir-with-ggufs     # files you already have (checked)
+#   sudo ./tools/setup_llama.sh --model /path/a.gguf --mmproj /path/b.gguf [--embed /path/c.gguf]
+#   sudo ./tools/setup_llama.sh --model-url URL [--mmproj-url URL] [--embed-url URL]   # other weights (unpinned)
 #   sudo ./tools/setup_llama.sh --build-only
-#   sudo ./tools/setup_llama.sh                     # source + weights from the localghost.ai mirror
+#
+# THE WEIGHTS are Unsloth's Gemma 4 12B GGUF build (Apache 2.0, no account, no token): the exact
+# files are named in tools/model.pins with their SHA-256 and size. A download from the mirror is
+# checked by the mirror's signed manifest AND the pin; one from Hugging Face by the pin; a file you
+# copied by the pin. Nothing else is accepted under those names , a Hugging Face upload that changed
+# under the same name (Unsloth's mmproj did, before their F32 patch_embd fix) is refused, not staged.
+# No Python, no huggingface-cli, no Hugging Face account anywhere in setup: curl and sha256sum.
 #
 # THE MIRROR (tools/mirror_fetch.sh; published from the web repo, LocalGhostDao/web mirror/): when
 # https://www.localghost.ai/mirror lists them (it does not yet: until it does, the fallbacks below run),
@@ -21,10 +30,6 @@
 # Both only after the manifest's gpg signature verifies against tools/mirror-key.asc and each file's
 # SHA-256 matches it. A box with a git checkout keeps pulling as before unless --from-mirror.
 # GHOST_MIRROR=off turns the mirror off.
-#
-# HONEST NOTE on the model download: Gemma weights on Hugging Face are LICENSE-GATED , a fully
-# unattended download needs an HF token (--hf-token or HF_TOKEN env) from an account that accepted
-# the license. Without one, download the ggufs on any machine, copy them over, and use --models.
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then echo "run as root" >&2; exit 1; fi
@@ -35,21 +40,27 @@ MODELS_DIR=""
 MODEL_URL=""
 MMPROJ_URL=""
 EMBED_URL=""
-HF_TOKEN="${HF_TOKEN:-}"
+MODEL_FILE=""
+MMPROJ_FILE=""
+EMBED_FILE=""
 BUILD_ONLY=0
 FROM_MIRROR=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --models)     MODELS_DIR="$2"; shift 2 ;;
+        --model)      MODEL_FILE="$2"; shift 2 ;;
+        --mmproj)     MMPROJ_FILE="$2"; shift 2 ;;
+        --embed)      EMBED_FILE="$2"; shift 2 ;;
         --model-url)  MODEL_URL="$2"; shift 2 ;;
         --mmproj-url) MMPROJ_URL="$2"; shift 2 ;;
         --embed-url)  EMBED_URL="$2"; shift 2 ;;
-        --hf-token)   HF_TOKEN="$2"; shift 2 ;;
+        --hf-token)   echo "--hf-token is gone: the pinned weights (tools/model.pins) need no account" >&2; shift 2 ;;
         --build-only) BUILD_ONLY=1; shift ;;
         --from-mirror) FROM_MIRROR=1; shift ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
 done
+. "$(pwd)/tools/model_pins.sh"
 
 echo "=== 1/4  build dependencies ==="
 apt-get install -y --no-install-recommends git cmake build-essential ca-certificates curl libcurl4-openssl-dev gpg
@@ -139,27 +150,68 @@ fi
 
 echo "=== 3/4  model weights ==="
 DL=/var/lib/ghost/staging/download
-if [ -z "$MODELS_DIR" ] && [ -z "$MODEL_URL" ]; then
-    mkdir -p "$DL"; chmod 700 "$DL"
-    if sh "$FETCH" models "$DL"; then
-        echo "-- weights from the mirror, checked"
-        MODELS_DIR="$DL"
-    else
-        echo "!! no --models dir, no --model-url, and no weights from the mirror. Download the ggufs" >&2
-        echo "   elsewhere and re-run with --models." >&2
-        exit 3
+mkdir -p "$DL"; chmod 700 "$DL"
+# fetch_pinned <name> , the file into $DL from the mirror (already checked by its signed manifest)
+# or, when the mirror has nothing, from the pin's upstream with curl (resumable), then the pin check
+# either way. A file already in $DL that matches the pin is kept: a rerun costs nothing.
+fetch_pinned() {
+    _n="$1"; _out="$DL/$_n"
+    if [ -s "$_out" ] && pin_check "$_out" >/dev/null 2>&1; then
+        echo "-- $_n already downloaded and matches the pin"
+        return 0
     fi
-fi
-if [ -z "$MODELS_DIR" ]; then
-    mkdir -p "$DL"; chmod 700 "$DL"
-    AUTH=()
-    [ -n "$HF_TOKEN" ] && AUTH=(-H "Authorization: Bearer $HF_TOKEN")
+    if sh "$FETCH" models "$DL" "$_n" && [ -s "$_out" ]; then
+        echo "-- $_n from the mirror"
+    else
+        _url="$(pin_url "$_n")"
+        [ -n "$_url" ] || { echo "!! $_n: not on the mirror and not pinned (no upstream to fetch from)" >&2; return 1; }
+        echo "-- fetching $_n from $_url (resumable; a rerun continues)"
+        curl -fL --retry 3 --retry-delay 5 -C - --progress-bar -o "$_out" "$_url" || { echo "!! download failed: $_url" >&2; return 1; }
+    fi
+    pin_check "$_out" || { rm -f "$_out"; return 1; }
+}
+if [ -z "$MODELS_DIR" ] && [ -z "$MODEL_URL" ] && [ -z "$MODEL_FILE$MMPROJ_FILE$EMBED_FILE" ]; then
+    # the default: exactly the pinned files
+    for n in $(pin_names); do
+        fetch_pinned "$n" || { echo "!! could not get $n. Copy it over and re-run with --models <dir> (or --model/--mmproj)." >&2; exit 3; }
+    done
+    if [ -n "$(pin_url embeddinggemma-300m-q8.gguf)" ]; then
+        :  # pinned: fetched above
+    elif sh "$FETCH" models "$DL" embeddinggemma-300m-q8.gguf 2>/dev/null && [ -s "$DL/embeddinggemma-300m-q8.gguf" ]; then
+        echo "-- embeddinggemma-300m-q8.gguf from the mirror (unpinned)"
+    else
+        echo "-- embeddinggemma-300m-q8.gguf: not on the mirror and not pinned yet , search runs FTS-only until"
+        echo "   it is provided (--embed <file>, or drop it in $DL and re-run)"
+    fi
+    MODELS_DIR="$DL"
+elif [ -n "$MODEL_FILE" ] || [ -n "$MMPROJ_FILE" ] || [ -n "$EMBED_FILE" ]; then
+    # files copied over one by one: each checked against its pin (by its NAME on the box), then
+    # linked into $DL under that name , the copy happens once, at staging
+    for pair in "gemma-4-12b-it-Q4_K_M.gguf=$MODEL_FILE" "mmproj-F16.gguf=$MMPROJ_FILE" "embeddinggemma-300m-q8.gguf=$EMBED_FILE"; do
+        n="${pair%%=*}"; f="${pair#*=}"
+        [ -n "$f" ] || continue
+        [ -f "$f" ] || { echo "!! $f: no such file" >&2; exit 2; }
+        ln -f "$f" "$DL/$n" 2>/dev/null || cp "$f" "$DL/$n"
+        pin_check "$DL/$n" || { rm -f "$DL/$n"; exit 4; }
+    done
+    for n in $(pin_names); do
+        [ -s "$DL/$n" ] || fetch_pinned "$n" || { echo "!! $n was not given and could not be fetched" >&2; exit 3; }
+    done
+    MODELS_DIR="$DL"
+elif [ -n "$MODELS_DIR" ]; then
+    # a directory of files: every pinned name it holds is checked (stage_models.sh checks again)
+    for n in $(pin_names); do
+        [ -f "$MODELS_DIR/$n" ] || continue
+        pin_check "$MODELS_DIR/$n" || exit 4
+    done
+else
+    # other weights by URL: your choice, unpinned, said so
+    echo "-- weights by URL are not pinned: whatever these URLs serve is what the box will run"
     fetch() { # url -> file in $DL, resumable, fail loudly with the URL named
         local url="$1" out="$DL/$(basename "${1%%\?*}")"
         echo "-- fetching $(basename "$out")"
-        if ! curl -fL --retry 3 -C - "${AUTH[@]}" -o "$out" "$url"; then
+        if ! curl -fL --retry 3 -C - -o "$out" "$url"; then
             echo "!! download failed: $url" >&2
-            echo "   (gated model? pass --hf-token, or download manually and use --models)" >&2
             exit 4
         fi
     }

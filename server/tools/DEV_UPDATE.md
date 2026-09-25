@@ -1530,3 +1530,47 @@ Not run here: the app (no Android SDK in this sandbox; the structural check cann
 state, so it says nothing useful about MapScreen). If the note line says "no tile index" with
 health.sh saying "index ok", the phone never asked or was refused: adb logcat -s LocalGhost while
 opening the map has the http code.
+
+## The weights are pinned: Unsloth's Gemma 4 build, by hash, from the mirror or Hugging Face or a USB stick
+
+The web side published the `models` set: Unsloth's Gemma 4 12B GGUF build (Apache 2.0, no account),
+gemma-4-12b-it-Q4_K_M.gguf (sha256 0a270ec9…e4c42, 7,121,861,440 bytes) and mmproj-F16.gguf
+(91f08697…a219e, 175,115,840 bytes), and asked the box side to keep the same two pins, fall back to
+Hugging Face with curl, accept copied files by pin, and keep Python, huggingface-cli and Hugging Face
+accounts out of setup. Also: "one map" , the GPS map and the photo map are the same map (Natural
+Earth + the OSM coast tiles + GeoNames, with location history and photos as layers), so there is no
+second dataset and no new caller: that open item is closed.
+
+- tools/model.pins: `name sha256 bytes upstream`, the two files above; the embedder
+  (embeddinggemma-300m-q8.gguf) deliberately unpinned until its source is settled.
+- tools/model_pins.sh (POSIX sh, sourced): pin_sha/pin_size/pin_url/pin_names and pin_check <path>
+  , size first (cheap), then sha256sum; an mmproj of the right size with the wrong hash is named
+  for what it is (Unsloth's earlier upload, before their F32 patch_embd fix).
+- tools/setup_llama.sh: the default path fetches exactly the pinned names , the mirror first (its
+  signed manifest AND the pin), else `curl -fL -C -` from the pin's upstream (resumable; a rerun
+  continues; an already-downloaded file that matches is kept) , then the pin; a file that fails is
+  deleted and setup stops with the copy-it-over hint. `--model/--mmproj/--embed <path>` take files
+  you copied (a USB stick, scp), check them by the name they will have on the box, link them into
+  the download dir, and fetch whatever pinned file was not given. `--models <dir>` checks every
+  pinned name it holds. `--model-url` (other weights) stays, unpinned and said so. `--hf-token` is
+  gone (a message says why). The embedder: pinned when the pins say so, else from the mirror
+  unpinned, else a note (FTS-only until provided).
+- tools/stage_models.sh: the same check before staging; a file under a pinned name that is not
+  that file is not staged (GHOST_MODEL_PINS_SKIP=1 for a deliberate experiment).
+- tools/models_check.sh [--fix], run through ns.sh on an unlocked box: every pinned name in
+  <mount>/ai-models against the pin (unpinned files listed); --fix fetches what does not match
+  (mirror, then upstream, checked), moves the old file to <name>.replaced, puts the new one in place
+  with the volume's ownership and mode 600, and asks watchd to restart ghost.oracled so llama-server
+  loads it (about ten seconds without a model on the GPU; searchd retries captions in flight).
+- README 7b rewritten around the pins.
+
+Tested in the sandbox with a fake Hugging Face and fake pins: pin_check on a matching file, a
+same-size wrong-hash mmproj (named as the old upload), an unpinned file; stage_models.sh refusing
+the wrong mmproj and staging the rest; setup_llama.sh's weights step: the default path with the
+mirror off (both files by curl, pins checked), the rerun downloading nothing, Hugging Face serving
+the old mmproj (refused, setup stops), --model/--mmproj/--embed from a "USB stick" (checked, the
+missing pinned file fetched), --mmproj pointing at the old upload (exit 4), --models with the old
+upload (exit 4); models_check.sh finding the old mmproj, --fix replacing it (old kept as .replaced,
+new mode 600, hashes match), then all matching. Found on the way: the default branch ignored a
+lone --mmproj (condition checked only --model); fixed. Not run: the real 7 GB download, the real
+mirror's models set, the oracled restart through watchd.
