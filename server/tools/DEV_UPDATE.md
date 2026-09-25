@@ -1463,3 +1463,30 @@ converter refused with its format named, a missing file; a fake llama-server ans
 input is not supported" → "no vision:", 400 context size → the reason in the error, 500 on the text
 path, 400 on the stream; Pace and the deadlines; the broker's pause and preemption; the queue's hold.
 Not run here: the real llama-server's answer , the probe in the reply asks it.
+
+## After the redeploy: what the first health said, and three small things it showed
+
+The box, 19:58 UTC 2026-09-25, all eleven up. oracled: "model ready" seven seconds after start ,
+that is the GPU (the card is back on the bus; the caption probe answered "The square is red" at
+58 tok/s). searchd: `render undecodable ... .webp ... image: unknown format` , the previews ARE
+WebP (cwebp is installed), which is what llama-server was refusing with its 400s; oracled now
+converts them through dwebp before sending. framed's converge: 32,856 frames, 3,388 undescribed,
+asked searchd for 3,390 (the parked caption jobs are replaced by the ensure path, so converge alone
+un-parks them), and 44 frames with NO preview: "invalid JPEG format: missing 0xff00 sequence" / "bad
+Huffman code". cued: no more doubled-path errors.
+
+Three fixes from that:
+- framed: a JPEG Go's strict decoder refuses is re-encoded through ffmpeg once (`-err_detect
+  ignore_err`, from a temp file: ffmpeg's stdin probe fails on a damaged file where the named-file
+  path reads what is there), then previewed as usual; the 44 get previews, captions and a place in
+  the gallery at the next converge (they are re-derived: "no preview" is a stage). Bundled ffmpeg
+  first, PATH second, as for video frames.
+- searchd: the perceptual hash of a WebP render is computed through dwebp (Go decodes no WebP), so
+  bursts of WebP previews fold again and one caption serves the burst instead of one per sibling.
+- searchd: the pace probe treats "model not loaded yet" as no answer and asks again after ten
+  seconds instead of caching "CPU" for a minute (the first health showed exactly that line, five
+  seconds after oracled started).
+
+Tests: a JPEG with a damaged scan (Go refuses it) re-encoded through ffmpeg and decoded at its
+size (skipped where there is no ffmpeg); the pace re-asking after the model loads. Not run here:
+dwebp on a real WebP preview (no dwebp in this sandbox; the code path is the same as oracled's).

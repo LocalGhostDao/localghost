@@ -39,12 +39,23 @@ func (p *Pace) Slow() bool {
 		return p.slow
 	}
 	onGPU, err := p.Probe()
-	slow := err != nil || !onGPU
+	if err != nil {
+		// no answer (oracled down, or its model still loading): the slow budget for now, and ask
+		// again in ten seconds rather than a minute , the first jobs after a restart used to be
+		// told "CPU" for a minute because they asked before the model was up
+		if p.Log != nil && !p.known {
+			p.Log("oracled not saying where the model runs yet (" + err.Error() + ") , the CPU budget until it does")
+			p.known, p.slow = true, true
+		}
+		p.at = now().Add(-50 * time.Second)
+		return true
+	}
+	slow := !onGPU
 	if p.Log != nil && (!p.known || slow != p.slow) {
 		if slow {
-			p.Log("model on the CPU (or oracled not saying) , caption and tag deadlines stretched to CPU speed")
+			p.Log("model on the CPU , caption and tag deadlines stretched to CPU speed")
 		} else {
-			p.Log("model on the GPU , caption and tag deadlines back to GPU speed")
+			p.Log("model on the GPU , caption and tag deadlines at GPU speed")
 		}
 	}
 	p.slow, p.known, p.at = slow, true, now()

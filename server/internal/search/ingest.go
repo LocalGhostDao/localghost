@@ -16,6 +16,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -262,7 +264,54 @@ func decodeFile(path string) (image.Image, error) {
 	}
 	defer f.Close()
 	img, _, derr := image.Decode(f)
+	if derr != nil && isWebP(path) {
+		// framed's previews are WebP wherever cwebp is installed, and Go decodes no WebP: every
+		// such frame was ingested without a perceptual hash, so bursts of them were never folded
+		// and each sibling was captioned on its own. dwebp comes with cwebp.
+		if img2, err2 := decodeWebP(path); err2 == nil {
+			return img2, nil
+		}
+	}
 	return img, derr
+}
+
+func isWebP(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var h [12]byte
+	if _, err := io.ReadFull(f, h[:]); err != nil {
+		return false
+	}
+	return string(h[0:4]) == "RIFF" && string(h[8:12]) == "WEBP"
+}
+
+// decodeWebP decodes through dwebp (the webp package) into a temporary PNG.
+func decodeWebP(path string) (image.Image, error) {
+	bin, err := exec.LookPath("dwebp")
+	if err != nil {
+		return nil, err
+	}
+	tmp, err := os.CreateTemp("", "lg-phash-*.png")
+	if err != nil {
+		return nil, err
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+	cmd := exec.Command(bin, "-quiet", path, "-o", tmp.Name())
+	cmd.WaitDelay = 5 * time.Second
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("dwebp: %v %s", err, strings.TrimSpace(string(out)))
+	}
+	f, err := os.Open(tmp.Name())
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	img, _, err := image.Decode(f)
+	return img, err
 }
 
 func (in *Ingester) enqueueEmbeds(chunkIDs []int64) error {

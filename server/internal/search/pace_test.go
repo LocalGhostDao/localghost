@@ -33,6 +33,12 @@ func TestPaceAsksOnceAMinuteAndAssumesSlowWhenUnsure(t *testing.T) {
 	if !p.Slow() || logs != 2 {
 		t.Fatal("an unanswered probe must read as slow (and it is no change, so no log)")
 	}
+	// and is asked again after ten seconds, not a minute: the model came up
+	err = nil
+	now = now.Add(11 * time.Second)
+	if p.Slow() || calls != 4 || logs != 3 {
+		t.Fatalf("after the model loaded: slow=%v calls=%d logs=%d", p.Slow(), calls, logs)
+	}
 	var none *Pace
 	if none.Slow() {
 		t.Fatal("no pace is the GPU budget")

@@ -394,8 +394,19 @@ func (p *Pipeline) processOne(path string) (string, error) {
 func (p *Pipeline) makePreviews(raw []byte, hash string, orientation int) (prev, thumb string) {
 	img, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {
-		p.log.Warn("preview decode failed", "fn", "makePreviews", "hash", hash, "err", err)
-		return "", ""
+		// Go's decoder is strict: a JPEG with a damaged segment ("missing 0xff00 sequence", "bad
+		// Huffman code") is refused whole, though most of the picture is fine and every phone shows
+		// it. ffmpeg's decoder is tolerant: re-encode through it once (44 of 32,856 frames on the
+		// reference box had no preview, no caption and no place in the gallery for this).
+		if fixed, ferr := p.redecode(raw); ferr == nil {
+			if img, _, err = image.Decode(bytes.NewReader(fixed)); err == nil {
+				p.log.Info("preview decoded through ffmpeg (damaged original)", "fn", "makePreviews", "hash", hash)
+			}
+		}
+		if err != nil {
+			p.log.Warn("preview decode failed", "fn", "makePreviews", "hash", hash, "err", err)
+			return "", ""
+		}
 	}
 	// JPEG first (pure Go, always works), then converted to WebP when cwebp is on the box , Go has no
 	// WebP ENCODER (stdlib and x/image decode only; pure-Go third-party encoders are lossless-only,
@@ -826,6 +837,45 @@ func (p *Pipeline) videoMeta(path string) exif.Meta {
 // SetFFmpeg points the pipeline at a bundled ffmpeg (binary + private lib dir). Set when the
 // bundle exists; the volume's copy always outranks whatever the OS happens to have.
 func (p *Pipeline) SetFFmpeg(bin, lib string) { p.ffmpegBin, p.ffmpegLib = bin, lib }
+
+// redecode re-encodes a still image ffmpeg can read but Go cannot (a damaged JPEG, a HEIC on a build
+// with the decoder) as a clean JPEG, or fails.
+func (p *Pipeline) redecode(raw []byte) ([]byte, error) {
+	ff, env := p.ffmpegBin, []string(nil)
+	if ff != "" {
+		env = append(os.Environ(), "LD_LIBRARY_PATH="+p.ffmpegLib)
+	} else {
+		var err error
+		if ff, err = exec.LookPath("ffmpeg"); err != nil {
+			return nil, err
+		}
+	}
+	// Written to a file first: ffmpeg probes stdin by content and a damaged JPEG fails the probe
+	// ("Invalid data found when processing input"); named and told to ignore decode errors, it reads
+	// what is there. -f mjpeg names the demuxer for whatever the bytes are called.
+	tmp, err := os.CreateTemp("", "lg-redecode-*.jpg")
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		return nil, err
+	}
+	tmp.Close()
+	cmd := exec.Command(ff, "-hide_banner", "-loglevel", "error", "-err_detect", "ignore_err",
+		"-i", tmp.Name(), "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "2", "pipe:1")
+	cmd.Env = env
+	cmd.WaitDelay = 5 * time.Second
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("ffmpeg produced nothing")
+	}
+	return out, nil
+}
 
 // grabVideoFrame pulls one frame (t=1s, falling back to t=0 for sub-second clips) as JPEG bytes.
 // Bundled ffmpeg first (with ITS libraries via LD_LIBRARY_PATH); PATH as the fallback.

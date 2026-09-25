@@ -89,9 +89,13 @@ func (c *Client) OnGPU() (bool, error) {
 	}
 	var m struct {
 		OnGPU bool `json:"onGPU"`
+		Ready bool `json:"ready"`
 	}
 	if err := json.Unmarshal(resp.Data, &m); err != nil {
 		return false, err
+	}
+	if !m.Ready {
+		return false, errors.New("the model is not loaded yet")
 	}
 	return m.OnGPU, nil
 }
