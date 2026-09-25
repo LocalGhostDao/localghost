@@ -1414,43 +1414,52 @@ holds the pinned key AND another, with the manifest signed by the other (refused
 manifest signed by the pinned key (refused on the header); a replayed older build; unreachable; off.
 Not run here: the live mirror (no egress from this sandbox) , the commands are in tools/README.md 0b.
 
-## The captions stopped: on the CPU every caption died at the GPU's deadline, five times, and parked
+## The captions stopped: 3240 parked, every one refused by llama-server with an unexplained "http 400"
 
-Vlad: "the server has stopped processing, we still have a lot of images to process".
+Vlad: "the server has stopped processing, we still have a lot of images to process". The box said:
+searchd queue parkedJobs 3240, runnableJobs 0; searchd and oracled logs full of
+`kind=caption err="chat/completions: http 400"`, the same ten jobs failing in 10-15 ms each, every few
+minutes, until they too parked (last one 2026-09-24 20:14). My first guess , CPU captions dying at the
+GPU-sized deadline , was wrong for THIS stall: a 400 in 10 ms is llama-server refusing the request
+before doing any work. Why, it said in the response body, and oracled threw the body away.
 
-The likely mechanism (confirm with `ghost-cli ghost.searchd queue`: parkedJobs high, runnableJobs
-near zero, and searchd's log full of "job failed … deadline exceeded"): captions and tags run through
-searchd's job queue with a fixed deadline, 2 minutes a caption and 1 a tag. On the GPU a caption
-takes seconds. With the card off the bus the model runs on the CPU, where the image encode plus up to
-1800 tokens takes minutes: the ones that fit in two minutes succeeded (the ~24 an hour seen before),
-the rest hit the deadline, were retried, hit it again, and after five tries PARKED (attempts >= 5,
-invisible to the worker). The queue drains into the parked pile and looks stopped. Worse, a tag pass
-that hit its deadline came back as "no tags" and the job COMPLETED: frames left untagged for good.
+What a 400 that fast can be (the body decides; the probe below asks llama-server directly):
+- llama-server running without its projector: "image input is not supported … provide the mmproj";
+- an image it cannot decode: it reads JPEG/PNG/GIF/BMP (stb_image), and framed converts previews to
+  WebP whenever cwebp is on the box , a WebP preview is refused every time;
+- the request exceeding the context size.
 
-Fixed:
-- search.Pace asks oracled where the model runs (`models` → onGPU; oracle.Client.OnGPU, a 5-second
-  client of its own), at most once a minute. On the CPU (or when oracled does not say) the deadlines
-  stretch: caption 2 → 15 minutes, tag 1 → 8. The searchd→oracled transport timeout is 16 minutes
-  (oracled enforces each request's own deadline, the transport only has to outlast the longest).
-  One log line when the answer changes ("model on the CPU … deadlines stretched").
-- TagOracle.Tags and Categorize return resp.Err as an error: a failed tag pass is retried, not
-  recorded as "no tags".
-- oracled: a streamed chat (which bypasses the queue) now PAUSES the background lane: a background
-  inference running at that moment is cancelled and answered with oracle.ErrPreempted, nothing
-  background starts until the stream ends plus 20 seconds, interactive queued requests still run.
-  searchd refunds a preempted job's attempt (like "no backend" while warming) and rests 20 s. On the
-  GPU this costs a caption a few seconds; on the CPU, with 15-minute captions, it is the difference
-  between a chat that answers and one sharing the cores with a caption.
+Fixed, all three ways:
+- oracled: every non-200 from llama-server carries llama-server's own message into the error (the
+  multimodal path, the text path , which used to decode an error body as an empty answer , and the
+  chat stream). The searchd log will say WHY from now on.
+- oracled: an image the model cannot read is converted before it is sent: WebP through dwebp (Debian's
+  `webp` package, the one that brings cwebp), anything else through ffmpeg (HEIC/AVIF on builds that
+  have it); a file nothing can convert fails with its format named. JPEG/PNG/GIF/BMP go as they are,
+  with their real media type.
+- A refusal that means "this server takes no images at all" comes back as "no vision: …", and
+  searchd HOLDS the caption lane (5 minutes at a time, attempts refunded, one WARN per hold) instead of
+  failing and parking every job: fixing the server resumes the queue.
 
-After deploying searchd and oracled, bring the parked jobs back:
+And, for when captions run again on the CPU (still true, just not today's cause): search.Pace asks
+oracled whether the model is on the GPU (`models` → onGPU, at most once a minute) and stretches the
+deadlines on the CPU (caption 2 → 15 min, tag 1 → 8; transport 16 min); TagOracle returns resp.Err
+instead of an empty tag list (a failed tag pass used to COMPLETE the job untagged); and a streamed chat
+pauses the background lane (a running caption is cancelled with oracle.ErrPreempted and requeued
+without losing an attempt; nothing background starts until the stream ends + 20 s).
+
+Also found in the same health output: ghost.cued has not posted a reflection or a cue since it was
+wired to the notification store , it built the store from `<mount>/mnt/slot0` as if -mount were the
+state dir (secd's shape), so every post looked for /var/lib/ghost/mnt/slot0/mnt/slot0/services.conf.
+It uses the volume it is given now.
+
+After deploying oracled, searchd and cued:
     sudo ./tools/ns.sh ./bin/ghost-cli ghost.searchd unpark kind=caption
     sudo ./tools/ns.sh ./bin/ghost-cli ghost.searchd unpark kind=tag
-Frames that completed untagged during the CPU weeks come back through the ensure path (a frame with a
-caption and no tags gets a tag job queued); `ghost-cli ghost.framed converge` runs that pass now.
+    sudo ./tools/ns.sh ./bin/ghost-cli ghost.framed converge
 
-Tests: Pace (asks once a minute, reads "slow" when oracled does not answer, logs only on change,
-nil = GPU budget); the deadlines per pace (never shorter than the GPU budget); the broker (a running
-background inference preempted by Pause with ErrPreempted; background submitted during a chat waits
-while an interactive one runs; background resumes only after the grace; an interactive inference is
-never preempted); the queue holding background while still failing expired items. Not run here: a
-real CPU caption against llama-server.
+Tests: image kinds by magic bytes; JPEG passed through untouched, WebP converted, HEIC with no
+converter refused with its format named, a missing file; a fake llama-server answering 400 "image
+input is not supported" → "no vision:", 400 context size → the reason in the error, 500 on the text
+path, 400 on the stream; Pace and the deadlines; the broker's pause and preemption; the queue's hold.
+Not run here: the real llama-server's answer , the probe in the reply asks it.

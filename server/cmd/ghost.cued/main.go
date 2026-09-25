@@ -137,9 +137,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	store := hw.NewNotifStore(func(s int) string {
-		return hw.SocketForMount(filepath.Join(*mount, "mnt", fmt.Sprintf("slot%d", s)))
-	})
+	// -mount IS the volume here (watchd passes /var/lib/ghost/mnt/slot0). secd builds this store from
+	// its STATE dir, <state>/mnt/slotN; copying that shape here doubled the path
+	// (/var/lib/ghost/mnt/slot0/mnt/slot0/services.conf) and every reflection and cue failed to post.
+	store := hw.NewNotifStore(func(int) string { return hw.SocketForMount(*mount) })
 
 	runDir := os.Getenv("GHOST_RUN_DIR")
 	if runDir == "" {

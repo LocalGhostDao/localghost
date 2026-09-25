@@ -10,7 +10,6 @@ package oracled
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -233,6 +232,9 @@ func (b *llamaBackend) Infer(ctx context.Context, req oracle.Request) (oracle.Re
 		return oracle.Response{}, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return oracle.Response{}, refusalError("chat/completions", resp)
+	}
 	var out struct {
 		Choices []struct {
 			FinishReason string `json:"finish_reason"`
@@ -267,13 +269,13 @@ func (b *llamaBackend) inferMultimodal(ctx context.Context, req oracle.Request) 
 	req.MaxTokens = mmBudget
 	content := []map[string]any{{"type": "text", "text": promptText}}
 	for _, imgPath := range req.Images {
-		raw, err := os.ReadFile(imgPath)
+		uri, err := imageForModel(ctx, imgPath)
 		if err != nil {
-			return oracle.Response{}, fmt.Errorf("read image: %w", err)
+			return oracle.Response{}, err
 		}
 		content = append(content, map[string]any{
 			"type":      "image_url",
-			"image_url": map[string]string{"url": dataURI(raw)},
+			"image_url": map[string]string{"url": uri},
 		})
 	}
 	payload := map[string]any{
@@ -303,8 +305,8 @@ func (b *llamaBackend) inferMultimodal(ctx context.Context, req oracle.Request) 
 		return oracle.Response{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		return oracle.Response{}, fmt.Errorf("chat/completions: http %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return oracle.Response{}, refusalError("chat/completions", resp)
 	}
 	var out struct {
 		Choices []struct {
@@ -335,16 +337,6 @@ func (b *llamaBackend) inferMultimodal(ctx context.Context, req oracle.Request) 
 }
 
 // dataURI wraps image bytes as a data URI, sniffing jpeg/png/webp by magic bytes (jpeg default).
-func dataURI(raw []byte) string {
-	mime := "image/jpeg"
-	switch {
-	case len(raw) > 8 && raw[0] == 0x89 && raw[1] == 'P' && raw[2] == 'N' && raw[3] == 'G':
-		mime = "image/png"
-	case len(raw) > 12 && string(raw[0:4]) == "RIFF" && string(raw[8:12]) == "WEBP":
-		mime = "image/webp"
-	}
-	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(raw)
-}
 
 // Stop signals llama-server (TERM, then KILL after a short grace) and reaps it. Called on oracled
 // shutdown, which is the lock path, so the model process dies with the mount.
@@ -482,8 +474,9 @@ func (b *llamaBackend) StreamChat(ctx context.Context, history []Turn, prompt, t
 		return nil, "", err
 	}
 	if resp.StatusCode != http.StatusOK {
+		err := refusalError("chat stream", resp)
 		_ = resp.Body.Close()
-		return nil, "", fmt.Errorf("chat stream: http %d", resp.StatusCode)
+		return nil, "", err
 	}
 	return resp.Body, b.cfg.ModelName, nil
 }

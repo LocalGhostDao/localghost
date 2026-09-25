@@ -69,6 +69,17 @@ func (w *Worker) one(ctx context.Context, kind string, do func(context.Context, 
 		return false
 	}
 	if err := do(ctx, job); err != nil {
+		if strings.Contains(err.Error(), "no vision:") {
+			// The model cannot take images at all (llama-server up without its projector): every
+			// caption would fail the same way. Hold the lane and keep the job's attempts, so fixing
+			// the server resumes the queue instead of finding five thousand parked jobs.
+			_ = w.Store.UnclaimJob(job.ID)
+			if time.Now().After(w.modelHoldUntil) {
+				w.Log.Warn("the model takes no images , caption lane held 5 min, jobs kept", "fn", "one", "why", err.Error())
+			}
+			w.modelHoldUntil = time.Now().Add(5 * time.Minute)
+			return false
+		}
 		if strings.Contains(err.Error(), "no backend") || strings.Contains(err.Error(), "preempted") {
 			// Oracled is warming, or it set this job aside because a person started a chat , refund
 			// the attempt (the job did nothing wrong) and hold the model lanes. One log line per
