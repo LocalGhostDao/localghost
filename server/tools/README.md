@@ -26,29 +26,41 @@ flow is scan-immediately-and-clear-the-screen, not leave-it-on-screen-while-grad
 - pgvector installs automatically in step 1 (postgresql-<ver>-pgvector). If it fails or you skip it,
   nothing breaks: search runs in the documented FTS-only degraded mode and says so in health.
 
-## 0b. Where setup downloads from , https://localghost.ai/mirror
+## 0b. Where setup downloads from , https://www.localghost.ai/mirror
 
-Setup-time downloads (GeoNames, Natural Earth, the OpenStreetMap coastline already cut into the map's
-tiles, the Go toolchain, and, once listed, a pinned llama.cpp and the model weights) come from
-`https://localghost.ai/mirror` first and from each upstream when the mirror cannot deliver. The rule
-that matters is unchanged: the box reaches the network at SETUP only.
+Setup-time downloads come from the LocalGhost mirror first, https://www.localghost.ai/mirror (that
+page says what it carries and what a box promises), and from each upstream when the mirror cannot
+deliver. Today it carries GeoNames and Natural Earth (`geo`), OpenStreetMap's land polygon zip
+(`landpolygons`, which the box cuts into map tiles itself with `bin/ghost-landtiles`) and the Go
+toolchain (`go`); llama.cpp and the model weights are not published yet, so those still come from
+upstream. The rule that matters is unchanged: the box reaches the network at SETUP only.
 
-It is signed the way the site deploys are: `MANIFEST.txt` is a sha256sum list, detach-signed with gpg
-by info@localghost.ai. `tools/mirror_fetch.sh` checks the signature against `tools/mirror-key.asc` (the
-public key, committed in this repo), then every file's hash, before anything gets its real name. A web
-host that was broken into can make setup fall back to the upstreams; it cannot make a box install
-anything else. It is shell and gpg, so the Go toolchain goes through it too, before any Go exists.
+Files are published exactly as upstream publishes them, under `MANIFEST.txt`, a sha256sum list
+detach-signed by the site key (the one that signs the site deploys). `tools/mirror_fetch.sh`:
+
+- verifies the signature in a throwaway gpg home against `tools/mirror-key.asc`, committed in this
+  repo, and requires the signer to be the pinned fingerprint
+  `DCE9 A3D1 4EB4 6197 1DD5  F393 706E 4194 F08A 09A0`; the key is never fetched at verify time;
+- requires the first line to be exactly `# LocalGhost Mirror Manifest` (a site deploy manifest is
+  signed by the same key and must not pass);
+- refuses a build older than the one in `/var/lib/ghost/mirror-build` (a replayed manifest), unless
+  `GHOST_MIRROR_ALLOW_OLD=1`;
+- downloads each file to a hidden `.part` with resume, and names it only when its SHA-256 matches;
+- follows redirects (localghost.ai answers 301 to www) but never down to plain http; a plain-http
+  mirror is accepted only on loopback or with `GHOST_MIRROR_ALLOW_HTTP=1`;
+- exits 3 when there is nothing to offer (off, key missing, gpg missing, set not published) and 1 on
+  any failure; every caller then falls back to upstream, except the model weights, which have no
+  unattended upstream (Hugging Face gates them): `setup_llama.sh --models` or `--model-url` as before.
+
 `GHOST_MIRROR=off` turns it off, `GHOST_MIRROR=<url>` points at another copy. Debian 13 does not
-always ship gpg; setup installs it (`apt-get install gpg`) before it verifies anything.
+always ship gpg; setup installs it before it verifies anything. The key, once, by hand:
 
-The publishing side lives in the web repo (LocalGhostDao/web, `mirror/`: `publish.sh`, `mirror.conf`,
-`terms/`, with its own README): run on the web server, data outside the repo, served at /mirror/ with
-no access log. It uses `cmd/ghost-landtiles` from this repo to cut the coastline:
+    curl -s https://www.localghost.ai/.well-known/pgp-key.asc -o tools/mirror-key.asc
+    gpg --show-keys --with-fingerprint tools/mirror-key.asc   # must show DCE9 A3D1 4EB4 6197 1DD5  F393 706E 4194 F08A 09A0
+    git add tools/mirror-key.asc && git commit -m "mirror: pin the site key"
 
-    cd server && CGO_ENABLED=0 go build -o /usr/local/bin/ghost-landtiles ./cmd/ghost-landtiles
-
-Its first run exports the public key to the web repo's `mirror/mirror-key.asc`; copy that here as
-`tools/mirror-key.asc` and commit it. Until that file exists, boxes skip the mirror (exit 3, "not set up").
+The publishing side lives in the web repo (LocalGhostDao/web, `deploy/mirror/`) and runs with every
+site deploy.
 
 ## 1. System prep , root
 
@@ -195,12 +207,13 @@ smart plug on the mains with the BIOS set to "power on after AC loss" is the oth
 ## 1b'. The coastline at full detail , root, once (optional, several hundred MB)
 
 The map's base is Natural Earth: right for a continent, a smudge for an island. OpenStreetMap's land
-polygons draw every cove; `tools/fetch_geo.sh` fetches them at setup, already cut into tiles, from the
-mirror (0b). On a box that is already running, the same, straight onto the unlocked volume (it fetches
-only what is missing, here the tiles):
+polygons draw every cove; `tools/fetch_geo.sh` fetches them at setup (mirror first, 0b) and cuts
+them into one-degree tiles with `bin/ghost-landtiles`. On a box that is already running, the same,
+straight onto the unlocked volume (it fetches only what is missing, here the polygons, then cuts;
+the cut takes a couple of GB of RAM for a few minutes beside whatever the model is using):
 
     sudo ./tools/ns.sh ./tools/fetch_geo.sh /var/lib/ghost/mnt/slot0/geo
-    sudo ./tools/ns.sh chown -R coder:coder /var/lib/ghost/mnt/slot0/landtiles
+    sudo ./tools/ns.sh chown -R coder:coder /var/lib/ghost/mnt/slot0/landtiles /var/lib/ghost/mnt/slot0/geo
 
 Without the mirror, fetch the shapefile and copy it in, then ask framed to cut it into one-degree tiles:
 

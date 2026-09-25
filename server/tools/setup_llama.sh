@@ -15,7 +15,7 @@
 #   sudo ./tools/setup_llama.sh                     # source + weights from the localghost.ai mirror
 #
 # THE MIRROR (tools/mirror_fetch.sh; published from the web repo, LocalGhostDao/web mirror/): when
-# https://localghost.ai/mirror lists them,
+# https://www.localghost.ai/mirror lists them (it does not yet: until it does, the fallbacks below run),
 # llama.cpp's source comes from it at the commit the publisher pinned , every box builds the same
 # engine, not whatever master was that morning , and so do the weights, without a Hugging Face token.
 # Both only after the manifest's gpg signature verifies against tools/mirror-key.asc and each file's

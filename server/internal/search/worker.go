@@ -69,12 +69,13 @@ func (w *Worker) one(ctx context.Context, kind string, do func(context.Context, 
 		return false
 	}
 	if err := do(ctx, job); err != nil {
-		if strings.Contains(err.Error(), "no backend") {
-			// Oracled is warming , refund the attempt (it never reached the model) and hold the
-			// model lanes. One log line per storm, not one per job.
+		if strings.Contains(err.Error(), "no backend") || strings.Contains(err.Error(), "preempted") {
+			// Oracled is warming, or it set this job aside because a person started a chat , refund
+			// the attempt (the job did nothing wrong) and hold the model lanes. One log line per
+			// storm, not one per job.
 			_ = w.Store.UnclaimJob(job.ID)
 			if time.Now().After(w.modelHoldUntil) {
-				w.Log.Info("model warming , caption/tag lanes resting 20s", "fn", "one")
+				w.Log.Info("model warming or in a chat , caption/tag lanes resting 20s", "fn", "one", "why", err.Error())
 			}
 			w.modelHoldUntil = time.Now().Add(20 * time.Second)
 			return false

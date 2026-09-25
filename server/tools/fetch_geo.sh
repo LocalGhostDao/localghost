@@ -33,18 +33,18 @@ get() { # get <url> <outfile>
     fi
 }
 
-# THE MIRROR FIRST. https://localghost.ai/mirror carries these same files , and the coastline already
-# cut into the map's tiles, so this box skips a several-hundred-MB download and a 2 GB build , under
-# a sha256 manifest signed by the same gpg key as the releases. tools/mirror_fetch.sh checks the
-# signature against tools/mirror-key.asc (in this repo), then every file's hash, before anything lands
-# here; a web host that was broken into can make it fail, never make it install something else.
-# Whatever the mirror does not deliver, the upstream downloads below still fetch.
+# THE MIRROR FIRST. https://www.localghost.ai/mirror (that page says what it is and what a box
+# promises) carries these same files, byte for byte as upstream publishes them, under a sha256
+# manifest signed by the site key. tools/mirror_fetch.sh checks the signature against
+# tools/mirror-key.asc (committed in this repo, pinned by fingerprint), then every file's hash, before
+# anything lands here: a web host that was broken into can make it fail, never make it install
+# something else. Whatever the mirror does not deliver, the upstream downloads below still fetch.
 # GHOST_MIRROR=<url> points at another copy (a LAN mirror); GHOST_MIRROR=off skips it.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FETCH="$HERE/mirror_fetch.sh"
 TILES="${GHOST_TILES_DIR:-$(dirname "$DEST")/landtiles}"
+CUT="${GHOST_LANDTILES:-$HERE/../bin/ghost-landtiles}"
 MIRROR_GEO=0
-MIRROR_TILES=0
 geo_missing() {
     for f in admin1CodesASCII.txt admin2Codes.txt countryInfo.txt allCountries.txt world.geojson world-50m.geojson world-110m.geojson; do
         [ -s "$DEST/$f" ] || return 0
@@ -75,26 +75,6 @@ elif [ -n "$FORCE" ] || geo_missing; then
            echo "  geo: the mirror has nothing for this box (the line above says why) , straight to the upstreams" ;;
         *) echo "  geo: the mirror did not deliver all of it , the upstreams below fetch what is missing" ;;
     esac
-fi
-if [ "$rc" != 3 ] && [ -z "${GHOST_GEO_NO_OSM:-}" ] && { [ -n "$FORCE" ] || [ ! -s "$TILES/index.bin" ]; }; then
-    TST="$TILES.mirror-dl"
-    if sh "$FETCH" landtiles "$TST" && [ -s "$TST/landtiles.tar.gz" ]; then
-        # unpacked beside the live tiles and swapped in whole: secd serves the old set or the new one
-        rm -rf "$TILES.new" && mkdir -p "$TILES.new"
-        if tar -xzf "$TST/landtiles.tar.gz" -C "$TILES.new" && [ -s "$TILES.new/index.bin" ]; then
-            cp "$TST"/TERMS-*.txt "$TST"/NOTICE.txt "$TILES.new/" 2>/dev/null || true
-            rm -rf "$TILES.old"
-            [ -d "$TILES" ] && mv "$TILES" "$TILES.old"
-            mv "$TILES.new" "$TILES" && rm -rf "$TILES.old" "$TST"
-            MIRROR_TILES=1
-            echo "  geo: the coastline tiles from the mirror, checked, in $TILES (no shapefile, no build)"
-        else
-            rm -rf "$TILES.new"
-            echo "  note: the mirror's tile archive did not unpack , the upstream shapefile below instead"
-        fi
-    fi
-elif [ -z "$FORCE" ] && [ -s "$TILES/index.bin" ]; then
-    MIRROR_TILES=1   # tiles already here: the shapefile is only needed to cut them
 fi
 
 if [ "$MIRROR_GEO" = 0 ]; then
@@ -145,21 +125,55 @@ fi
 
 # THE COASTLINE AT FULL DETAIL. Natural Earth's 10m file is the base for the world and the
 # continents; zoomed in on an island it is a smudge (Paxos is a handful of vertices). OpenStreetMap's
-# land polygons draw every cove. The box cuts them into one-degree tiles (ghost.framed geo-tiles, run
-# by itself when this file is newer than the tiles) and the phone fetches only the tiles under its
-# viewport. Several hundred MB, once, at setup like everything here; ODbL: the map credits
-# "© OpenStreetMap contributors" wherever it draws them. GHOST_GEO_NO_OSM=1 skips it.
+# land polygons draw every cove. The mirror carries OpenStreetMap's zip as it is (set landpolygons),
+# upstream is the fallback, and the BOX cuts it into one-degree tiles the phone fetches only under its
+# viewport: here, with bin/ghost-landtiles (make box builds it), or else ghost.framed at its next
+# start (it cuts whenever the shapefile is newer than the tiles; `ghost-cli ghost.framed geo-tiles`
+# asks now). Several hundred MB, a few minutes and a couple of GB of RAM, once. ODbL: the map credits
+# "© OpenStreetMap contributors" wherever it draws them. GHOST_GEO_NO_OSM=1 skips all of it.
 OSM="https://osmdata.openstreetmap.de/download/land-polygons-complete-4326.zip"
-if [ "$MIRROR_TILES" = 1 ]; then
-    : # the tiles are here, cut; the shapefile is only needed to cut them
-elif [ -n "${GHOST_GEO_NO_OSM:-}" ]; then
+SHPDIR="$DEST/land-polygons-complete-4326"
+SHP="$SHPDIR/land_polygons.shp"
+if [ -n "${GHOST_GEO_NO_OSM:-}" ]; then
     echo "  geo: OpenStreetMap land polygons skipped (GHOST_GEO_NO_OSM set) , the map keeps the 10m coast"
-elif [ -s "$DEST/land-polygons-complete-4326/land_polygons.shp" ] && [ -z "$FORCE" ]; then
-    echo "  geo: OpenStreetMap land polygons already present"
-elif command -v unzip >/dev/null 2>&1 && get "$OSM" "$DEST/land-polygons-complete-4326.zip"; then
-    unzip -q -o "$DEST/land-polygons-complete-4326.zip" -d "$DEST" && rm -f "$DEST/land-polygons-complete-4326.zip"
-    echo "  geo: fetched + unpacked OpenStreetMap land polygons ($(du -sh "$DEST/land-polygons-complete-4326" 2>/dev/null | cut -f1))"
+elif [ -z "$FORCE" ] && [ -s "$TILES/index.bin" ]; then
+    echo "  geo: the coastline tiles are already here ($TILES)"
 else
-    echo "  note: could not fetch the OpenStreetMap land polygons , the map keeps the 10m coast when zoomed in"
+    if [ -s "$SHP" ] && [ -z "$FORCE" ]; then
+        echo "  geo: OpenStreetMap land polygons already present"
+    else
+        got=0
+        LST="$DEST/.mirror-lp"
+        if [ "$rc" != 3 ] && command -v unzip >/dev/null 2>&1 && sh "$FETCH" landpolygons "$LST" &&
+           [ -s "$LST/land-polygons-complete-4326.zip" ] &&
+           unzip -q -o "$LST/land-polygons-complete-4326.zip" -d "$DEST"; then
+            cp "$LST"/TERMS-*.txt "$LST"/NOTICE.txt "$SHPDIR/" 2>/dev/null || true
+            rm -rf "$LST"
+            got=1
+            echo "  geo: OpenStreetMap land polygons from the mirror, signature and hash checked ($(du -sh "$SHPDIR" 2>/dev/null | cut -f1))"
+        fi
+        if [ "$got" = 0 ]; then
+            if command -v unzip >/dev/null 2>&1 && get "$OSM" "$DEST/land-polygons-complete-4326.zip"; then
+                unzip -q -o "$DEST/land-polygons-complete-4326.zip" -d "$DEST" && rm -f "$DEST/land-polygons-complete-4326.zip"
+                rm -rf "$LST"
+                echo "  geo: fetched + unpacked OpenStreetMap land polygons from upstream ($(du -sh "$SHPDIR" 2>/dev/null | cut -f1))"
+            else
+                echo "  note: could not fetch the OpenStreetMap land polygons , the map keeps the 10m coast when zoomed in"
+            fi
+        fi
+    fi
+    if [ -s "$SHP" ]; then
+        if [ -x "$CUT" ]; then
+            echo "  geo: cutting the coastline into tiles (a few minutes, a couple of GB of RAM)"
+            if "$CUT" "$SHP" "$TILES"; then
+                cp "$SHPDIR"/TERMS-*.txt "$SHPDIR"/NOTICE.txt "$TILES/" 2>/dev/null || true
+                echo "  geo: coastline tiles in $TILES"
+            else
+                echo "  note: the cut failed , ghost.framed cuts it at its next start (or: ghost-cli ghost.framed geo-tiles)"
+            fi
+        else
+            echo "  note: no bin/ghost-landtiles (make box builds it) , ghost.framed cuts the tiles at its next start"
+            echo "        (or now: ghost-cli ghost.framed geo-tiles)"
+        fi
+    fi
 fi
-

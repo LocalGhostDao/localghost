@@ -81,21 +81,24 @@ func (q *Queue) Submit(req oracle.Request) (<-chan oracle.Response, bool) {
 }
 
 // next pops the highest-priority request whose deadline has NOT passed, dropping (and failing) any
-// that aged out while waiting. Returns nil if the queue is empty. Blocks the caller? No , it is
-// non-blocking; the worker calls it after a notify.
-func (q *Queue) next() *item {
+// that aged out while waiting. With allowBackground false (a person is chatting) background requests
+// stay queued and only interactive ones come out. Returns nil if nothing may run. Non-blocking; the
+// worker calls it after a notify.
+func (q *Queue) next(allowBackground bool) *item {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	for len(q.items) > 0 {
-		it := heap.Pop(&q.items).(*item)
-		if it.req.DeadlineMS > 0 {
-			if time.Since(it.enqueued) > time.Duration(it.req.DeadlineMS)*time.Millisecond {
-				// aged out in the queue , fail it without running, reclaim the slot
-				it.result <- oracle.Response{Err: "deadline exceeded in queue"}
-				continue
-			}
+		top := q.items[0]
+		if top.req.DeadlineMS > 0 && time.Since(top.enqueued) > time.Duration(top.req.DeadlineMS)*time.Millisecond {
+			// aged out in the queue , fail it without running, reclaim the slot
+			heap.Pop(&q.items)
+			top.result <- oracle.Response{Err: "deadline exceeded in queue"}
+			continue
 		}
-		return it
+		if !allowBackground && top.req.Priority < oracle.PriorityInteractive {
+			return nil // the heap puts interactive first: nothing below this may run either
+		}
+		return heap.Pop(&q.items).(*item)
 	}
 	return nil
 }

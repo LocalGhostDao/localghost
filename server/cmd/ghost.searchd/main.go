@@ -142,11 +142,19 @@ func main() {
 		Anchors: search.ZeroRankSignals{}, Warmth: search.ZeroRankSignals{},
 		Log: lg, EfSearch: cfg.EfSearch,
 	}
-	oc := oracle.NewClient(filepath.Join(*mount, "run"), 2*time.Minute)
+	// The worker's calls can take minutes when the model is on the CPU; oracled enforces each
+	// request's own deadline, so the transport only has to outlast the longest of them. The pace
+	// probe has its own short client: oracled answers `models` at once or not at all.
+	oracleRun := filepath.Join(*mount, "run")
+	oc := oracle.NewClient(oracleRun, 16*time.Minute)
+	pace := &search.Pace{
+		Probe: oracle.NewClient(oracleRun, 5*time.Second).OnGPU,
+		Log:   func(msg string, args ...any) { lg.Info(msg, append([]any{"fn", "pace"}, args...)...) },
+	}
 	wk := &search.Worker{
 		Store: storeW, Embed: embedder,
-		Caption:  &search.VisionOracle{Client: oc, Timeout: 2 * time.Minute},
-		Tag:      &search.TagOracle{Client: oc, Timeout: time.Minute},
+		Caption:  &search.VisionOracle{Client: oc, Timeout: 2 * time.Minute, SlowTimeout: 15 * time.Minute, Pace: pace},
+		Tag:      &search.TagOracle{Client: oc, Timeout: time.Minute, SlowTimeout: 8 * time.Minute, Pace: pace},
 		Ingester: ing, Log: lg,
 		Interval: time.Duration(cfg.PollSeconds) * time.Second,
 	}

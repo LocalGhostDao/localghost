@@ -1,9 +1,11 @@
 #!/bin/sh
-# mirror_fetch.sh <set> <dir> [file] , fetch one set (or one file of it) from the localghost.ai mirror
-# into <dir>, every byte checked: the manifest's gpg signature against tools/mirror-key.asc (the key in
-# this repo, the same one that signs the releases), then each file's SHA-256 against the manifest.
-# Nothing unverified is ever given its real name; a failed download stays a hidden .part that the
-# next run resumes. Files already in <dir> with the right hash are kept.
+# mirror_fetch.sh <set> <dir> [file] , fetch one set (or one file of it) from the LocalGhost mirror
+# (https://www.localghost.ai/mirror, what it is and what it promises) into <dir>, every byte checked:
+# the manifest's gpg signature against tools/mirror-key.asc, the site key committed in this repo and
+# pinned here by fingerprint (never fetched at verify time: a key from the same server as the
+# manifest proves nothing), then each file's SHA-256 against the manifest. Nothing unverified is
+# ever given its real name; a failed download stays a hidden .part that the next run resumes. Files
+# already in <dir> with the right hash are kept.
 #
 # Used at SETUP only (fetch_geo.sh, setup.sh for Go, setup_llama.sh): the box reaches the network
 # while it holds nobody's data, never after.
@@ -16,9 +18,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SET="${1:-}"
 DIR="${2:-}"
 ONLY="${3:-}"
-MIRROR="${GHOST_MIRROR:-https://localghost.ai/mirror}"
+MIRROR="${GHOST_MIRROR:-https://www.localghost.ai/mirror}"
 MIRROR="${MIRROR%/}"
 KEY="${GHOST_MIRROR_KEY:-$HERE/mirror-key.asc}"
+# the site key (LocalGhost (The Only Cloud Is You) <info@localghost.ai>), which signs the site deploys
+# and the mirror. The manifest must be signed by THIS key, whatever else tools/mirror-key.asc holds.
+FPR="${GHOST_MIRROR_FPR:-DCE9A3D14EB461971DD5F393706E4194F08A09A0}"
 # the newest build this box has installed from: a manifest older than that is refused (an old,
 # validly signed manifest replayed by whoever controls the web host)
 STATE="${GHOST_MIRROR_STATE:-/var/lib/ghost/mirror-build}"
@@ -40,25 +45,33 @@ command -v curl >/dev/null 2>&1 || na "curl is not installed"
 
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT INT TERM
+# every request: redirects followed (the bare domain answers 301 to www) but never down to plain http
+c() { curl -fsSL --proto-redir =https --max-redirs 5 "$@"; }
+
+# the key file must hold the pinned key; imported into a throwaway gpg home, never the operator's
+mkdir -m 700 "$T/gnupg"
+if ! gpg --batch --quiet --homedir "$T/gnupg" --import "$KEY" >/dev/null 2>&1 ||
+   ! gpg --batch --homedir "$T/gnupg" --with-colons --list-keys 2>/dev/null | awk -F: '$1 == "fpr" { print $10 }' | grep -qx "$FPR"; then
+    na "$(basename "$KEY") is not the LocalGhost site key ($FPR) , check it: gpg --show-keys --with-fingerprint $KEY"
+fi
 
 # --- the manifest ---
 why=""
 for try in 1 2 3; do
     [ "$try" -gt 1 ] && sleep 3   # a publish swaps the manifest and its signature one after the other
-    if ! curl -fsSL --retry 2 -H 'Cache-Control: no-cache' -o "$T/MANIFEST.txt" "$MIRROR/MANIFEST.txt" ||
-       ! curl -fsSL --retry 2 -H 'Cache-Control: no-cache' -o "$T/MANIFEST.txt.asc" "$MIRROR/MANIFEST.txt.asc"; then
-        why="$MIRROR did not answer"
+    if ! c --retry 2 -H 'Cache-Control: no-cache' -o "$T/MANIFEST.txt" "$MIRROR/MANIFEST.txt" ||
+       ! c --retry 2 -H 'Cache-Control: no-cache' -o "$T/MANIFEST.txt.asc" "$MIRROR/MANIFEST.txt.asc"; then
+        why="$MIRROR did not answer (or redirected off https, which is refused)"
         continue
     fi
-    rm -rf "$T/gnupg" && mkdir -m 700 "$T/gnupg"
-    if gpg --batch --quiet --homedir "$T/gnupg" --import "$KEY" >/dev/null 2>&1 &&
-       gpg --batch --homedir "$T/gnupg" --trust-model always --status-fd 1 \
+    # VALIDSIG names the signing key and, last, its primary key: one of them must be the pinned one
+    if gpg --batch --homedir "$T/gnupg" --trust-model always --status-fd 1 \
            --verify "$T/MANIFEST.txt.asc" "$T/MANIFEST.txt" 2>/dev/null > "$T/status" &&
-       grep -q '^\[GNUPG:\] VALIDSIG ' "$T/status"; then
+       awk '$2 == "VALIDSIG" { print $3; print $NF }' "$T/status" | grep -qx "$FPR"; then
         why=""
         break
     fi
-    why="the manifest's signature does not verify against $(basename "$KEY")"
+    why="the manifest's signature is not a valid signature by the site key ($FPR)"
 done
 if [ -n "$why" ]; then
     say "$why , nothing fetched"
@@ -89,11 +102,11 @@ fi
 mkdir -p "$DIR" || exit 1
 
 get() { # get <url> <part> , resumes <part>; a server that will not resume starts it over
-    curl -fsSL --retry 3 --retry-delay 2 --speed-limit 1024 --speed-time 60 -C - -o "$2" "$1" 2>"$T/curl.err"
+    c --retry 3 --retry-delay 2 --speed-limit 1024 --speed-time 60 -C - -o "$2" "$1" 2>"$T/curl.err"
     _rc=$?
     if [ "$_rc" = 33 ] || [ "$_rc" = 36 ]; then
         rm -f "$2"
-        curl -fsSL --retry 3 --retry-delay 2 --speed-limit 1024 --speed-time 60 -o "$2" "$1"
+        c --retry 3 --retry-delay 2 --speed-limit 1024 --speed-time 60 -o "$2" "$1"
         _rc=$?
     elif [ "$_rc" != 0 ]; then
         cat "$T/curl.err" >&2

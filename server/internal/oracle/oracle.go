@@ -12,6 +12,7 @@ package oracle
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
@@ -69,6 +70,30 @@ type Client struct {
 // treats a timeout as "no guidance, fall back".
 func NewClient(runDir string, timeout time.Duration) *Client {
 	return &Client{c: ctlsock.NewClientTimeout("ghost.oracled", runDir, timeout)}
+}
+
+// ErrPreempted is the Err of a background request oracled cancelled because a person started using
+// the model (a streamed chat). The caller did nothing wrong: it retries later, and a job queue must not
+// count it against the job's attempts.
+const ErrPreempted = "preempted: a person is using the model, retry later"
+
+// OnGPU asks oracled where the model runs now (its `models` answer): on the GPU an answer takes
+// seconds, on the CPU minutes, and background callers size their deadlines from it.
+func (c *Client) OnGPU() (bool, error) {
+	resp, err := c.c.Call("models", nil)
+	if err != nil {
+		return false, err
+	}
+	if !resp.OK {
+		return false, errors.New(resp.Err)
+	}
+	var m struct {
+		OnGPU bool `json:"onGPU"`
+	}
+	if err := json.Unmarshal(resp.Data, &m); err != nil {
+		return false, err
+	}
+	return m.OnGPU, nil
 }
 
 // Infer submits a request and blocks for the response (or the client timeout).

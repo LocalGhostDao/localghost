@@ -82,10 +82,10 @@ else
     TARBALL="go${GO_PIN}.linux-${ARCH}.tar.gz"
     echo "  go: installing ${GO_PIN} system-wide (/usr/local/go)..."
     TMPD="$(mktemp -d)"
-    # THE MIRROR FIRST. tools/mirror_fetch.sh takes the tarball from https://localghost.ai/mirror only
-    # if the manifest's gpg signature verifies against tools/mirror-key.asc (the key in this repo, the
-    # one that signs the releases) and the file's SHA-256 matches that manifest , the publisher checked
-    # it against go.dev's own checksum before signing. It is shell and gpg, so it works before Go exists.
+    # THE MIRROR FIRST. tools/mirror_fetch.sh takes the tarball from https://www.localghost.ai/mirror
+    # only if the manifest's gpg signature is by the site key pinned in tools/mirror-key.asc (in this
+    # repo) and the file's SHA-256 matches that manifest , the publisher checked it against go.dev's
+    # own checksum before signing. It is shell and gpg, so it works before Go exists.
     # No mirror (GHOST_MIRROR=off, not set up, down): go.dev's checksum list, as before.
     command -v gpg >/dev/null 2>&1 || apt-get install -y gpg >/dev/null 2>&1 || true
     WANT_SHA=""

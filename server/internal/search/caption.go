@@ -42,8 +42,21 @@ type Captioner interface {
 // volume); oracled's llamaBackend reads it and sends it to the private llama-server over loopback
 // only. Priority is BACKGROUND , a person typing a query always jumps a caption job.
 type VisionOracle struct {
-	Client  *oracle.Client
-	Timeout time.Duration
+	Client      *oracle.Client
+	Timeout     time.Duration // the model on the GPU (default 2 min)
+	SlowTimeout time.Duration // the model on the CPU (default 15 min: image encode + up to 1800 tokens)
+	Pace        *Pace         // nil = always the GPU budget
+}
+
+func (v *VisionOracle) deadline() time.Duration {
+	fast, slow := v.Timeout, v.SlowTimeout
+	if fast <= 0 {
+		fast = 2 * time.Minute
+	}
+	if slow <= 0 {
+		slow = 15 * time.Minute
+	}
+	return v.Pace.pick(fast, slow)
 }
 
 func (v *VisionOracle) Caption(ctx context.Context, imagePath string) (string, error) {
@@ -51,10 +64,7 @@ func (v *VisionOracle) Caption(ctx context.Context, imagePath string) (string, e
 	if v.Client == nil {
 		return "", ErrNoVision
 	}
-	deadline := v.Timeout
-	if deadline <= 0 {
-		deadline = 2 * time.Minute
-	}
+	deadline := v.deadline()
 	resp, err := v.Client.Infer(oracle.Request{
 		Capability: "caption",
 		Class:      oracle.ClassLocalSmall,
@@ -89,8 +99,10 @@ type Tagger interface {
 
 // TagOracle is the oracled-backed Tagger.
 type TagOracle struct {
-	Client  *oracle.Client
-	Timeout time.Duration
+	Client      *oracle.Client
+	Timeout     time.Duration // the model on the GPU (default 1 min)
+	SlowTimeout time.Duration // the model on the CPU (default 8 min)
+	Pace        *Pace
 }
 
 func (t *TagOracle) Tags(ctx context.Context, caption string) ([]Tag, error) {
@@ -108,6 +120,11 @@ func (t *TagOracle) Tags(ctx context.Context, caption string) ([]Tag, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	// A failed inference is an error, not "no tags": before this, a tag pass that hit its deadline
+	// came back empty and the job completed with the frame untagged, for good.
+	if resp.Err != "" {
+		return nil, errors.New(resp.Err)
 	}
 	return ParseTags(resp.Output), nil
 }
@@ -131,6 +148,9 @@ func (t *TagOracle) Categorize(ctx context.Context, tags []string) ([]Tag, error
 	if err != nil {
 		return nil, err
 	}
+	if resp.Err != "" {
+		return nil, errors.New(resp.Err)
+	}
 	// Only the tags we asked about, whatever the model volunteered.
 	asked := map[string]bool{}
 	for _, tg := range tags {
@@ -146,8 +166,12 @@ func (t *TagOracle) Categorize(ctx context.Context, tags []string) ([]Tag, error
 }
 
 func (t *TagOracle) deadline() time.Duration {
-	if t.Timeout <= 0 {
-		return time.Minute
+	fast, slow := t.Timeout, t.SlowTimeout
+	if fast <= 0 {
+		fast = time.Minute
 	}
-	return t.Timeout
+	if slow <= 0 {
+		slow = 8 * time.Minute
+	}
+	return t.Pace.pick(fast, slow)
 }

@@ -217,8 +217,8 @@ func main() {
 	// Streaming chat on the service's UNIX STREAM SOCKET (streamsock) , ctlsock is one-shot and
 	// cannot stream, and a loopback TCP port would be "anything on localhost may connect"; the
 	// socket carries filesystem permissions and dies with the run dir. This path
-	// deliberately bypasses the priority queue (a person is watching tokens appear; background work
-	// arrives via ctlsock and llama-server's --parallel slots absorb the overlap). Events out are
+	// deliberately bypasses the priority queue (a person is watching tokens appear) and pauses the
+	// background lane for as long as it runs (broker.Pause). Events out are
 	// our own minimal protocol, one JSON per SSE data line: {"t":"token"} ... {"done":true,"model":x}.
 	streamMux := http.NewServeMux()
 	streamMux.HandleFunc("/chat", func(w http.ResponseWriter, r *http.Request) {
@@ -232,6 +232,11 @@ func main() {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
+		// A person is using the model: background work steps aside for the whole answer (a
+		// running caption is cancelled and requeued without losing an attempt; none starts until
+		// the stream ends, plus a short grace for the follow-up question).
+		broker.Pause()
+		defer broker.Resume()
 		out, model, err := llama.StreamChat(r.Context(), q.History, q.Prompt, q.Think, q.Image)
 		if err != nil {
 			lg.Warn("chat stream start failed", "fn", "chat", "err", err)

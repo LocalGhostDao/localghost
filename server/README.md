@@ -107,6 +107,11 @@ the rest. Validated: dry-run touches nothing, apply refuses a dirty dry run, des
 run in preview, apply stops at first failure, and the systemd units are hardened and correctly
 ordered (daemons require ghost.secd; only ghost.secd gets TPM access).
 
+Setup's one-time downloads (map and place data, the OpenStreetMap coastline, the Go toolchain) come
+from the LocalGhost mirror first, https://www.localghost.ai/mirror , signed by the site key pinned in
+`tools/mirror-key.asc`, every file checked by hash , and from each upstream when the mirror cannot
+deliver. What a box verifies, step by step: `tools/README.md` section 0b.
+
 ## Certificates , the box is its own CA (no Let's Encrypt)
 
 The box issues its own server cert and the phone's device cert from one self-signed CA. The phone

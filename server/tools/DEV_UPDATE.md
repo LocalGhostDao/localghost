@@ -1379,3 +1379,78 @@ the mirror off; llama.cpp from the mirror, again (kept, build/ kept), and a new 
 EDIT-ME terms file stopping the publish; two publishes at once (the second refused); a failing
 source leaving no directory behind. Not run: the real upstreams (no egress), the world-size cut on
 the real server, nginx.
+
+## The mirror as it went live (2026-09-25): www, the site key pinned, raw OSM cut on the box
+
+The web side (LocalGhostDao/web, deploy/mirror/) is live at https://www.localghost.ai/mirror and
+became a pure proxy: files exactly as upstream publishes them, signed by the SITE key (the one that
+signs site deploys), refreshed by every site deploy. What changed here to match:
+
+- tools/mirror_fetch.sh: default base https://www.localghost.ai/mirror (the bare domain answers 301
+  to www; redirects are followed, never down to plain http: --proto-redir =https). The signer is
+  PINNED: DCE9 A3D1 4EB4 6197 1DD5 F393 706E 4194 F08A 09A0 (GHOST_MIRROR_FPR overrides, for tests).
+  tools/mirror-key.asc must hold that key (checked before anything is downloaded; "is not the
+  LocalGhost site key" otherwise) and the manifest's VALIDSIG must name it, as the signing key or its
+  primary; any other key in the file signs nothing that counts. The key is committed once, by hand,
+  never fetched at verify time. The header check matters more now: a site deploy manifest is signed
+  by the same key, and line 1 must be exactly "# LocalGhost Mirror Manifest".
+- The mirror has no landtiles set. It carries OpenStreetMap's land-polygons-complete-4326.zip as set
+  `landpolygons`; fetch_geo.sh takes it from the mirror (terms and notice beside the shapefile),
+  falls back to osmdata.openstreetmap.de, and CUTS IT ON THE BOX with bin/ghost-landtiles (make box
+  builds it; else ghost.framed cuts at its next start, or `ghost-cli ghost.framed geo-tiles`). Tiles
+  present and no refresh asked: nothing downloaded.
+- llama and models are not published yet: mirror_fetch.sh exits 3 ("build … has no set 'llama'"),
+  setup_llama.sh clones llama.cpp from GitHub as before, and the weights need --models or
+  --model-url as before (there is no unattended upstream for them: Hugging Face gates them).
+- Docs: server/README.md and tools/README.md 0b link the mirror page and list what a box verifies.
+
+Tested against a local https mock of the live contract (self-signed TLS, a bare-domain server that
+301s to the www server, the manifest format and sets above, a test key pinned via GHOST_MIRROR_FPR):
+go from www; geo through the 301; landpolygons; fetch_geo.sh fresh (geo from the mirror, polygons from
+the mirror, cut into tiles with terms beside them) and again (nothing fetched); llama and models
+missing → exit 3, llama falls to the git clone; the Go block of setup.sh; a 301 to plain http
+refused; a tampered manifest; a key file that is not the pinned key (exit 3, named); a key file that
+holds the pinned key AND another, with the manifest signed by the other (refused); a site deploy
+manifest signed by the pinned key (refused on the header); a replayed older build; unreachable; off.
+Not run here: the live mirror (no egress from this sandbox) , the commands are in tools/README.md 0b.
+
+## The captions stopped: on the CPU every caption died at the GPU's deadline, five times, and parked
+
+Vlad: "the server has stopped processing, we still have a lot of images to process".
+
+The likely mechanism (confirm with `ghost-cli ghost.searchd queue`: parkedJobs high, runnableJobs
+near zero, and searchd's log full of "job failed … deadline exceeded"): captions and tags run through
+searchd's job queue with a fixed deadline, 2 minutes a caption and 1 a tag. On the GPU a caption
+takes seconds. With the card off the bus the model runs on the CPU, where the image encode plus up to
+1800 tokens takes minutes: the ones that fit in two minutes succeeded (the ~24 an hour seen before),
+the rest hit the deadline, were retried, hit it again, and after five tries PARKED (attempts >= 5,
+invisible to the worker). The queue drains into the parked pile and looks stopped. Worse, a tag pass
+that hit its deadline came back as "no tags" and the job COMPLETED: frames left untagged for good.
+
+Fixed:
+- search.Pace asks oracled where the model runs (`models` → onGPU; oracle.Client.OnGPU, a 5-second
+  client of its own), at most once a minute. On the CPU (or when oracled does not say) the deadlines
+  stretch: caption 2 → 15 minutes, tag 1 → 8. The searchd→oracled transport timeout is 16 minutes
+  (oracled enforces each request's own deadline, the transport only has to outlast the longest).
+  One log line when the answer changes ("model on the CPU … deadlines stretched").
+- TagOracle.Tags and Categorize return resp.Err as an error: a failed tag pass is retried, not
+  recorded as "no tags".
+- oracled: a streamed chat (which bypasses the queue) now PAUSES the background lane: a background
+  inference running at that moment is cancelled and answered with oracle.ErrPreempted, nothing
+  background starts until the stream ends plus 20 seconds, interactive queued requests still run.
+  searchd refunds a preempted job's attempt (like "no backend" while warming) and rests 20 s. On the
+  GPU this costs a caption a few seconds; on the CPU, with 15-minute captions, it is the difference
+  between a chat that answers and one sharing the cores with a caption.
+
+After deploying searchd and oracled, bring the parked jobs back:
+    sudo ./tools/ns.sh ./bin/ghost-cli ghost.searchd unpark kind=caption
+    sudo ./tools/ns.sh ./bin/ghost-cli ghost.searchd unpark kind=tag
+Frames that completed untagged during the CPU weeks come back through the ensure path (a frame with a
+caption and no tags gets a tag job queued); `ghost-cli ghost.framed converge` runs that pass now.
+
+Tests: Pace (asks once a minute, reads "slow" when oracled does not answer, logs only on change,
+nil = GPU budget); the deadlines per pace (never shorter than the GPU budget); the broker (a running
+background inference preempted by Pause with ErrPreempted; background submitted during a chat waits
+while an interactive one runs; background resumes only after the grace; an interactive inference is
+never preempted); the queue holding background while still failing expired items. Not run here: a
+real CPU caption against llama-server.
