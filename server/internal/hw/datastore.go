@@ -316,6 +316,14 @@ CREATE TABLE IF NOT EXISTS geo_points (
 );
 CREATE INDEX IF NOT EXISTS geo_points_lat ON geo_points (lat);
 CREATE INDEX IF NOT EXISTS geo_points_lon ON geo_points (lon);
+-- The map's LABELS: population (GeoNames column 15) and a rank that says which name to show first
+-- when the view holds thousands , a country above its capital above its cities above its towns,
+-- villages last (rank 1: no population known, still a place). kind A is new with rank: countries
+-- (PCLI…) and first-level regions (ADM1), which the geocoder never needed. geo-import fills both
+-- on a box that predates them (rank 0 everywhere = labels off, the map says so).
+ALTER TABLE geo_points ADD COLUMN IF NOT EXISTS population BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE geo_points ADD COLUMN IF NOT EXISTS rank BIGINT NOT NULL DEFAULT 0;
+CREATE INDEX IF NOT EXISTS geo_points_rank ON geo_points (rank DESC) WHERE rank > 0;
 CREATE TABLE IF NOT EXISTS geo_names (
   code TEXT PRIMARY KEY,  -- 'c:CA' country, '1:CA.02' admin1, '2:CA.02.5926' admin2, 'k:CA' continent
   name TEXT NOT NULL

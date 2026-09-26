@@ -32,8 +32,8 @@ Setup-time downloads come from the LocalGhost mirror first, https://www.localgho
 page says what it carries and what a box promises), and from each upstream when the mirror cannot
 deliver. Today it carries GeoNames and Natural Earth (`geo`), OpenStreetMap's land polygon zip
 (`landpolygons`, which the box cuts into map tiles itself with `bin/ghost-landtiles`) and the Go
-toolchain (`go`); llama.cpp and the model weights are not published yet, so those still come from
-upstream. The rule that matters is unchanged: the box reaches the network at SETUP only.
+toolchain (`go`); the roads extracts (`roads`, 1b''') are the next set to publish; llama.cpp and
+the model weights are not published yet, so those still come from upstream. The rule that matters is unchanged: the box reaches the network at SETUP only.
 
 Files are published exactly as upstream publishes them, under `MANIFEST.txt`, a sha256sum list
 detach-signed by the site key (the one that signs the site deploys). `tools/mirror_fetch.sh`:
@@ -236,6 +236,41 @@ Without the mirror, fetch the shapefile and copy it in, then ask framed to cut i
 Minutes and a couple of GB of RAM, once; the tiles land in `<volume>/landtiles` and the phone fetches
 only the ones under its view when zoomed in. framed rebuilds by itself whenever the shapefile is newer
 than the tiles. The map credits "© OpenStreetMap contributors" (ODbL) wherever it draws them.
+
+## 1b''. Names on the map , after a geo-import on a box that predates them
+
+The map labels countries, regions, capitals, cities, towns and villages from the GeoNames rows on
+the box (ranked at import; `/v1/geo/labels`). A box provisioned before the `rank` column shows no
+names until GeoNames is imported again , twelve million rows, a while, in the background:
+
+    sudo ./tools/ns.sh ./bin/ghost-cli ghost.framed geo-import     # watch framed's log for "geo import done"
+
+## 1b'''. Streets , OpenStreetMap's roads for the world, root, once (optional, ~80 GB and hours)
+
+The map draws roads from OpenStreetMap: the motorways of a country from the coast's zoom, every
+street with its name from ten times closer. The box holds Geofabrik's continent extracts (PBF,
+ODbL) under `<geo>/roads` and cuts them once into `<volume>/roadtiles` with `bin/ghost-roadtiles`;
+the phone fetches one cell at a time as it moves (`/v1/geo/roadtiles/index`, `/v1/geo/roadtile`).
+Opt-in, because of the size: Europe 33 GB, North America 18, Asia 15, Africa 7, the rest 6 ,
+about 80 GB of PBF, kept on the volume beside the tiles so a newer extract can be cut without a
+second download. Mirror first (set `roads`), Geofabrik itself when the mirror has no copy.
+
+    sudo GHOST_GEO_ROADS=europe-latest.osm.pbf ./tools/ns.sh ./tools/fetch_geo.sh /var/lib/ghost/mnt/slot0/geo   # one continent first
+    sudo GHOST_GEO_ROADS=all ./tools/ns.sh ./tools/fetch_geo.sh /var/lib/ghost/mnt/slot0/geo                     # the eight continents
+    sudo ./tools/ns.sh chown -R coder:coder /var/lib/ghost/mnt/slot0/roadtiles /var/lib/ghost/mnt/slot0/geo
+
+The cut runs in the foreground of that script: hours for Europe, a day for the world is the honest
+guess (three passes over every byte, then a lookup per road vertex), 2 GB of RAM plus whatever page
+cache it can get (the node file for Europe is on the order of 10 GB; less RAM than that still
+finishes, slower). Run it in `screen` or `tmux`. If the script is interrupted after the downloads,
+framed finishes the job: it cuts by itself at its next start whenever the PBFs are newer than the
+tiles, or on request, in the background, one build at a time:
+
+    sudo ./tools/ns.sh ./bin/ghost-cli ghost.framed road-tiles     # watch framed's log for "road tiles: done"
+
+`tools/health.sh` prints a `map roads:` line (tiles, or extracts waiting to be cut, or none). The
+map credits "© OpenStreetMap contributors" wherever it draws them; `TERMS-osm-odbl.txt` travels with
+the extracts and the tiles.
 
 ## 1c. When the GPU misbehaves , root
 

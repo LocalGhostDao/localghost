@@ -26,6 +26,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/LocalGhostDao/localghost/server/internal/landtiles"
+	"github.com/LocalGhostDao/localghost/server/internal/roadtiles"
 	"log"
 	"log/slog"
 	"os"
@@ -272,6 +273,47 @@ func main() {
 	})
 	if shp := landtiles.FindShapefile(filepath.Join(*mount, "geo")); shp != "" && landtiles.Stale(shp, tilesOut) {
 		buildTiles("the shapefile is newer than the tiles")
+	}
+	// road-tiles: cut OpenStreetMap's roads (the .osm.pbf files under <mount>/geo/roads, from
+	// tools/fetch_geo.sh: the planet or Geofabrik's continents) into the map's road tiles under
+	// <mount>/roadtiles (internal/roadtiles). Hours for the world, in the background, one build at
+	// a time; the old tiles stay served until the new set is whole. Also by itself at start when a
+	// PBF is newer than the tiles.
+	roadsIn := filepath.Join(*mount, "geo", "roads")
+	roadsOut := filepath.Join(*mount, "roadtiles")
+	var roadsBusy sync.Mutex
+	buildRoads := func(why string) string {
+		pbfs := roadtiles.FindPBFs(roadsIn)
+		if len(pbfs) == 0 {
+			return "no .osm.pbf under " + roadsIn + " , tools/fetch_geo.sh fetches them (set roads on the mirror)"
+		}
+		if !roadsBusy.TryLock() {
+			return "a road tile build is already running (watch the log)"
+		}
+		go func() {
+			defer roadsBusy.Unlock()
+			lg.Info("road tiles: building", "fn", "road-tiles", "why", why, "files", len(pbfs), "to", roadsOut)
+			_ = store.SetState("roadtiles", []byte(`{"state":"building"}`))
+			st, err := roadtiles.Build(pbfs, roadsOut, roadtiles.Options{
+				Work:     filepath.Join(*mount, "roadtiles.work"),
+				Progress: func(p string) { lg.Info("road tiles: "+p, "fn", "road-tiles") },
+			})
+			if err != nil {
+				lg.Error("road tiles: build failed", "fn", "road-tiles", "err", err)
+				_ = store.SetState("roadtiles", []byte(`{"state":"failed"}`))
+				return
+			}
+			lg.Info("road tiles: done , "+st.String(), "fn", "road-tiles")
+			b, _ := json.Marshal(map[string]any{"state": "ready", "majorTiles": st.MajorTiles, "fineTiles": st.FineTiles, "points": st.Points, "bytes": st.Bytes})
+			_ = store.SetState("roadtiles", b)
+		}()
+		return fmt.Sprintf("road tile build started from %d file(s) under %s (hours for the world; watch the log)", len(pbfs), roadsIn)
+	}
+	ctl.Handle("road-tiles", func(json.RawMessage) (ctlsock.Response, error) {
+		return ctlsock.Response{OK: true, Text: buildRoads("asked")}, nil
+	})
+	if pbfs := roadtiles.FindPBFs(roadsIn); len(pbfs) > 0 && roadtiles.Stale(pbfs, roadsOut) {
+		buildRoads("a road file is newer than the tiles")
 	}
 	// reprocess: converge the archive's derived state , frame records, previews (force=true also
 	// re-derives EXISTING previews, the orientation-fix case), search notifies, day paths. Runs in

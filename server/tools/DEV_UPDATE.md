@@ -1608,3 +1608,139 @@ well; and the land overlaps the text."
   below (strokes never showed this; the new fills did). clipToBounds on the map canvas.
 
 Not run here: the app (no Android SDK in this sandbox).
+
+## Names on the map: countries, regions, capitals, cities, towns, villages , from the GeoNames already on the box
+
+Vlad: "for countries could I get cities and streets maybe? or is that too much? it's weird when I
+zoom in on a location and I don't even know what it is, like the capital of Romania; on an island
+it's ok."
+
+Names first, because the box already has them: GeoNames' allCountries is on the volume and in
+geo_points for the geocoder. What was missing was a way to say which name matters in a given view.
+
+- geo_points grows `population` (GeoNames column 15) and `rank`, materialised at import by
+  framed.labelRank: a country (PCL*, kind A, new) above everything in it; a capital (PPLC)
+  8×population + 1M, so Ankara reads before Istanbul; a region (ADM1, kind A, new) 2×pop + 50k; a
+  region's seat (PPLA) 3×pop + 100k; a plain place its population; a place with none known (most
+  villages) 1, shown when the view is small enough to have room; sections of cities, abandoned
+  and historical places 0, never shown. Partial index on (rank DESC) WHERE rank > 0.
+- secd: GET /v1/geo/labels?minlat&maxlat&minlon&maxlon&n → {"labels":[{name,lat,lon,k,pop}]}, best
+  first, n ≤ 200; k is C country, R region, X capital, P place. A world-sized window is a
+  handful of index rows; a small one uses the lat/lon btrees; never a sort of millions.
+- The phone fetches the names with the dots (same escape rule: a new request when the view
+  leaves the fetched margin or the zoom moves ~1.6×): 40 at world span, 70 at country span, 120
+  closer. Draw: ranked order, each label claims a rectangle, a lower-ranked label that would
+  overlap is skipped , a town never sits on its country's name, a crowded coast shows the few
+  that fit. Countries in capitals, wide and dim; capitals bright and bold; towns small; every
+  name on a dark halo; a dot under a place name; all under the photo dots.
+
+ON A BOX THAT IS ALREADY RUNNING the columns arrive with the schema (ALTER TABLE … IF NOT EXISTS
+at the next secd start) but are zero until geo-import runs again:
+    sudo ./tools/ns.sh ./bin/ghost-cli ghost.framed geo-import
+Twelve million rows upserted, a while (watch framed's log: "geo import progress" every 100k rows);
+the map shows names as soon as it finishes. Until then /v1/geo/labels answers an empty list and
+the map draws none.
+
+STREETS are a different order: OpenStreetMap's roads for the world are tens of gigabytes of
+vectors, a planet PBF parser (protobuf + zlib, doable in the standard library, a few hundred lines),
+a line cutter into the same one-degree tiles with three LODs (the polygon cutter is most of it),
+and a phone that draws thousands of segments per tile. Per-country extracts (Geofabrik) rather
+than the planet make it tractable , Romania is ~200 MB of PBF, Europe ~30 GB. A session or two of
+work, not an evening; the mirror would carry the extracts and the box would cut them like the
+coast. Not started.
+
+Tests: labelRank's order (country > capital > region > seat > town > village = 1; a capital over a
+bigger plain city; PPLX/PPLQ/PPLW/PPLH are 0; only PCL*/ADM1 in class A). Not run: the phone, and
+the import on the real 12M rows.
+
+## Streets: OpenStreetMap's roads for the whole world, cut on the box, fetched by the phone a cell at a time
+
+Vlad: "let's do it all end to end, also give me the things I need to tell my mirror to get; we
+have 8 TB, I'm quite sure we can hold the whole world and the phone can just get the granularity
+when we move and the server pulls the right things."
+
+The shape is the coast's, one level deeper. The box holds the continents' PBF extracts, cuts every
+road into tiles once, serves a tile per HTTP request; the phone asks for the cells under its view
+at the zoom it is at and keeps what it fetched. Nothing about a road ever reaches a phone unless
+the phone is looking at that cell.
+
+- internal/osmpbf , a PBF reader in the standard library: the protobuf wire format hand-decoded
+  (varints, length-delimited fields, packed arrays), the blob framing (a big-endian u32, a
+  BlobHeader, a Blob with raw or zlib data; other compressions are ErrFeature), the header's
+  required features, then Nodes (plain and DenseNodes with their delta-coded ids, lat/lon and
+  key/value runs) and Ways (keys, values, delta-coded refs) with the block's granularity and
+  offsets applied. Scan(path, workers, fn, progress) reads blobs in order, inflates and parses
+  them on N goroutines, and hands the blocks to fn IN FILE ORDER (an ordering channel per blob),
+  so a caller that depends on id order (the node file below) sees it. Encode builds a small PBF
+  for tests, so the reader's tests and the cutter's tests need no real extract in the repo.
+- internal/roadtiles , the cutter. Two grids: level 1 is the coast's one-degree grid and holds the
+  MAJOR roads (motorway, trunk, primary, secondary), what a screen 2.5° across should show; level 0
+  is a tenth-of-a-degree grid (3600×1800) and holds EVERY road with its name. Three passes over
+  each PBF: a bitmap over the node id space of the nodes the roads reference; those nodes' lat/lon
+  to a flat file in id order (16 bytes a node, mmapped, binary search); then the ways, walked
+  through the cells they cross, each crossing cut exactly on the cell border, each cell's piece
+  appended to a per-cell buffer that flushes to disk past BufferMB. One last pass turns the
+  buffers into tiles, writes index.bin (64,800 bytes for the major grid, an 810,000-byte bitmap
+  for the fine grid) and swaps the directory in whole, so secd serves the old tiles or the new
+  ones, never half. A tile ("GLR1") is pieces of {class, flags (one-way, tunnel, bridge, named),
+  name, points quantised to 1/65535 of the cell , two metres in a 1° cell, twenty centimetres in
+  a 0.1° cell}. A way with a missing node (an extract's edge) keeps the points it has; under two,
+  it is dropped. cmd/ghost-roadtiles runs it by hand; framed runs it: `ghost-cli ghost.framed
+  road-tiles`, and by itself at start when the PBFs under <mount>/geo/roads are newer than the
+  tiles, one build at a time, state row "roadtiles".
+- secd: GET /v1/geo/roadtiles/index (the index, ETag; 204 while no tiles exist) and
+  GET /v1/geo/roadtile?l=<0|1>&x=&y= (one tile, ETag; 404 for a cell without one). Static files
+  under <mount>/roadtiles, the same code path as the coast.
+- fetch_geo.sh grew a `roads` set, OPT-IN: GHOST_GEO_ROADS=all (the eight continents) or a list of
+  files. Mirror first (set `roads`, one file at a time, signed and resumable), Geofabrik itself as
+  the fallback (https, resume, no pin , Geofabrik republishes every extract daily, so there is no
+  fixed hash to pin against; the mirror's manifest is the pin). The PBFs stay under <geo>/roads;
+  then bin/ghost-roadtiles cuts them, or on a running box framed does. health.sh prints a "map
+  roads:" line.
+- The phone: RoadTileGeom (the codec and the grid arithmetic, pure Kotlin, tested against the
+  box's own fixture bytes), RoadTiles (a tile becomes one Path per class per detail level, plus
+  the named roads' middle segments), RoadTileCache (an LRU of 60 built tiles, four fetches at a
+  time, a failed cell retried after a minute), BoxClient.roadTileIndex/roadTile (index
+  ETag-revalidated; tiles on disk up to 400 MB, trimmed to 300 by age). MapScreen asks for the
+  major cells under the view from the coast's zoom and the street cells from ten times closer,
+  draws the classes the zoom allows (major only, then tertiary and residential, then service,
+  then tracks and paths), casing under fill, motorways amber down to paths grey, tracks dashed,
+  over the land and under the trails; from thirty times the coast's zoom, street names rotated
+  along their middle segment, biggest roads first, a claimed strip per name so none cross, at
+  most 80 a frame, only where the road is longer than its name. The debug note says how many
+  cells are wanted and here and the last failure.
+
+WHAT IT COSTS. Geofabrik's continents today: Europe 32.6 GB, North America 18.1, Asia 15.2,
+Africa 7.4, South America 3.8, Australia-Oceania 1.5, Central America 0.75, Antarctica 0.03 ,
+about 79 GB of PBF. The cut: the node id bitmap is ~1.6 GB (OSM's ids are global, so a small
+extract pays the same), the cell buffers 512 MB, and the node file wants the page cache (16 bytes
+a road node; Europe's is on the order of 10 GB; a box with less RAM finishes, slower, because the
+lookups become NVMe reads). Time: the synthetic benchmark (300k roads, 4.6M nodes, 28 MB) cuts in
+3 s; the real thing is dominated by inflating 79 GB three times and by the node lookups , hours
+for Europe, a day for the world is the honest guess, in the background, once. Output: on the
+order of 15–25 GB of tiles for the world (four bytes a vertex, the major roads stored twice).
+Do Europe first (GHOST_GEO_ROADS=europe-latest.osm.pbf), see the numbers framed logs, then the
+rest. The PBFs stay on the volume beside the tiles: 80 GB of a box with 8 TB, and a re-cut when a
+newer extract arrives needs no download.
+
+A way that crosses a continent boundary is in both extracts (Geofabrik keeps it whole in each);
+both copies are cut and the overlapping piece is drawn twice, on top of itself. Harmless, a few
+bytes; noted so nobody hunts a "duplicate road" bug.
+
+NOT DONE: no relations (route relations, turn restrictions , not drawn); no per-country extracts
+in the fetch script (the mirror can carry them, GHOST_GEO_ROADS takes any file name the mirror
+has); no house numbers, no POIs, no water, no rail; names in the tile are OSM's `name` only (no
+name:en). The tile stores no elevation. Steps are drawn as paths. The phone's road paints are a
+first pass at colours; the halo/casing widths are in screen pixels and will want a look on a
+real screen at 3× density.
+
+Tests: osmpbf (an Encode'd file , zlib blobs, DenseNodes with delta ids, negative coordinates,
+ways with tags and refs , read back in file order on three workers under -race, fn's error stops
+the scan, garbage is refused); roadtiles (tile and index round trip, the cell-border cut on a road across four
+cells, a full Build from an Encode'd PBF with a missing node and a building, Stale, FindPBFs, the
+bitmap and node file); the golden fixtures (road_fixture.lgr, road_index_fixture.bin) that both
+the Go encoder test and the phone's RoadTileGeomTest (7 tests, JUnit, run here with kotlinc
+against the fixture) hold to; secd's two routes (auth, 204 without tiles, bytes and 404 with,
+ETag). Not run: the cut on a real extract (no Geofabrik in this sandbox; the synthetic 28 MB PBF
+was the largest), the phone's drawing (no Android SDK here), the fetch from the mirror once the
+web side publishes `roads`.

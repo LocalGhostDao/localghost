@@ -130,6 +130,17 @@ for svc in $CHECK; do
                 else
                     printf '  map coast: no tiles (tools/fetch_geo.sh <mount>/geo fetches the polygons and cuts them)\n'
                 fi
+                if [ -s "$MOUNT/roadtiles/index.bin" ]; then
+                    nm=$(ls "$MOUNT"/roadtiles/1 2>/dev/null | wc -l); nf=$(ls "$MOUNT"/roadtiles/0 2>/dev/null | wc -l)
+                    printf '  map roads: %s major + %s fine tiles, %s\n' "$nm" "$nf" "$(du -sh "$MOUNT/roadtiles" 2>/dev/null | cut -f1)"
+                else
+                    np=$(ls "$MOUNT"/geo/roads/*.osm.pbf 2>/dev/null | wc -l)
+                    if [ "$np" -gt 0 ]; then
+                        printf '  map roads: %s extract(s) under geo/roads, no tiles yet (framed cuts them: ghost-cli ghost.framed road-tiles; watch its log)\n' "$np"
+                    else
+                        printf '  map roads: none (GHOST_GEO_ROADS=all tools/fetch_geo.sh <mount>/geo fetches the continents)\n'
+                    fi
+                fi
             fi
             if [ "$svc" = "ghost.synthd" ]; then
                 # The memories made from the photos, and the taste , built without the model.

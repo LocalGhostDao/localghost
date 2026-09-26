@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.localghost.app.net.BoxClient
 import com.localghost.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.atan
@@ -214,6 +215,10 @@ fun MapScreen() {
     var tileIndex by remember { mutableStateOf<ByteArray?>(null) }
     val tileCache = remember { LandTileCache() }
     var tileTick by remember { mutableIntStateOf(0) }
+    // THE ROADS (RoadTiles.kt): the same shape as the coast, two grids, a tile fetched only when
+    // zoomed in over its cell; major roads from the coast's zoom, streets from ten times closer.
+    var roadIndex by remember { mutableStateOf<RoadTileGeom.Index?>(null) }
+    val roadCache = remember { RoadTileCache() }
     val mapScope = rememberCoroutineScope()
     var loadNote by remember { mutableStateOf("loading…") }
     var cells by remember { mutableStateOf<List<BoxClient.GeoCell>>(emptyList()) }
@@ -252,6 +257,7 @@ fun MapScreen() {
             }
         }
         tileIndex = BoxClient.landTileIndex(ctx)
+        roadIndex = RoadTileGeom.index(BoxClient.roadTileIndex(ctx))
         // DAY TRACKS, one round trip. /v1/geo/tracks hands back the newest sixty days of polylines
         // (with a clock per vertex and the day's distance, from boxes that write them) in a single
         // answer; a box that predates it (null) gets the old days-then-one-per-day walk.
@@ -322,6 +328,12 @@ fun MapScreen() {
     var fetchedLonMin by remember { mutableStateOf(999.0) }
     var fetchedLonMax by remember { mutableStateOf(-999.0) }
     var fetchedSpan by remember { mutableStateOf(0.0) }
+    // THE NAMES: what the box's GeoNames rows call what is under the view , countries at world
+    // zoom, then regions and capitals, cities, towns, villages as the view narrows. Fetched with
+    // the same escape rule as the dots (below), ranked by the box, thinned on screen by a collision
+    // pass at draw time. Projected once per fetch.
+    class Label(val x: Double, val y: Double, val name: String, val kind: String)
+    var labels by remember { mutableStateOf<List<Label>>(emptyList()) }
     LaunchedEffect(cx, cy, zoom, viewW, viewH) {
         kotlinx.coroutines.delay(160)
         val lvl = when {
@@ -352,7 +364,19 @@ fun MapScreen() {
             q0 >= -90.0 && q1 <= 90.0 && q2 >= -180.0 && q3 <= 180.0 && q0 < q1 && q2 < q3
         if (!sane) { q0 = -90.0; q1 = 90.0; q2 = -180.0; q3 = 180.0 }
         level = lvl
+        // the names for this view, in parallel with the dots: how many depends on how much room
+        // the screen has , a world view shows its forty countries, a town view every village
+        val labelJob = launch {
+            val want = when {
+                vSpan > 40 -> 40
+                vSpan > 8 -> 70
+                else -> 120
+            }
+            val got = BoxClient.geoLabels(ctx, q0, q1, q2, q3, want) ?: return@launch
+            labels = got.map { Label(mercXD(it.lon), mercYD(it.lat), it.name, it.kind) }
+        }
         val lod = BoxClient.framesGeoLod(ctx, lvl, q0, q1, q2, q3)
+        labelJob.join()
         if (lod != null) {
             fetchedLatMin = vLatMin - mLat; fetchedLatMax = vLatMax + mLat
             fetchedLonMin = vLonMin - mLon; fetchedLonMax = vLonMax + mLon
@@ -380,6 +404,59 @@ fun MapScreen() {
         loadNote = when {
             cells.isEmpty() -> "no geotagged photos anywhere yet , they appear as photos with GPS sync"
             else -> cells.sumOf { it.n }.toString() + " photos · detail " + (lvl + 1) + "/4"
+        }
+    }
+    // The names' paints: a country in capitals, wide and dim; a capital or city bright; a town
+    // small; every one on a dark halo so it reads over land, coast and trail alike.
+    class NamePaint(val fill: android.graphics.Paint, val halo: android.graphics.Paint)
+    fun namePaint(sizeSp: Float, argb: Int, bold: Boolean, spacing: Float): NamePaint {
+        val f = android.graphics.Paint().apply {
+            color = argb; textSize = sizeSp * density; textAlign = android.graphics.Paint.Align.CENTER
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, if (bold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+            isAntiAlias = true; letterSpacing = spacing
+        }
+        val h = android.graphics.Paint(f).apply {
+            color = android.graphics.Color.argb(0xE0, 0x0A, 0x16, 0x20); style = android.graphics.Paint.Style.STROKE; strokeWidth = 3f * density
+        }
+        return NamePaint(f, h)
+    }
+    val namePaints = remember {
+        mapOf(
+            "C" to namePaint(12f, android.graphics.Color.argb(0xFF, 0xA0, 0xA0, 0xA0), true, 0.25f),
+            "R" to namePaint(10.5f, android.graphics.Color.argb(0xFF, 0x90, 0x90, 0x90), false, 0.15f),
+            "X" to namePaint(12f, android.graphics.Color.argb(0xFF, 0xE0, 0xE0, 0xE0), true, 0f),
+            "P" to namePaint(10.5f, android.graphics.Color.argb(0xFF, 0xC8, 0xC8, 0xC8), false, 0f),
+        )
+    }
+    // ROAD PAINTS: a colour and a width in screen pixels per class; the casing (a darker, wider
+    // stroke under the fill) is what makes a road read as a road on the land fill. Motorways
+    // warm, primaries pale, streets a shade above the land, paths dashed.
+    class RoadPaint(val fill: androidx.compose.ui.graphics.Color, val casing: androidx.compose.ui.graphics.Color, val width: Float, val dashed: Boolean)
+    val roadPaints = remember {
+        val c = androidx.compose.ui.graphics.Color
+        arrayOf(
+            null,
+            RoadPaint(c(0xFFE8A24A), c(0xFF6B4A1A), 4.5f, false), // 1 motorway
+            RoadPaint(c(0xFFE0B36A), c(0xFF5E4A22), 4f, false),   // 2 trunk
+            RoadPaint(c(0xFFD8D0A0), c(0xFF4F4A30), 3.5f, false), // 3 primary
+            RoadPaint(c(0xFFC4C4B4), c(0xFF44443A), 3f, false),   // 4 secondary
+            RoadPaint(c(0xFFA8AAA0), c(0xFF3A3C36), 2.5f, false), // 5 tertiary
+            RoadPaint(c(0xFF8C9088), c(0xFF30332E), 2f, false),   // 6 residential
+            RoadPaint(c(0xFF6E736C), c(0xFF2A2C28), 1.5f, false), // 7 service
+            RoadPaint(c(0xFF7A6A50), c(0xFF2A2420), 1.5f, true),  // 8 track
+            RoadPaint(c(0xFF6A7A6A), c(0xFF243024), 1f, true),    // 9 path
+        )
+    }
+    val roadNamePaint = remember {
+        android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(0xFF, 0xE0, 0xE0, 0xD8); textSize = 10f * density
+            typeface = android.graphics.Typeface.MONOSPACE; isAntiAlias = true
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+    }
+    val roadNameHalo = remember {
+        android.graphics.Paint(roadNamePaint).apply {
+            color = android.graphics.Color.argb(0xD0, 0x0A, 0x16, 0x20); style = android.graphics.Paint.Style.STROKE; strokeWidth = 3f * density
         }
     }
     // One Paint for every cluster label, not one per label per frame.
@@ -411,6 +488,17 @@ fun MapScreen() {
                 .filter { idx[it].toInt() == LandTileGeom.COAST }
         }
         LaunchedEffect(wantTiles) { if (wantTiles.isNotEmpty()) tileCache.ensure(mapScope, ctx, wantTiles) { tileTick++ } }
+        val wantRoads = remember(roadIndex, cx, cy, pxzNow, viewW, viewH) {
+            val idx = roadIndex
+            if (idx == null || pxzNow < RoadTileGeom.MAJOR_PXZ) emptyList()
+            else {
+                val lon0 = invMercX(cx - viewW / 2.0 / pxzNow); val lon1 = invMercX(cx + viewW / 2.0 / pxzNow)
+                val latLo = invMercY(cy + viewH / 2.0 / pxzNow); val latHi = invMercY(cy - viewH / 2.0 / pxzNow)
+                val major = RoadTileGeom.cellsFor(idx, 1, lon0, lon1, latLo, latHi)
+                if (pxzNow >= RoadTileGeom.FINE_PXZ) major + RoadTileGeom.cellsFor(idx, 0, lon0, lon1, latLo, latHi) else major
+            }
+        }
+        LaunchedEffect(wantRoads) { if (wantRoads.isNotEmpty()) roadCache.ensure(mapScope, ctx, wantRoads) { tileTick++ } }
         // The note says what the coast is doing, so "the map does not work" has a line to quote:
         // no index (the box has no tiles, or the phone never got the index), not zoomed in yet,
         // or tiles wanted / here / failed, with the last failure's reason.
@@ -423,6 +511,11 @@ fun MapScreen() {
                 " · coast © OpenStreetMap contributors · tiles ${wantTiles.size} wanted, $here here" +
                     (if (tileCache.failures > 0) ", ${tileCache.failures} failed: ${tileCache.lastError}" else "")
             }
+        } + when {
+            roadIndex == null -> " · roads: no tile index from the box"
+            wantRoads.isEmpty() -> " · roads: index ok" + (if (pxzNow < RoadTileGeom.MAJOR_PXZ) " (zoom in)" else " (no tiles under the view)")
+            else -> " · roads ${wantRoads.size} wanted, ${wantRoads.count { roadCache.get(it) != null }} here" +
+                (if (roadCache.failures > 0) ", ${roadCache.failures} failed: ${roadCache.lastError}" else "")
         }
         // What the map says about itself: in DEBUG MODE (settings) everything , the photo count and
         // detail level, the landmass file's ring and point counts, the coast tiles' state , and
@@ -580,6 +673,65 @@ fun MapScreen() {
                         }
                     }
                 }
+                // THE ROADS, over the land and under the trails: for every road tile under the view
+                // (major tiles always, street tiles from FINE_PXZ), the classes this zoom shows, each
+                // class one Path per tile, casing first then fill, screen-space widths (given in map
+                // units, so widthPx / pxz). Street names along their middle segment at NAME_PXZ.
+                if (roadIndex != null && pxz >= RoadTileGeom.MAJOR_PXZ && wantRoads.isNotEmpty()) {
+                    val maxCls = RoadTileGeom.maxClassFor(pxz)
+                    val tiles = wantRoads.mapNotNull { k ->
+                        // a street tile's major roads are already in the major tile: draw only
+                        // classes above MajorMax from level 0 where a major tile covers the cell
+                        roadCache.get(k)?.let { it to RoadTileGeom.levelOf(k) }
+                    }
+                    for (pass in 0..1) for (cls in 9 downTo 1) {
+                        if (cls > maxCls) continue
+                        val rp = roadPaints[cls] ?: continue
+                        val w = if (pass == 0) rp.width + 2f else rp.width
+                        val stroke = Stroke(width = w / pxz, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                            pathEffect = if (rp.dashed && pass == 1) PathEffect.dashPathEffect(floatArrayOf(6f / pxz, 4f / pxz)) else null)
+                        for ((t, lvl) in tiles) {
+                            if (lvl == 0 && cls <= 4) continue // the major tile already drew these
+                            val path = t.paths[RoadTiles.levelFor(pxz, lvl)][cls] ?: continue
+                            withTransform({
+                                translate(sx(t.ox), sy(t.oy))
+                                scale(pxz, pxz, pivot = Offset.Zero)
+                            }) { drawPath(path, if (pass == 0) rp.casing else rp.fill, style = stroke) }
+                        }
+                    }
+                    if (pxz >= RoadTileGeom.NAME_PXZ) {
+                        // names: each named road once, on its middle segment, rotated to it, the
+                        // biggest roads first, a claimed strip per name so they never cross
+                        val nc = drawContext.canvas.nativeCanvas
+                        val claimed = ArrayList<FloatArray>()
+                        var drawn = 0
+                        val minLenPx = 60f * density
+                        outer@ for ((t, lvl) in tiles) {
+                            if (lvl != 0) continue
+                            for (nm in t.names) {
+                                if (nm.cls > maxCls) continue
+                                val ax = sx(t.ox + nm.x0); val ay = sy(t.oy + nm.y0)
+                                val bx = sx(t.ox + nm.x1); val by = sy(t.oy + nm.y1)
+                                val mx = (ax + bx) / 2; val my = (ay + by) / 2
+                                if (mx < 0f || mx > sw || my < 0f || my > sh) continue
+                                val textW = roadNamePaint.measureText(nm.name)
+                                val roadPx = nm.lengthQ * 0.1 / RoadTileGeom.Q * 2.84 * pxz // quantised length → degrees → map units → px
+                                if (roadPx < textW || roadPx < minLenPx) continue
+                                val r = floatArrayOf(mx - textW / 2 - 6f, my - 12f * density, mx + textW / 2 + 6f, my + 12f * density)
+                                if (claimed.any { it[0] < r[2] && r[0] < it[2] && it[1] < r[3] && r[1] < it[3] }) continue
+                                claimed.add(r)
+                                var ang = Math.toDegrees(kotlin.math.atan2((by - ay).toDouble(), (bx - ax).toDouble())).toFloat()
+                                if (ang > 90f) ang -= 180f else if (ang < -90f) ang += 180f
+                                nc.save()
+                                nc.rotate(ang, mx, my)
+                                nc.drawText(nm.name, mx, my - 4f * density, roadNameHalo)
+                                nc.drawText(nm.name, mx, my - 4f * density, roadNamePaint)
+                                nc.restore()
+                                if (++drawn >= 80) break@outer
+                            }
+                        }
+                    }
+                }
                 // day tracks , movement under the moments, drawn OVER the coastline and stroked in
                 // SCREEN space per vertex, so the line stays 2.5px wide from the world view to the
                 // street. Affordable because framed simplified each day already; culled by bbox.
@@ -621,6 +773,29 @@ fun MapScreen() {
                     val x = sx(at.x); val y = sy(at.y)
                     drawCircle(GhostText, radius = 7f, center = Offset(x, y), style = Stroke(width = 2.5f))
                     if (at.ts > 0) drawContext.canvas.nativeCanvas.drawText(clock(at.ts), x, y - 12f, labelPaint)
+                }
+                // THE NAMES, ranked by the box, thinned here: each label claims a rectangle on
+                // screen and a lower-ranked one that would overlap it is skipped , so a town never
+                // sits on top of its country's name, and a crowded coast shows the few that fit.
+                // A country name is drawn in capitals. Under the dots: a photo is the point.
+                if (labels.isNotEmpty()) {
+                    val claimed = ArrayList<FloatArray>(labels.size)
+                    val nc = drawContext.canvas.nativeCanvas
+                    for (l in labels) {
+                        val x = sx(l.x); val y = sy(l.y)
+                        if (x < -40f || x > sw + 40f || y < -20f || y > sh + 20f) continue
+                        val p = namePaints[l.kind] ?: namePaints["P"]!!
+                        val text = if (l.kind == "C") l.name.uppercase() else l.name
+                        val w = p.fill.measureText(text) + 8f * density
+                        val h = p.fill.textSize + 6f * density
+                        val r = floatArrayOf(x - w / 2, y - h, x + w / 2, y + 2f * density)
+                        if (claimed.any { it[0] < r[2] && r[0] < it[2] && it[1] < r[3] && r[1] < it[3] }) continue
+                        claimed.add(r)
+                        nc.drawText(text, x, y - 4f * density, p.halo)
+                        nc.drawText(text, x, y - 4f * density, p.fill)
+                        // a dot where the place is, so the name has an address
+                        if (l.kind != "C" && l.kind != "R") drawCircle(GhostTextDim, radius = 2f * density, center = Offset(x, y))
+                    }
                 }
                 // photo dots , the point of the whole screen. Pre-aggregated by the box: n == 1
                 // is a photo, n > 1 is a cell with a count.

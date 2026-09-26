@@ -212,6 +212,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/geo/world/index", s.handleGeoWorldIndex)     // which cuts exist (open small, refine big)
 	mux.HandleFunc("/v1/geo/landtiles/index", s.handleLandTileIndex) // high-res coast: which 1° cells are water, coast, land
 	mux.HandleFunc("/v1/geo/landtile", s.handleLandTile)             // one coast cell (?x=&y=), fetched only when zoomed in over it
+	mux.HandleFunc("/v1/geo/labels", s.handleGeoLabels)              // the names on the map for a view, best first
+	mux.HandleFunc("/v1/geo/roadtiles/index", s.handleRoadTileIndex) // roads: which cells have a tile, both grids
+	mux.HandleFunc("/v1/geo/roadtile", s.handleRoadTile)             // one road cell (?l=&x=&y=)
 	mux.HandleFunc("/v1/daemon/summary", s.handleDaemonSummary)      // per-daemon drill-in
 	mux.HandleFunc("/v1/pipeline", s.handlePipeline)                 // stage-by-stage archive progress + ETA
 	mux.HandleFunc("/v1/frames/geo/lod", s.handleFramesGeoLOD)       // 4-level map aggregation

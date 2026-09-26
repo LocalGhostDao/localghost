@@ -1088,6 +1088,41 @@ func (s *Server) handleFramesGeoLOD(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"level": level, "points": pts})
 }
 
+// handleGeoLabels , GET /v1/geo/labels?minlat&maxlat&minlon&maxlon&n , the names the map draws for
+// a view: countries, regions, capitals, cities, towns, villages, from the box's own GeoNames rows,
+// best first (framed's labelRank), never more than n. A box that predates the rank column answers
+// an empty list, and the map draws no names until geo-import has run again.
+func (s *Server) handleGeoLabels(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	qp := r.URL.Query()
+	pf := func(k string, def float64) float64 {
+		v, err := strconv.ParseFloat(qp.Get(k), 64)
+		if err != nil {
+			return def
+		}
+		return v
+	}
+	n, _ := strconv.Atoi(qp.Get("n"))
+	labels, err := s.notif.GeoLabels(mounted, pf("minlat", -90), pf("maxlat", 90), pf("minlon", -180), pf("maxlon", 180), n)
+	if err != nil {
+		secdLog.Warn("geo labels failed", "fn", "handleGeoLabels", "err", err)
+		s.appearsDown(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"labels": labels})
+}
+
 // handleFramesNewest , GET /v1/frames/newest , the newest geotagged frame; the map opens here.
 func (s *Server) handleFramesNewest(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {

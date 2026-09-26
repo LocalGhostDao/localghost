@@ -122,9 +122,12 @@ var schemaRegistry = []SchemaTable{
 		{"country", "TEXT", true, "''"},
 		{"admin1", "TEXT", true, "''"},
 		{"admin2", "TEXT", true, "''"},
+		{"population", "BIGINT", true, "0"},
+		{"rank", "BIGINT", true, "0"},
 	}, Indexes: []string{
 		"CREATE INDEX IF NOT EXISTS geo_points_lat ON geo_points (lat)",
 		"CREATE INDEX IF NOT EXISTS geo_points_lon ON geo_points (lon)",
+		"CREATE INDEX IF NOT EXISTS geo_points_rank ON geo_points (rank DESC) WHERE rank > 0",
 	}},
 	{Name: "geo_names", PK: "code", Cols: []SchemaCol{
 		{"code", "TEXT", true, ""},

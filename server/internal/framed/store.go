@@ -281,6 +281,8 @@ func geoKind(fclass, fcode string) byte {
 	switch {
 	case fclass == "P":
 		return 'P'
+	case fclass == "A" && (strings.HasPrefix(fcode, "PCL") || fcode == "ADM1"):
+		return 'A' // a country, a dependency, a first-level region: the map's big labels
 	case fclass == "L" && (strings.HasPrefix(fcode, "PRK") || strings.HasPrefix(fcode, "RES")):
 		return 'K'
 	case fclass == "H" && (fcode == "FLLS" || fcode == "LK" || fcode == "BAY" || fcode == "GLCR"),
@@ -289,6 +291,42 @@ func geoKind(fclass, fcode string) byte {
 		return 'F'
 	case spotCodes[fcode] && fclass != "A" && fclass != "P":
 		return 'S'
+	}
+	return 0
+}
+
+const geoCols = 11
+
+// labelRank orders the map's labels: what to show first when a view holds thousands of names. A
+// country outranks everything in it; a capital its cities; a region's seat its towns; a place with
+// no population known (most villages) ranks 1 , shown when the view is small enough to have room.
+// Anything the map should never label (a neighbourhood, an abandoned place, a section of a city)
+// ranks 0 and is left out.
+func labelRank(kind byte, fcode string, pop int64) int64 {
+	switch kind {
+	case 'A':
+		switch {
+		case strings.HasPrefix(fcode, "PCL"):
+			return 1_000_000_000_000 + pop // a country: above anything in it
+		case fcode == "ADM1":
+			return 2*pop + 50_000 // a region reads above a town of the same size
+		}
+		return 0
+	case 'P':
+		switch fcode {
+		case "PPLC":
+			return 8*pop + 1_000_000 // the capital: above a bigger city in the same country
+		case "PPLA":
+			return 3*pop + 100_000 // a region's seat
+		case "PPLA2":
+			return 2*pop + 10_000
+		case "PPLX", "PPLQ", "PPLW", "PPLH":
+			return 0 // a section of a city, abandoned, destroyed, historical: not a label
+		}
+		if pop > 0 {
+			return pop
+		}
+		return 1
 	}
 	return 0
 }
@@ -302,7 +340,7 @@ func (s *Store) importPoints(path string, log *slog.Logger) (int64, error) {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 512*1024), 512*1024)
 	const batch = 500
-	vals := make([]any, 0, batch*9)
+	vals := make([]any, 0, batch*geoCols)
 	rows := 0
 	var total int64
 	flush := func() error {
@@ -310,20 +348,25 @@ func (s *Store) importPoints(path string, log *slog.Logger) (int64, error) {
 			return nil
 		}
 		var sb strings.Builder
-		sb.WriteString("INSERT INTO geo_points (geonameid,name,lat,lon,kind,fcode,country,admin1,admin2) VALUES ")
+		sb.WriteString("INSERT INTO geo_points (geonameid,name,lat,lon,kind,fcode,country,admin1,admin2,population,rank) VALUES ")
 		for i := 0; i < rows; i++ {
 			if i > 0 {
 				sb.WriteByte(',')
 			}
-			base := i * 9
-			sb.WriteString("($" + strconv.Itoa(base+1) + ",$" + strconv.Itoa(base+2) + ",$" + strconv.Itoa(base+3) +
-				",$" + strconv.Itoa(base+4) + ",$" + strconv.Itoa(base+5) + ",$" + strconv.Itoa(base+6) +
-				",$" + strconv.Itoa(base+7) + ",$" + strconv.Itoa(base+8) + ",$" + strconv.Itoa(base+9) + ")")
+			base := i * geoCols
+			sb.WriteByte('(')
+			for k := 1; k <= geoCols; k++ {
+				if k > 1 {
+					sb.WriteByte(',')
+				}
+				sb.WriteString("$" + strconv.Itoa(base+k))
+			}
+			sb.WriteByte(')')
 		}
 		// DO UPDATE, not DO NOTHING , re-importing a NEWER GeoNames dump must refresh renamed and
 		// moved places, or "update" quietly means "append". Deletions are not propagated (a
 		// removed geonameid lingers); named limit, acceptable for place data.
-		sb.WriteString(" ON CONFLICT (geonameid) DO UPDATE SET name = EXCLUDED.name, lat = EXCLUDED.lat, lon = EXCLUDED.lon, kind = EXCLUDED.kind, fcode = EXCLUDED.fcode, country = EXCLUDED.country, admin1 = EXCLUDED.admin1, admin2 = EXCLUDED.admin2")
+		sb.WriteString(" ON CONFLICT (geonameid) DO UPDATE SET name = EXCLUDED.name, lat = EXCLUDED.lat, lon = EXCLUDED.lon, kind = EXCLUDED.kind, fcode = EXCLUDED.fcode, country = EXCLUDED.country, admin1 = EXCLUDED.admin1, admin2 = EXCLUDED.admin2, population = EXCLUDED.population, rank = EXCLUDED.rank")
 		if err := s.db.Exec(sb.String(), vals...); err != nil {
 			return err
 		}
@@ -347,7 +390,11 @@ func (s *Store) importPoints(path string, log *slog.Logger) (int64, error) {
 		if e0 != nil || e1 != nil || e2 != nil {
 			continue
 		}
-		vals = append(vals, id, c[1], lat, lon, string(kind), c[7], c[8], c[10], c[11])
+		pop, _ := strconv.ParseInt(c[14], 10, 64)
+		if pop < 0 {
+			pop = 0
+		}
+		vals = append(vals, id, c[1], lat, lon, string(kind), c[7], c[8], c[10], c[11], pop, labelRank(kind, c[7], pop))
 		rows++
 		if rows >= batch {
 			if err := flush(); err != nil {

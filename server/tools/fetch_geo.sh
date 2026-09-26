@@ -123,6 +123,64 @@ if [ "$MIRROR_GEO" = 0 ]; then
     done
 fi
 
+# THE ROADS. OpenStreetMap's roads, from Geofabrik's continent extracts (set `roads` on the mirror,
+# Geofabrik itself as the fallback; ODbL), cut on the box into the map's road tiles , major roads in
+# one-degree cells, every road with its name in tenth-of-a-degree cells , by bin/ghost-roadtiles
+# here, or by ghost.framed at its next start (also: ghost-cli ghost.framed road-tiles). The whole
+# world is about 70 GB of PBF and hours of cutting, so it is ASKED FOR, not assumed:
+#   GHOST_GEO_ROADS=all                                        every continent
+#   GHOST_GEO_ROADS="europe-latest.osm.pbf asia-latest.osm.pbf"   these files
+# On a running box: sudo GHOST_GEO_ROADS=all ./tools/ns.sh ./tools/fetch_geo.sh <mount>/geo
+# The PBFs stay under <geo>/roads so a newer extract can be cut again later.
+ROADS="$DEST/roads"
+RTILES="${GHOST_ROADTILES_DIR:-$(dirname "$DEST")/roadtiles}"
+RCUT="${GHOST_ROADTILES:-$HERE/../bin/ghost-roadtiles}"
+GEOFABRIK="https://download.geofabrik.de"
+ALLROADS="africa-latest.osm.pbf antarctica-latest.osm.pbf asia-latest.osm.pbf australia-oceania-latest.osm.pbf central-america-latest.osm.pbf europe-latest.osm.pbf north-america-latest.osm.pbf south-america-latest.osm.pbf"
+ROADFILES="${GHOST_GEO_ROADS:-}"
+[ "$ROADFILES" = all ] && ROADFILES="$ALLROADS"
+if [ -z "$ROADFILES" ]; then
+    if [ -s "$RTILES/index.bin" ]; then
+        echo "  geo: road tiles present in $RTILES (GHOST_GEO_ROADS=all to refresh the extracts)"
+    else
+        echo "  geo: roads not fetched (GHOST_GEO_ROADS=all for the world's streets: ~70 GB and hours of cutting)"
+    fi
+else
+    mkdir -p "$ROADS"
+    got=0; missing=""
+    for f in $ROADFILES; do
+        if [ -s "$ROADS/$f" ] && [ -z "$FORCE" ]; then
+            got=$((got + 1))
+            continue
+        fi
+        if [ "$rc" != 3 ] && sh "$FETCH" roads "$ROADS" "$f" && [ -s "$ROADS/$f" ]; then
+            got=$((got + 1))
+            echo "  geo: $f from the mirror, signature and hash checked"
+        elif curl -fL --retry 3 --retry-delay 5 -C - --progress-bar -o "$ROADS/.$f.part" "$GEOFABRIK/$f" && mv -f "$ROADS/.$f.part" "$ROADS/$f"; then
+            got=$((got + 1))
+            echo "  geo: $f from Geofabrik"
+        else
+            missing="$missing $f"
+        fi
+    done
+    [ -n "$missing" ] && echo "  note: not fetched:$missing , those regions will have no streets until they are"
+    if [ "$got" -gt 0 ]; then
+        if [ -z "$FORCE" ] && [ -s "$RTILES/index.bin" ] && [ "$(find "$ROADS" -name '*.osm.pbf' -newer "$RTILES/index.bin" | wc -l)" = 0 ]; then
+            echo "  geo: the road tiles are already here ($RTILES)"
+        elif [ -x "$RCUT" ]; then
+            echo "  geo: cutting the roads into tiles (hours for the world; ~2 GB of RAM plus the page cache)"
+            if "$RCUT" -out "$RTILES" -work "$RTILES.work" -in "$ROADS"; then
+                cp "$ROADS"/TERMS-*.txt "$ROADS"/NOTICE.txt "$RTILES/" 2>/dev/null || true
+                echo "  geo: road tiles in $RTILES"
+            else
+                echo "  note: the road cut failed , ghost.framed cuts at its next start (or: ghost-cli ghost.framed road-tiles)"
+            fi
+        else
+            echo "  note: no bin/ghost-roadtiles (make box builds it) , ghost.framed cuts the road tiles at its next start"
+        fi
+    fi
+fi
+
 # THE COASTLINE AT FULL DETAIL. Natural Earth's 10m file is the base for the world and the
 # continents; zoomed in on an island it is a smudge (Paxos is a handful of vertices). OpenStreetMap's
 # land polygons draw every cove. The mirror carries OpenStreetMap's zip as it is (set landpolygons),

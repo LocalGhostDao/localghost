@@ -889,6 +889,24 @@ object BoxClient {
 
     data class GeoCell(val lat: Double, val lon: Double, val n: Int, val hash: String, val takenAt: Long)
 
+    /** A name on the map. kind: C country, R region, X capital, P any other populated place. */
+    data class GeoLabel(val name: String, val lat: Double, val lon: Double, val kind: String, val pop: Long)
+
+    /** The names the box would draw for a view, best first (its own GeoNames rows, ranked at
+     *  import). Null when the box has no such endpoint; empty when it has one and no ranks yet. */
+    suspend fun geoLabels(ctx: Context, minLat: Double, maxLat: Double, minLon: Double, maxLon: Double, n: Int): List<GeoLabel>? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/geo/labels?minlat=$minLat&maxlat=$maxLat&minlon=$minLon&maxlon=$maxLon&n=$n")
+        if (!r.has("labels")) null else {
+            val a = r.optJSONArray("labels") ?: org.json.JSONArray()
+            (0 until a.length()).mapNotNull { i ->
+                val o = a.optJSONObject(i) ?: return@mapNotNull null
+                val lat = o.optDouble("lat", Double.NaN); val lon = o.optDouble("lon", Double.NaN)
+                if (!lat.isFinite() || !lon.isFinite()) null
+                else GeoLabel(o.optString("name"), lat, lon, o.optString("k", "P"), o.optLong("pop"))
+            }
+        }
+    } catch (e: Exception) { null }
+
     /** Level-of-detail map feed , postgres aggregates per zoom tier (0 continent .. 3 raw). */
     suspend fun framesGeoLod(ctx: Context, level: Int,
                              minLat: Double, maxLat: Double, minLon: Double, maxLon: Double): List<GeoCell>? = try {
@@ -1083,6 +1101,47 @@ object BoxClient {
             var total = tiles.sumOf { it.length() }
             if (total > 200L * 1024 * 1024) for (g in tiles.sortedBy { it.lastModified() }) {
                 if (total <= 150L * 1024 * 1024) break
+                total -= g.length(); g.delete()
+            }
+        }
+        return b
+    }
+
+    /** THE ROADS' index: which one-degree cells have a major-road tile and which tenth-of-a-degree
+     *  cells a street tile; ETag-revalidated, cached; null when the box has no road tiles. */
+    suspend fun roadTileIndex(ctx: Context): ByteArray? {
+        val dir = java.io.File(ctx.filesDir, "roadtiles").apply { mkdirs() }
+        val cache = java.io.File(dir, "index.bin")
+        val prefs = ctx.getSharedPreferences("ghost_geo", Context.MODE_PRIVATE)
+        val old = prefs.getString("roadtiles_etag", null)
+        try {
+            val (fresh, tag) = BoxHttp.getBytesEtag(ctx, "/v1/geo/roadtiles/index", if (cache.exists()) old else null)
+            if (fresh != null && com.localghost.app.ui.RoadTileGeom.index(fresh) != null) {
+                if (tag != old) dir.listFiles()?.forEach { if (it.name.endsWith(".lgr")) it.delete() }
+                cache.writeBytes(fresh)
+                prefs.edit().putString("roadtiles_etag", tag ?: "").apply()
+            } else if (fresh != null) {
+                android.util.Log.w("LocalGhost", "road tile index: ${fresh.size} bytes, not an index")
+            } else if (tag == null) {
+                android.util.Log.i("LocalGhost", "road tile index: none from the box (204 = no road tiles cut yet)")
+            }
+        } catch (_: Exception) { }
+        return if (cache.exists()) runCatching { cache.readBytes() }.getOrNull() else null
+    }
+
+    /** One road tile (level 1 = a one-degree cell of major roads, 0 = a tenth-of-a-degree cell of
+     *  every road), from disk when the phone has it, else from the box; ~400 MB kept. */
+    suspend fun roadTile(ctx: Context, level: Int, x: Int, y: Int): ByteArray? {
+        val dir = java.io.File(ctx.filesDir, "roadtiles").apply { mkdirs() }
+        val f = java.io.File(dir, "%d_%04d_%04d.lgr".format(java.util.Locale.US, level, x, y))
+        if (f.exists()) return runCatching { f.setLastModified(System.currentTimeMillis()); f.readBytes() }.getOrNull()
+        val b = BoxHttp.getBytes(ctx, "/v1/geo/roadtile?l=$level&x=$x&y=$y") ?: return null
+        runCatching {
+            f.writeBytes(b)
+            val tiles = dir.listFiles { g -> g.name.endsWith(".lgr") } ?: emptyArray()
+            var total = tiles.sumOf { it.length() }
+            if (total > 400L * 1024 * 1024) for (g in tiles.sortedBy { it.lastModified() }) {
+                if (total <= 300L * 1024 * 1024) break
                 total -= g.length(); g.delete()
             }
         }
