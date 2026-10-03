@@ -5022,3 +5022,9 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (GHOST_WIKI=0 leaves it out), so a box that runs update is a box with Wikipedia. The ZIM reader
   has only ever read files written to the spec here (kiwix.org is outside this session's egress):
   the first real file is the proof, `ghost-cli ghost.synthd wiki title=Corfu` after the download.
+- `update.sh wiki` on xyntai: "the volume has 6 GB free" on a volume with room to spare. The
+  check was `df` on the volume through the /proc door, and df answers for the OS disk there (it
+  matches the path against the host's mount table, where the vault is not; reproduced with a
+  tmpfs in a child namespace: df says the root disk, stat -f says the tmpfs). Now `stat -f`,
+  which asks the filesystem the path is on. The download was never in a temp directory: it is a
+  hidden .part beside its final name on the volume, resumed by the next run.

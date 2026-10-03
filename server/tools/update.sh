@@ -210,7 +210,11 @@ wiki)
     fi
     mkdir -p "$WK"
     if ! ls "$WK"/*.zim >/dev/null 2>&1; then
-        free="$(df -B1G --output=avail "$WK" 2>/dev/null | tail -1 | tr -d ' ')"
+        # the volume's own free space: through the /proc door, df answers for the OS disk (it matches
+        # the path against the host's mount table, where the vault is not), and said 6 GB of a free
+        # volume on 3 Oct 2026; stat -f asks the filesystem the path is on. The download lands here,
+        # as a hidden .part beside its final name, never in a temp directory.
+        free="$(stat -f -c '%a %S' "$WK" 2>/dev/null | awk '{ printf "%d", $1 * $2 / 1073741824 }')"
         if [ -n "$free" ] && [ "$free" -lt 60 ]; then
             if [ "$ASKED_WIKI" = 1 ]; then
                 result wiki "NOT fetched: the volume has ${free} GB free and the file is about 50 GB (it needs room for itself while it downloads)"
