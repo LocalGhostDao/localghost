@@ -301,7 +301,7 @@ class MainActivity : ComponentActivity() {
         com.localghost.app.net.BoxClient.appCtx = applicationContext
         sync = sync.copy(paused = AppSettings.syncPaused(this))
         thinkLevelState = AppSettings.thinkLevel(this)
-        AppLock.ensureKey()
+        AppLock.ensureKey(this)
         Notifications.ensureChannel(this)
         // ghost.phrased: redraw the lock-screen card and widget for this hour (no-op when both are
         // off) and arm the next refresh. Runs outside the security gate on purpose , a phrase on the
@@ -1309,6 +1309,7 @@ class MainActivity : ComponentActivity() {
 
     private fun passBiometric() {
         error = null
+        if (!AppLock.deviceAuthAvailable(this)) { screen = Screen.Pin; return }
         // RECENT DEVICE UNLOCK SKIPS THE PROMPT. The gate key carries a 10s auth window, and the
         // phone's own lockscreen unlock opens it , so "unlocked my phone onto the app" goes straight
         // to the box PIN with zero extra taps and zero extra fingerprints. The OS vouches for the
