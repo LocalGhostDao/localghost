@@ -1,0 +1,172 @@
+package main
+
+// THE DAILY WEATHER PULL. Once a day the box asks Open-Meteo for the forecast of the world's
+// larger places, the same three thousand every day whoever and wherever the person is
+// (internal/weather says why: the forecast where they are is then looked up on the box, and no
+// weather service learns where that is). The loop checks every hour and pulls when the table is
+// a day old; `ghost-cli ghost.tallyd weather fetch=1` pulls now, `weather lat= lon=` or
+// `weather place=` reads the table the way the chat does.
+
+import (
+	"context"
+	"encoding/json"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/LocalGhostDao/localghost/server/internal/egress"
+	"github.com/LocalGhostDao/localghost/server/internal/feedstat"
+	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
+	"github.com/LocalGhostDao/localghost/server/internal/weather"
+)
+
+// weatherState is what the last pull did, for the ctl command.
+type weatherState struct {
+	mu      sync.Mutex
+	at      time.Time
+	last    weather.Result
+	noGeo   bool // the geo set is not on the box: nothing to pull
+	running bool
+}
+
+func (w *weatherState) snapshot() map[string]any {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	out := map[string]any{"running": w.running}
+	if !w.at.IsZero() {
+		out["lastAt"] = w.at.Unix()
+		out["last"] = w.last
+	}
+	if w.noGeo {
+		out["note"] = "no places: the geo set (GeoNames) is not on the box; tools/fetch_geo.sh brings it, then the pull runs"
+	}
+	return out
+}
+
+// weatherLoop runs the pull when it is due: a look at start, then every hour.
+func weatherLoop(ctx context.Context, mount string, ws *weatherState, lg *slog.Logger, force <-chan struct{}) {
+	client := egress.New()
+	var db *poltergres.ReadWrite
+	pass := func(forced bool) {
+		if db == nil {
+			cfg, err := hw.LoadServicesConfig(mount)
+			if err != nil {
+				return
+			}
+			db = poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
+		}
+		now := time.Now()
+		if !forced && !weather.Due(weather.Load(db), now) {
+			return
+		}
+		places, err := weather.Places(db)
+		if err != nil {
+			lg.Warn("weather: the places could not be read", "fn", "weatherLoop", "err", err)
+			return
+		}
+		ws.mu.Lock()
+		ws.noGeo = len(places) == 0
+		ws.running = len(places) > 0
+		ws.mu.Unlock()
+		if len(places) == 0 {
+			lg.Info("weather: no places to pull (the geo set is not on the box)", "fn", "weatherLoop")
+			return
+		}
+		r := weather.Pass(ctx, db, client, places, now, nil)
+		entries := make([]feedstat.Entry, 0, len(r.Fetches))
+		for _, f := range r.Fetches {
+			entries = append(entries, feedstat.Entry{Source: weather.Source, Kind: feedstat.KindWeather, By: "box",
+				Status: f.Status, OK: f.OK, TookMs: f.TookMs, Bytes: f.Bytes, Items: f.Items, Error: f.Error})
+		}
+		if len(entries) > 0 {
+			_ = feedstat.Log(db, now, entries)
+		}
+		ws.mu.Lock()
+		ws.at, ws.last, ws.running = time.Now(), r, false
+		ws.mu.Unlock()
+		if r.Failed > 0 {
+			lg.Warn("weather pulled with trouble", "fn", "weatherLoop", "places", r.Places, "batches", r.Batches, "failed", r.Failed, "err", r.LastErr, "took", r.Took.Round(time.Second))
+		} else {
+			lg.Info("weather pulled", "fn", "weatherLoop", "places", r.Places, "batches", r.Batches, "took", r.Took.Round(time.Second))
+		}
+	}
+	// a moment after start, so the databases are up and the tickers' first minute is not
+	// crowded, then hourly
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(90 * time.Second):
+	}
+	pass(false)
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pass(false)
+		case <-force:
+			pass(true)
+		}
+	}
+}
+
+// weatherCtl answers `ghost-cli ghost.tallyd weather [lat= lon= | place=] [fetch=1]`.
+func weatherCtl(mount string, ws *weatherState, force chan<- struct{}, args json.RawMessage) (map[string]any, error) {
+	var a struct {
+		Lat   float64 `json:"lat"`
+		Lon   float64 `json:"lon"`
+		Place string  `json:"place"`
+		Fetch bool    `json:"fetch"`
+	}
+	if len(args) > 0 {
+		_ = json.Unmarshal(args, &a)
+	}
+	out := map[string]any{"pull": ws.snapshot()}
+	cfg, err := hw.LoadServicesConfig(mount)
+	if err != nil {
+		return nil, err
+	}
+	db := poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
+	out["table"] = weather.Load(db)
+	if a.Fetch {
+		select {
+		case force <- struct{}{}:
+			out["fetching"] = "the box pulls now; ask again in a few minutes"
+		default:
+			out["fetching"] = "a pull is already running"
+		}
+	}
+	now := time.Now()
+	switch {
+	case a.Place != "":
+		if f, km, ok := weather.ByName(db, a.Place); ok {
+			out["forecast"] = f
+			out["text"] = weather.Describe(f, km, now)
+		} else {
+			out["text"] = "no place of that name among the pulled places or the box's GeoNames"
+		}
+	case a.Lat != 0 || a.Lon != 0:
+		if f, km, ok := weather.Nearest(db, a.Lat, a.Lon); ok {
+			out["forecast"] = f
+			out["text"] = weather.Describe(f, km, now)
+		} else {
+			out["text"] = "no pulled place within " + itoa(int(weather.NearKm)) + " km"
+		}
+	default:
+		// where the trail says the phone is, as the chat answers "what's the weather like"
+		if ts, lat, lon := hw.TrailNewest(db); ts > 0 {
+			if f, km, ok := weather.Nearest(db, lat, lon); ok {
+				out["forecast"] = f
+				out["text"] = weather.Describe(f, km, now)
+			} else {
+				out["text"] = "no pulled place within " + itoa(int(weather.NearKm)) + " km of the trail's newest point"
+			}
+		} else {
+			out["text"] = "no trail yet: weather lat= lon= or place= reads the table"
+		}
+	}
+	return out, nil
+}

@@ -352,8 +352,14 @@ func main() {
 		}
 		items := gatherContext(runDir, q.Prompt)
 		// THE PERSON'S TASTE, when the question asks for a suggestion or a plan, and the places
-		// around the phone that fit it. Samples (the empty-index placeholders) make way.
-		if extra := tasteItems(chatStore(mount), q.Prompt, q.Here); len(extra) > 0 {
+		// around the phone that fit it; THE WEATHER the box pulled, for a weather question
+		// (weather.go, the fix or the trail says where). Samples (the empty-index placeholders)
+		// make way.
+		extra := tasteItems(chatStore(mount), q.Prompt, q.Here)
+		for _, it := range weatherItems(chatStore(mount), q.Prompt, q.Here, time.Now()) {
+			extra = append(extra, sanitize(it))
+		}
+		if len(extra) > 0 {
 			real := items[:0:0]
 			for _, it := range items {
 				if it.Source != "sample" {
@@ -1105,6 +1111,9 @@ func sanitize(it ctxItem) ctxItem {
 	}
 	if it.Source == "wikipedia" {
 		limit = wikiChatLead + 120 // the article's lead, which is what was asked for
+	}
+	if it.Source == "weather" {
+		limit = 700 // now and four days, one line each
 	}
 	if len(s) > limit {
 		s = s[:limit] + "…"

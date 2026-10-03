@@ -136,6 +136,23 @@ var schemaRegistry = []SchemaTable{
 		{"code", "TEXT", true, ""},
 		{"name", "TEXT", true, ""},
 	}},
+	// THE WEATHER OF THE WORLD'S LARGER PLACES, pulled by the box once a day as one fixed list
+	// (internal/weather): the forecast where the person is comes from this table by the trail,
+	// a named place by the box's GeoNames, and no weather service learns where anyone is. One
+	// row a place; the forecast is the JSON of weather.Forecast, replaced at every pull.
+	{Name: "weather_places", PK: "geonameid", Cols: []SchemaCol{
+		{"geonameid", "BIGINT", true, ""},
+		{"name", "TEXT", true, ""},
+		{"country", "TEXT", true, "''"},
+		{"lat", "DOUBLE PRECISION", true, ""},
+		{"lon", "DOUBLE PRECISION", true, ""},
+		{"population", "BIGINT", true, "0"},
+		{"fetched_at", "BIGINT", true, "0"},
+		{"forecast", "TEXT", true, "''"},
+	}, Indexes: []string{
+		"CREATE INDEX IF NOT EXISTS weather_places_lat ON weather_places (lat)",
+		"CREATE INDEX IF NOT EXISTS weather_places_lon ON weather_places (lon)",
+	}},
 	// A phone is identified by its CLIENT CERTIFICATE (deviceKey = sha256 of the cert nginx
 	// verified, first 8 bytes), never by a serial or IMEI: hardware IDs are permission-gated,
 	// survive factory resets, and correlate across apps , the tracking primitive this project

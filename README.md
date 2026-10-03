@@ -23,11 +23,12 @@ Read [why we build](https://www.localghost.ai/manifesto), or the
 
 ## Status
 
-**wisp**, the first release, was cut on 2 October 2026, at 0.0.2 by the end of the day:
+**wisp**, the first release, was cut on 2 October 2026 and is at 0.0.3:
 [the release](https://github.com/LocalGhostDao/localghost/releases/latest),
-[what is in it and how it works](server/releases/0.0.1.md) and
-[what the second cut changed](server/releases/0.0.2.md). One box runs it with one phone. The
-server is about 69,000 lines of Go in 168 test files, the app about 33,000 lines of Kotlin.
+[what is in it and how it works](server/releases/0.0.1.md), [what the second cut
+changed](server/releases/0.0.2.md) and [the third](server/releases/0.0.3.md). One box runs it
+with one phone. The
+server is about 70,000 lines of Go with 170 test files, the app about 33,000 lines of Kotlin.
 
 What works, as of wisp: the encrypted volume and its unlock from the phone, the photo archive
 with captions, tags and search, the trail on a map drawn from the box's own data, the heights
@@ -79,17 +80,17 @@ AndroidX, Compose, CameraX and Kotlin.
 
 Public requests only, and the list is short: the exchanges and the ECB for prices (by the box),
 news feeds and the pages they link (by the phone on Wi-Fi, or by the box when the phone is
-away), the mirror at www.localghost.ai for data and releases, Wikipedia's API only on a box that
-has not taken the local copy, a coin's own website for its page. Never a map tile, never a photo,
-never a note, never your trail.
+away), Open-Meteo once a day for the forecast of the world's three thousand larger places, the
+same list whoever and wherever you are (by the box; the weather where you are is then looked up
+on the box, so no weather service learns where that is), the mirror at www.localghost.ai for data
+and releases, Wikipedia's API only on a box that has not taken the local copy, a coin's own
+website for its page. Never a map tile, never a photo, never a note, never your trail, never a
+position.
 
-Two things leave the phone, and only when you ask the chat a question that needs them. A web
-search goes to DuckDuckGo, or to Brave with your own key, with the question's words, and the
-phone brings the findings to the box; the box never calls a search engine. A weather question
-that names no place sends the phone's position, rounded to two decimals (about a kilometre), to
-Open-Meteo, which has no account and no key; name a place ("weather in Faro") and the place name
-goes instead. That rounded position is the one location that ever leaves either device, and the
-answer names the sources it used.
+One thing leaves the phone, and only when you ask the chat a question that needs it: a web search
+goes to DuckDuckGo, or to Brave with your own key, with the question's words, and the phone brings
+the findings to the box; the box never calls a search engine. The answer names the sources it
+used.
 
 Setup and updates take files only from the mirror, whose manifest of SHA-256 sums is signed by
 the site key pinned in `server/tools/mirror_fetch.sh`. A file is named only after its hash

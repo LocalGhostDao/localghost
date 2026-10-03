@@ -73,7 +73,9 @@ func main() {
 	rs := &ratesState{}
 	fs := &fetchState{}
 	fast := &fastState{}
+	ws := &weatherState{}
 	forceFetch := make(chan struct{}, 1)
+	forceWeather := make(chan struct{}, 1)
 	srv := ghosthealth.NewServer(service, ghosthealth.ReporterFunc(func() ghosthealth.Health {
 		h := ing.health()
 		if bad, why := fs.stalled(time.Now()); bad && h.Code == ghosthealth.OK {
@@ -223,6 +225,16 @@ func main() {
 			data, _ := json.Marshal(monitor.Make(db, time.Now()))
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
+		// weather: the daily pull of the world's larger places and the forecast where the trail
+		// says the phone is. `ghost-cli ghost.tallyd weather [lat= lon= | place=] [fetch=1]`.
+		ctl.Handle("weather", func(args json.RawMessage) (ctlsock.Response, error) {
+			out, err := weatherCtl(filepath.Dir(runDir), ws, forceWeather, args)
+			if err != nil {
+				return ctlsock.Response{OK: false, Err: err.Error()}, nil
+			}
+			data, _ := json.Marshal(out)
+			return ctlsock.Response{OK: true, Data: data}, nil
+		})
 		defer ctl.Cleanup()
 		go func() {
 			if err := ctl.Serve(ctx); err != nil {
@@ -241,7 +253,8 @@ func main() {
 		go ratesLoop(ctx, filepath.Dir(runDir), rs, hot, lg)
 		go ratesFetchLoop(ctx, filepath.Dir(runDir), rs, fs, hot, lg, forceFetch)
 		go fastLoop(ctx, hot, fast, lg)
-		lg.Info("health and rates ingestion up; the box fetches rates itself when the phone is not on Wi-Fi", "fn", "main")
+		go weatherLoop(ctx, filepath.Dir(runDir), ws, lg, forceWeather)
+		lg.Info("health and rates ingestion up; the box fetches rates itself when the phone is not on Wi-Fi, and the weather of the larger places once a day", "fn", "main")
 	} else {
 		ing.note("", errors.New("no run dir: ingestion is off (started by hand without GHOST_RUN_DIR)"), tally.Result{})
 	}

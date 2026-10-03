@@ -21,6 +21,7 @@ import (
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 	"github.com/LocalGhostDao/localghost/server/internal/rates"
 	"github.com/LocalGhostDao/localghost/server/internal/tally"
+	"github.com/LocalGhostDao/localghost/server/internal/weather"
 )
 
 // The states, from best to worst. Filling and waiting are not faults: the history is still
@@ -87,6 +88,7 @@ func Make(db *poltergres.ReadWrite, now time.Time) Report {
 		func() Section { return ranks(db, now) },
 		func() Section { return daily(db, now, prog, hasProg) },
 		func() Section { return news(db, now) },
+		func() Section { return forecasts(db, now) },
 	} {
 		r.Sections = append(r.Sections, f())
 	}
@@ -989,6 +991,61 @@ func news(db *poltergres.ReadWrite, now time.Time) Section {
 	}
 	s.Line = fmt.Sprintf("%d of %d feeds · fetched %s · %d new today", okRecent, enabled, last, entries)
 	return s
+}
+
+// --- weather -------------------------------------------------------------------------------
+
+// forecasts is the daily pull of the world's larger places (internal/weather). The box asks for
+// the same places whoever and wherever the person is, so the section counts places and the
+// pull's age, never a position.
+func forecasts(db *poltergres.ReadWrite, now time.Time) Section {
+	s := Section{ID: "weather", Title: "Weather", Every: "once a day, " + strconv.Itoa(weather.MaxPlaces) + " places", AgeS: -1}
+	st := weather.Load(db)
+	if st.Places == 0 {
+		s.State = Waiting
+		if n := one(db, "SELECT count(*) FROM geo_points WHERE kind = 'P' AND population >= $1", weather.MinPopulation); n == 0 {
+			s.Line = "waits for the geo set (tools/fetch_geo.sh), which names the places"
+		} else {
+			s.Line = "no forecast yet; the first pull comes a minute or two after tallyd starts"
+		}
+		return s
+	}
+	s.AgeS = age(now, st.FetchedAt)
+	s.State = WeatherState(s.AgeS)
+	s.Rows = append(s.Rows, Row{K: "places", V: fmt.Sprintf("%d with a forecast, the oldest from %s ago", st.Places, Ago(age(now, st.OldestAt)))})
+	s.Rows = append(s.Rows, Row{K: "last pulled", V: Ago(s.AgeS) + " ago by the box"})
+	if stats, err := feedstat.Stats(db, feedstat.KindWeather, now.Add(-48*time.Hour), false); err == nil {
+		for _, v := range stats {
+			if v.Calls == 0 {
+				continue
+			}
+			r := Row{K: "batches (2 days)", V: fmt.Sprintf("%d of %d came · %s typical", v.OK, v.Calls, Ms(v.P50Ms))}
+			if v.OK < v.Calls {
+				r.V += " · " + v.LastError
+				r.State = Flaky
+				if v.FailsInRow >= 3 {
+					r.State = Failing
+				}
+				s.State = Worst(s.State, r.State)
+			}
+			s.Rows = append(s.Rows, r)
+		}
+	}
+	s.Line = fmt.Sprintf("%d places · pulled %s ago", st.Places, Ago(s.AgeS))
+	return s
+}
+
+// WeatherState: a pull a day with a lot of slack, since the forecast is four days long.
+func WeatherState(ageS int64) string {
+	switch {
+	case ageS < 0:
+		return Waiting
+	case ageS > int64(3*weather.Stale/time.Second):
+		return Failing
+	case ageS > int64(weather.Stale/time.Second):
+		return Late
+	}
+	return OK
 }
 
 // --- words and numbers ---------------------------------------------------------------------

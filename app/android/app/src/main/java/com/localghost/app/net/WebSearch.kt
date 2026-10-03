@@ -24,10 +24,12 @@ import org.json.JSONObject
  *  1. PLAN , the question becomes one to three searches: the question itself with the chat filler
  *     cut off, its bare keywords when they differ, and the same again with the year when the
  *     question is about now ([plan]).
- *  2. TOOLS , some questions have a better answer than a search page. A weather question goes to
- *     Open-Meteo for the place named (or where the phone is); a currency question to the ECB's
- *     rates via Frankfurter; a "who is / what is" question to Wikipedia's summary. Each returns
- *     one [Hit] with a [Hit.kind] of its own, so the box can see it is a figure, not a web page.
+ *  2. TOOLS , some questions have a better answer than a search page. A currency question goes
+ *     to the ECB's rates via Frankfurter; a "who is / what is" question to Wikipedia's summary.
+ *     Each returns one [Hit] with a [Hit.kind] of its own, so the box can see it is a figure, not
+ *     a web page. The weather is not a tool any more: the box pulls the forecast of the world's
+ *     larger places once a day and answers from that, so the phone never tells a weather service
+ *     where it is (its plan says the box has it, and [BoxKnows] says so when the plan is late).
  *  3. SEARCH , DuckDuckGo's HTML endpoint (built for browsers without scripts), and its "lite"
  *     endpoint when the first one answers with nothing or a bot check. Results from every
  *     planned query merge by URL, the ones several queries agree on first.
@@ -41,7 +43,7 @@ import org.json.JSONObject
  * shown in the chat, numbered, so the box's "[2]" points at a link the person can open.
  */
 object WebSearch {
-    /** One thing found. [kind]: page (a search result, read), summary (Wikipedia), weather, rate. */
+    /** One thing found. [kind]: page (a search result, read), summary (Wikipedia), rate. */
     class Hit(
         val title: String,
         val url: String,
@@ -88,9 +90,6 @@ object WebSearch {
     /** How fast the box reads, as it said in its plan answer: where its model runs and its measured
      *  prompt tokens per second. Null when the box said nothing (old box, no answer in time). */
     class BoxSpeed(val known: Boolean, val onGPU: Boolean, val promptTps: Double, val genTps: Double)
-
-    /** Where the phone is, for a weather question that names no place. */
-    class Here(val lat: Double, val lon: Double)
 
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
     private const val MAX_HITS = 5
@@ -167,8 +166,7 @@ object WebSearch {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Pair<Long, List<Hit>>>): Boolean = size > CACHE_MAX
     }
 
-    private fun cacheKey(q: String, here: Here?): String =
-        q.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim() + (if (here != null) "@%.1f,%.1f".format(here.lat, here.lon) else "")
+    private fun cacheKey(q: String): String = q.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
 
     // --- the whole thing ---
 
@@ -182,11 +180,11 @@ object WebSearch {
      *  second round) those run instead of the phone's own plan , the first always, the rest when
      *  the first came back thin, or all of them when [runAll]. [need] steers which paragraphs of a
      *  page are worth sending: the box's one sentence beats the question's words. */
-    suspend fun search(question: String, here: Here? = null, engine: Engine = Engine(), queries: List<String>? = null,
+    suspend fun search(question: String, engine: Engine = Engine(), queries: List<String>? = null,
                        need: String = "", runAll: Boolean = false): List<Hit> = withContext(Dispatchers.IO) {
-        val key = cacheKey(question, here) + (if (engine.brave) "#b" else "") + (queries?.joinToString("|", prefix = "#") ?: "") + (if (runAll) "#all" else "")
+        val key = cacheKey(question) + (if (engine.brave) "#b" else "") + (queries?.joinToString("|", prefix = "#") ?: "") + (if (runAll) "#all" else "")
         synchronized(cache) { cache[key]?.let { (at, hits) -> if (System.currentTimeMillis() - at < CACHE_TTL_MS) return@withContext hits } }
-        val out = run(question, here, engine, queries, need, runAll)
+        val out = run(question, engine, queries, need, runAll)
         if (out.isNotEmpty()) synchronized(cache) { cache[key] = System.currentTimeMillis() to out }
         out
     }
@@ -199,13 +197,13 @@ object WebSearch {
         return out
     }
 
-    private fun run(question: String, here: Here?, engine: Engine = Engine(), planned: List<String>? = null, need: String = "", runAll: Boolean = false): List<Hit> {
+    private fun run(question: String, engine: Engine = Engine(), planned: List<String>? = null, need: String = "", runAll: Boolean = false): List<Hit> {
         val pool = Executors.newFixedThreadPool(FETCH_TOP + 2)
         try {
             // Tools and the first search leave together; the extra queries only when the first
             // came back thin. Every future is bounded on its own, so one slow host costs its own
             // seconds and nobody else's.
-            val toolFutures: List<Future<Hit?>> = Tools.forQuestion(question, here).map { t -> pool.submit(Callable { runCatching { t.call() }.getOrNull() }) }
+            val toolFutures: List<Future<Hit?>> = Tools.forQuestion(question).map { t -> pool.submit(Callable { runCatching { t.call() }.getOrNull() }) }
             val queries = if (planned != null && planned.isNotEmpty()) planned.mapIndexed { i, q -> Query(q, runAll || i == 0) } else plan(question)
             val pages = ArrayList<Hit>()
             val agree = HashMap<String, Int>()
@@ -603,11 +601,12 @@ object WebSearch {
     /**
      * The tools: questions with a better source than a search page. Each is a [Callable] that
      * returns one [Hit] or null; [forQuestion] decides which apply. Every endpoint here is public,
-     * keyless and rate-limited only by decency; each is one small GET.
+     * keyless and rate-limited only by decency; each is one small GET. The weather is the box's
+     * (see the file's note), so a weather question gets no tool here.
      */
     object Tools {
-        private val weatherQ = Regex("\\b(weather|forecast|rain|raining|temperature|how (hot|cold|warm) is it|umbrella|sunny|snow|wind|windy|humid)\\b", RegexOption.IGNORE_CASE)
-        private val placeAfter = Regex("\\b(?:in|at|for|around|near)\\s+([\\p{L}][\\p{L} .'-]{1,40}?)(?:\\s+(?:today|tomorrow|tonight|this|next|on|at|now|right)\\b|[?.!,]|$)", RegexOption.IGNORE_CASE)
+        /** A weather question, kept out of Wikipedia's "what is" ("what is the weather like"). */
+        private val weatherQ = Regex("\\b(weather|forecast|rain|raining|temperature|how (hot|cold|warm) is it|umbrella|sunny|snow|snowing|wind|windy|humid|humidity)\\b", RegexOption.IGNORE_CASE)
         private val codes = mapOf(
             "usd" to "USD", "dollar" to "USD", "dollars" to "USD", "$" to "USD", "us$" to "USD",
             "eur" to "EUR", "euro" to "EUR", "euros" to "EUR", "€" to "EUR",
@@ -624,27 +623,9 @@ object WebSearch {
             RegexOption.IGNORE_CASE)
         private val whoWhat = Regex("^\\s*(?:who|what)\\s+(?:is|was|are|were)\\s+(?:the\\s+|a\\s+|an\\s+)?([\\p{L}\\p{N}][\\p{L}\\p{N} .'-]{1,60}?)\\s*\\??\\s*$", RegexOption.IGNORE_CASE)
 
-        private val timeWords = Regex("\\b(today|tomorrow|tonight|now|this|next|the|week|weekend|morning|afternoon|evening|night|hour|hours|day|days|moment)\\b", RegexOption.IGNORE_CASE)
-
-        /** The place a weather question names, or null when it names none ("weather for tomorrow"
-         *  names a day, not a place). */
-        internal fun placeOf(q: String): String? {
-            for (m in placeAfter.findAll(q)) {
-                val raw = m.groupValues[1].trim()
-                val place = timeWords.replace(raw, " ").replace(Regex("\\s+"), " ").trim().trimEnd('.', ',')
-                if (place.length in 2..40 && !weatherQ.containsMatchIn(place)) return place
-            }
-            return null
-        }
-
-        fun forQuestion(question: String, here: Here?): List<Callable<Hit?>> {
+        fun forQuestion(question: String): List<Callable<Hit?>> {
             val q = WebSearch.cleanQuery(question)
-            val out = ArrayList<Callable<Hit?>>(3)
-            if (weatherQ.containsMatchIn(q)) {
-                val place = placeOf(q)
-                if (place != null) out.add(Callable { weatherByName(place) })
-                else if (here != null) out.add(Callable { weather(here.lat, here.lon, "where you are") })
-            }
+            val out = ArrayList<Callable<Hit?>>(2)
             rateQ.find(q)?.let { m ->
                 val amount = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 1.0
                 val from = codes[m.groupValues[2].lowercase()]; val to = codes[m.groupValues[3].lowercase()]
@@ -657,77 +638,7 @@ object WebSearch {
             return out
         }
 
-        // Open-Meteo: keyless, no account, a JSON forecast by coordinates, and a geocoder by name.
-        fun weatherByName(place: String): Hit? {
-            val g = getJson("https://geocoding-api.open-meteo.com/v1/search?name=" + URLEncoder.encode(place, "UTF-8") + "&count=1&language=en&format=json") ?: return null
-            val r = g.optJSONArray("results")?.optJSONObject(0) ?: return null
-            val name = listOfNotNull(r.optString("name").ifEmpty { null }, r.optString("admin1").ifEmpty { null }, r.optString("country").ifEmpty { null }).distinct().joinToString(", ")
-            return weather(r.optDouble("latitude"), r.optDouble("longitude"), name)
-        }
-
-        fun weather(lat: Double, lon: Double, label: String): Hit? {
-            // two decimals (about a kilometre): the forecast grid is coarser than that, and the
-            // phone's own fix at four (11 m) told Open-Meteo which house asked
-            val url = "https://api.open-meteo.com/v1/forecast?latitude=%.2f&longitude=%.2f".format(java.util.Locale.US, lat, lon) +
-                "&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m" +
-                "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset" +
-                "&forecast_days=4&timezone=auto"
-            val j = getJson(url) ?: return null
-            return Hit("Weather · $label", url, "Open-Meteo forecast", formatWeather(j, label), kind = "weather", source = "open-meteo")
-        }
-
-        /** The forecast as one plain paragraph the model can quote: now, then four days. */
-        internal fun formatWeather(j: JSONObject, label: String): String {
-            val sb = StringBuilder()
-            val cur = j.optJSONObject("current")
-            val unit = j.optJSONObject("current_units")?.optString("temperature_2m", "°C") ?: "°C"
-            if (cur != null) {
-                sb.append("Now in ").append(label).append(": ").append(code(cur.optInt("weather_code", -1)))
-                    .append(", ").append(fmt(cur.optDouble("temperature_2m"))).append(unit)
-                if (cur.has("apparent_temperature")) sb.append(" (feels ").append(fmt(cur.optDouble("apparent_temperature"))).append(unit).append(")")
-                if (cur.has("relative_humidity_2m")) sb.append(", humidity ").append(cur.optInt("relative_humidity_2m")).append("%")
-                if (cur.has("wind_speed_10m")) sb.append(", wind ").append(fmt(cur.optDouble("wind_speed_10m"))).append(" km/h")
-                sb.append(". ")
-            }
-            val d = j.optJSONObject("daily")
-            val days = d?.optJSONArray("time")
-            if (d != null && days != null) {
-                val names = arrayOf("Today", "Tomorrow")
-                for (i in 0 until days.length()) {
-                    val day = if (i < names.size) names[i] else dayName(days.optString(i))
-                    sb.append(day).append(": ").append(code(d.optJSONArray("weather_code")?.optInt(i, -1) ?: -1))
-                    sb.append(", ").append(fmt(d.optJSONArray("temperature_2m_min")?.optDouble(i) ?: Double.NaN)).append("–")
-                        .append(fmt(d.optJSONArray("temperature_2m_max")?.optDouble(i) ?: Double.NaN)).append(unit)
-                    d.optJSONArray("precipitation_probability_max")?.let { p -> if (!p.isNull(i)) sb.append(", rain ").append(p.optInt(i)).append("%") }
-                    d.optJSONArray("precipitation_sum")?.let { p -> val mm = p.optDouble(i); if (!mm.isNaN() && mm > 0) sb.append(" (").append(fmt(mm)).append(" mm)") }
-                    if (i == 0) {
-                        val rise = d.optJSONArray("sunrise")?.optString(i)?.substringAfter('T', "") ?: ""
-                        val set = d.optJSONArray("sunset")?.optString(i)?.substringAfter('T', "") ?: ""
-                        if (rise.isNotEmpty() && set.isNotEmpty()) sb.append(", sun ").append(rise).append("–").append(set)
-                    }
-                    sb.append(". ")
-                }
-            }
-            j.optString("timezone").takeIf { it.isNotEmpty() }?.let { sb.append("Local time zone ").append(it).append('.') }
-            return sb.toString().trim()
-        }
-
         private fun fmt(v: Double): String = if (v.isNaN()) "?" else if (v == Math.rint(v)) v.toInt().toString() else "%.1f".format(java.util.Locale.US, v)
-        private fun dayName(iso: String): String = runCatching {
-            val p = iso.split('-'); val c = Calendar.getInstance(); c.set(p[0].toInt(), p[1].toInt() - 1, p[2].toInt())
-            arrayOf("", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")[c.get(Calendar.DAY_OF_WEEK)]
-        }.getOrDefault(iso)
-
-        /** WMO weather codes, the ones Open-Meteo uses. */
-        internal fun code(c: Int): String = when (c) {
-            0 -> "clear"; 1 -> "mostly clear"; 2 -> "partly cloudy"; 3 -> "overcast"
-            45, 48 -> "fog"; 51, 53, 55 -> "drizzle"; 56, 57 -> "freezing drizzle"
-            61 -> "light rain"; 63 -> "rain"; 65 -> "heavy rain"; 66, 67 -> "freezing rain"
-            71 -> "light snow"; 73 -> "snow"; 75 -> "heavy snow"; 77 -> "snow grains"
-            80 -> "light showers"; 81 -> "showers"; 82 -> "violent showers"; 85, 86 -> "snow showers"
-            95 -> "thunderstorm"; 96, 99 -> "thunderstorm with hail"
-            else -> "unknown"
-        }
 
         // Frankfurter: the European Central Bank's reference rates, keyless, one GET.
         fun rate(amount: Double, from: String, to: String): Hit? {

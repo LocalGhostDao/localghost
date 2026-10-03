@@ -32,6 +32,7 @@ const (
 	KindArticle = "article" // a news story's article page, read for its summary
 	KindTick    = "tick"    // ghost.tallyd's minute, as a whole
 	KindFast    = "fast"    // a minute of the fast lane (BTC, ETH, SOL every five seconds), as one line
+	KindWeather = "weather" // a batch of the daily weather pull (open-meteo)
 )
 
 // Entry is one fetch.
@@ -58,6 +59,8 @@ func KindOf(id string) string {
 		return KindHistory
 	case id == "coinbase-ranks":
 		return KindRanks
+	case id == "open-meteo":
+		return KindWeather
 	}
 	return KindTicker
 }

@@ -156,8 +156,13 @@ func cryptoCode(c string) bool {
 	return false
 }
 
-// boxCovers is boxHas over the box's own coin list.
+// boxCovers is boxHas over the box's own coin list, and the weather the box pulled (weather.go):
+// a weather question naming no place never goes to the web, whatever the box holds, since the
+// web would need the phone's position to answer it.
 func boxCovers(runDir, prompt string) (string, bool) {
+	if why, ok := weatherCovers(runDir, prompt); ok {
+		return why, true
+	}
 	db := chatStore(filepath.Dir(runDir))
 	return boxHas(prompt, knownCoins(db, time.Now()))
 }

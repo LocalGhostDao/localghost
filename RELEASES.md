@@ -10,3 +10,4 @@ commit, to the same bytes. The name is the line and the number is the cut: every
 |---|---|---|---|
 | 0.0.1 | wisp | 2 October 2026 | [server/releases/0.0.1.md](server/releases/0.0.1.md) |
 | 0.0.2 | wisp | 2 October 2026 | [server/releases/0.0.2.md](server/releases/0.0.2.md) |
+| 0.0.3 | wisp | 3 October 2026 | [server/releases/0.0.3.md](server/releases/0.0.3.md) |

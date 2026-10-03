@@ -384,7 +384,7 @@ object BoxClient {
         @Suppress("UNUSED_PARAMETER") caps: ChatCapabilities = ChatCapabilities(),
         imageB64: String = "",
         web: org.json.JSONArray? = null, // what the phone found on the web for this question; the box adds it as labelled context
-        here: Pair<Double, Double>? = null, // the phone's last fix when recent: "near here" means somewhere, against the box's own map data
+        here: Pair<Double, Double>? = null, // the phone's last fix when recent: "near here" and "the weather" mean somewhere, against the box's own map data and its daily weather pull
         need: String = "",                 // what the box's model said the question needs (chatPlan); the box ranks the pages' paragraphs against it
         round: Int = 0,                    // 1 on the first ask with findings, 2 after the box asked for more
         spare: List<String> = emptyList(), // the plan's searches not run yet, for the box to ask for

@@ -15,4 +15,17 @@ class BoxKnowsTest {
             assertFalse(it, BoxKnows.covers(it))
         }
     }
+
+    // The weather where the phone is never goes to the web (the web would need the position); a
+    // named place may, its name says nothing about where the phone is.
+    @Test fun theWeatherHereIsTheBoxs() {
+        listOf("what's the weather like today?", "is it going to rain tomorrow", "do I need an umbrella this afternoon",
+            "how hot is it right now", "weather for the weekend", "will it snow tonight at 8").forEach {
+            assertTrue(it, BoxKnows.weatherHere(it)); assertTrue(it, BoxKnows.covers(it))
+        }
+        listOf("what's the weather in Rome today", "forecast for Cluj-Napoca this weekend", "is it raining in São Paulo").forEach {
+            assertFalse(it, BoxKnows.weatherHere(it)); assertFalse(it, BoxKnows.covers(it))
+        }
+        assertFalse(BoxKnows.weatherHere("windows update"))
+    }
 }

@@ -103,23 +103,18 @@ class WebSearchTest {
         assertEquals("A & B 'c' A ó &unknownthing;", WebSearch.clean("A &amp; B &#39;c&#39; &#x41; &oacute; &unknownthing;"))
     }
 
+    // The weather is the box's: no tool for it on the phone, whatever the question names.
     @Test fun whichToolsApply() {
         val t = WebSearch.Tools
-        assertEquals("Athens", t.placeOf("what is the weather in Athens tomorrow"))
-        assertNull(t.placeOf("weather forecast for tomorrow"))
-        assertEquals("São Paulo", t.placeOf("is it raining in São Paulo right now?"))
-        assertEquals("Paris", t.placeOf("will it rain in Paris this weekend"))
-        assertNull(t.placeOf("how hot is it today"))
-        assertEquals(1, t.forQuestion("what's the weather like today?", WebSearch.Here(37.98, 23.72)).size)
-        assertEquals(0, t.forQuestion("what's the weather like today?", null).size)
-        assertEquals(1, t.forQuestion("how much is 100 euros in pounds?", null).size)
-        assertEquals(1, t.forQuestion("gbp to ron", null).size)
-        assertEquals(2, t.forQuestion("100 dollars to euros and the weather in Rome", null).size)
-        assertEquals(1, t.forQuestion("who is Nikos Kazantzakis?", null).size)
-        assertEquals(0, t.forQuestion("what is the Acropolis museum opening time on sundays and holidays?", null).size)
-        assertEquals(0, t.forQuestion("show me photos from Rome", null).size)
-        assertEquals("thunderstorm", t.code(95))
-        assertEquals("unknown", t.code(-1))
+        assertEquals(0, t.forQuestion("what's the weather like today?").size)
+        assertEquals(0, t.forQuestion("what is the weather in Athens tomorrow").size)
+        assertEquals(1, t.forQuestion("how much is 100 euros in pounds?").size)
+        assertEquals(1, t.forQuestion("gbp to ron").size)
+        assertEquals(1, t.forQuestion("100 dollars to euros and the weather in Rome").size)
+        assertEquals(1, t.forQuestion("who is Nikos Kazantzakis?").size)
+        assertEquals(0, t.forQuestion("what is the weather like?").size)
+        assertEquals(0, t.forQuestion("what is the Acropolis museum opening time on sundays and holidays?").size)
+        assertEquals(0, t.forQuestion("show me photos from Rome").size)
     }
 
     @Test fun braveApiJson() {

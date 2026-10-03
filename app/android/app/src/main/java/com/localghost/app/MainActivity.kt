@@ -301,7 +301,7 @@ class MainActivity : ComponentActivity() {
         com.localghost.app.net.BoxClient.appCtx = applicationContext
         sync = sync.copy(paused = AppSettings.syncPaused(this))
         thinkLevelState = AppSettings.thinkLevel(this)
-        AppLock.ensureKey(this)
+        AppLock.ensureKey()
         Notifications.ensureChannel(this)
         // ghost.phrased: redraw the lock-screen card and widget for this hour (no-op when both are
         // off) and arm the next refresh. Runs outside the security gate on purpose , a phrase on the
@@ -545,8 +545,9 @@ class MainActivity : ComponentActivity() {
         var web: org.json.JSONArray? = null
         var webHits: List<com.localghost.app.net.WebSearch.Hit> = emptyList()
         val mode = AppSettings.webMode(this)
-        // The last fix, when recent: "what's the weather like?" means here on the web side, and
-        // "anywhere good near here?" means here on the box, against its own map data.
+        // The last fix, when recent, goes to the box and nowhere else: "what's the weather like?"
+        // is answered from the box's daily pull of the world's larger places, "anywhere good near
+        // here?" against its own map data. The web gets the search words and never a position.
         val fix = com.localghost.app.sync.LocationLog.last(this)?.takeIf { System.currentTimeMillis() / 1000 - it.ts < 6 * 3600 }
         // A status line in the answer's place until the first word: what is happening right now.
         fun status(s: String) {
@@ -560,7 +561,6 @@ class MainActivity : ComponentActivity() {
         // passages that answer. When what was read comes nowhere near the need and the plan had
         // a search left, the box asks for it (ChatChunk.More) and the question is asked again
         // with both rounds' findings , once, never a loop.
-        val here = fix?.let { com.localghost.app.net.WebSearch.Here(it.lat, it.lon) }
         val engine = com.localghost.app.net.WebSearch.Engine(AppSettings.searchEngine(this), AppSettings.braveKey(this))
         // THE MODEL LOADS AFTER THE UNLOCK: a question asked in the first seconds after a cold one
         // waits here, with the load shown in the answer's place, and goes once the model answers
@@ -596,7 +596,7 @@ class MainActivity : ComponentActivity() {
         if (wantWeb) {
             status("searching the web on this phone" + (if (engine.brave) " (Brave)" else "") +
                 ((plan?.need?.takeIf { it.isNotBlank() } ?: ownNeed.takeIf { it.isNotBlank() })?.let { " for: $it" } ?: "") + "…")
-            webHits = com.localghost.app.net.WebSearch.search(searchText, here, engine, plan?.first, plan?.need ?: ownNeed)
+            webHits = com.localghost.app.net.WebSearch.search(searchText, engine, plan?.first, plan?.need ?: ownNeed)
             // WHO READS THE PAGES: the box on its GPU reads them in seconds and gets the
             // paragraphs; a box on its CPU (or one that did not answer the plan in time) gets the
             // phone's model's notes instead, checked against the pages, with a verbatim quote each.
@@ -679,7 +679,7 @@ class MainActivity : ComponentActivity() {
             val again = more
             if (again == null || round != 1 || !streaming) break
             // round two: the searches the box asked for, all of them, merged with the first round
-            val second = com.localghost.app.net.WebSearch.search(searchText, here, engine, again, plan?.need ?: ownNeed, runAll = true)
+            val second = com.localghost.app.net.WebSearch.search(searchText, engine, again, plan?.need ?: ownNeed, runAll = true)
             webHits = com.localghost.app.net.WebSearch.merge(webHits, second)
             web = if (webHits.isNotEmpty()) com.localghost.app.net.WebSearch.toJson(webHits) else null
             status("${second.size} more found , asking your box again…")
@@ -740,7 +740,6 @@ class MainActivity : ComponentActivity() {
         var hits: List<com.localghost.app.net.WebSearch.Hit> = emptyList()
         if (com.localghost.app.net.WebSearch.shouldSearch(mode, text)) {
             say("", "no box , searching the web on this phone…")
-            val fix = com.localghost.app.sync.LocationLog.last(this)?.takeIf { System.currentTimeMillis() / 1000 - it.ts < 6 * 3600 }
             val engine = com.localghost.app.net.WebSearch.Engine(AppSettings.searchEngine(this), AppSettings.braveKey(this))
             // a follow-up ("how about now?") searched with the question before it
             val earlier = messages.filter { it.role == Message.Role.USER }.map { it.text }.dropLast(1)
@@ -748,7 +747,7 @@ class MainActivity : ComponentActivity() {
             // a follow-up does not carry a private question to the web (auto only)
             val found = if (mode == "auto" && (com.localghost.app.net.FollowUp.looksPersonal(q) ||
                     (q != text && !com.localghost.app.net.FollowUp.mayBorrow(earlier, com.localghost.app.net.WebSearch::looksFresh)))) emptyList()
-                else com.localghost.app.net.WebSearch.search(q, fix?.let { com.localghost.app.net.WebSearch.Here(it.lat, it.lon) }, engine)
+                else com.localghost.app.net.WebSearch.search(q, engine)
             if (found.isNotEmpty()) {
                 val read = com.localghost.app.local.PhoneReader.digest(this, com.localghost.app.net.WebSearch.cleanQuery(text), found) { say("", it) }
                 hits = read.hits
@@ -1310,7 +1309,6 @@ class MainActivity : ComponentActivity() {
 
     private fun passBiometric() {
         error = null
-        if (!AppLock.deviceAuthAvailable(this)) { screen = Screen.Pin; return }
         // RECENT DEVICE UNLOCK SKIPS THE PROMPT. The gate key carries a 10s auth window, and the
         // phone's own lockscreen unlock opens it , so "unlocked my phone onto the app" goes straight
         // to the box PIN with zero extra taps and zero extra fingerprints. The OS vouches for the

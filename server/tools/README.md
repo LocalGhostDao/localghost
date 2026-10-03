@@ -398,6 +398,17 @@ backfilled a slice per pass. `tools/health.sh` shows the count and where the bac
 `ghost-cli ghost.synthd days` the same with detail, `days day=2026-09-25 rewrite=true` to have one
 day written again. "On this day" and the memories feed read these rows.
 
+## 1b'''''. The weather, pulled by the box , nothing to run
+
+ghost.tallyd asks Open-Meteo once a day for the forecast of the world's three thousand larger
+places (GeoNames populated places of 100,000 or more, from the geo set of 1b'), the same list
+whoever and wherever the person is, in batches of a hundred a request. The chat answers "what's
+the weather like" from that table for the phone's fix or the trail's newest point, and "weather
+in Faro" for the place named; the phone never asks a weather service anything, so none learns
+where it is. `ghost-cli ghost.tallyd weather` shows the table and the forecast where the trail
+says the phone is, `weather place=Faro` or `weather lat=37.0 lon=-7.9` a place, `weather fetch=1`
+pulls now. Box Status has a Weather section. Without the geo set there is nothing to pull.
+
 ## 1c. When the GPU misbehaves , root
 
     sudo ./tools/gpu.sh          # is the model on the card, and is the card doing the work

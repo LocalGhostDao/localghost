@@ -4907,3 +4907,50 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   nothing killed; a clean halt names each process as it goes and says "halted cleanly"; a
   teardown with a stray ghost.watchd (parent 1) and the postmaster (parent 1): the stray is
   killed at 10 s, the postmaster is left alone to the end.
+
+## The weather moves to the box: one daily pull of the world's larger places, never a position
+
+- Vlad, after "Open-Meteo do we call this for weather i don't think we do": "let's drop the
+  weather tool, or maybe move it to the server where we pull weather in all the major places once
+  a day and then the app just figures it out, this way the weather apis don't know where we are
+  because we pull all." The phone's weather tool (`WebSearch.Tools.weather`, `weatherByName`,
+  `Here`) sent the fix at two decimals to Open-Meteo for a question naming no place; that was the
+  one position that ever left either device. Gone.
+- `internal/weather`: the places are GeoNames populated places (kind P) of 100,000 or more from
+  `geo_points`, the largest 3,000; one request a batch of 100 (Open-Meteo takes comma lists of
+  coordinates and answers an array), current conditions plus four days, `timezone=auto`; each
+  place's forecast is one JSON row in `weather_places` (schemadef, converged at start). `Nearest`
+  is the pulled place within 120 km of a point (bounding box, then haversine), `ByName` the pulled
+  place of that name or the geo set's place and then Nearest, `Describe` the paragraph the model
+  quotes (where, how far, how old, now, the days by name, the zone). `Pass` logs each batch to
+  feedstat as kind `weather`, source `open-meteo`.
+- ghost.tallyd: `weatherLoop` looks 90 s after start and hourly, pulls when the table is a day old
+  or empty (1.5 s between batches, under a minute for the lot); `ghost-cli ghost.tallyd weather
+  [lat= lon= | place=] [fetch=1]` reads the table the way the chat does (default: the trail's
+  newest point). Box Status gets a Weather section (`internal/monitor`): places, the pull's age,
+  the batches that came in two days; Waiting without the geo set, Late past 36 h, Failing past
+  108 h.
+- ghost.synthd: `weather.go` answers a weather question from the box: the named place
+  (`placeOf`, the phone's regex moved over), else the fix the phone sent with the question
+  (`here`, which already travelled to the box for "near here"), else `hw.TrailNewest`. The item
+  lands beside the taste items (source `weather`, 700 chars allowed). With nothing on the box the
+  item says so, so the model does not make a forecast up. `boxCovers` says the box has it for any
+  weather question naming no place (the web could only answer with the position), and for a named
+  place when the box has a forecast for it; a named place the box lacks may still go to the web,
+  the name says nothing about where the phone is.
+- The app: the weather branch, `Here`, `placeOf`, `weather`, `weatherByName`, `formatWeather`,
+  `code` and `dayName` are out of `WebSearch.kt`; `search()` and `run()` lost the `here`
+  argument, the four call sites in MainActivity with it; the fix still goes to the box with the
+  chat. `BoxKnows.weatherHere` (pure) keeps a weather question naming no place off the web when
+  the box's plan is late: a capitalised word after in/at/for/around/near names a place, a time word
+  does not.
+- Docs: README "what leaves the box" (the daily pull by the box in the list, "never a position",
+  one thing leaves the phone), tools/README §1b''''', releases/0.0.3.md, the version at 0.0.3
+  everywhere the cut reads it (release.names, build.gradle.kts, CITATION.cff, RELEASES.md, the
+  README's status). The site's privacy page can say "never a location" again (web repo).
+- Tested: weather URL/Parse/Describe/Due pure, and against Postgres the places query (threshold,
+  kind, order), a two-batch pass with a fake fetcher, Nearest within and beyond 120 km, ByName
+  through the geo set, a 429 pass leaving the good rows; synthd's `placeOf` and `weatherCovers`
+  without a box; the app's `BoxKnows.weatherHere` and `Tools.forQuestion` (weather never a
+  tool). 48 Go packages, vet on Linux and darwin; 207 JVM tests plus WebSearchTest against a
+  coroutines stub.
