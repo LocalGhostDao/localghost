@@ -126,8 +126,8 @@ func main() {
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
 		// rates: the box's market numbers (the ECB table, the BTC index, the rank list) and how
-		// the last batch went; amount= from= to= converts. `ghost-cli ghost.tallyd rates
-		// amount=100 from=EUR to=GBP`.
+		// the last batch went; amount= from= to= converts; index=1 lays CRYPTO50 out term by term.
+		// `ghost-cli ghost.tallyd rates amount=100 from=EUR to=GBP`.
 		ctl.Handle("rates", func(args json.RawMessage) (ctlsock.Response, error) {
 			var a struct {
 				Amount float64 `json:"amount"`
@@ -136,6 +136,7 @@ func main() {
 				Add    string  `json:"add"`    // a symbol to follow (SOL)
 				Remove string  `json:"remove"` // one to stop following
 				Fetch  bool    `json:"fetch"`  // the box fetches now, whatever the phone is on
+				Index  bool    `json:"index"`  // CRYPTO50 term by term: each constituent's part of the value now and of the last day's
 			}
 			if len(args) > 0 {
 				_ = json.Unmarshal(args, &a)
@@ -182,6 +183,13 @@ func main() {
 				out["market"] = st
 			} else {
 				out["marketErr"] = merr.Error()
+			}
+			if a.Index {
+				if ex, xerr := tally.ExplainMarket(db, time.Now()); xerr == nil {
+					out["index"] = ex
+				} else {
+					out["indexErr"] = xerr.Error()
+				}
 			}
 			if p, ok := tally.LoadProgress(db); ok {
 				out["progress"] = p

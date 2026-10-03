@@ -1461,6 +1461,14 @@ object BoxClient {
             ints("fine"), ints("majorKeys"), ints("coastKeys"), r.optLong("bytes"))
     } catch (_: Exception) { null }
 
+    /** The country a point is in, from the box's own Natural Earth polygons (/v1/geo/at): the
+     *  two-letter code, or null (at sea, no box to ask, no answer). The lock-screen phrases follow
+     *  it (LocationLog.geocode); no geocoder outside the box ever sees a fix. */
+    suspend fun countryAt(ctx: Context, lat: Double, lon: Double): String? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/geo/at?lat=%.4f&lon=%.4f".format(java.util.Locale.US, lat, lon))
+        r.optString("country").takeIf { it.length in 2..3 }
+    } catch (_: Exception) { null }
+
     data class GeoCell(val lat: Double, val lon: Double, val n: Int, val hash: String, val takenAt: Long)
 
     /** A name on the map. kind: C country, R region, X capital, P any other populated place. */

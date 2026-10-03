@@ -42,6 +42,21 @@ func TestWeightsAndValue(t *testing.T) {
 	if v, _, _ := Value(0, cons, nil, nil); v != 0 {
 		t.Fatal("no chain")
 	}
+	// a price that is not this coin's (another asset under SOL's ticker, at 40 times the base) is
+	// held at the carried price and named with "!", not let move the index by its weight times 40
+	v, priced, missing = Value(1000, cons, map[string]float64{"BTC": 65000, "ETH": 3500, "SOL": 6000}, map[string]float64{"SOL": 165})
+	if priced != 2 || len(missing) != 1 || missing[0] != "SOL!" || math.Abs(v-1000*(1+0.1*cons[2].Weight)) > 1e-9 {
+		t.Fatalf("held: %v %d %v", v, priced, missing)
+	}
+	// a carried price past the bound is no better: the base holds the coin flat
+	v, _, missing = Value(1000, cons, map[string]float64{"BTC": 65000, "ETH": 3500}, map[string]float64{"SOL": 0.001})
+	if math.Abs(v-1000) > 1e-9 || len(missing) != 1 || missing[0] != "SOL" {
+		t.Fatalf("flat past the bound: %v %v", v, missing)
+	}
+	terms := Terms(cons, map[string]float64{"BTC": 71500, "SOL": 6000}, map[string]float64{"ETH": 3500, "SOL": 165})
+	if len(terms) != 3 || terms[0].From != "live" || math.Abs(terms[0].Ratio-1.1) > 1e-9 || terms[1].From != "carried" || terms[2].From != "held" || terms[2].Price != 165 {
+		t.Fatalf("terms: %+v", terms)
+	}
 	if MonthOf("2026-10-01") != "2026-10" {
 		t.Fatal(MonthOf("2026-10-01"))
 	}

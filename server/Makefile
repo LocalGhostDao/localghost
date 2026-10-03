@@ -11,6 +11,9 @@
 
 GO      ?= go
 BINDIR  := bin
+# never a toolchain from the internet: a Go older than go.mod's fails the build out loud, and
+# tools/install_go.sh (run by setup.sh and redeploy.sh) brings the mirror's
+export GOTOOLCHAIN ?= local
 TAGS    ?=
 # the version secd reports to the phone (GET /v1/update): the git description of the tree built
 # here; a release sets its own tag (tools/release_build.sh)

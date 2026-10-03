@@ -271,6 +271,8 @@ func (s *Server) routes() []route {
 			Auth: true, Response: countriesDoc{}, Handler: s.handleCountries},
 		{Method: "GET", Path: "/v1/geo/country", Summary: "One country's tiles as index keys (?code=GR; y*cols+x on each grid), only cells the box has a tile for.",
 			Auth: true, Response: countryDoc{}, Handler: s.handleCountry},
+		{Method: "GET", Path: "/v1/geo/at", Summary: "The country a point is in (?lat=&lon=), from the box's own Natural Earth polygons; 404 at sea. The phone's lock-screen phrases follow it, so no geocoder outside the box ever sees a fix.",
+			Auth: true, Response: whereDoc{}, Handler: s.handleAt},
 		{Method: "GET", Path: "/v1/day", Summary: "One day's summary from photos, trail, health, voice notes and the check-in (?d=YYYY-MM-DD; &build=1 writes it now).",
 			Auth: true, Response: dayDoc{}, Handler: s.handleDay},
 		{Method: "POST", Path: "/v1/geo/trail/forget", Summary: "Delete one fix and its neighbours at the same spot (dry=true only says which).",

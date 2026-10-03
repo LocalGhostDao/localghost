@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,6 +107,21 @@ func TestCountriesFromTheWorldAndTheIndexes(t *testing.T) {
 	}
 	if rr := get("/v1/geo/country?code=TOOLONG"); rr.Code == 200 || rr.Code == 404 {
 		t.Fatalf("bad code: %d, want appears-down", rr.Code)
+	}
+	// the country a point is in: inside Squareland, inside Elsewhere, at sea, a bad point
+	rr = get("/v1/geo/at?lat=41.05&lon=11.05")
+	var at whereDoc
+	if rr.Code != 200 || json.Unmarshal(rr.Body.Bytes(), &at) != nil || at.Country != "SQ" || at.Name != "Squareland" {
+		t.Fatalf("at: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr = get("/v1/geo/at?lat=-19&lon=-49"); rr.Code != 200 || !strings.Contains(rr.Body.String(), `"EW"`) {
+		t.Fatalf("at elsewhere: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := get("/v1/geo/at?lat=0&lon=0"); rr.Code != 404 {
+		t.Fatalf("at sea: %d", rr.Code)
+	}
+	if rr := get("/v1/geo/at?lat=91&lon=0"); rr.Code == 200 || rr.Code == 404 {
+		t.Fatalf("bad point: %d, want appears-down", rr.Code)
 	}
 
 	// a second street tile lands and the index is rewritten: the list follows

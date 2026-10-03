@@ -64,29 +64,81 @@ func Weights(avgVolume, caps, basePrice map[string]float64, n int) []Constituent
 	return out
 }
 
+// MaxMove bounds a constituent's price against its month base. No coin of the fifty moves
+// twenty-fold within a calendar month; a ratio past it is a price that is not this coin's (a
+// venue's ticker that names another asset, a base recorded in another unit, a mis-parsed row),
+// and one such row would move the whole index by its weight times the ratio. Past the bound the
+// price is held (the carried one, else the base), and the symbol is named with "!" in missing,
+// which Box Status shows.
+const MaxMove = 20.0
+
+// Term is one constituent's part of a value, for the drill-in (ghost-cli ghost.tallyd rates
+// index=1) and the tests.
+type Term struct {
+	Symbol string  `json:"symbol"`
+	Weight float64 `json:"weight"`
+	Base   float64 `json:"base"`
+	Price  float64 `json:"price"`
+	From   string  `json:"from"` // live, carried, base, or held (the live price past MaxMove)
+	Ratio  float64 `json:"ratio"`
+	Part   float64 `json:"part"` // weight times ratio: this coin's share of the sum
+}
+
+// Terms is the arithmetic of a value, one term a constituent, in the constituents' order.
+func Terms(cons []Constituent, prices, carried map[string]float64) []Term {
+	out := make([]Term, 0, len(cons))
+	for _, c := range cons {
+		t := Term{Symbol: c.Symbol, Weight: c.Weight, Base: c.BasePrice}
+		if c.BasePrice <= 0 {
+			t.From = "no base"
+			out = append(out, t)
+			continue
+		}
+		p, from := prices[c.Symbol], "live"
+		if !(p > 0) || math.IsNaN(p) || math.IsInf(p, 0) {
+			p, from = 0, ""
+		} else if r := p / c.BasePrice; r > MaxMove || r < 1/MaxMove {
+			p, from = 0, "held"
+		}
+		if !(p > 0) {
+			if cp := carried[c.Symbol]; cp > 0 && !math.IsNaN(cp) && !math.IsInf(cp, 0) && cp/c.BasePrice <= MaxMove && cp/c.BasePrice >= 1/MaxMove {
+				p = cp
+				if from == "" {
+					from = "carried"
+				}
+			} else {
+				p = c.BasePrice
+				if from == "" {
+					from = "base"
+				}
+			}
+		}
+		t.Price, t.From, t.Ratio, t.Part = p, from, p/c.BasePrice, c.Weight*p/c.BasePrice
+		out = append(out, t)
+	}
+	return out
+}
+
 // Value is the index on a day: the chain value times the weighted sum of each constituent's price
 // over its base. A constituent with no price today takes its carried price (the last known), else
-// its base (flat); both are named in missing.
+// its base (flat); both are named in missing, a held one (MaxMove) with "!" after its symbol.
 func Value(chain float64, cons []Constituent, prices, carried map[string]float64) (value float64, priced int, missing []string) {
 	if chain <= 0 || len(cons) == 0 {
 		return 0, 0, nil
 	}
 	sum := 0.0
-	for _, c := range cons {
-		p := prices[c.Symbol]
-		if p <= 0 {
-			p = carried[c.Symbol]
-			missing = append(missing, c.Symbol)
-		} else {
+	for _, t := range Terms(cons, prices, carried) {
+		switch t.From {
+		case "live":
 			priced++
+		case "held":
+			missing = append(missing, t.Symbol+"!")
+		case "carried", "base":
+			missing = append(missing, t.Symbol)
+		default:
+			continue // no base: nothing to price against
 		}
-		if p <= 0 {
-			p = c.BasePrice
-		}
-		if c.BasePrice <= 0 || math.IsNaN(p) || math.IsInf(p, 0) {
-			continue
-		}
-		sum += c.Weight * p / c.BasePrice
+		sum += t.Part
 	}
 	return chain * sum, priced, missing
 }

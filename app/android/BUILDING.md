@@ -170,5 +170,6 @@ rename a field or function, so rebuild and test after moving the pin.
 ## The box's server (Linux only)
 
 The Go server is not built on these machines. It builds on the box: `server/tools/setup.sh`
-installs Go 1.25.4 from the mirror at setup, and `server/tools/redeploy.sh` builds and stages the
+installs Go from the mirror at setup (the version `server/go.mod` names, 1.27.1 now; `redeploy.sh`
+brings a box up to a newer one the same way), and `server/tools/redeploy.sh` builds and stages the
 daemons (the next unlock puts them on the volume).

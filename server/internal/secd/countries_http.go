@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -216,6 +217,43 @@ func (s *Server) handleCountries(w http.ResponseWriter, r *http.Request) {
 	cc.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(countriesDoc{Countries: rows, Roads: ts.roads != nil, Land: ts.land != nil})
+}
+
+// whereDoc is /v1/geo/at's answer: the country a point is in.
+type whereDoc struct {
+	Country string `json:"country"` // ISO 3166-1 alpha-2 (Natural Earth's ADM0_A3 for a unit without one)
+	Name    string `json:"name"`
+}
+
+// handleAt , GET /v1/geo/at?lat=&lon= , the country a point is in, from the box's own Natural
+// Earth polygons. The phone asks this for the country the lock-screen phrases follow (it asked the
+// OS geocoder before, which on most phones is a network call to Google with the position; the
+// box's answer leaves nothing anywhere). 404 at sea or outside every polygon.
+func (s *Server) handleAt(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
+		s.appearsDown(w)
+		return
+	}
+	lat, err1 := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
+	lon, err2 := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
+	if err1 != nil || err2 != nil || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		s.appearsDown(w)
+		return
+	}
+	cc, _, err := s.countries()
+	if err != nil {
+		s.appearsDown(w)
+		return
+	}
+	cc.mu.Lock()
+	code, name, ok := cc.atlas.At(lat, lon)
+	cc.mu.Unlock()
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(whereDoc{Country: code, Name: name})
 }
 
 // handleCountry , GET /v1/geo/country?code=GR , one country's tiles as index keys.

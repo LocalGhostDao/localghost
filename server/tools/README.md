@@ -57,8 +57,9 @@ the box reaches the network at SETUP only.
 A running box is brought current with one command, unlocked (`redeploy.sh` ships code and reaches
 no network; this ships data):
 
-    sudo ./tools/update.sh                  # maps, embedder, weights, phone model, engine
+    sudo ./tools/update.sh                  # maps, embedder, weights, phone model, engine, speech, Wikipedia
     sudo ./tools/update.sh maps embedder    # only these
+    sudo GHOST_WIKI=0 ./tools/update.sh     # everything but Wikipedia (about 50 GB)
     sudo GHOST_GEO_ROADS=europe-latest.osm.pbf ./tools/update.sh maps   # add a continent's streets
 
 It reads the mirror first and stops if it cannot. Then, set by set, it fetches only what the mirror
@@ -73,6 +74,12 @@ lists differently from what the box has, and hands the result to the daemon that
 - **Engine.** It is rebuilt only when the mirror's llama.cpp tarball changed. The new
   `llama-server` goes onto the volume and ghost.oracled is restarted. A CPU-only build never
   replaces a CUDA one.
+- **Wikipedia.** English, without pictures (set `wikipedia`, one ZIM file of about 50 GB, as Kiwix
+  packages it), into the volume's `wiki/`, when the volume has 60 GB free; ghost.synthd opens it
+  within a minute. From then on "what is X" in the chat and the coin pages read it on the box, and
+  a question it answers never goes to the web (the plan says the box has it, as for the weather).
+  `tools/health.sh` shows "wikipedia: <file>, <n> entries"; `ghost-cli ghost.synthd wiki
+  title=Corfu` reads one article. Kept current with the rest once it is there.
 
 A set installed from the mirror leaves a record: `<dir>/.<name>.sha256`, `<geo>/.mirror-geo`, and
 `.mirror-landpolygons` beside the shapefile. When everything is current, a rerun costs a few
@@ -408,6 +415,15 @@ in Faro" for the place named; the phone never asks a weather service anything, s
 where it is. `ghost-cli ghost.tallyd weather` shows the table and the forecast where the trail
 says the phone is, `weather place=Faro` or `weather lat=37.0 lon=-7.9` a place, `weather fetch=1`
 pulls now. Box Status has a Weather section. Without the geo set there is nothing to pull.
+
+## 1b''''''. A newer Go , nothing to run
+
+`go.mod` names the Go the server is built with (1.27.1 since October 2026). `redeploy.sh` checks the
+box's Go against it before every build and installs the mirror's when it is older
+(`tools/install_go.sh`, the same script setup runs; `sudo ./tools/install_go.sh --check` only
+says). The build runs with `GOTOOLCHAIN=local`, so a Go that is too old fails out loud rather than
+fetching a newer one from the internet; a release is cut with go.mod's Go and no other, since another
+Go gives other bytes.
 
 ## 1c. When the GPU misbehaves , root
 

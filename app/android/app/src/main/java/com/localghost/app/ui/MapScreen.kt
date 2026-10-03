@@ -351,7 +351,26 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
     var showAll by remember { mutableStateOf(false) }
     var frameTick by remember { mutableIntStateOf(0) } // bumped by a pick or a step: frame that day
     var scrub by remember { mutableStateOf(1f) }
-    val lastFix = remember(tracks) { com.localghost.app.sync.LocationLog.newest(ctx) }
+    // LIVE WHILE THE MAP IS OPEN: the quarter-hour fix is for the trail; with the map on screen the
+    // phone's position is asked for every few seconds (LocationLog.follow), so the dot is where the
+    // phone is now and its circle is this fix's own accuracy, not a quarter of an hour's. Stopped
+    // when the map goes or the app leaves the screen, started again when it is back.
+    var liveFix by remember { mutableStateOf<com.localghost.app.sync.LocationLog.Point?>(null) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        var stop: (() -> Unit)? = null
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> if (stop == null) stop = com.localghost.app.sync.LocationLog.follow(ctx) { liveFix = it }
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> { stop?.invoke(); stop = null }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); stop?.invoke(); stop = null }
+    }
+    val storedFix = remember(tracks) { com.localghost.app.sync.LocationLog.newest(ctx) }
+    val lastFix = liveFix ?: storedFix
     val nowSec = remember(tracks) { System.currentTimeMillis() / 1000 }
     val todayKey = remember(nowSec) { dayKeyOf(nowSec) }
     val yesterdayKey = remember(nowSec) { dayKeyOf(nowSec - 86400) }
@@ -775,7 +794,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             Text("[ where I am ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable {
                     // back to the phone, a town's worth around it; twice narrows to the streets
-                    val f = com.localghost.app.sync.LocationLog.newest(ctx)
+                    val f = liveFix ?: com.localghost.app.sync.LocationLog.newest(ctx)
                     if (f != null) {
                         val close = kotlin.math.abs(cx - mercXD(f.lon)) < 0.01 && kotlin.math.abs(cy - mercYD(f.lat)) < 0.01 && zoom >= zoomForRadiusKm(12.0, f.lat) * 0.9f
                         cx = mercXD(f.lon); cy = mercYD(f.lat)

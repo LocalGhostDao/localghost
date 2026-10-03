@@ -135,6 +135,20 @@ app_tools() { # the SDK and the keystore, or the reason there is no app
 if [ -z "$NOAPK" ] && [ -z "$APK" ]; then
     app_tools || { echo "the release carries the app, so nothing is cut. Fix the above and run again, or --no-apk for a cut without it (on purpose)." >&2; exit 1; }
 fi
+# THE GO THE RELEASE IS BUILT WITH is the one go.mod names and no other: the bytes differ from one Go
+# to the next, and the server set's hashes are only worth checking when anyone can make the same
+# bytes. An older Go would fail the build; a newer one would build different bytes (GHOST_GO_ANY=1
+# cuts with it anyway, on purpose, and RELEASE.txt says which Go it was).
+GO_MOD_VER="$(awk '$1 == "go" { print $2; exit }' go.mod)"
+GO_HAVE="$("${GO:-go}" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
+if [ -z "$GO_HAVE" ]; then
+    echo "no go on PATH; the box's is installed by sudo ./tools/install_go.sh (from the mirror)" >&2; exit 1
+elif [ "$GO_HAVE" != "$GO_MOD_VER" ] && [ "${GHOST_GO_ANY:-}" != 1 ]; then
+    echo "go $GO_HAVE here, go.mod names $GO_MOD_VER: a release is built with that Go and no other, so its bytes can be made again." >&2
+    echo "  sudo ./tools/install_go.sh brings the box's Go to it (from the mirror); GHOST_GO_ANY=1 cuts with go $GO_HAVE anyway." >&2
+    exit 1
+fi
+echo "go: $GO_HAVE (go.mod $GO_MOD_VER)"
 
 say() { printf '\n== %s ==\n' "$*"; }
 

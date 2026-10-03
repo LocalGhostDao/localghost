@@ -117,6 +117,31 @@ func wikiSource(runDir, prompt string) []ctxItem {
 	return []ctxItem{{Source: "wikipedia", Snippet: a.Title + ": " + a.Lead, Why: why}}
 }
 
+// reFreshAsk is a question whose answer moves with time: not one the box's Wikipedia, dated as
+// its file is, should close the web for.
+var reFreshAsk = regexp.MustCompile(`(?i)\b(current|currently|now|today|latest|newest|recent|new|this (year|month|week)|20[2-9][0-9]|price|worth|score|result|weather)\b`)
+
+// wikiCovers says whether the box's own Wikipedia answers a "what is X" / "who was X" question
+// outright, so the phone searches nothing (and asks Wikipedia's own API nothing): the file is on
+// the box, the subject is an article of its own (not a page of meanings), and the question is
+// not about a thing that moves with time (a "current", a "president of", a "price"). Pure but
+// for the file read; "" and false when the web should have its turn.
+func wikiCovers(prompt string) (string, bool) {
+	x := wikiSubject(prompt)
+	if x == "" || reFreshAsk.MatchString(prompt) || strings.Contains(" "+strings.ToLower(x)+" ", " of ") {
+		return "", false
+	}
+	w, err := boxWiki.Get()
+	if err != nil {
+		return "", false
+	}
+	a, ok, err := w.Article(x, 200)
+	if err != nil || !ok || a.Disamb || a.Lead == "" {
+		return "", false
+	}
+	return "Wikipedia on the box (" + w.Name + "): " + a.Title, true
+}
+
 // wikiCtl is the ctl command: which file, and a title's lead.
 func wikiCtl(args json.RawMessage) (ctlsock.Response, error) {
 	var a struct {

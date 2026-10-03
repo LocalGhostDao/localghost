@@ -348,3 +348,118 @@ func MarketHistory(db *poltergres.ReadWrite, limit int) ([]struct {
 	}
 	return out, nil
 }
+
+// MarketTerms is the index's arithmetic laid out, for `ghost-cli ghost.tallyd rates index=1`:
+// what each constituent contributes to the value right now and to the last complete day's, so a
+// row that is not this coin's price shows itself (a part far from its weight).
+type MarketTerms struct {
+	Month string       `json:"month"`
+	Chain float64      `json:"chain"` // the value the month started from
+	Now   MarketSide   `json:"now"`
+	Day   MarketSide   `json:"day"`
+	Odd   []rates.Term `json:"odd,omitempty"` // the terms whose part is furthest from their weight, either side
+}
+
+// MarketSide is one value's terms: the live one or a stored day's, computed again from the tables.
+type MarketSide struct {
+	Day    string       `json:"day,omitempty"`
+	Value  float64      `json:"value"`
+	Stored float64      `json:"stored,omitempty"` // the day's value as the table has it
+	Priced int          `json:"priced"`
+	Held   []string     `json:"held,omitempty"`
+	Terms  []rates.Term `json:"terms"`
+}
+
+// ExplainMarket computes the live value and the last stored day's value term by term.
+func ExplainMarket(db *poltergres.ReadWrite, now time.Time) (MarketTerms, error) {
+	var ex MarketTerms
+	today := now.UTC().Format("2006-01-02")
+	month := rates.MonthOf(today)
+	cons, err := loadWeights(db, month)
+	if err != nil {
+		return ex, err
+	}
+	if len(cons) == 0 {
+		month = prevMonth(month)
+		if cons, err = loadWeights(db, month); err != nil || len(cons) == 0 {
+			if err == nil {
+				err = errors.New("no constituents yet")
+			}
+			return ex, err
+		}
+	}
+	ex.Month, ex.Chain = month, chainBefore(db, month)
+	side := func(prices, carried map[string]float64) MarketSide {
+		var s MarketSide
+		s.Terms = rates.Terms(cons, prices, carried)
+		v, priced, missing := rates.Value(ex.Chain, cons, prices, carried)
+		s.Value, s.Priced = v, priced
+		for _, m := range missing {
+			if strings.HasSuffix(m, "!") {
+				s.Held = append(s.Held, strings.TrimSuffix(m, "!"))
+			}
+		}
+		return s
+	}
+	// now, as MarketNow prices it
+	live := map[string]float64{}
+	if rows, err := db.Query("SELECT DISTINCT ON (symbol) symbol, price FROM crypto_index WHERE ts >= $1 ORDER BY symbol, ts DESC", now.Add(-2*time.Hour).Unix()); err == nil {
+		for _, v := range rows.Vals {
+			if len(v) == 2 && v[0] != nil && v[1] != nil {
+				live[*v[0]], _ = strconv.ParseFloat(*v[1], 64)
+			}
+		}
+	}
+	carriedNow := map[string]float64{}
+	if rows, err := db.Query("SELECT symbol, price_usd FROM coin_daily WHERE day = (SELECT max(day) FROM coin_daily)"); err == nil {
+		for _, v := range rows.Vals {
+			if len(v) == 2 && v[0] != nil && v[1] != nil {
+				carriedNow[*v[0]], _ = strconv.ParseFloat(*v[1], 64)
+			}
+		}
+	}
+	ex.Now = side(live, carriedNow)
+	// the last stored day, as the rebuild prices it: the day's closes (the venues' over the coin
+	// day's), carried from the fortnight before
+	if rows, err := db.Query("SELECT day, value FROM crypto_market_index ORDER BY day DESC LIMIT 1"); err == nil && len(rows.Vals) == 1 && len(rows.Vals[0]) == 2 && rows.Vals[0][0] != nil {
+		day := *rows.Vals[0][0]
+		days, _, _ := coinDays(db, day, day)
+		prices := closes(db, day, days[day])
+		carried := map[string]float64{}
+		t, _ := time.Parse("2006-01-02", day)
+		if crows, err := db.Query("SELECT symbol, close FROM crypto_daily_index WHERE day < $1 AND day >= $2 ORDER BY day", day, t.AddDate(0, 0, -14).Format("2006-01-02")); err == nil {
+			for _, v := range crows.Vals {
+				if len(v) == 2 && v[0] != nil && v[1] != nil {
+					carried[*v[0]], _ = strconv.ParseFloat(*v[1], 64)
+				}
+			}
+		}
+		ex.Day = side(prices, carried)
+		ex.Day.Day = day
+		ex.Day.Stored, _ = strconv.ParseFloat(deref(rows.Vals[0][1]), 64)
+	}
+	// the terms furthest from flat, from both sides, the worst first
+	var odd []rates.Term
+	for _, s := range []MarketSide{ex.Now, ex.Day} {
+		for _, t := range s.Terms {
+			if t.Ratio > 1.5 || (t.Ratio > 0 && t.Ratio < 1/1.5) {
+				odd = append(odd, t)
+			}
+		}
+	}
+	sort.Slice(odd, func(i, j int) bool {
+		di, dj := odd[i].Part-odd[i].Weight, odd[j].Part-odd[j].Weight
+		if di < 0 {
+			di = -di
+		}
+		if dj < 0 {
+			dj = -dj
+		}
+		return di > dj
+	})
+	if len(odd) > 12 {
+		odd = odd[:12]
+	}
+	ex.Odd = odd
+	return ex, nil
+}

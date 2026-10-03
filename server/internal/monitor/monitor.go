@@ -649,6 +649,16 @@ func market(db *poltergres.ReadWrite, now time.Time) Section {
 	}
 	s.Line = fmt.Sprintf("%.1f · %+.2f%% today · %d of %d priced", st.Value, st.DayChange, st.Priced, st.Constituents)
 	s.Rows = append(s.Rows, Row{K: "now", V: fmt.Sprintf("%.1f (%+.2f%% on %s's close of %.1f)", st.Value, st.DayChange, st.Day, st.DayValue)})
+	// a day change no market makes is a price that is not a constituent's (a venue's ticker naming
+	// another asset, a base in another unit): the arithmetic names it
+	if st.DayChange > 25 || st.DayChange < -25 {
+		s.State = Worst(s.State, Flaky)
+		s.Rows = append(s.Rows, Row{K: "that change is a fault, not the market", V: "one constituent is priced as another coin, now or on " + st.Day + "; ghost-cli ghost.tallyd rates index=1 lays the terms out", State: Flaky})
+	}
+	if held := heldToday(db, st.Day); held != "" {
+		s.State = Worst(s.State, Flaky)
+		s.Rows = append(s.Rows, Row{K: "held flat", V: held + " (a price past 20× its month base is not this coin's; held at the last good one)", State: Flaky})
+	}
 	pr := Row{K: "priced live", V: fmt.Sprintf("%d of %d constituents", st.Priced, st.Constituents)}
 	if s.State == Flaky {
 		pr.State = Flaky
@@ -667,6 +677,25 @@ func market(db *poltergres.ReadWrite, now time.Time) Section {
 		s.Rows = append(s.Rows, Row{K: "newest minute", V: Ago(s.AgeS) + " old"})
 	}
 	return s
+}
+
+// heldToday is the constituents the last stored day held at a carried price (named with "!" in
+// the day's missing list), as one string; "" when none.
+func heldToday(db *poltergres.ReadWrite, day string) string {
+	if day == "" {
+		return ""
+	}
+	rows, err := db.Query("SELECT missing FROM crypto_market_index WHERE day = $1", day)
+	if err != nil || len(rows.Vals) != 1 || len(rows.Vals[0]) != 1 || rows.Vals[0][0] == nil {
+		return ""
+	}
+	var held []string
+	for _, m := range strings.Split(*rows.Vals[0][0], ",") {
+		if strings.HasSuffix(m, "!") {
+			held = append(held, strings.TrimSuffix(m, "!"))
+		}
+	}
+	return strings.Join(held, ", ")
 }
 
 // --- the ECB -------------------------------------------------------------------------------

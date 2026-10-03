@@ -54,8 +54,9 @@ that writes something the box misreads is worth a fixture and a test.
   that list grows for a reason, not for convenience. The decoders (zstd, ZIM, GeoTIFF, EXIF,
   ISO-BMFF) are written in the tree for that reason.
 - A note at the end of `server/tools/DEV_UPDATE.md`: what changed, why, what was tested.
-- CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `go vet`, every Go test, a
-  macOS cross-compile and the app's JVM tests on every push and pull request. A box is Linux;
+- CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs `go vet`, every Go test and a
+  macOS cross-compile on every push and pull request, and the app's JVM tests on pull requests
+  and on demand (Actions › ci › Run workflow). A box is Linux;
   the tree still builds on a Mac so it can be edited there (Linux-only calls live in
   `_linux.go` files with a counterpart beside them).
 

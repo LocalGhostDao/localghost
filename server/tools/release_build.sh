@@ -31,6 +31,15 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${2:-$HERE/release}/server"
 GO="${GO:-go}"
 cd "$HERE"
+# the Go named in go.mod and no other (the bytes differ from one Go to the next; GHOST_GO_ANY=1 builds
+# with another on purpose), and never one fetched from the internet by the go command itself
+export GOTOOLCHAIN=local
+GO_MOD_VER="$(awk '$1 == "go" { print $2; exit }' go.mod)"
+GO_HAVE="$("$GO" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
+if [ "$GO_HAVE" != "$GO_MOD_VER" ] && [ "${GHOST_GO_ANY:-}" != 1 ]; then
+    echo "go ${GO_HAVE:-none} here, go.mod names $GO_MOD_VER: a release is built with that Go and no other (sudo ./tools/install_go.sh; GHOST_GO_ANY=1 to build with this one anyway)" >&2
+    exit 1
+fi
 
 # the release's name, from tools/release.names ("<version> <name>" a line), so the same commit
 # names it the same way on any machine; "" for a version without one
@@ -84,6 +93,7 @@ NAME="localghost-server-$VERSION-linux-amd64.tar.gz"
     [ -n "$RELNAME" ] && echo "name=$RELNAME"
     echo "commit=$COMMIT"
     echo "date=$(date -u -d "@$EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+    echo "go=$GO_HAVE"
     echo "bundle=$NAME"
     echo "since=${PREV:-the first release}"
     echo "changes:"
@@ -91,7 +101,8 @@ NAME="localghost-server-$VERSION-linux-amd64.tar.gz"
 } > "$OUT/RELEASE.txt"
 cat > "$OUT/NOTICE.txt" <<EOF
 LocalGhost server ${RELNAME:+$RELNAME }$VERSION (commit $COMMIT), built reproducibly from the public repository:
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -buildid=" for linux/amd64 (tools/release_build.sh).
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -buildid=" for linux/amd64 with Go $GO_HAVE (tools/release_build.sh;
+the same Go gives the same bytes, another Go gives others).
 The box checks this set's signature and hashes before it puts a release on, and rolls it back if
 the release fails its first unlock.
 EOF

@@ -31,6 +31,9 @@ type Country struct {
 	Name  string
 	Fine  []int32
 	Major []int32
+	// the polygons themselves, each with its bounding box, for At: a point's country
+	polys []polygon
+	boxes [][4]float64 // minLon, minLat, maxLon, maxLat
 }
 
 // Atlas is every country, by code, in name order.
@@ -104,12 +107,14 @@ func Read(r io.Reader) (*Atlas, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
-		c := Country{Code: code, Name: name}
+		c := Country{Code: code, Name: name, polys: polys, boxes: boxesOf(polys)}
 		c.Fine, c.Major = Rasterise(polys)
 		if prev, dup := a.byCode[code]; dup {
 			// Natural Earth has one feature per country; should two share a code, keep the union
 			a.Countries[prev].Fine = union(a.Countries[prev].Fine, c.Fine)
 			a.Countries[prev].Major = union(a.Countries[prev].Major, c.Major)
+			a.Countries[prev].polys = append(a.Countries[prev].polys, c.polys...)
+			a.Countries[prev].boxes = append(a.Countries[prev].boxes, c.boxes...)
 			continue
 		}
 		a.byCode[code] = len(a.Countries)
@@ -269,6 +274,59 @@ func Rasterise(polys []polygon) (fine, major []int32) {
 	}
 	sort.Slice(major, func(i, j int) bool { return major[i] < major[j] })
 	return fine, major
+}
+
+// At is the country a point is in, by Natural Earth's polygons (even-odd over every ring, so a
+// hole, Lesotho in South Africa, is the other country's); ok false at sea or outside every
+// polygon. Enclaves list before the country around them when both claim a point, since a hole
+// does not claim it: the first polygon that holds the point wins, which is the enclave's.
+func (a *Atlas) At(lat, lon float64) (code, name string, ok bool) {
+	if a == nil || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		return "", "", false
+	}
+	for i := range a.Countries {
+		c := &a.Countries[i]
+		for j, p := range c.polys {
+			b := c.boxes[j]
+			if lon < b[0] || lon > b[2] || lat < b[1] || lat > b[3] {
+				continue
+			}
+			if inside(p, lon, lat) {
+				return c.Code, c.Name, true
+			}
+		}
+	}
+	return "", "", false
+}
+
+// inside is the even-odd test over all of a polygon's rings (the outer and its holes).
+func inside(p polygon, x, y float64) bool {
+	in := false
+	for _, ring := range p {
+		n := len(ring)
+		for i, j := 0, n-1; i < n; j, i = i, i+1 {
+			xi, yi, xj, yj := ring[i][0], ring[i][1], ring[j][0], ring[j][1]
+			if (yi > y) != (yj > y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi {
+				in = !in
+			}
+		}
+	}
+	return in
+}
+
+func boxesOf(polys []polygon) [][4]float64 {
+	out := make([][4]float64, len(polys))
+	for i, p := range polys {
+		b := [4]float64{180, 90, -180, -90}
+		for _, ring := range p {
+			for _, pt := range ring {
+				b[0], b[1] = math.Min(b[0], pt[0]), math.Min(b[1], pt[1])
+				b[2], b[3] = math.Max(b[2], pt[0]), math.Max(b[3], pt[1])
+			}
+		}
+		out[i] = b
+	}
+	return out
 }
 
 func union(a, b []int32) []int32 {

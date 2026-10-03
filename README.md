@@ -87,10 +87,14 @@ and releases, Wikipedia's API only on a box that has not taken the local copy, a
 website for its page. Never a map tile, never a photo, never a note, never your trail, never a
 position.
 
-One thing leaves the phone, and only when you ask the chat a question that needs it: a web search
-goes to DuckDuckGo, or to Brave with your own key, with the question's words, and the phone brings
-the findings to the box; the box never calls a search engine. The answer names the sources it
-used.
+One kind of thing leaves the phone, and only when you ask the chat a question the box cannot
+answer from what it holds: the question's words. A web search goes to DuckDuckGo, or to Brave with
+your own key; with it, a currency question the box did not answer asks Frankfurter (the ECB's
+rates, keyless) and a "who is" or "what is" question asks Wikipedia's summary API, unless the box
+holds its own copy of Wikipedia, which then answers and nothing is asked. The phone brings the
+findings to the box; the box never calls a search engine. The answer names the sources it used.
+The country the lock-screen phrases follow is read on the box from its own map data, not from the
+phone's geocoder.
 
 Setup and updates take files only from the mirror, whose manifest of SHA-256 sums is signed by
 the site key pinned in `server/tools/mirror_fetch.sh`. A file is named only after its hash
@@ -173,9 +177,10 @@ cd ../app/android
 ./gradlew :app:testDebugUnitTest                     # the app's JVM tests, no device needed
 ```
 
-CI runs the same on every push and pull request ([ci.yml](.github/workflows/ci.yml)), and
-cross-compiles the server for macOS so the tree keeps building where contributors edit it; a box
-is Linux. [CONTRIBUTING.md](CONTRIBUTING.md) says what is useful and how changes land.
+CI ([ci.yml](.github/workflows/ci.yml)) runs the server's build, vet and tests on every push
+and pull request, and cross-compiles the server for macOS so the tree keeps building where
+contributors edit it; a box is Linux. The app's JVM tests run on pull requests and on demand
+(Actions › ci › Run workflow). [CONTRIBUTING.md](CONTRIBUTING.md) says what is useful and how changes land.
 
 ---
 

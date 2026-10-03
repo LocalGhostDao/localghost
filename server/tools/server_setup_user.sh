@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # search if the layout differs, then to the known-required version.
 GO_MOD="$SCRIPT_DIR/../go.mod"
 [ -f "$GO_MOD" ] || GO_MOD="$(find "$SCRIPT_DIR/../.." -maxdepth 3 -name go.mod -path '*server*' 2>/dev/null | head -1)"
-GO_WANT="$(grep -E '^go ' "$GO_MOD" 2>/dev/null | awk '{print $2}')"; GO_WANT="${GO_WANT:-1.25.4}"
+GO_WANT="$(grep -E '^go ' "$GO_MOD" 2>/dev/null | awk '{print $2}')"; GO_WANT="${GO_WANT:-1.27.1}"
 
 problems=0
 note() { printf '  %-26s %s\n' "$1" "$2"; }

@@ -3,7 +3,6 @@ package com.localghost.app.sync
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
@@ -322,6 +321,54 @@ object LocationLog {
         return lastKnown(lm, fine)
     }
 
+    /**
+     * FOLLOW the phone while a screen that shows it is open (the map): fixes every few seconds from
+     * the fused provider (else GPS with the fine permission, else the network), each handed to
+     * [onFix] on the main thread and to [record], whose own rules (25 m or an hour) keep a still
+     * phone from writing a point a second. Returns the function that stops it; the caller stops it
+     * the moment the screen goes, so the receiver never runs in the background. A quarter-hour
+     * fix is enough for the trail; a map with the phone on it wants where the phone is now.
+     */
+    fun follow(ctx: Context, onFix: (Point) -> Unit): () -> Unit {
+        if (!hasPermission(ctx)) return {}
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return {}
+        val fine = granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
+        val provider = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && lm.allProviders.contains(LocationManager.FUSED_PROVIDER) -> LocationManager.FUSED_PROVIDER
+            fine && lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            else -> return {}
+        }
+        val writer = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val listener = object : android.location.LocationListener {
+            override fun onLocationChanged(loc: Location) {
+                val pt = Point(loc.time / 1000, loc.latitude, loc.longitude, if (loc.hasAccuracy()) loc.accuracy else 0f, VIA_APP)
+                onFix(pt)
+                writer.execute { runCatching { record(ctx, pt) } }
+            }
+            @Deprecated("Deprecated in Java") override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+        }
+        try {
+            lm.requestLocationUpdates(provider, FOLLOW_EVERY_MS, FOLLOW_MIN_M, listener, android.os.Looper.getMainLooper())
+        } catch (_: SecurityException) {
+            writer.shutdown()
+            return {}
+        } catch (e: Exception) {
+            android.util.Log.w("LocalGhost", "location updates refused: ${e.message}")
+            writer.shutdown()
+            return {}
+        }
+        return {
+            runCatching { lm.removeUpdates(listener) }
+            writer.shutdown()
+        }
+    }
+
+    private const val FOLLOW_EVERY_MS = 4_000L
+    private const val FOLLOW_MIN_M = 3f
+
     private fun lastKnown(lm: LocationManager, fine: Boolean): Point? {
         var best: Location? = null
         for (p in lm.allProviders) {
@@ -347,10 +394,12 @@ object LocationLog {
         return cc to p.getLong("country_ts", 0L)
     }
 
-    /** Resolve the fix's country through the OS geocoder (device-local on most phones, a network
-     *  call on some), only when the phone moved far enough for the answer to change. Returns the
-     *  country when it is new. */
-    fun geocode(ctx: Context, pt: Point): String? {
+    /** Resolve the fix's country on the box (its own Natural Earth polygons, /v1/geo/at), only when
+     *  the phone moved far enough for the answer to change. The OS geocoder did this before, and on
+     *  most phones that is a network call to Google carrying the fix; nothing outside the box sees
+     *  one now. A phone with no box keeps the country it had (CountryDetect then reads the mobile
+     *  network, the SIM or the time zone). Returns the country when it is new. */
+    suspend fun geocode(ctx: Context, pt: Point): String? {
         migratePlainState(ctx)
         val p = prefs(ctx)
         // where the country was last looked up, sealed like the last point; the country itself is plain
@@ -366,13 +415,7 @@ object LocationLog {
                 return null
             }
         }
-        if (!Geocoder.isPresent()) return null
-        val cc = try {
-            @Suppress("DEPRECATION")
-            Geocoder(ctx, Locale.US).getFromLocation(pt.lat, pt.lon, 1)?.firstOrNull()?.countryCode
-        } catch (e: Exception) {
-            android.util.Log.w("LocalGhost", "geocode failed: ${e.message}"); null
-        } ?: return null
+        val cc = com.localghost.app.net.BoxClient.countryAt(ctx, pt.lat, pt.lon) ?: return null
         if (cc.length != 2) return null
         val changed = cc.uppercase() != (p.getString("country", "") ?: "")
         p.edit().putString("country", cc.uppercase()).putLong("country_ts", pt.ts)

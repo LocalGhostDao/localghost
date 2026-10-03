@@ -63,89 +63,10 @@ else
     echo "  database layer: present, pgvector in, distro units masked"
 fi
 
-# Go toolchain , system-wide at /usr/local/go, so every context (login shells, sudo, systemd, this
-# wizard) sees the same compiler. A $HOME install only exists in shells that source the right profile,
-# which is exactly the kind of environment archaeology one-command setup is meant to end. Pinned
-# version, checksum verified against go.dev's official manifest before unpacking.
-GO_PIN="1.25.4"
-# the version go.mod names: an older system Go would pass here, then make the go command fetch the
-# newer toolchain from the internet by itself (GOTOOLCHAIN=auto) , outside the mirror. So older
-# means install the mirror's.
-GO_MIN="$(awk '$1 == "go" { print $2; exit }' "$REPO/go.mod" 2>/dev/null)"; GO_MIN="${GO_MIN:-$GO_PIN}"
-go_ok() {
-    command -v go >/dev/null 2>&1 || return 1
-    _gv="$(go version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
-    [ -n "$_gv" ] || return 1
-    [ "$(printf '%s\n%s\n' "$GO_MIN" "$_gv" | sort -V | head -1)" = "$GO_MIN" ]
-}
-if go_ok; then
-    echo "  go: $(go version | awk '{print $3}') (system)"
-else
-    ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
-    TARBALL="go${GO_PIN}.linux-${ARCH}.tar.gz"
-    echo "  go: installing ${GO_PIN} system-wide (/usr/local/go)..."
-    TMPD="$(mktemp -d)"
-    # FROM THE MIRROR ONLY. tools/mirror_fetch.sh takes the tarball from https://www.localghost.ai/mirror
-    # only if the manifest's gpg signature is by the site key pinned in tools/mirror-key.asc (in this
-    # repo) and the file's SHA-256 matches that manifest , the publisher checked it against go.dev's
-    # own checksum before signing. It is shell and gpg, so it works before Go exists. A mirror that
-    # cannot be reached, or does not list the tarball, stops setup here: a box never installs a file
-    # that was not in a signed manifest. GHOST_MIRROR_UPSTREAM=1 is the operator's explicit exception
-    # (go.dev's own checksum list, as before the mirror).
-    command -v gpg >/dev/null 2>&1 || apt-get install -y gpg >/dev/null 2>&1 || true
-    WANT_SHA=""
-    GOT_SHA=""
-    rc=0; sh "$REPO/tools/mirror_fetch.sh" go "$TMPD/mirror" "$TARBALL" || rc=$?
-    if [ "$rc" = 0 ] && [ -s "$TMPD/mirror/$TARBALL" ]; then
-        mv "$TMPD/mirror/$TARBALL" "$TMPD/$TARBALL"
-        GOT_SHA="$(sha256sum "$TMPD/$TARBALL" | awk '{print $1}')"
-        WANT_SHA="$GOT_SHA"
-        echo "  go: $TARBALL from the mirror, signature and hash checked"
-    elif [ "${GHOST_MIRROR_UPSTREAM:-}" = 1 ]; then
-        echo "  go: !! GHOST_MIRROR_UPSTREAM=1: fetching $TARBALL from dl.google.com, checked against go.dev's"
-        echo "      checksum list , NOT a file from the signed mirror manifest"
-        curl -fsSL -o "$TMPD/$TARBALL" "https://dl.google.com/go/$TARBALL"
-        # include=all is required: the default manifest lists only the LATEST patch of each stable branch,
-        # and a pinned older patch (ours) would come back "not found" , which is a lookup gap, not a
-        # missing checksum.
-        curl -fsSL 'https://go.dev/dl/?mode=json&include=all' -o "$TMPD/manifest.json"
-        WANT_SHA="$(tr ',' '\n' < "$TMPD/manifest.json" | grep -A8 "\"filename\": \"$TARBALL\"" | grep '"sha256"' | head -1 | sed 's/.*"sha256": *"\([0-9a-f]*\)".*/\1/')"
-        GOT_SHA="$(sha256sum "$TMPD/$TARBALL" | awk '{print $1}')"
-        if [ -z "$WANT_SHA" ]; then
-            echo "  go: $TARBALL not found in the release manifest , refusing to install unverified"
-            echo "  (manifest entries near our version, for debugging:)"
-            grep -o '"version": "go1\.[0-9.]*"' "$TMPD/manifest.json" 2>/dev/null | sort -u | head -8 | sed 's/^/    /'
-            rm -rf "$TMPD"
-            exit 1
-        fi
-    else
-        if [ "$rc" = 3 ]; then
-            echo "  go: the mirror does not list $TARBALL (set go) , not published there yet"
-        else
-            echo "  go: could not take $TARBALL from the mirror (see above)"
-        fi
-        echo "  go: stopping: a box installs nothing that was not in the signed mirror manifest."
-        echo "      Re-run when the mirror answers, or install Go $GO_PIN yourself (go version >= $GO_MIN is used as is),"
-        echo "      or GHOST_MIRROR_UPSTREAM=1 to take it from go.dev on your own authority."
-        rm -rf "$TMPD"
-        exit 1
-    fi
-    if [ "$WANT_SHA" != "$GOT_SHA" ]; then
-        echo "  go: CHECKSUM MISMATCH (want $WANT_SHA, got ${GOT_SHA:-nothing}) , refusing to install"
-        rm -rf "$TMPD"
-        exit 1
-    fi
-    rm -rf /usr/local/go
-    tar -C /usr/local -xzf "$TMPD/$TARBALL"
-    # the mirror's notice and the licence terms of the set travel with what came from it
-    for f in "$TMPD/mirror/NOTICE.txt" "$TMPD/mirror"/TERMS-*.txt; do
-        [ -f "$f" ] && cp "$f" "/usr/local/go/MIRROR-$(basename "$f")"
-    done
-    ln -sf /usr/local/go/bin/go /usr/local/bin/go
-    ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
-    rm -rf "$TMPD"
-    echo "  go: $(/usr/local/bin/go version | awk '{print $3}') installed, on everyone's PATH via /usr/local/bin"
-fi
+# Go toolchain , system-wide at /usr/local/go, from the mirror only, by tools/install_go.sh (the
+# version it pins, the checks it makes, and why system-wide rather than $HOME are all in that file;
+# redeploy.sh runs the same before every build, so a box follows go.mod to a newer Go later on).
+sh "$REPO/tools/install_go.sh" || exit 1
 # server_setup_root.sh is idempotent; run it so packages/TPM/sudo/env are all in place. --host is
 # only honoured when ghost.env does not yet exist, which is exactly right on a re-run.
 CUR_HOST=""

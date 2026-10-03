@@ -81,6 +81,10 @@ fi
 
 if [ "$NO_BUILD" = 0 ]; then
     say "1/4  build (as $SVC_USER)"
+    # the Go go.mod asks for, first: a newer one is installed from the mirror (tools/install_go.sh),
+    # and a mirror that does not answer stops the redeploy here, before anything is touched. The
+    # build runs with GOTOOLCHAIN=local (Makefile), so it can never fetch a toolchain by itself.
+    sh "$REPO/tools/install_go.sh" || { echo "the build needs the Go that go.mod names; nothing was changed" >&2; exit 1; }
     # build as the service user through a login shell so Go is on PATH (system Go at /usr/local/go).
     su - "$SVC_USER" -c "cd '$REPO' && make box"
 fi

@@ -54,7 +54,20 @@ func TestWikiFromTheBox(t *testing.T) {
 	if len(items) != 1 || items[0].Source != "wikipedia" || !strings.HasPrefix(items[0].Snippet, "Kassiopi: Kassiopi is a village") {
 		t.Fatalf("%+v", items)
 	}
+	// the box has it: the phone searches nothing. A page of meanings, a subject the copy lacks,
+	// a relation ("of") and a question about now all leave the web its turn.
+	if why, ok := wikiCovers("what is Kassiopi?"); !ok || !strings.Contains(why, "Kassiopi") {
+		t.Fatalf("covers: %q %v", why, ok)
+	}
+	for _, q := range []string{"what is Solana", "who is Nikos Kazantzakis", "what is the mayor of Kassiopi", "what is Kassiopi like now", "what's the weather in Kassiopi"} {
+		if why, ok := wikiCovers(q); ok {
+			t.Fatalf("%q: the web's turn, not %q", q, why)
+		}
+	}
 	boxWiki = &wiki.Shared{Dir: t.TempDir()}
+	if _, ok := wikiCovers("what is Kassiopi?"); ok {
+		t.Fatal("no copy: nothing covered")
+	}
 	if _, _, have := wikiAboutCoin("Solana", "SOL"); have {
 		t.Fatal("no copy: the network is asked")
 	}

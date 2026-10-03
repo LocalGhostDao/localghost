@@ -4954,3 +4954,71 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   without a box; the app's `BoxKnows.weatherHere` and `Tools.forQuestion` (weather never a
   tool). 48 Go packages, vet on Linux and darwin; 207 JVM tests plus WebSearchTest against a
   coroutines stub.
+
+## Go 1.27.1 from the mirror, the index's arithmetic laid out, the geocoder gone, the map's live dot
+
+- Two outside reviews of 0.0.3 (the Anchor Terminal dossiers) agreed on the gaps: the release
+  binaries are Go 1.25.4 with 35 standard-library advisories fixed since; the README says never a
+  position while the app sends fixes to Android's Geocoder and the phone asks Frankfurter and
+  Wikipedia unnamed; a fresh box trusts the X-Client-Cert header until edge-passthrough, and
+  0.0.2/0.0.3's notes had dropped that gap; the README says CI runs the app tests on every push
+  and the app job has never run. Vlad: "Can we update to a newer version of go, we'll have it on
+  the localghost mirror. Do what you can with the server and app." And, from the phone, CRYPTO50
+  at 1001.8 and "-44.8% today" with BTC at -2%: "there has to be an error".
+- Go: go.mod 1.27.1 (go.dev's newest stable on 3 Oct 2026; 1.26.8 the other). The install moved
+  out of setup.sh into `tools/install_go.sh` (root; GO_PIN 1.27.1, GHOST_GO_PIN overrides;
+  `--check` only says): a system Go at least go.mod's is left alone, an older one is replaced
+  from the mirror (set go, `go1.27.1.linux-<arch>.tar.gz`, signature and hash as before; unpacked
+  beside the old one and swapped). setup.sh calls it; redeploy.sh calls it before `make box`, so
+  a box follows go.mod at the next redeploy and a mirror that does not answer stops the deploy
+  before anything is touched. Makefile exports GOTOOLCHAIN=local, so the go command never fetches
+  a toolchain by itself. cut_release.sh and release_build.sh refuse a Go other than go.mod's
+  (GHOST_GO_ANY=1 overrides) and RELEASE.txt/NOTICE.txt now say `go=` which, so a bundle can be
+  rebuilt to the byte. BUILDING.md, server_setup_user.sh's fallback and tools/README follow. Not
+  built with 1.27.1 here: the toolchain hosts are outside this session's egress; CI (setup-go from
+  go.mod) and the box's cut are the first builds with it. For the mirror: the set `go` needs
+  go1.27.1.linux-amd64.tar.gz, sha256 63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445, 70,553,950 bytes.
+- CRYPTO50: `rates.Terms` is the arithmetic one term a constituent (weight, base, price, where
+  it came from: live, carried, base, held; ratio, part), `rates.Value` is built on it, and a
+  constituent priced past `MaxMove` (20× its base either way) is held at its carried price, else
+  the base, and named "SYM!" in the day's missing list: one such row moved the index by its weight
+  times the ratio, which is the shape of the phone's number (a day value of ~1815 against a live
+  ~1002; the live path prices most coins from Coinbase's list and the day path from the venues'
+  closes, so one venue ticker that is another asset, or a base in another unit, shows on one side
+  only). `tally.ExplainMarket` lays both values out (`ghost-cli ghost.tallyd rates index=1`: month,
+  chain, now and the last day each with value, stored value, priced, held and terms, and `odd`,
+  the terms furthest from flat). Box Status marks a day change past ±25% as a fault with the
+  command to run, and lists the held symbols. The guess stays a guess until Vlad runs it; the
+  structural fix (one price source per constituent for the month) waits for the culprit.
+- The geocoder: `countrycells.Atlas.At(lat, lon)` (the polygons kept with their boxes; even-odd
+  over every ring, so a hole is the other country's), `GET /v1/geo/at?lat=&lon=` in secd, and the
+  phone's `LocationLog.geocode` asks the box instead of Android's Geocoder (which on most phones
+  is a network call to Google carrying the fix); a phone with no box keeps the country it had and
+  CountryDetect falls back to the network, the SIM, the time zone as before. `wikiCovers`: a "what
+  is X" the box's own Wikipedia answers (an article of its own, not a page of meanings, not a
+  relation or a question about now) closes the web, as the weather does, so the phone asks
+  Wikipedia's API nothing it has at home. README "what leaves the box" names Frankfurter and
+  Wikipedia from the phone and says the country is read on the box; README and CONTRIBUTING say
+  what CI runs when (the app's JVM tests: pull requests and on demand; Vlad can run the workflow
+  by hand once so a passing app run exists). releases/0.0.3.md carries all of it and the header
+  gap is back in the known gaps, with the honest limit: a box reached by IP cannot take the
+  passthrough yet (nginx routes it by SNI name), a default route for a LocalGhost-only box is next.
+- The map: Vlad: "When we're looking at the map we can update the GPS more often not just every
+  15 min." `LocationLog.follow(ctx, onFix)` asks the fused provider (else GPS, else the network)
+  every 4 s / 3 m through LocationManager.requestLocationUpdates, hands each fix to the map (the
+  dot and its accuracy circle redraw; "[ where I am ]" uses it) and to `record` off the main
+  thread (its 25 m / hour rules keep the spool quiet); MapScreen starts it on ON_RESUME and stops
+  it on ON_PAUSE and on leaving the map, so nothing runs in the background.
+- Tested: rates (held past the bound, a carried price past it, Terms' sources), countrycells.At
+  (inside, a hole, an island, at sea, the band), /v1/geo/at (200, 404, appears-down), wikiCovers
+  (covered, a page of meanings, a relation, "now", no copy), the scripts with sh -n/bash -n; 48 Go
+  packages ok, vet on Linux and darwin; 207 JVM tests; the Kotlin structure check on MapScreen,
+  LocationLog and BoxClient.
+- Wikipedia, asked after: "is Wikipedia hooked in?" On the box it is (synthd's wikiSource for the
+  chat, wikiAboutCoin for the coin pages, wikiCovers for the plan; `<mount>/wiki/*.zim`, the
+  largest, reopened when it changes); the mirror page lists the set (`wikipedia`,
+  `wikipedia_en_all_nopic.zim`, about 60 GB, by hand); the box only fetched it when named
+  (`update.sh wiki`). Now `update.sh` takes it with the rest when the volume has 60 GB free
+  (GHOST_WIKI=0 leaves it out), so a box that runs update is a box with Wikipedia. The ZIM reader
+  has only ever read files written to the spec here (kiwix.org is outside this session's egress):
+  the first real file is the proof, `ghost-cli ghost.synthd wiki title=Corfu` after the download.

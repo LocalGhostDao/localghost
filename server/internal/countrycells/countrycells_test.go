@@ -80,3 +80,31 @@ func TestIdentify(t *testing.T) {
 		t.Fatal("a feature with no code must be skipped")
 	}
 }
+
+// A point's country: inside the square, in its hole (nobody's), on the island, at sea, and in
+// Antarctica's band.
+func TestAt(t *testing.T) {
+	a, err := Read(strings.NewReader(fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		lat, lon float64
+		code     string
+	}{
+		{41.5, 11.5, "SQ"},   // inside
+		{40.75, 10.75, ""},   // the hole
+		{45.03, 20.06, "SQ"}, // the island
+		{41.5, 13.0, ""},     // at sea, inside the bounding box's latitude band
+		{-85, 30, "AQ"},      // the band
+		{0, 0, ""},
+	} {
+		code, _, ok := a.At(c.lat, c.lon)
+		if code != c.code || ok != (c.code != "") {
+			t.Errorf("At(%v, %v) = %q %v, want %q", c.lat, c.lon, code, ok, c.code)
+		}
+	}
+	if _, _, ok := (*Atlas)(nil).At(41.5, 11.5); ok {
+		t.Fatal("a nil atlas holds no country")
+	}
+}

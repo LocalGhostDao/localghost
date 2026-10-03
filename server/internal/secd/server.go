@@ -293,6 +293,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/rates/series", s.handleRatesSeries)          // every minute for a week, every hour for thirty days
 	mux.HandleFunc("/v1/feeds/status", s.handleFeedsStatus)          // how each feed is doing, for Box Status
 	mux.HandleFunc("/v1/geo/country", s.handleCountry)               // one country's tiles, as index keys
+	mux.HandleFunc("/v1/geo/at", s.handleAt)                         // the country a point is in, for the phrases
 	mux.HandleFunc("/v1/geo/roadtile", s.handleRoadTile)             // one road cell (?l=&x=&y=)
 	mux.HandleFunc("/v1/daemon/summary", s.handleDaemonSummary)      // per-daemon drill-in
 	mux.HandleFunc("/v1/pipeline", s.handlePipeline)                 // stage-by-stage archive progress + ETA

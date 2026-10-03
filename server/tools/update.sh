@@ -22,8 +22,9 @@
 #             again only when the tarball changed (or this box still has a git checkout), then put
 #             on the volume and ghost.oracled restarted onto it.
 #   wiki      Wikipedia in English without pictures (set wikipedia, one ZIM file of about 50 GB) into
-#             the volume's wiki/: the chat's "what is …" and the coin pages read it on the box. Fetched
-#             when asked for (sudo ./tools/update.sh wiki), kept current after that.
+#             the volume's wiki/: the chat's "what is …" and the coin pages read it on the box, and a
+#             question it answers never goes to the web. Fetched with the rest when the volume has
+#             60 GB free (GHOST_WIKI=0 leaves it out), kept current after that.
 #   (maps also takes the heights: sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps, or a box
 #             of latitudes and longitudes like "34:72,-25:45"; the tiles already here kept current)
 #   speech    whisper.cpp from the mirror's pinned tarball (set whisper, built CPU-only) and a ggml
@@ -56,7 +57,8 @@ STEPS="${*:-maps embedder weights phone engine speech wiki}"
 for s in $STEPS; do
     case "$s" in maps|embedder|weights|phone|engine|speech|wiki) ;; *) echo "unknown step '$s' (maps embedder weights phone engine speech wiki)" >&2; exit 2 ;; esac
 done
-# Wikipedia is fetched when named (about 50 GB), kept current when the box has it
+# Wikipedia (about 50 GB) comes with the rest when the volume has room; GHOST_WIKI=0 leaves it out
+# unless named outright (sudo ./tools/update.sh wiki)
 ASKED_WIKI=0
 case " $* " in *" wiki "*) ASKED_WIKI=1 ;; esac
 
@@ -202,16 +204,20 @@ engine)
 wiki)
     say "wiki: Wikipedia in English, without pictures"
     WK="$DOOR$MOUNT/wiki"
-    if ! ls "$WK"/*.zim >/dev/null 2>&1 && [ "$ASKED_WIKI" != 1 ]; then
-        result wiki "not on this box (sudo ./tools/update.sh wiki fetches it: about 50 GB)"
+    if ! ls "$WK"/*.zim >/dev/null 2>&1 && [ "$ASKED_WIKI" != 1 ] && [ "${GHOST_WIKI:-1}" = 0 ]; then
+        result wiki "left out (GHOST_WIKI=0); sudo ./tools/update.sh wiki fetches it: about 50 GB"
         continue
     fi
     mkdir -p "$WK"
     if ! ls "$WK"/*.zim >/dev/null 2>&1; then
         free="$(df -B1G --output=avail "$WK" 2>/dev/null | tail -1 | tr -d ' ')"
         if [ -n "$free" ] && [ "$free" -lt 60 ]; then
-            result wiki "NOT fetched: the volume has ${free} GB free and the file is about 50 GB (it needs room for itself while it downloads)"
-            failed=1
+            if [ "$ASKED_WIKI" = 1 ]; then
+                result wiki "NOT fetched: the volume has ${free} GB free and the file is about 50 GB (it needs room for itself while it downloads)"
+                failed=1
+            else
+                result wiki "not fetched: the volume has ${free} GB free and the file is about 50 GB; make room and run sudo ./tools/update.sh wiki"
+            fi
             continue
         fi
     fi
