@@ -29,15 +29,15 @@ VERSION="${1:?usage: release_build.sh <version> [outdir]}"
 case "$VERSION" in *[!A-Za-z0-9._+-]*) echo "a version is [A-Za-z0-9._+-]" >&2; exit 2 ;; esac
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${2:-$HERE/release}/server"
-GO="${GO:-go}"
 cd "$HERE"
+GO="${GO:-$(sh tools/go_for.sh 2>/dev/null || echo go)}" # go.mod's Go when the box has it, whatever PATH says
 # the Go named in go.mod and no other (the bytes differ from one Go to the next; GHOST_GO_ANY=1 builds
 # with another on purpose), and never one fetched from the internet by the go command itself
 export GOTOOLCHAIN=local
 GO_MOD_VER="$(awk '$1 == "go" { print $2; exit }' go.mod)"
-GO_HAVE="$("$GO" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
+GO_HAVE="$(cd / && GOTOOLCHAIN=local "$GO" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
 if [ "$GO_HAVE" != "$GO_MOD_VER" ] && [ "${GHOST_GO_ANY:-}" != 1 ]; then
-    echo "go ${GO_HAVE:-none} here, go.mod names $GO_MOD_VER: a release is built with that Go and no other (sudo ./tools/install_go.sh; GHOST_GO_ANY=1 to build with this one anyway)" >&2
+    echo "go ${GO_HAVE:-none} at $GO, go.mod names $GO_MOD_VER: a release is built with that Go and no other (sudo ./tools/install_go.sh; GHOST_GO_ANY=1 to build with this one anyway)" >&2
     exit 1
 fi
 

@@ -27,23 +27,15 @@ GO_MIN="$(awk '$1 == "go" { print $2; exit }' "$REPO/go.mod" 2>/dev/null)"; GO_M
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
-have_go() {
-    # the system Go first (/usr/local/go), then whatever PATH has: an older Go on PATH ahead of a
-    # newer /usr/local/go would otherwise read as the box's
-    for g in /usr/local/go/bin/go /usr/local/bin/go "$(command -v go 2>/dev/null || true)"; do
-        [ -n "$g" ] && [ -x "$g" ] || continue
-        _gv="$("$g" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
-        [ -n "$_gv" ] || continue
-        echo "$_gv"
-        return 0
-    done
-    return 1
-}
 newer_or_same() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ]; } # $2 >= $1
 
-HAVE="$(have_go || true)"
+# the Go the build will use (tools/go_for.sh: /usr/local/go first, then PATH; go.mod's version
+# when any candidate has it, else the newest)
+GOBIN="$(sh "$REPO/tools/go_for.sh" 2>/dev/null || true)"
+HAVE=""
+[ -n "$GOBIN" ] && [ -x "$GOBIN" ] && HAVE="$(cd / && GOTOOLCHAIN=local "$GOBIN" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
 if [ -n "$HAVE" ] && newer_or_same "$GO_MIN" "$HAVE"; then
-    echo "  go: $HAVE on the box (go.mod asks for $GO_MIN)"
+    echo "  go: $HAVE at $GOBIN (go.mod asks for $GO_MIN)"
     exit 0
 fi
 if [ "$CHECK" = 1 ]; then

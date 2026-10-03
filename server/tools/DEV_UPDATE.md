@@ -5028,3 +5028,15 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   tmpfs in a child namespace: df says the root disk, stat -f says the tmpfs). Now `stat -f`,
   which asks the filesystem the path is on. The download was never in a temp directory: it is a
   hidden .part beside its final name on the volume, resumed by the next run.
+- redeploy on xyntai: install_go.sh said "1.27.1 on the box", then coder's `make box` failed with
+  "go.mod requires go >= 1.27.1 (running go 1.25.4; GOTOOLCHAIN=local)". The probe was
+  `/usr/local/go/bin/go version` run inside the module with GOTOOLCHAIN unset, and under auto a
+  1.25.4 go command answers that by fetching go1.27.1 from the internet into the caller's module
+  cache and printing its version, the very thing the mirror rule forbids; the build then ran the
+  real 1.25.4 under local. Now every probe is `cd / && GOTOOLCHAIN=local go version` (outside the
+  module nothing is downloaded, and inside it an older Go would not even say its version), and
+  `tools/go_for.sh` picks the Go to build with (go.mod's version among /usr/local/go/bin/go,
+  /usr/local/bin/go and PATH's go, else the newest): the Makefile's GO defaults to it, so do
+  cut_release.sh and release_build.sh, and install_go.sh judges by it. On xyntai: root's module
+  cache may hold a toolchain@v0.0.1-go1.27.1 download to delete; `sudo ./tools/install_go.sh`
+  then sees 1.25.4 and takes 1.27.1 from the mirror.

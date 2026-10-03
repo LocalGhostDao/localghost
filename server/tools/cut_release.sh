@@ -80,7 +80,7 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git checkout" >&2; exit
 # it is the repository): the worktree of the tag is the whole repository, the build runs here
 PREFIX="$(git rev-parse --show-prefix)"
 # Go, for the build: on PATH, else the system Go setup installs
-GO="${GO:-$(command -v go 2>/dev/null || true)}"
+GO="${GO:-$(sh tools/go_for.sh 2>/dev/null || true)}" # go.mod's Go when the box has it, whatever PATH says
 [ -x "${GO:-/nonexistent}" ] || GO=/usr/local/go/bin/go
 [ -x "$GO" ] || { echo "no go on PATH and none at /usr/local/go/bin/go" >&2; exit 2; }
 TOP="$(git rev-parse --show-toplevel)"
@@ -140,15 +140,15 @@ fi
 # bytes. An older Go would fail the build; a newer one would build different bytes (GHOST_GO_ANY=1
 # cuts with it anyway, on purpose, and RELEASE.txt says which Go it was).
 GO_MOD_VER="$(awk '$1 == "go" { print $2; exit }' go.mod)"
-GO_HAVE="$("${GO:-go}" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
+GO_HAVE="$(cd / && GOTOOLCHAIN=local "${GO:-go}" version 2>/dev/null | sed 's/.*go\([0-9][0-9.]*\).*/\1/')"
 if [ -z "$GO_HAVE" ]; then
-    echo "no go on PATH; the box's is installed by sudo ./tools/install_go.sh (from the mirror)" >&2; exit 1
+    echo "no go on this box; sudo ./tools/install_go.sh installs it (from the mirror)" >&2; exit 1
 elif [ "$GO_HAVE" != "$GO_MOD_VER" ] && [ "${GHOST_GO_ANY:-}" != 1 ]; then
-    echo "go $GO_HAVE here, go.mod names $GO_MOD_VER: a release is built with that Go and no other, so its bytes can be made again." >&2
+    echo "go $GO_HAVE at $GO, go.mod names $GO_MOD_VER: a release is built with that Go and no other, so its bytes can be made again." >&2
     echo "  sudo ./tools/install_go.sh brings the box's Go to it (from the mirror); GHOST_GO_ANY=1 cuts with go $GO_HAVE anyway." >&2
     exit 1
 fi
-echo "go: $GO_HAVE (go.mod $GO_MOD_VER)"
+echo "go: $GO_HAVE at $GO (go.mod $GO_MOD_VER)"
 
 say() { printf '\n== %s ==\n' "$*"; }
 

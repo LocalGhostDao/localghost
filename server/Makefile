@@ -9,7 +9,8 @@
 # backing daemons are cmd/ghost.<x> (ghost.voiced, ghost.framed, ...). Binary names match the
 # systemd unit ExecStart and the GhostDaemons list.
 
-GO      ?= go
+# the Go go.mod names when the box has it (/usr/local/go, the mirror's), whatever PATH says
+GO      ?= $(shell sh tools/go_for.sh 2>/dev/null)
 BINDIR  := bin
 # never a toolchain from the internet: a Go older than go.mod's fails the build out loud, and
 # tools/install_go.sh (run by setup.sh and redeploy.sh) brings the mirror's
