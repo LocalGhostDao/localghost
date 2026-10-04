@@ -28,18 +28,26 @@ import kotlinx.coroutines.launch
  * in the list opens here too.
  */
 @Composable
-fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onBack: () -> Unit) {
+fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> Unit = {}, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var m by remember(id) { mutableStateOf<BoxClient.MemRow?>(null) }
     var missing by remember(id) { mutableStateOf(false) }
     var editing by remember(id) { mutableStateOf(false) }
     var confirmDel by remember(id) { mutableStateOf(false) }
+    // THE PARTS of a trip (its outings and days) or of an outing away (its days): the rows the box
+    // folded under this one, oldest first
+    var parts by remember(id) { mutableStateOf<List<BoxClient.MemRow>>(emptyList()) }
+    var whole by remember(id) { mutableStateOf<BoxClient.MemRow?>(null) }
     fun load() {
         scope.launch {
             val list = BoxClient.memoriesList(ctx)
             val found = list?.firstOrNull { it.id == id }
-            if (found != null) m = found else missing = list != null
+            if (found != null) {
+                m = found
+                parts = if (found.ref.isEmpty()) emptyList() else list.filter { it.partOf == found.ref }.sortedBy { it.createdAt }
+                whole = found.partOf.takeIf { it.isNotEmpty() }?.let { ref -> list.firstOrNull { it.ref == ref } }
+            } else missing = list != null
         }
     }
     LaunchedEffect(id) { load() }
@@ -60,7 +68,7 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onBack: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Text(row.title, color = GhostText, style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(4.dp))
-                Text(MemoryText.origin(row.kind, row.outingLine, row.meta?.optString("line") ?: "") + " · " +
+                Text(MemoryText.origin(row.kind, row.summaryLine, row.meta?.optString("line") ?: "") + " · " +
                     java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale.UK).format(java.util.Date(row.createdAt)),
                     color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                 if (row.covers.isNotEmpty()) {
@@ -97,11 +105,32 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onBack: () -> Unit) {
                         facts.forEach { Text(it, color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 1.dp)) }
                     }
                 }
+                // what this is a part of, and what is part of this
+                whole?.let { w ->
+                    Spacer(Modifier.height(14.dp))
+                    Text("part of ${w.title} ›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.clickable { onOpenMemory(w.id) }.padding(vertical = 4.dp))
+                }
+                if (parts.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    SectionLabel(if (row.kind == "trip") "THE OUTINGS AND THE DAYS OF IT" else "THE DAYS OF IT")
+                    Spacer(Modifier.height(4.dp))
+                    parts.forEach { p ->
+                        val pd = MemoryText.dayOf(p.ref)
+                        Row(Modifier.fillMaxWidth().clickable {
+                            if (p.kind == "day" && pd.isNotEmpty()) onOpenDay(pd) else onOpenMemory(p.id)
+                        }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (p.kind == "day") "◷" else "◇", color = TerminalDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(22.dp))
+                            Text(p.title, color = GhostText, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1)
+                            Text(MemoryText.partLabel(p.kind) + " ›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
                 val day = MemoryText.dayOf(row.ref)
                 Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (day.isNotEmpty()) {
-                        Text("[ the day › ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                        Text(if (row.kind == "trip") "[ the first day › ]" else "[ the day › ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.clickable { onOpenDay(day) }.padding(vertical = 4.dp))
                         Spacer(Modifier.width(16.dp))
                     }

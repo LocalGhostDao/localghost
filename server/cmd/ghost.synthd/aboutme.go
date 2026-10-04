@@ -167,6 +167,9 @@ func aboutPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (in
 		lg.Debug("about note: nothing usable from the model, tried again next pass", "fn", "aboutPass")
 		return 0, nil
 	}
+	// the note's own memories about me go and are made again; the people's are ONE memory each
+	// (consolidate.go), where the note's line is one part and the chats' and check-ins' facts the
+	// rest, so a rewrite of the note replaces its part and leaves the rest standing
 	if err := db.Exec("DELETE FROM memories WHERE source_ref LIKE 'about:%' AND NOT user_edited"); err != nil {
 		return 0, err
 	}
@@ -179,12 +182,16 @@ func aboutPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (in
 		}
 		written++
 	}
+	var named []string
 	for _, p := range f.People {
-		if err := db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ($1,$2,'person',$3,$4,$4)",
-			p[0], p[1], "about:person:"+strings.ToLower(p[0]), now); err != nil {
+		if err := setPersonNote(db, p[0], p[1], now); err != nil {
 			return written, err
 		}
+		named = append(named, p[0])
 		written++
+	}
+	if err := clearPersonNotes(db, named, now); err != nil {
+		return written, err
 	}
 	if f.Name != "" {
 		if err := setSetting(db, ownerKey, f.Name); err != nil {
@@ -278,28 +285,9 @@ func distillPrompt(owner string, people []string, title, body string) string {
 }
 
 // notePerson adds a fact to the person's memory from the chats and the journal (one per person,
-// apart from the note's, which the note rewrites), or starts it.
+// the note's line and the facts together: consolidate.go), or starts it.
 func notePerson(db *poltergres.ReadWrite, name, fact, ref string, srcChat int64, now int64) error {
-	if name == "" || fact == "" || len(name) > 60 || len(fact) > 500 {
-		return nil
-	}
-	key := "person:" + strings.ToLower(name)
-	rows, err := db.Query("SELECT id, body FROM memories WHERE source_ref = $1 AND NOT tombstoned LIMIT 1", key)
-	if err != nil {
-		return err
-	}
-	if len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
-		old := ""
-		if rows.Vals[0][1] != nil {
-			old = *rows.Vals[0][1]
-		}
-		if strings.Contains(strings.ToLower(old), strings.ToLower(fact)) || len(old)+len(fact) > 1500 {
-			return nil
-		}
-		return db.Exec("UPDATE memories SET body = $2, updated_at = $3 WHERE id = $1", *rows.Vals[0][0], strings.TrimSpace(old+" "+fact), now)
-	}
-	return db.Exec("INSERT INTO memories (title, body, kind, source_chat, source_ref, created_at, updated_at) VALUES ($1,$2,'person',NULLIF($3,0),$4,$5,$5)",
-		name, fact, srcChat, key, now)
+	return addPersonFact(db, name, fact, ref, srcChat, now)
 }
 
 // namePrompt asks for older memories again, by my name in the third person, nothing else changed
@@ -374,8 +362,11 @@ func namePass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (int
 	}
 	wrote := 0
 	for batch := 0; batch < 3; batch++ {
+		// a person's memory made of facts (consolidate.go) is rendered from them and is not
+		// rewritten here: its facts were written with the name already
 		res, err := db.Query(`SELECT id, title, body FROM memories WHERE id > $1 AND NOT tombstoned AND NOT user_edited
-			AND kind IN ('distilled','person') AND source_ref NOT LIKE 'about:%' ORDER BY id LIMIT 60`, from)
+			AND kind IN ('distilled','person') AND source_ref NOT LIKE 'about:%'
+			AND NOT (kind = 'person' AND meta IS NOT NULL AND jsonb_exists(meta, 'facts')) ORDER BY id LIMIT 60`, from)
 		if err != nil {
 			return wrote, err
 		}

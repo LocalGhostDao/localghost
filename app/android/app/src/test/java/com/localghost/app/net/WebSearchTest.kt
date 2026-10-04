@@ -10,7 +10,7 @@ import org.junit.Test
 /**
  * The parts of the phone-side web search that run without a network: the plan, both DuckDuckGo
  * parsers, the readability pass, and which tools a question earns. The formatting of the tool
- * answers (Open-Meteo, Frankfurter, Wikipedia JSON) needs org.json, which the plain unit-test
+ * answers (Wikipedia JSON) needs org.json, which the plain unit-test
  * classpath does not carry; those are covered by the scratch harness in the session notes.
  */
 class WebSearchTest {
@@ -108,9 +108,10 @@ class WebSearchTest {
         val t = WebSearch.Tools
         assertEquals(0, t.forQuestion("what's the weather like today?").size)
         assertEquals(0, t.forQuestion("what is the weather in Athens tomorrow").size)
-        assertEquals(1, t.forQuestion("how much is 100 euros in pounds?").size)
-        assertEquals(1, t.forQuestion("gbp to ron").size)
-        assertEquals(1, t.forQuestion("100 dollars to euros and the weather in Rome").size)
+        // a currency question is the box's (its ECB table); no rate tool on the phone since 0.0.5
+        assertEquals(0, t.forQuestion("how much is 100 euros in pounds?").size)
+        assertEquals(0, t.forQuestion("gbp to ron").size)
+        assertEquals(0, t.forQuestion("100 dollars to euros and the weather in Rome").size)
         assertEquals(1, t.forQuestion("who is Nikos Kazantzakis?").size)
         assertEquals(0, t.forQuestion("what is the weather like?").size)
         assertEquals(0, t.forQuestion("what is the Acropolis museum opening time on sundays and holidays?").size)

@@ -262,7 +262,7 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                         }
                     }
                 }
-                items(rows!!.filter { MemoryKinds.matches(memKind, it.kind) && (memQuery.isBlank() ||
+                items(rows!!.filter { MemoryKinds.shown(memKind, it.kind, it.partOf) && (memQuery.isBlank() ||
                         it.title.contains(memQuery, true) || it.body.contains(memQuery, true)) },
                     key = { "mem-${it.id}" }) { m ->
                 MemoryRowCard(m,
@@ -343,8 +343,8 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
                         modifier = Modifier.clickable { confirmDel = true })
                 }
             }
-            // AN OUTING (or a DAY) carries its photos: the cover frames synthd picked, spread across it.
-            if ((m.kind == "outing" || m.kind == "day") && m.covers.isNotEmpty()) {
+            // AN OUTING, a TRIP or a DAY carries its photos: the cover frames synthd picked, spread across it.
+            if ((m.kind == "outing" || m.kind == "trip" || m.kind == "day") && m.covers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 CoverStrip(m.covers)
             }
@@ -353,7 +353,7 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
                 Text(m.body, color = GhostTextDim, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(4.dp))
-            Text(MemoryText.origin(m.kind, m.outingLine, m.meta?.optString("line") ?: "") + " · " +
+            Text(MemoryText.origin(m.kind, m.summaryLine, m.meta?.optString("line") ?: "") + " · " +
                 java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
                     .format(java.util.Date(m.createdAt)),
                 color = TerminalDim, style = MaterialTheme.typography.labelMedium)

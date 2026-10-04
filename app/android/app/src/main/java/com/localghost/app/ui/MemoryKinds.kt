@@ -3,9 +3,16 @@ package com.localghost.app.ui
 /**
  * THE KINDS OF MEMORY, as MEMORIES' chips: me (from my note and the check-ins), what the box
  * distilled (from the chats and notes, my people, my places, what it noticed), each of those on
- * its own, the days, the outings, and mine (written by hand). Pure, for the tests.
+ * its own, the trips, the days, the outings, and mine (written by hand). Pure, for the tests.
+ * Under "all", a day or an outing that is part of a trip (or a day part of an outing away) is
+ * shown by the whole, not on its own: [shown] says which rows the list carries.
  */
 object MemoryKinds {
+    /** Whether a row shows under chip [id]: its kind matches, and under "all" it is not a part of
+     *  something else that is in the list itself. */
+    fun shown(id: String, kind: String, partOf: String): Boolean =
+        matches(id, kind) && (id != "all" || partOf.isEmpty())
+
     data class Kind(val id: String, val label: String, val kinds: Set<String>)
 
     val all = listOf(
@@ -16,6 +23,7 @@ object MemoryKinds {
         Kind("people", "people", setOf("person")),
         Kind("places", "places", setOf("place")),
         Kind("noticed", "noticed", setOf("insight")),
+        Kind("trips", "trips", setOf("trip")),
         Kind("days", "days", setOf("day", "episode")),
         Kind("outings", "outings", setOf("outing")),
         Kind("yours", "written by me", setOf("user")),

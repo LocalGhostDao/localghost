@@ -149,7 +149,7 @@ private fun AboutMemory(id: Long, onOpen: () -> Unit) {
         Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter)
             .clickable { onOpen() }.padding(12.dp)) {
             Text(row.title, color = TerminalGreen, style = MaterialTheme.typography.titleSmall)
-            Text(MemoryText.origin(row.kind, row.outingLine, row.meta?.optString("line") ?: ""), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+            Text(MemoryText.origin(row.kind, row.summaryLine, row.meta?.optString("line") ?: ""), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
             if (row.covers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 ThumbStrip(row.covers.take(8), title = row.title, size = 64.dp)

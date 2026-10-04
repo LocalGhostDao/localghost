@@ -291,6 +291,7 @@ fun MainShell(
                             onOpenCheckin = { dest = Dest.CHECKIN })
                         Dest.MEMORY -> MemoryScreen(memOpen,
                             onOpenDay = { d -> openDay(d) },
+                            onOpenMemory = { id -> openMemory(id) },
                             onBack = { dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom })
                         Dest.CHECKIN -> CheckinScreen(onOpenDay = { d -> openDay(d) })
                         Dest.NEWS -> NewsScreen(openStory = newsFocus, onStoryShown = { newsFocus = 0L })

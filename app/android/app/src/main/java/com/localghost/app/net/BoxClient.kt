@@ -1024,6 +1024,21 @@ object BoxClient {
     data class MemRow(val id: Long, val title: String, val body: String, val kind: String, val createdAt: Long,
                       val meta: org.json.JSONObject? = null, val ref: String = "") {
         val covers: List<String> get() = meta?.optJSONArray("covers")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() } } ?: emptyList()
+        /** The trip or the outing this memory is a part of ("trip:2026-09-12", "outing:2026-10-02"), "" for none:
+         *  the list shows the whole in its place, and the whole's page lists its parts. */
+        val partOf: String get() = meta?.optString("part_of") ?: ""
+        /** A trip's line: "8 days · 160 photos · 53 km"; null for anything but a trip. */
+        val tripLine: String? get() = if (kind != "trip") null else meta?.let { m ->
+            val parts = ArrayList<String>()
+            val days = m.optInt("days"); val photos = m.optInt("photos")
+            if (days > 0) parts.add("$days day${if (days == 1) "" else "s"}")
+            if (photos > 0) parts.add("$photos photo${if (photos == 1) "" else "s"}")
+            val km = m.optDouble("distanceM", 0.0)
+            if (km >= 950) parts.add(if (km < 10000) "%.1f km".format(java.util.Locale.US, km / 1000) else "${(km / 1000).toInt()} km")
+            parts.joinToString(" · ").ifEmpty { null }
+        }
+        /** The line under the title for a trip or an outing, null for the rest. */
+        val summaryLine: String? get() = if (kind == "trip") tripLine else outingLine
         val outingLine: String? get() = meta?.let { m ->
             val photos = m.optInt("photos"); val days = m.optInt("days")
             if (photos == 0) return@let null

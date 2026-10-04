@@ -10,10 +10,16 @@ class MemoryTextTest {
         assertEquals("", MemoryText.dayOf(""))
         assertEquals("", MemoryText.dayOf("chat:12"))
         assertEquals("", MemoryText.dayOf("day:soon"))
+        assertEquals("2026-09-12", MemoryText.dayOf("trip:2026-09-12"))
+        assertEquals("day", MemoryText.partLabel("day"))
+        assertEquals("outing", MemoryText.partLabel("outing"))
     }
 
     @Test fun theKindAndTheOrigin() {
         assertEquals("AN OUTING", MemoryText.kindLabel("outing"))
+        assertEquals("A TRIP", MemoryText.kindLabel("trip"))
+        assertEquals("a trip, from your outings and days · 8 days · 160 photos", MemoryText.origin("trip", "8 days · 160 photos", ""))
+        assertEquals("a trip, from your outings and days", MemoryText.origin("trip", null, ""))
         assertEquals("A DAY", MemoryText.kindLabel("episode"))
         assertEquals("A MEMORY", MemoryText.kindLabel("distilled"))
         assertEquals("WRITTEN BY ME", MemoryText.kindLabel("user"))

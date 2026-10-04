@@ -950,6 +950,47 @@ func main() {
 		// rates: the box's market numbers (ghost.tallyd's), and convert amount= from= to=.
 		// wiki: the box's own Wikipedia, and a title's lead (wikipedia.go)
 		ctl.Handle("wiki", wikiCtl)
+		// consolidate: what belongs together, together (consolidate.go). Without arguments, the
+		// people and the trips as they stand; run=true merges the people and folds the trips now;
+		// write=true also has the model write the people whose facts grew (the GPU, minutes).
+		ctl.Handle("consolidate", func(args json.RawMessage) (ctlsock.Response, error) {
+			var a struct {
+				Run   bool `json:"run"`
+				Write bool `json:"write"`
+			}
+			if len(args) > 0 {
+				_ = json.Unmarshal(args, &a)
+			}
+			db := chatStore(mount)
+			if db == nil {
+				return ctlsock.Response{OK: false, Err: "no database (box locked?)"}, nil
+			}
+			out := map[string]any{}
+			if a.Run || a.Write {
+				folded, err := mergePeople(db, lg)
+				if err != nil {
+					return ctlsock.Response{OK: false, Err: err.Error()}, nil
+				}
+				trips, err := tripPass(db, lg)
+				if err != nil {
+					return ctlsock.Response{OK: false, Err: err.Error()}, nil
+				}
+				out["peopleFolded"], out["tripsWritten"] = folded, trips
+				if a.Write {
+					oc := oracle.NewClient(runDir, 3*time.Minute)
+					wrote, err := peopleProse(db, oc, setting(db, ownerKey), lg)
+					if err != nil {
+						return ctlsock.Response{OK: false, Err: err.Error()}, nil
+					}
+					out["peopleWritten"] = wrote
+				}
+			}
+			for k, v := range consolidateSummary(db) {
+				out[k] = v
+			}
+			data, _ := json.Marshal(out)
+			return ctlsock.Response{OK: true, Data: data}, nil
+		})
 		ctl.Handle("rates", func(args json.RawMessage) (ctlsock.Response, error) {
 			db := chatStore(mount)
 			if db == nil {
@@ -1271,7 +1312,7 @@ type webHit struct {
 	Snippet   string `json:"snippet,omitempty"`
 	Excerpt   string `json:"excerpt,omitempty"`
 	Kind      string `json:"kind,omitempty"`      // page | summary | weather | rate
-	Source    string `json:"source,omitempty"`    // duckduckgo | wikipedia | open-meteo | frankfurter
+	Source    string `json:"source,omitempty"`    // duckduckgo | wikipedia (open-meteo and frankfurter until the box took those over)
 	Published string `json:"published,omitempty"` // the page's own date, when it had one
 	Fetched   string `json:"fetched,omitempty"`   // "2026-09-20 10:41 UTC", set by the phone
 	// Paragraphs is the page as the phone's readability pass cut it, when the phone sends them
@@ -1553,10 +1594,19 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 		if n > 0 {
 			lg.Info("distilled", "fn", "distillLoop", "memories", n)
 		}
+		outingsChanged := false
 		if on, oerr := outingPass(db, lg); oerr != nil {
 			lg.Warn("outing pass failed", "fn", "distillLoop", "err", oerr)
 		} else if on > 0 {
 			lg.Info("outings updated", "fn", "distillLoop", "outings", on)
+			outingsChanged = true
+		}
+		// what belongs together, together: one memory per person, the trips the outings make
+		// (every pass), and once a day the model writes the people whose facts grew
+		if folded, trips, people, cerr := consolidatePass(db, oc, outingsChanged, lg); cerr != nil {
+			lg.Warn("consolidation failed", "fn", "distillLoop", "err", cerr)
+		} else if folded+trips+people > 0 {
+			lg.Info("consolidated", "fn", "distillLoop", "peopleFolded", folded, "trips", trips, "peopleWritten", people)
 		}
 		// the places the person keeps going to, counted; and once a day, what the box notices
 		if _, perr := placesPass(db, mount, lg); perr != nil {

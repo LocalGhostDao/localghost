@@ -118,8 +118,9 @@ func leadOf(summary string) string {
 }
 
 // AboutVersion changes when the way the note is made into memories changes, so a box makes them
-// again: v2 writes them with the person's name ("Vlad lives…"), not "I".
-const AboutVersion = "v2-names"
+// again: v2 writes them with the person's name ("Vlad lives…"), not "I"; v3 keeps one memory per
+// person, the note's line a part of it beside what the chats and the check-ins added.
+const AboutVersion = "v3-one-per-person"
 
 // AboutHash is the note's fingerprint with the version: synthd keeps it once the note's memories
 // are made, secd compares it to say whether they are.

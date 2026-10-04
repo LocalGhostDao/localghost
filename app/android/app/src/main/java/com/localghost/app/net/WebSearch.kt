@@ -24,12 +24,13 @@ import org.json.JSONObject
  *  1. PLAN , the question becomes one to three searches: the question itself with the chat filler
  *     cut off, its bare keywords when they differ, and the same again with the year when the
  *     question is about now ([plan]).
- *  2. TOOLS , some questions have a better answer than a search page. A currency question goes
- *     to the ECB's rates via Frankfurter; a "who is / what is" question to Wikipedia's summary.
- *     Each returns one [Hit] with a [Hit.kind] of its own, so the box can see it is a figure, not
- *     a web page. The weather is not a tool any more: the box pulls the forecast of the world's
- *     larger places once a day and answers from that, so the phone never tells a weather service
- *     where it is (its plan says the box has it, and [BoxKnows] says so when the plan is late).
+ *  2. TOOLS , some questions have a better answer than a search page: a "who is / what is"
+ *     question goes to Wikipedia's summary (on a box without its own copy of Wikipedia), one
+ *     [Hit] with a [Hit.kind] of its own, so the box can see it is a summary, not a web page. The
+ *     weather and the exchange rates are not tools any more: the box pulls the forecast of the
+ *     world's larger places once a day and keeps the ECB's table itself, and answers from those, so
+ *     the phone never tells a weather service where it is and asks no rate service at all (its
+ *     plan says the box has them, and [BoxKnows] says so when the plan is late).
  *  3. SEARCH , DuckDuckGo's HTML endpoint (built for browsers without scripts), and its "lite"
  *     endpoint when the first one answers with nothing or a bot check. Results from every
  *     planned query merge by URL, the ones several queries agree on first.
@@ -600,58 +601,25 @@ object WebSearch {
 
     /**
      * The tools: questions with a better source than a search page. Each is a [Callable] that
-     * returns one [Hit] or null; [forQuestion] decides which apply. Every endpoint here is public,
-     * keyless and rate-limited only by decency; each is one small GET. The weather is the box's
-     * (see the file's note), so a weather question gets no tool here.
+     * returns one [Hit] or null; [forQuestion] decides which apply. The one endpoint here is
+     * public, keyless and rate-limited only by decency; one small GET. The weather and the
+     * exchange rates are the box's (see the file's note), so those questions get no tool here:
+     * the rates came from Frankfurter until 0.0.5, the same ECB table the box keeps, asked once
+     * more from the phone for nothing.
      */
     object Tools {
         /** A weather question, kept out of Wikipedia's "what is" ("what is the weather like"). */
         private val weatherQ = Regex("\\b(weather|forecast|rain|raining|temperature|how (hot|cold|warm) is it|umbrella|sunny|snow|snowing|wind|windy|humid|humidity)\\b", RegexOption.IGNORE_CASE)
-        private val codes = mapOf(
-            "usd" to "USD", "dollar" to "USD", "dollars" to "USD", "$" to "USD", "us$" to "USD",
-            "eur" to "EUR", "euro" to "EUR", "euros" to "EUR", "€" to "EUR",
-            "gbp" to "GBP", "pound" to "GBP", "pounds" to "GBP", "£" to "GBP", "quid" to "GBP", "sterling" to "GBP",
-            "jpy" to "JPY", "yen" to "JPY", "¥" to "JPY", "chf" to "CHF", "franc" to "CHF", "francs" to "CHF",
-            "ron" to "RON", "lei" to "RON", "leu" to "RON", "try" to "TRY", "lira" to "TRY", "pln" to "PLN", "zloty" to "PLN", "złoty" to "PLN",
-            "czk" to "CZK", "koruna" to "CZK", "huf" to "HUF", "forint" to "HUF", "sek" to "SEK", "nok" to "NOK", "dkk" to "DKK", "krona" to "SEK", "kroner" to "NOK",
-            "cad" to "CAD", "aud" to "AUD", "nzd" to "NZD", "cny" to "CNY", "yuan" to "CNY", "rmb" to "CNY", "inr" to "INR", "rupee" to "INR", "rupees" to "INR",
-            "krw" to "KRW", "won" to "KRW", "thb" to "THB", "baht" to "THB", "idr" to "IDR", "rupiah" to "IDR", "mxn" to "MXN", "peso" to "MXN", "pesos" to "MXN",
-            "brl" to "BRL", "real" to "BRL", "reais" to "BRL", "zar" to "ZAR", "rand" to "ZAR", "sgd" to "SGD", "hkd" to "HKD", "ils" to "ILS", "shekel" to "ILS", "shekels" to "ILS",
-        )
-        private val rateQ = Regex(
-            "(?:(\\d+(?:[.,]\\d+)?)\\s*)?(" + codes.keys.joinToString("|") { Regex.escape(it) } + ")\\s*(?:to|in|into|->|→|=|per|vs)\\s*(" + codes.keys.joinToString("|") { Regex.escape(it) } + ")\\b",
-            RegexOption.IGNORE_CASE)
         private val whoWhat = Regex("^\\s*(?:who|what)\\s+(?:is|was|are|were)\\s+(?:the\\s+|a\\s+|an\\s+)?([\\p{L}\\p{N}][\\p{L}\\p{N} .'-]{1,60}?)\\s*\\??\\s*$", RegexOption.IGNORE_CASE)
 
         fun forQuestion(question: String): List<Callable<Hit?>> {
             val q = WebSearch.cleanQuery(question)
-            val out = ArrayList<Callable<Hit?>>(2)
-            rateQ.find(q)?.let { m ->
-                val amount = m.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 1.0
-                val from = codes[m.groupValues[2].lowercase()]; val to = codes[m.groupValues[3].lowercase()]
-                if (from != null && to != null && from != to) out.add(Callable { rate(amount, from, to) })
-            }
+            val out = ArrayList<Callable<Hit?>>(1)
             whoWhat.find(q)?.let { m ->
                 val subject = m.groupValues[1].trim()
                 if (subject.split(' ').size <= 5 && !weatherQ.containsMatchIn(subject)) out.add(Callable { wikipediaHit(subject) })
             }
             return out
-        }
-
-        private fun fmt(v: Double): String = if (v.isNaN()) "?" else if (v == Math.rint(v)) v.toInt().toString() else "%.1f".format(java.util.Locale.US, v)
-
-        // Frankfurter: the European Central Bank's reference rates, keyless, one GET.
-        fun rate(amount: Double, from: String, to: String): Hit? {
-            val url = "https://api.frankfurter.app/latest?amount=" + fmt(amount) + "&from=" + from + "&to=" + to
-            val j = getJson(url) ?: return null
-            return formatRate(j, amount, from, to)?.let { Hit("$from → $to", url, "ECB reference rate via Frankfurter", it, kind = "rate", source = "frankfurter", published = j.optString("date")) }
-        }
-
-        internal fun formatRate(j: JSONObject, amount: Double, from: String, to: String): String? {
-            val v = j.optJSONObject("rates")?.optDouble(to) ?: return null
-            if (v.isNaN()) return null
-            val one = if (amount != 0.0) v / amount else v
-            return "${fmt(amount)} $from = ${"%.2f".format(java.util.Locale.US, v)} $to (1 $from = ${"%.4f".format(java.util.Locale.US, one)} $to), ECB reference rate dated ${j.optString("date")}."
         }
 
         // Wikipedia's REST summary: the lead paragraph, clean, with a timestamp.

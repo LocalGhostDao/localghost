@@ -89,10 +89,10 @@ position.
 
 One kind of thing leaves the phone, and only when you ask the chat a question the box cannot
 answer from what it holds: the question's words. A web search goes to DuckDuckGo, or to Brave with
-your own key; with it, a currency question the box did not answer asks Frankfurter (the ECB's
-rates, keyless) and a "who is" or "what is" question asks Wikipedia's summary API, unless the box
-holds its own copy of Wikipedia, which then answers and nothing is asked. The phone brings the
-findings to the box; the box never calls a search engine. The answer names the sources it used.
+your own key; with it, a "who is" or "what is" question asks Wikipedia's summary API, unless the
+box holds its own copy of Wikipedia, which then answers and nothing is asked. A currency question
+is the box's (the ECB's table it keeps), and asks no one. The phone brings the findings to the box;
+the box never calls a search engine. The answer names the sources it used.
 The country the lock-screen phrases follow is read on the box from its own map data, not from the
 phone's geocoder.
 

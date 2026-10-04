@@ -8,10 +8,11 @@ package main
 // be a number in the sheet, nothing that reads like a list or a refusal, a sane length. Fail the
 // check and the template stands, unchanged. The person's edits and tombstones outrank all of it.
 //
-// The outings only (kind='outing', body rewritten, template kept in meta so a changed outing
-// gets written again); the DAYS have their own pass and table (days.go, day_summaries). A few per
-// pass, newest first, background priority, never when the model is on the CPU (minutes each, and
-// the template is already there).
+// The outings and the trips (kind='outing' and 'trip', body rewritten, template kept in meta so a
+// changed one gets written again; a trip's sheet carries its outings' own texts and its days'
+// stories, consolidate.go); the DAYS have their own pass and table (days.go, day_summaries). A few
+// per pass, newest first, background priority, never when the model is on the CPU (minutes each,
+// and the template is already there).
 
 import (
 	"encoding/json"
@@ -52,16 +53,16 @@ func prosePass(db *poltergres.ReadWrite, oc *oracle.Client, mount string, lg *sl
 // --- the outings ---
 
 func outingProse(db *poltergres.ReadWrite, oc *oracle.Client, mount string, lg *slog.Logger) (int, error) {
-	rows, err := db.Query(`SELECT id, title, body, meta::text FROM memories
-		WHERE kind = 'outing' AND NOT user_edited AND NOT tombstoned
-		  AND (meta->>'prose') IS NULL AND coalesce((meta->>'prose_tries')::int, 0) < $1
+	rows, err := db.Query(`SELECT id, title, body, meta::text, kind FROM memories
+		WHERE kind IN ('outing','trip') AND NOT user_edited AND NOT tombstoned
+		  AND coalesce(meta->>'prose','') = '' AND coalesce((meta->>'prose_tries')::int, 0) < $1
 		ORDER BY created_at DESC LIMIT $2`, proseMaxTries, proseOutingsPerPass)
 	if err != nil {
 		return 0, err
 	}
 	written := 0
 	for _, v := range rows.Vals {
-		if len(v) < 4 || v[0] == nil || v[1] == nil || v[2] == nil || v[3] == nil {
+		if len(v) < 5 || v[0] == nil || v[1] == nil || v[2] == nil || v[3] == nil {
 			continue
 		}
 		id := *v[0]
@@ -69,8 +70,11 @@ func outingProse(db *poltergres.ReadWrite, oc *oracle.Client, mount string, lg *
 		if json.Unmarshal([]byte(*v[3]), &meta) != nil {
 			continue
 		}
-		facts := outingFacts(db, mount, *v[1], meta)
-		prose, ok := writeMemory(oc, facts, "an outing")
+		facts, what := outingFacts(db, mount, *v[1], meta), "an outing"
+		if v[4] != nil && *v[4] == "trip" {
+			facts, what = tripFacts(db, *v[1], meta), "a trip of several days"
+		}
+		prose, ok := writeMemory(oc, facts, what)
 		if !ok {
 			lg.Info("outing prose not kept", "fn", "outingProse", "id", id, "title", *v[1])
 			_ = db.Exec("UPDATE memories SET meta = jsonb_set(coalesce(meta,'{}'::jsonb), '{prose_tries}', to_jsonb(coalesce((meta->>'prose_tries')::int, 0) + 1)) WHERE id = $1", id)

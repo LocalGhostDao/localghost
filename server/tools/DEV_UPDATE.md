@@ -5151,3 +5151,45 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   end and a leap day, recurring; MemoryText; NotifLink's checkin and memory routes); install.sh
   against a fake release in the sandbox (copies, lays out, runs setup.sh from the release).
 
+## 4 October 2026 , consolidation: one memory per person, trips from outings; Frankfurter out
+
+- cmd/ghost.synthd/consolidate.go (new). PEOPLE: a person's memory is made of meta.note (the
+  about note's line), meta.facts [{t, ref}] (chats, check-ins), meta.aliases; the body is rendered
+  (personBody: prose + the facts since, else note + facts). addPersonFact (notePerson is now a
+  call to it) matches by title, alias or first name (matchPerson; two full names with one first
+  name are never merged or matched by the bare first name), dedupes by containment, and takes a
+  fact into a hand-edited row's meta only. setPersonNote/clearPersonNotes: aboutPass writes the
+  note's people into the one row (AboutVersion v3 so every box makes the note again once); people
+  the note drops lose the note's line and keep their facts, or go when nothing is left. mergePeople
+  (every pass): groups by name, the survivor is the person:<name> row else the oldest, legacy
+  bodies become the note or one fact (adopt/foldPerson), the longest name is the title, duplicates
+  deleted; hand-edited rows take no part (so an edited row and the box's can both remain; said in
+  the notes). peopleProse (daily, GPU): personPrompt → groundedPerson (groundedProse plus every
+  capitalised word inside a sentence must be in the facts or the person's names), 4 a day, 3 tries
+  each. namePass skips person rows that have facts.
+- TRIPS: chainTrips over the away outings (gap ≤ 3 days, ≥ 2 outings, ≥ a night); tripOf
+  (countries and places by photos, two covers per outing up to six, distances summed, fromHome
+  max); tripTitle/tripBody (dateRange, joinSome, daysWord); tripPass upserts kind 'trip'
+  (source_ref trip:<first day>, created_at = end), keeps prose while the template stands, leaves
+  edited/tombstoned alone, deletes dissolved trips, and sets meta.part_of on the outings and the
+  days of a trip and on the days of a lone away outing of a night or more (cleared and set again
+  each run). tripFacts for prosePass, which now writes kind IN ('outing','trip') ("a trip of
+  several days"). consolidatePass in distillLoop after outingPass: merge every pass, trips when
+  outings changed or daily, people prose daily (settings synthd_consolidated_day, set only after
+  the GPU wrote). ghost-cli ghost.synthd consolidate [run=1] [write=1] with consolidateSummary.
+- hw.MemoryRow already carries ref; the app: MemRow.partOf, tripLine, summaryLine; MemoryKinds
+  "trips" chip and shown(id, kind, partOf) (a part hides under "all"); MemoryText trip origin and
+  kindLabel, dayOf accepts trip:, partLabel; MemoryScreen lists a trip's parts (and an outing's
+  folded days) and "part of X ›" on a part; MemoriesScreen shows trip covers.
+- Frankfurter removed from WebSearch.Tools (the rate regex, codes, rate(), formatRate()); the
+  README's "What leaves the box" and the hit-source comment updated; WebSearchTest expects no rate
+  tool. BoxKnows already says the box covers rate questions.
+- Tested: consolidate_test.go (samePerson/matchPerson, personBody/has/factCount, foldPerson and
+  aliases, groundedPerson's name and number checks, personPrompt, chainTrips with a gap and a
+  day out, tripOf/tripTitle/tripBody across month and year ends); consolidate_pg_test.go
+  (three Cristinas → one with note, two facts, an alias; two Anas stay; an edited James stays and
+  takes facts into meta; setPersonNote/clearPersonNotes; peopleNames shows one; trips: a two-outing
+  Canada trip, part_of on outings and days, a lone Paris outing folds its days, idempotent second
+  pass, an edited trip survives a changed template, a dissolved trip goes and unfolds; tripFacts).
+  48 Go packages, vet Linux and darwin; 213 JVM tests + WebSearchTest 10.
+
