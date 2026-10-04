@@ -5044,3 +5044,14 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   those sections moved out of releases/0.0.3.md (put back to the tag's text) into
   releases/0.0.4.md, and the version is 0.0.4 everywhere the cut reads it (release.names,
   build.gradle.kts code 4, CITATION.cff, RELEASES.md, the README's status). Still a wisp.
+- The first real Wikipedia file (wikipedia_en_all_nopic, 52.7 GB, on xyntai 3 Oct): `ghost-cli
+  ghost.synthd wiki` answered "zim: cluster 178626 spans 51309802015..52690706539". The header
+  has no title list (0xffff…), so the reader took the title order from X/listing/titleOrdered/v1,
+  and that entry lives in an uncompressed cluster of 1.4 GB shared with the search indexes
+  (X/fulltext/xapian and friends), which the reader loaded whole, under a 128 MB bound. Now
+  `blobRange` reads an uncompressed cluster's offsets and the one blob in place (the title list
+  is read four bytes at a time where it lies, never loaded), the whole-cluster bound applies to
+  compressed clusters only (a 1-2 MB zstd frame each in Kiwix's files), and a plain blob past
+  256 MB is refused by name. zimtest.BuildWith(Options{TitleListing, Filler}) writes that shape
+  (no header list, the X listing and a filler blob in a third plain cluster with eight-byte
+  offsets); the test lowers the bounds and reads titles, articles and the filler blob through it.

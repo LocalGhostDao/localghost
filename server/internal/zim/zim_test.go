@@ -109,3 +109,73 @@ func TestBlobOffsets(t *testing.T) {
 		t.Fatal("past the last blob")
 	}
 }
+
+// The newer Kiwix files: no title list in the header, the title order an X entry in an
+// uncompressed cluster shared with the search index, gigabytes long (the English Wikipedia's
+// cluster 178626 spans 1.4 GB, 3 Oct 2026). The listing and any blob of such a cluster are read
+// in place; the cluster is never loaded whole, so the bound on whole clusters does not stop it.
+func TestListingInAnUncompressedClusterPastTheBound(t *testing.T) {
+	oldC, oldB := maxClusterLen, maxBlobLen
+	maxClusterLen, maxBlobLen = 1<<20, 3<<20
+	t.Cleanup(func() { maxClusterLen, maxBlobLen = oldC, oldB })
+	b := zimtest.BuildWith([]zimtest.Item{
+		{NS: 'C', Path: "Bitcoin", Mime: "text/html", Body: []byte("<p>Bitcoin is a cryptocurrency.</p>")},
+		{NS: 'C', Path: "BTC", Redirect: "Bitcoin"},
+		{NS: 'C', Path: "Solana_(blockchain_platform)", Title: "Solana (blockchain platform)", Mime: "text/html", Body: []byte("<p>Solana is a blockchain platform.</p>")},
+		{NS: 'C', Path: "Ethereum", Mime: "text/html", Body: []byte("<p>Ethereum.</p>")},
+		{NS: 'M', Path: "Title", Mime: "text/plain", Body: []byte("Wikipedia")},
+	}, 1, zimtest.Options{TitleListing: true, Filler: 2 << 20})
+	z, err := NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if z.H.TitlePtrPos != ^uint64(0) || z.H.ClusterCount != 3 {
+		t.Fatalf("the shape: %+v", z.H)
+	}
+	if z.Title() != "Wikipedia" {
+		t.Fatalf("title %q", z.Title())
+	}
+	// the title order comes from the listing, read in place
+	s, ok, err := z.FindTitle('C', "Solana (blockchain platform)")
+	if err != nil || !ok || s.Path != "Solana_(blockchain_platform)" {
+		t.Fatalf("%+v %v %v", s, ok, err)
+	}
+	if ps, err := z.TitlesWithPrefix('C', "B", 10); err != nil || len(ps) != 2 || ps[0].Title != "BTC" || ps[1].Title != "Bitcoin" {
+		t.Fatalf("%+v %v", ps, err)
+	}
+	// the articles in the ordinary clusters read as before
+	e, _, _ := z.FindPath('C', "Ethereum")
+	if body, err := z.Content(e); err != nil || string(body) != "<p>Ethereum.</p>" {
+		t.Fatalf("%q %v", body, err)
+	}
+	// a blob of the big cluster reads in place, as long as it is within the blob bound
+	x, ok, _ := z.FindPath('X', "fulltext/xapian")
+	if !ok || x.Cluster != 2 {
+		t.Fatalf("%+v", x)
+	}
+	if body, err := z.Content(x); err != nil || len(body) != 2<<20 {
+		t.Fatalf("%d %v", len(body), err)
+	}
+	maxBlobLen = 1 << 20
+	if _, err := z.Content(x); err == nil || !strings.Contains(err.Error(), "more than this reader loads") {
+		t.Fatalf("past the blob bound: %v", err)
+	}
+	// the listing itself is in the same cluster and still answers (nothing was loaded whole)
+	if _, ok, err := z.FindTitle('C', "Bitcoin"); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	// a compressed cluster past the whole-cluster bound is refused, with its size (a fresh
+	// reader: the first one may hold the cluster decompressed already)
+	maxClusterLen = 16
+	z2, err := NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sol, _, _ := z2.FindPath('C', "Solana_(blockchain_platform)")
+	if sol.Cluster != 1 {
+		t.Fatalf("solana in cluster %d, the zstd one is 1", sol.Cluster)
+	}
+	if _, err := z2.Content(sol); err == nil || !strings.Contains(err.Error(), "decompresses whole") {
+		t.Fatalf("past the cluster bound: %v", err)
+	}
+}

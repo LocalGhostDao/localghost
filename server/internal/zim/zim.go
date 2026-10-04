@@ -37,15 +37,23 @@ import (
 )
 
 const (
-	magic         = 72173914
-	headerSize    = 80
-	redirectMime  = 0xffff
-	linkTarget    = 0xfffe
-	deleted       = 0xfffd
-	maxRedirects  = 8
-	clustersKept  = 12        // decompressed clusters held (a Wikipedia cluster is about 1-2 MB)
-	maxClusterLen = 128 << 20 // a cluster larger than this is not a ZIM the box made sense of
-	direntRead    = 512       // bytes read for an entry; more when its names are longer
+	magic        = 72173914
+	headerSize   = 80
+	redirectMime = 0xffff
+	linkTarget   = 0xfffe
+	deleted      = 0xfffd
+	maxRedirects = 8
+	clustersKept = 12  // decompressed clusters held (a Wikipedia cluster is about 1-2 MB)
+	direntRead   = 512 // bytes read for an entry; more when its names are longer
+)
+
+// The bounds (variables, so a test can lower them): a compressed cluster longer than
+// maxClusterLen is not one this reader decompresses whole; a blob from an uncompressed cluster
+// longer than maxBlobLen is not one it loads. Kiwix's files keep their listings and search
+// indexes (gigabytes) in uncompressed clusters, whose blobs are read in place and never whole.
+var (
+	maxClusterLen uint64 = 128 << 20
+	maxBlobLen    uint64 = 256 << 20
 )
 
 // Header is the file's header.
@@ -146,16 +154,34 @@ func NewReader(r io.ReaderAt, size int64) (*File, error) {
 		z.titleLen = h.EntryCount
 		z.titles = func(i uint32) (uint32, error) { return z.u32(pos + 4*uint64(i)) }
 	} else if e, ok, err := z.FindPath('X', "listing/titleOrdered/v1"); err == nil && ok {
-		blob, err := z.Content(e)
-		if err != nil {
+		// the listing is four bytes an entry (80 MB for the English Wikipedia) in an uncompressed
+		// cluster, which Kiwix shares with the search indexes (gigabytes): read it where it lies,
+		// never the cluster whole
+		if e, err = z.Resolve(e); err != nil {
 			return nil, err
 		}
-		z.titleLen = uint32(len(blob) / 4)
-		z.titles = func(i uint32) (uint32, error) {
-			if i >= z.titleLen {
-				return 0, errors.New("zim: title index out of range")
+		if start, end, plain, err := z.blobRange(e); err != nil {
+			return nil, err
+		} else if plain {
+			z.titleLen = uint32((end - start) / 4)
+			z.titles = func(i uint32) (uint32, error) {
+				if i >= z.titleLen {
+					return 0, errors.New("zim: title index out of range")
+				}
+				return z.u32(start + 4*uint64(i))
 			}
-			return le.Uint32(blob[4*i:]), nil
+		} else {
+			blob, err := z.Content(e)
+			if err != nil {
+				return nil, err
+			}
+			z.titleLen = uint32(len(blob) / 4)
+			z.titles = func(i uint32) (uint32, error) {
+				if i >= z.titleLen {
+					return 0, errors.New("zim: title index out of range")
+				}
+				return le.Uint32(blob[4*i:]), nil
+			}
 		}
 	}
 	return z, nil
@@ -456,11 +482,83 @@ func (z *File) Content(e Entry) ([]byte, error) {
 	if e.Mime == "" && e.Cluster == 0 && e.Blob == 0 {
 		return nil, fmt.Errorf("zim: %q has no content", e.Path)
 	}
+	// an uncompressed cluster (the newer files keep their listings and search indexes in a few of
+	// them, gigabytes long): the one blob, read where it lies
+	if start, end, plain, err := z.blobRange(e); err != nil {
+		return nil, err
+	} else if plain {
+		if end-start > maxBlobLen {
+			return nil, fmt.Errorf("zim: %q is %d MB, more than this reader loads", e.Path, (end-start)>>20)
+		}
+		b := make([]byte, end-start)
+		if _, err := z.r.ReadAt(b, int64(start)); err != nil && err != io.EOF {
+			return nil, err
+		}
+		return b, nil
+	}
 	c, err := z.cluster(e.Cluster)
 	if err != nil {
 		return nil, err
 	}
 	return blob(c.data, c.ext, e.Blob)
+}
+
+// blobRange is where an entry's blob lies in the file when its cluster is stored uncompressed
+// (plain true): the cluster's offsets are read, not its contents. For a compressed cluster plain
+// is false and the cluster is decompressed by the caller.
+func (z *File) blobRange(e Entry) (start, end uint64, plain bool, err error) {
+	if e.Cluster >= z.H.ClusterCount {
+		return 0, 0, false, fmt.Errorf("zim: cluster %d of %d", e.Cluster, z.H.ClusterCount)
+	}
+	cstart, err := z.u64(z.H.ClusterPtrPos + 8*uint64(e.Cluster))
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if cstart+1 >= uint64(z.size) {
+		return 0, 0, false, fmt.Errorf("zim: cluster %d starts outside the file", e.Cluster)
+	}
+	var info [1]byte
+	if _, err := z.r.ReadAt(info[:], int64(cstart)); err != nil {
+		return 0, 0, false, err
+	}
+	if c := info[0] & 0x0f; c != 0 && c != 1 {
+		return 0, 0, false, nil
+	}
+	ext := info[0]&0x10 != 0
+	w := uint64(4)
+	off := func(i uint64) (uint64, error) {
+		if !ext {
+			v, err := z.u32(cstart + 1 + 4*i)
+			return uint64(v), err
+		}
+		return z.u64(cstart + 1 + 8*i)
+	}
+	if ext {
+		w = 8
+	}
+	first, err := off(0)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if first < w || first%w != 0 {
+		return 0, 0, false, errors.New("zim: a cluster without its offsets")
+	}
+	blobs := first/w - 1
+	if uint64(e.Blob) >= blobs {
+		return 0, 0, false, fmt.Errorf("zim: blob %d of %d", e.Blob, blobs)
+	}
+	a, err := off(uint64(e.Blob))
+	if err != nil {
+		return 0, 0, false, err
+	}
+	b, err := off(uint64(e.Blob) + 1)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	if b < a || cstart+1+b > uint64(z.size) {
+		return 0, 0, false, errors.New("zim: a blob outside its cluster")
+	}
+	return cstart + 1 + a, cstart + 1 + b, true, nil
 }
 
 type clusterData struct {
@@ -491,8 +589,13 @@ func (z *File) cluster(n uint32) (clusterData, error) {
 	if end == 0 || end > uint64(z.size) {
 		end = uint64(z.size)
 	}
-	if start >= end || end-start > maxClusterLen {
+	if start >= end {
 		return clusterData{}, fmt.Errorf("zim: cluster %d spans %d..%d", n, start, end)
+	}
+	if end-start > maxClusterLen {
+		// an uncompressed cluster this long is the listings and the search indexes; its blobs
+		// are read in place (blobRange); a compressed one this long is not a file this reader knows
+		return clusterData{}, fmt.Errorf("zim: cluster %d is %d MB, more than this reader decompresses whole", n, (end-start)>>20)
 	}
 	raw := make([]byte, end-start)
 	if _, err := z.r.ReadAt(raw, int64(start)); err != nil && err != io.EOF {

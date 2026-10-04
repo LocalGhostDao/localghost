@@ -19,9 +19,26 @@ type Item struct {
 	Redirect string
 }
 
+// Options shape the file the way the newer Kiwix files are shaped.
+type Options struct {
+	// TitleListing: no title pointer list in the header (0xffff…); the title order is the entry
+	// X/listing/titleOrdered/v1, in an uncompressed cluster of its own (eight-byte offsets)
+	// shared with X/fulltext/xapian, a blob of Filler zero bytes, the way the search index is.
+	TitleListing bool
+	Filler       int
+}
+
 // Build writes a ZIM file (version 6.minor) holding the items.
-func Build(items []Item, minor uint16) []byte {
+func Build(items []Item, minor uint16) []byte { return BuildWith(items, minor, Options{}) }
+
+// BuildWith is Build with Options.
+func BuildWith(items []Item, minor uint16, opt Options) []byte {
 	le := binary.LittleEndian
+	if opt.TitleListing {
+		items = append(append([]Item(nil), items...),
+			Item{NS: 'X', Path: "listing/titleOrdered/v1", Mime: "application/octet-stream+zimlisting"},
+			Item{NS: 'X', Path: "fulltext/xapian", Mime: "application/octet-stream+xapian", Body: make([]byte, opt.Filler)})
+	}
 	// path order
 	sorted := append([]Item(nil), items...)
 	sort.SliceStable(sorted, func(i, j int) bool {
@@ -51,6 +68,13 @@ func Build(items []Item, minor uint16) []byte {
 		}
 		return title(x) < title(y)
 	})
+	if opt.TitleListing {
+		var lst bytes.Buffer
+		for _, i := range byTitle {
+			binary.Write(&lst, le, uint32(i))
+		}
+		sorted[index["X/listing/titleOrdered/v1"]].Body = lst.Bytes()
+	}
 	// MIME list
 	var mimes []string
 	mimeIdx := map[string]int{}
@@ -62,13 +86,14 @@ func Build(items []Item, minor uint16) []byte {
 			}
 		}
 	}
-	// blobs: the first half of the contents in cluster 0, the rest in cluster 1
+	// blobs: the first half of the contents in cluster 0, the rest in cluster 1; the X entries
+	// (the listings and the indexes) in cluster 2, stored as they are
 	type place struct{ cluster, blob uint32 }
 	places := make([]place, len(sorted))
-	var c0, c1 [][]byte
+	var c0, c1, c2 [][]byte
 	var contents []int
 	for i, it := range sorted {
-		if it.Redirect == "" {
+		if it.Redirect == "" && it.NS != 'X' {
 			contents = append(contents, i)
 		}
 	}
@@ -79,6 +104,12 @@ func Build(items []Item, minor uint16) []byte {
 		} else {
 			places[i] = place{1, uint32(len(c1))}
 			c1 = append(c1, sorted[i].Body)
+		}
+	}
+	for i, it := range sorted {
+		if it.Redirect == "" && it.NS == 'X' {
+			places[i] = place{2, uint32(len(c2))}
+			c2 = append(c2, it.Body)
 		}
 	}
 	var out bytes.Buffer
@@ -126,6 +157,13 @@ func Build(items []Item, minor uint16) []byte {
 	clusterStarts = append(clusterStarts, uint64(out.Len()))
 	out.WriteByte(5 | 0x10) // zstd, eight-byte offsets
 	out.Write(rawZstd(clusterBody(c1, true)))
+	nClusters := uint32(2)
+	if len(c2) > 0 {
+		clusterStarts = append(clusterStarts, uint64(out.Len()))
+		out.WriteByte(1 | 0x10) // stored as it is, eight-byte offsets: the big one
+		out.Write(clusterBody(c2, true))
+		nClusters = 3
+	}
 	clusterPtrPos := out.Len()
 	for _, s := range clusterStarts {
 		binary.Write(&out, le, s)
@@ -137,9 +175,12 @@ func Build(items []Item, minor uint16) []byte {
 	le.PutUint16(b[4:], 6)
 	le.PutUint16(b[6:], minor)
 	le.PutUint32(b[24:], uint32(len(sorted)))
-	le.PutUint32(b[28:], 2)
+	le.PutUint32(b[28:], nClusters)
 	le.PutUint64(b[32:], uint64(pathPos))
 	le.PutUint64(b[40:], uint64(titlePos))
+	if opt.TitleListing {
+		le.PutUint64(b[40:], ^uint64(0)) // no list in the header: the X listing is the title order
+	}
 	le.PutUint64(b[48:], uint64(clusterPtrPos))
 	le.PutUint64(b[56:], uint64(mimePos))
 	le.PutUint32(b[64:], 0)
