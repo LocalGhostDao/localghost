@@ -26,6 +26,8 @@ func testWiki(t *testing.T) *Wiki {
 		{NS: 'C', Path: "Solana", Mime: "text/html", Body: []byte(`<body><p><b>Solana</b> may refer to: a city in California, a blockchain platform.</p></body>`)},
 		{NS: 'C', Path: "Solana_(blockchain_platform)", Title: "Solana (blockchain platform)", Mime: "text/html", Body: []byte(`<body><p>Solana is a blockchain platform which uses a proof-of-stake mechanism. It launched in 2020.</p></body>`)},
 		{NS: 'C', Path: "style.css", Mime: "text/css", Body: []byte("p{}")},
+		{NS: 'C', Path: "Greenwich", Mime: "text/html", Body: []byte(`<body><p>Greenwich is an area in south-east London, England, on the Thames.</p></body>`)},
+		{NS: 'C', Path: "Kassiopi,_Corfu", Title: "Kassiopi, Corfu", Mime: "text/html", Body: []byte(`<body><p>Kassiopi is a village on Corfu.</p></body>`)},
 		{NS: 'M', Path: "Title", Mime: "text/plain", Body: []byte("Wikipedia")},
 		{NS: 'M', Path: "Date", Mime: "text/plain", Body: []byte("2026-06-14")},
 	}, 1)
@@ -75,6 +77,17 @@ func TestArticleLead(t *testing.T) {
 	}
 	if _, ok, _ := w.Article("Dogecoin", 100); ok {
 		t.Fatal("not there")
+	}
+	// a place said with its city or country: "Greenwich london" is Greenwich, "Kassiopi Corfu"
+	// is "Kassiopi, Corfu"; "Dogecoin London" is still nothing
+	if g, ok, _ := w.Article("Greenwich london", 500); !ok || g.Title != "Greenwich" {
+		t.Fatalf("%+v %v", g, ok)
+	}
+	if k, ok, _ := w.Article("kassiopi corfu", 500); !ok || k.Title != "Kassiopi, Corfu" {
+		t.Fatalf("%+v %v", k, ok)
+	}
+	if _, ok, _ := w.Article("Dogecoin London", 100); ok {
+		t.Fatal("a qualifier does not make an article")
 	}
 	ts, err := w.Titles("solana", 5)
 	if err != nil || len(ts) != 2 || ts[1] != "Solana (blockchain platform)" {

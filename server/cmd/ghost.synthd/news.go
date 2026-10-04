@@ -369,9 +369,9 @@ func splitStory(s string) (lead string, points []string) {
 			head = append(head, t)
 		}
 	}
-	lead = strings.Join(strings.Fields(strings.Join(head, " ")), " ")
+	lead = plainDashes(strings.Join(strings.Fields(strings.Join(head, " ")), " "))
 	for i, p := range points {
-		points[i] = strings.Join(strings.Fields(p), " ")
+		points[i] = plainDashes(strings.Join(strings.Fields(p), " "))
 	}
 	return lead, points
 }

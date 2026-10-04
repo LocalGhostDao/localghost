@@ -230,10 +230,26 @@ func identityText(name, note string) string {
 	return b.String()
 }
 
-// chatIdentity reads the name and the note for the chat (the box's name alone without them).
+// chatIdentity reads the name and the note for the chat (the box's name alone without them),
+// then what else the box holds and how it writes (voice.go).
 func chatIdentity(mount string) string {
 	db := chatStore(mount)
-	return identityText(setting(db, ownerKey), setting(db, aboutKey))
+	return identityText(setting(db, ownerKey), setting(db, aboutKey)) + "\n" + holdingsText() + "\n" + voiceRules
+}
+
+// holdingsText says what the box holds beyond the archive, so the model neither denies having
+// Wikipedia nor claims the web: the English Wikipedia when the file is on the box (its lead comes
+// as [wikipedia] context when an article fits the question), the weather it pulls, the market
+// numbers it keeps. It has no internet of its own; what the phone found on the web comes labelled.
+func holdingsText() string {
+	var b strings.Builder
+	b.WriteString("What you hold besides my archive: ")
+	if w, err := boxWiki.Get(); err == nil && w != nil {
+		b.WriteString("a copy of the English Wikipedia (" + w.Name + "), which is yours to quote when an article is given to you as [wikipedia] context; ")
+	}
+	b.WriteString("the weather for the world's larger places, pulled once a day; the prices and the news the box keeps. ")
+	b.WriteString("You have no internet of your own; anything from the web was fetched by my phone and is labelled as such. When you were given nothing on a thing, say the box has nothing on it.")
+	return b.String()
 }
 
 // distillPrompt asks for what a journal entry says that is worth keeping, about me or about one

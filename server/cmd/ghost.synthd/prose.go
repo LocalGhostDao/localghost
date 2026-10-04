@@ -250,7 +250,7 @@ func groundedProse(out string, facts []string) (string, bool) {
 			return "", false
 		}
 	}
-	return strings.Join(strings.Fields(strings.ReplaceAll(s, "\n", " ")), " "), true
+	return plainDashes(strings.Join(strings.Fields(strings.ReplaceAll(s, "\n", " ")), " ")), true
 }
 
 // --- helpers ---

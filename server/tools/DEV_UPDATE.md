@@ -5055,3 +5055,31 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   256 MB is refused by name. zimtest.BuildWith(Options{TitleListing, Filler}) writes that shape
   (no header list, the X listing and a filler blob in a third plain cluster with eight-byte
   offsets); the test lowers the bounds and reads titles, articles and the filler blob through it.
+
+## The box's voice, and Wikipedia's place in an answer
+
+- The first real file answers: 19,707,096 entries, "Wikipedia, 2026-06". Then "ok tell me about
+  Greenwich london" came back from six memories and no article, and asked "from Wikipedia that
+  you have locally" the model denied having one. Two causes. gatherContext capped at six items
+  with memories first, so the wiki source never ran; the article's lead now keeps its place
+  (wikiSource runs first, the cap applies to the rest). And "Greenwich london" is no title:
+  `wiki.Article` now tries "A, B", "A (B)" and A alone when B is a qualifier (a city, a country,
+  "park"), so "Greenwich london" is Greenwich and "kassiopi corfu" is "Kassiopi, Corfu".
+- Vlad: "can we make sure the voice of localghost on the machine matches the voice of the
+  website?", with the web repo's WRITING GUIDELINES. `voice.go`: `voiceRules`, the guidelines a
+  12B model can follow (plain, flat where sure and hedged where not, contractions, brackets fine,
+  no em dashes, no colons in sentences, no lists or bold unless asked, no exclamation marks, the
+  banned phrases and the polish words, no praise of the question, no summary, no verdict, no
+  "hope this helps"), appended to every chat question by chatIdentity after `holdingsText` (what
+  the box holds: the Wikipedia copy by name, the weather, the prices and news; no internet of its
+  own; "say the box has nothing" when nothing was given). What a model will not obey is fixed on
+  the way out: `plainDashes` turns em dashes, and en dashes between spaces, into commas with the
+  spacing put right (a range's en dash stays), and `voiceFilter` does it over the stream token by
+  token (a held trailing space, a comma from a dash at a seam wanting its space); `emit` returns
+  what it wrote so the persisted answer is the filtered one, the ctl chat and `groundedProse`
+  (day stories, places, coin texts) and `splitStory` (news leads and points) run plainDashes.
+  Colons are left alone (times, URLs); the prompt carries that rule.
+- Tested: plainDashes on whole strings and the filter over four token splits of one sentence
+  against the whole-string result; the rules text passes its own dash and colon rule; Article's
+  qualified names; the context's reserved wiki place by review. 48 Go packages, vet on Linux and
+  darwin.

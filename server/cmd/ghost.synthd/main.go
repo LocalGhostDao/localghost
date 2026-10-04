@@ -523,9 +523,13 @@ func main() {
 		var inThink, sawThink bool
 		var carry string
 		const openTag, closeTag = "<think>", "</think>"
-		emit := func(kind, text string) { // kind: "r" or "t"
+		vf := &voiceFilter{}                     // the answer's em dashes become commas on the way out (voice.go)
+		emit := func(kind, text string) string { // kind: "r" or "t"; what was written, for the persisted answer
+			if kind == "t" {
+				text = vf.pass(text)
+			}
 			if text == "" {
-				return
+				return ""
 			}
 			key := "t"
 			if kind == "r" {
@@ -537,6 +541,7 @@ func main() {
 			if fl != nil {
 				fl.Flush()
 			}
+			return text
 		}
 		// route classifies a token's text into reasoning/answer, honoring the open/close tags and
 		// the cross-chunk carry. Returns the answer-visible portion (for persistence).
@@ -553,12 +558,10 @@ func main() {
 							carry = s[len(s)-k:]
 							s = s[:len(s)-k]
 						}
-						emit("t", s)
-						answerOut.WriteString(s)
+						answerOut.WriteString(emit("t", s))
 						break
 					}
-					emit("t", s[:i])
-					answerOut.WriteString(s[:i])
+					answerOut.WriteString(emit("t", s[:i]))
 					s = s[i+len(openTag):]
 					inThink, sawThink = true, true
 				} else {
@@ -616,6 +619,9 @@ func main() {
 					}
 					if tok.Done {
 						finished = true
+						if tail := vf.flush(); tail != "" {
+							answer.WriteString(emit("t", tail))
+						}
 						if saver != nil {
 							saver.update(answer.String(), thinking.String(), "done")
 							saver.wait(3 * time.Second) // the row is whole before the phone is told
@@ -733,7 +739,7 @@ func main() {
 			// can show "answered using these memories" instead of the grounding being invisible. The
 			// context array is EMPTY (not absent) when nothing was injected , the app can rely on
 			// the field existing. secd passes this JSON through untouched.
-			data, _ := json.Marshal(chatReply{Output: resp.Output, Model: resp.Model, Context: items})
+			data, _ := json.Marshal(chatReply{Output: plainDashes(resp.Output), Model: resp.Model, Context: items})
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
 		// index-stats: operator view of the corpus (empty today).
@@ -1069,21 +1075,31 @@ var contextSources = []contextSource{
 // sources get first claim on the cap.
 func gatherContext(runDir, prompt string) []ctxItem {
 	const maxItems = 6
+	// the box's Wikipedia keeps its place: for "tell me about Greenwich" the article's lead is
+	// the backbone and the memories are the personal layer, and six memories used to fill the
+	// cap before the wiki source had its turn (4 Oct 2026)
+	var wiki []ctxItem
+	for _, it := range wikiSource(runDir, prompt) {
+		if it.Snippet != "" {
+			wiki = append(wiki, sanitize(it))
+		}
+	}
 	var out []ctxItem
 	for _, src := range contextSources {
-		if len(out) >= maxItems {
+		if len(out)+len(wiki) >= maxItems {
 			break
 		}
 		for _, it := range src(runDir, prompt) {
-			if it.Snippet == "" {
+			if it.Snippet == "" || it.Source == "wikipedia" {
 				continue
 			}
 			out = append(out, sanitize(it))
-			if len(out) >= maxItems {
+			if len(out)+len(wiki) >= maxItems {
 				break
 			}
 		}
 	}
+	out = append(out, wiki...)
 	if len(out) > 0 {
 		slog.Info("context injected into chat", "fn", "gatherContext", "items", len(out))
 	}

@@ -114,8 +114,37 @@ func upperFirst(s string) string {
 	return string(unicode.ToUpper(r)) + s[n:]
 }
 
-// Article is the article a title names (redirects followed), trying the ways it may be written.
+// Article is the article a title names (redirects followed), trying the ways it may be written,
+// and then, for a phrase of two or more words, the ways a place is qualified ("Greenwich London"
+// as "Greenwich, London", "Greenwich (London)", and "Greenwich" alone when the last word is a
+// qualifier like a city or a country).
 func (w *Wiki) Article(title string, maxLead int) (Article, bool, error) {
+	a, ok, err := w.article(title, maxLead)
+	if err != nil || ok {
+		return a, ok, err
+	}
+	words := strings.Fields(title)
+	if len(words) < 2 {
+		return Article{}, false, nil
+	}
+	head, last := strings.Join(words[:len(words)-1], " "), words[len(words)-1]
+	for _, t := range []string{head + ", " + last, head + " (" + last + ")"} {
+		if a, ok, err := w.article(t, maxLead); err != nil || ok {
+			return a, ok, err
+		}
+	}
+	if qualifier[strings.ToLower(last)] {
+		return w.article(head, maxLead)
+	}
+	return Article{}, false, nil
+}
+
+// qualifier is a trailing word that places a thing rather than names it.
+var qualifier = map[string]bool{"london": true, "uk": true, "england": true, "scotland": true, "wales": true, "ireland": true, "france": true,
+	"italy": true, "spain": true, "greece": true, "romania": true, "germany": true, "europe": true, "usa": true, "us": true, "america": true,
+	"city": true, "town": true, "village": true, "island": true, "county": true, "borough": true, "district": true, "park": true, "area": true}
+
+func (w *Wiki) article(title string, maxLead int) (Article, bool, error) {
 	for _, v := range variants(title) {
 		e, ok, err := w.z.FindPath(w.ns, strings.ReplaceAll(v, " ", "_"))
 		if err != nil {
