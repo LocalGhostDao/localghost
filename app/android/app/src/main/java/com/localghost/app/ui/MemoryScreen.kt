@@ -1,0 +1,129 @@
+package com.localghost.app.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.localghost.app.net.BoxClient
+import com.localghost.app.ui.theme.*
+import kotlinx.coroutines.launch
+
+/**
+ * ONE MEMORY'S PAGE. A notification that brings a memory back ("a year ago today you ...") used to
+ * land on MEMORIES with the list filtered to that one title, the page's chrome and chips and all;
+ * it lands here now, on the memory alone: what kind of thing it is, the title, its photos (an
+ * outing's or a day's covers, a tap opens them as a slideshow), the body in full, where it came
+ * from and when, the day it was made from when there is one, and the person's two powers over it,
+ * edit and delete (the model never overwrites an edit or resurrects a deletion). A memory's title
+ * in the list opens here too.
+ */
+@Composable
+fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var m by remember(id) { mutableStateOf<BoxClient.MemRow?>(null) }
+    var missing by remember(id) { mutableStateOf(false) }
+    var editing by remember(id) { mutableStateOf(false) }
+    var confirmDel by remember(id) { mutableStateOf(false) }
+    fun load() {
+        scope.launch {
+            val list = BoxClient.memoriesList(ctx)
+            val found = list?.firstOrNull { it.id == id }
+            if (found != null) m = found else missing = list != null
+        }
+    }
+    LaunchedEffect(id) { load() }
+    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
+        Spacer(Modifier.height(12.dp))
+        Text("‹ memories", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.clickable { onBack() }.padding(vertical = 4.dp))
+        Spacer(Modifier.height(8.dp))
+        val row = m
+        when {
+            missing -> ErrorLine("this memory is not on the box any more (deleted, or the box was rebuilt)")
+            row == null -> LoadingRow()
+            editing -> MemoryEditor(initTitle = row.title, initBody = row.body,
+                onSave = { t, b -> editing = false; scope.launch { BoxClient.memoryEdit(ctx, id, t, b); load() } },
+                onCancel = { editing = false })
+            else -> {
+                SectionLabel(MemoryText.kindLabel(row.kind))
+                Spacer(Modifier.height(6.dp))
+                Text(row.title, color = GhostText, style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(4.dp))
+                Text(MemoryText.origin(row.kind, row.outingLine, row.meta?.optString("line") ?: "") + " · " +
+                    java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale.UK).format(java.util.Date(row.createdAt)),
+                    color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                if (row.covers.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    ThumbStrip(row.covers, title = row.title, size = 112.dp)
+                }
+                if (row.body.isNotBlank()) {
+                    Spacer(Modifier.height(14.dp))
+                    Text(row.body, color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                }
+                // what it was made from: an outing's or a day's facts, as synthd kept them
+                row.meta?.let { meta ->
+                    val facts = ArrayList<String>()
+                    // an outing: its places (most photographed first) and its country; its tags
+                    val places = meta.optJSONArray("places")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+                    val where = (places.ifEmpty { listOf(meta.optString("place")) }.filter { it.isNotBlank() } +
+                        listOfNotNull(meta.optString("country").takeIf { it.isNotBlank() })).distinct()
+                    if (where.isNotEmpty()) facts.add("⌖ " + where.take(5).joinToString(" · "))
+                    val tags = meta.optJSONArray("tags")?.let { a -> (0 until a.length()).mapNotNull { i ->
+                        a.optJSONObject(i)?.optString("tag")?.takeIf { it.isNotBlank() } ?: a.optString(i).takeIf { it.isNotBlank() && a.optJSONObject(i) == null } } } ?: emptyList()
+                    if (tags.isNotEmpty()) facts.add(tags.take(8).joinToString(" · "))
+                    val stays = meta.optInt("stays"); val moves = meta.optInt("moves")
+                    if (stays > 0 || moves > 0) facts.add(listOfNotNull(
+                        stays.takeIf { it > 0 }?.let { "$it stop${if (it == 1) "" else "s"}" },
+                        moves.takeIf { it > 0 }?.let { "$it move${if (it == 1) "" else "s"}" }).joinToString(" · "))
+                    val walk = meta.optDouble("walkM", 0.0); val ride = meta.optDouble("rideM", 0.0)
+                    if (walk >= 500 || ride >= 500) facts.add(listOfNotNull(
+                        walk.takeIf { it >= 500 }?.let { "walked %.1f km".format(java.util.Locale.US, it / 1000) },
+                        ride.takeIf { it >= 500 }?.let { "rode %.0f km".format(java.util.Locale.US, it / 1000) }).joinToString(" · "))
+                    if (facts.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        SectionLabel("FROM")
+                        Spacer(Modifier.height(4.dp))
+                        facts.forEach { Text(it, color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(vertical = 1.dp)) }
+                    }
+                }
+                val day = MemoryText.dayOf(row.ref)
+                Spacer(Modifier.height(20.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (day.isNotEmpty()) {
+                        Text("[ the day › ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.clickable { onOpenDay(day) }.padding(vertical = 4.dp))
+                        Spacer(Modifier.width(16.dp))
+                    }
+                    Text("[ ✎ edit ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.clickable { editing = true }.padding(vertical = 4.dp))
+                    Spacer(Modifier.width(16.dp))
+                    if (confirmDel) {
+                        LaunchedEffect(confirmDel) { kotlinx.coroutines.delay(3000); confirmDel = false }
+                        Text("[ delete for good? ]", color = Warning, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.clickable { scope.launch { if (BoxClient.memoryDelete(ctx, id)) onBack() } }.padding(vertical = 4.dp))
+                    } else {
+                        Text("[ 🗑 delete ]", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.clickable { confirmDel = true }.padding(vertical = 4.dp))
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(when (row.kind) {
+                    "user" -> "written by you; the box never changes it"
+                    else -> "an edit is yours for good: the box never writes over it, and a deletion is never undone by the model"
+                }, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}

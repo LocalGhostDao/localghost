@@ -1018,9 +1018,11 @@ object BoxClient {
     } catch (_: Exception) { false }
 
     /** One memory row. [meta] is the structured detail synthd computed for a machine-assembled
-     *  memory (kind "outing": photos, days, place, tags, covers, distanceM, away); null otherwise. */
+     *  memory (kind "outing": photos, days, place, tags, covers, distanceM, away); null otherwise.
+     *  [ref] is what a day's or an outing's memory was made from ("day:2026-10-03"), "" otherwise
+     *  (and on a box from before 0.0.5). */
     data class MemRow(val id: Long, val title: String, val body: String, val kind: String, val createdAt: Long,
-                      val meta: org.json.JSONObject? = null) {
+                      val meta: org.json.JSONObject? = null, val ref: String = "") {
         val covers: List<String> get() = meta?.optJSONArray("covers")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() } } ?: emptyList()
         val outingLine: String? get() = meta?.let { m ->
             val photos = m.optInt("photos"); val days = m.optInt("days")
@@ -1041,7 +1043,7 @@ object BoxClient {
         (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             MemRow(o.optLong("id"), o.optString("title"), o.optString("body"),
-                o.optString("kind"), o.optLong("created_at"), o.optJSONObject("meta"))
+                o.optString("kind"), o.optLong("created_at"), o.optJSONObject("meta"), o.optString("ref"))
         }
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "memories: ${e.message}"); null }
 

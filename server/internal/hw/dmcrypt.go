@@ -77,6 +77,14 @@ func (m *DMCryptMounter) MapWithKey(slot int, key []byte) (string, error) {
 	// AMK is random and unique, so the one that opens IS the volume. The journal then names the
 	// stable /dev/disk/by-id path to put in the unit, so it never depends on luck again.
 	if !isLuks(disk) {
+		// a volume that is a file: no disk names to have moved, the file is there or it is not (the
+		// drive it lives on not mounted, most often), and nothing else on the box is worth trying
+		if !strings.HasPrefix(disk, "/dev/") {
+			if _, err := os.Stat(disk); err != nil {
+				return "", fmt.Errorf("luksOpen slot %d: the volume's file %s is not there (%v): is the drive it lives on mounted?", slot, disk, err)
+			}
+			return "", fmt.Errorf("luksOpen slot %d: %s is not a LUKS container", slot, disk)
+		}
 		cands := luksDevices()
 		slog.Warn("configured disk is not a LUKS container , the disk names may have moved at boot; trying every LUKS container with the key",
 			"fn", "MapWithKey", "configured", disk, "candidates", strings.Join(cands, " "))
@@ -135,9 +143,10 @@ func findByKey(cands []string, open func(dev string) error) (string, error) {
 
 // StableDiskName is the /dev/disk/by-id name for a disk path like /dev/nvme0n1 (unchanged when it
 // already is one, or when no stable link exists). Setup writes this into the ghost.secd unit so the
-// volume never depends on the order the kernel probed the disks in.
+// volume never depends on the order the kernel probed the disks in. A volume that is a FILE (a path
+// outside /dev) is its own stable name.
 func StableDiskName(dev string) string {
-	if strings.HasPrefix(dev, "/dev/disk/") {
+	if strings.HasPrefix(dev, "/dev/disk/") || !strings.HasPrefix(dev, "/dev/") {
 		return dev
 	}
 	return stableName(dev, "/dev/disk/by-id")

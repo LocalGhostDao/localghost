@@ -92,6 +92,93 @@ object Feelings {
         return out
     }
 
+    /** The group a feeling belongs to ("bright", "easy", "tense", "heavy", "mind"), "" for a word
+     *  the card never offered (an old check-in, a hand-written one). */
+    fun groupOf(f: String): String = groups.firstOrNull { f.trim().lowercase() in it.feelings }?.label ?: ""
+
+    /** The group's mark, for the strip of days and the rows of past check-ins: the pleasant
+     *  quadrants point up, the unpleasant down, the mind row is hollow, nothing picked is a dot. */
+    fun mark(group: String): String = when (group) {
+        "bright" -> "▲"
+        "easy" -> "●"
+        "tense" -> "◆"
+        "heavy" -> "▼"
+        "mind" -> "◇"
+        else -> "·"
+    }
+
+    /** The feelings of a check-in line ("calm, tired"), in the order picked; "(unspecified)" is none. */
+    fun picks(feelings: String): List<String> =
+        feelings.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() && !it.startsWith("(") }
+
+    /** The group a day is told by: the first feeling the person picked themselves (the box's guesses
+     *  left standing count after those), "" when none was picked. */
+    fun tone(feelings: String, preselected: String = ""): String {
+        val p = picks(feelings)
+        val guessed = picks(preselected).toSet()
+        val own = p.firstOrNull { it !in guessed } ?: p.firstOrNull() ?: return ""
+        return groupOf(own)
+    }
+
+    /** One cell of the strip: a day, what it was told by, whether it was checked in at all. */
+    data class Cell(val day: String, val tone: String, val checked: Boolean)
+
+    /** The last [n] days ending on [today], oldest first, each with its tone from [toneByDay]. A
+     *  day without a check-in is unchecked and shows as a dot: no streaks, no count, no guilt. */
+    fun strip(today: String, toneByDay: Map<String, String>, n: Int = 14): List<Cell> {
+        val out = ArrayList<Cell>(n)
+        for (i in n - 1 downTo 0) {
+            val d = shiftDay(today, -i)
+            val t = toneByDay[d]
+            out.add(Cell(d, t ?: "", t != null))
+        }
+        return out
+    }
+
+    /** The day of the month a cell shows under its mark ("4"), and the weekday's initial. */
+    fun dayNumber(day: String): String = day.substringAfterLast('-').trimStart('0').ifEmpty { "0" }
+
+    fun weekdayInitial(day: String): String {
+        val c = calendarOf(day) ?: return ""
+        return arrayOf("S", "M", "T", "W", "T", "F", "S")[c.get(java.util.Calendar.DAY_OF_WEEK) - 1]
+    }
+
+    /** "Fri 3 Oct" for a past check-in's row. */
+    fun shortDay(day: String): String {
+        val c = calendarOf(day) ?: return day
+        return java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.UK).format(c.time)
+    }
+
+    /** What recurred in the check-ins given (a month's, say): "calm ×6 · tired ×4 · focused ×3",
+     *  the three most picked; "" when fewer than two check-ins have a feeling. */
+    fun recurring(history: List<String>, n: Int = 3): String {
+        val count = LinkedHashMap<String, Int>()
+        var lines = 0
+        for (line in history) {
+            val p = picks(line)
+            if (p.isEmpty()) continue
+            lines++
+            for (f in p) count[f] = (count[f] ?: 0) + 1
+        }
+        if (lines < 2) return ""
+        return count.entries.sortedByDescending { it.value }.take(n).joinToString(" · ") { "${it.key} ×${it.value}" }
+    }
+
+    private fun calendarOf(day: String): java.util.Calendar? {
+        val m = Regex("""^(\d{4})-(\d{2})-(\d{2})$""").find(day) ?: return null
+        val c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"), java.util.Locale.UK)
+        c.clear()
+        c.set(m.groupValues[1].toInt(), m.groupValues[2].toInt() - 1, m.groupValues[3].toInt())
+        return c
+    }
+
+    private fun shiftDay(day: String, n: Int): String {
+        val c = calendarOf(day) ?: return day
+        c.add(java.util.Calendar.DAY_OF_MONTH, n)
+        return "%04d-%02d-%02d".format(java.util.Locale.US, c.get(java.util.Calendar.YEAR),
+            c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH))
+    }
+
     /** m:ss for a voice note's length. */
     fun clock(ms: Long): String {
         val s = (ms + 500) / 1000

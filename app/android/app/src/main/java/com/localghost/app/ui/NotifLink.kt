@@ -2,12 +2,15 @@ package com.localghost.app.ui
 
 /**
  * WHERE A NOTIFICATION GOES when it is tapped, in the list or in the shade. The box names it
- * (link: "map:2026-09-28", "memories:4182", "memories:near", "news", "status"); a notification
- * from before links goes by who said it and what kind it is. Pure, so the JVM tests read it.
+ * (link: "map:2026-09-28", "memories:4182", "memories:near", "checkin", "news", "status"); a
+ * notification from before links goes by who said it and what kind it is. Pure, so the JVM tests
+ * read it. A memory's id opens the memory's own page, "checkin" the check-in's; neither lands on
+ * a filtered list any more.
  */
 object NotifLink {
-    /** [dest]: "map", "memories", "news", "status", "notifications" or "" (nowhere); [arg]: a
-     *  day for the map, a memory's id or "near" for memories. */
+    /** [dest]: "map", "day", "memories", "checkin", "news", "status", "notification",
+     *  "notifications" or "" (nowhere); [arg]: a day for the map, a memory's id or "near" for
+     *  memories (the id opens that memory's page). */
     data class Target(val dest: String, val arg: String = "")
 
     private val day = Regex("""^\d{4}-\d{2}-\d{2}$""")
@@ -21,13 +24,14 @@ object NotifLink {
                 "day" -> return Target("day", arg.takeIf { day.matches(it) } ?: "")
                 "notification" -> return Target("notification", arg.takeIf { it.toLongOrNull() != null } ?: "")
                 "memories" -> return Target("memories", arg.takeIf { it == "near" || it.toLongOrNull() != null } ?: "")
-                "news", "status", "notifications" -> return Target(head)
+                "checkin", "news", "status", "notifications" -> return Target(head)
             }
         }
         return when (service.removePrefix("ghost.") to kind) {
             "framed" to "highlight" -> Target("map")
             "cued" to "nearby" -> Target("memories", "near")
-            "cued" to "reflection", "secd" to "checkin" -> Target("memories")
+            "cued" to "reflection" -> Target("memories")
+            "secd" to "checkin" -> Target("checkin") // a box from before 0.0.5 says "memories"; the kind says where
             "synthd" to "news" -> Target("news")
             else -> when (service.removePrefix("ghost.")) {
                 "watchd", "shadowd" -> Target("status")
@@ -51,7 +55,12 @@ object NotifLink {
 object NotifText {
     fun opens(t: NotifLink.Target): String = when (t.dest) {
         "map" -> "open on MAP ›"
-        "memories" -> if (t.arg == "near") "open near you ›" else "open in MEMORIES ›"
+        "memories" -> when {
+            t.arg == "near" -> "open near you ›"
+            t.arg.isNotEmpty() -> "open the memory ›"
+            else -> "open in MEMORIES ›"
+        }
+        "checkin" -> "open CHECK-IN ›"
         "news" -> "open NEWS ›"
         "status" -> "open Box Status ›"
         else -> ""

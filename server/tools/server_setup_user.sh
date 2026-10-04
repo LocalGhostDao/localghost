@@ -112,8 +112,14 @@ if [ -e /dev/tpmrm0 ]; then
 else bad "TPM /dev/tpmrm0" "(no TPM device , enable Intel PTT in BIOS)"; fi
 
 echo; echo "--- Go toolchain (you can install this yourself, no root) ---"
-if have go; then
-    GO_HAVE="$(go version 2>/dev/null | grep -oE 'go[0-9.]+' | head -1 | sed 's/^go//')"
+# A release (GHOST_PREBUILT=1, set by setup.sh when bin/ holds the release's binaries) builds
+# nothing: Go is a note, never a failure.
+if [ "${GHOST_PREBUILT:-0}" = 1 ]; then
+    note "go" "not needed: the release's binaries are in bin/"
+elif have go; then
+    # from outside any module, with GOTOOLCHAIN=local: an older go command inside the module would
+    # download the newer Go go.mod names to answer, and that is never done here
+    GO_HAVE="$(cd / && GOTOOLCHAIN=local go version 2>/dev/null | grep -oE 'go[0-9.]+' | head -1 | sed 's/^go//')"
     if [ "$(printf '%s\n%s\n' "$GO_WANT" "$GO_HAVE" | sort -V | head -1)" = "$GO_WANT" ]; then
         ok "go" "(go$GO_HAVE >= go$GO_WANT)"
     else bad "go" "(go$GO_HAVE < go$GO_WANT , sudo ./tools/setup.sh installs the mirror's system-wide)"; fi
@@ -121,7 +127,9 @@ else bad "go" "(not installed , sudo ./tools/setup.sh installs go$GO_WANT from t
 
 echo
 echo "==================================================================="
-if [ "$problems" = 0 ]; then
+if [ "$problems" = 0 ] && [ "${GHOST_PREBUILT:-0}" = 1 ]; then
+    echo " READY. The release's binaries are in bin/; setup.sh carries on with the engine and the volume."
+elif [ "$problems" = 0 ]; then
     echo " READY. Build (no root):  cd <server> && make box"
     echo " Then provision in your ROOT session:  ./bin/ghost-setup --disk <dev> --host <ip> --apply"
 else

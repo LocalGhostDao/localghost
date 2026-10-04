@@ -71,3 +71,14 @@ func TestPreenVerdict(t *testing.T) {
 		t.Fatal("an operational error is a failure")
 	}
 }
+
+// A volume that is a file keeps its own path as the stable name; a device outside /dev/disk is
+// looked up (and kept as given when no link resolves to it, as here).
+func TestStableDiskNameLeavesAFileAlone(t *testing.T) {
+	if got := StableDiskName("/mnt/data/localghost.img"); got != "/mnt/data/localghost.img" {
+		t.Fatalf("file became %s", got)
+	}
+	if got := StableDiskName("/dev/disk/by-id/nvme-eui.1"); got != "/dev/disk/by-id/nvme-eui.1" {
+		t.Fatalf("stable name became %s", got)
+	}
+}

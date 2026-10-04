@@ -38,6 +38,8 @@ enum class Dest(val label: String, val glyph: String) {
     CHAT("CHAT", "›_"),
     CHATS("CHATS", "≡_"),
     MEMORIES("MEMORIES", "◇"),
+    MEMORY("MEMORY", "◇"),
+    CHECKIN("CHECK-IN", "◐"),
     NEWS("NEWS", "¶"),
     CRYPTO("CRYPTO", "₿"),
     COIN("COIN", "◈"),
@@ -136,9 +138,17 @@ fun MainShell(
     var coinSym by rememberSaveable { mutableStateOf("BTC") }
     var coinFrom by rememberSaveable { mutableStateOf(Dest.CRYPTO) }
     fun openCoin(sym: String, from: Dest) { coinSym = sym; coinFrom = from; dest = Dest.COIN }
-    // what a notification opens: a day on MAP, a memory (its id) or "near" in MEMORIES ("" none)
+    // what a notification opens: a day on MAP, "near" in MEMORIES ("" none)
     var mapDay by rememberSaveable { mutableStateOf("") }
     var memFocus by rememberSaveable { mutableStateOf("") }
+    // one memory's page: its id, and where it came from (‹ and back go there)
+    var memOpen by rememberSaveable { mutableLongStateOf(0L) }
+    var memFrom by rememberSaveable { mutableStateOf(Dest.MEMORIES) }
+    fun openMemory(id: Long) {
+        if (dest != Dest.MEMORY) memFrom = dest
+        memOpen = id
+        dest = Dest.MEMORY
+    }
     // one day's page (HOME's "this day", the weekly highlight): where it came from, for back
     var dayOpen by rememberSaveable { mutableStateOf("") }
     var dayFrom by rememberSaveable { mutableStateOf(Dest.HOME) }
@@ -160,7 +170,9 @@ fun MainShell(
             "notification" -> t.arg.toLongOrNull()?.let { openNotification(it) }
             "day" -> if (t.arg.isNotEmpty()) openDay(t.arg) else dest = Dest.MEMORIES
             "map" -> { mapDay = t.arg; dest = Dest.MAP }
-            "memories" -> { memFocus = t.arg; dest = Dest.MEMORIES }
+            // a memory's id: its own page; "near" (or nothing): the list, NEAR YOU open
+            "memories" -> t.arg.toLongOrNull()?.let { openMemory(it) } ?: run { memFocus = t.arg; dest = Dest.MEMORIES }
+            "checkin" -> dest = Dest.CHECKIN
             "news" -> { newsFocus = 0L; dest = Dest.NEWS }
             "status" -> dest = Dest.HARNESS
             "notifications" -> dest = Dest.NOTIFICATIONS
@@ -172,7 +184,7 @@ fun MainShell(
         when {
             // a notification's own place (the shade's tap): "map:<day>", "memories:<id>", "status"
             navRequest.startsWith("map") || navRequest.startsWith("memories") || navRequest.startsWith("day:") ||
-                navRequest.startsWith("notification:") || navRequest == "status" ->
+                navRequest.startsWith("notification:") || navRequest == "status" || navRequest == "checkin" ->
                 openTarget(NotifLink.resolve(navRequest, "", ""))
         }
         when (navRequest) {
@@ -202,6 +214,7 @@ fun MainShell(
             dest == Dest.COIN -> dest = coinFrom
             dest == Dest.DAY -> dest = if (dayFrom == Dest.DAY) Dest.HOME else dayFrom
             dest == Dest.NOTIFICATION -> dest = if (notifFrom == Dest.NOTIFICATION) Dest.NOTIFICATIONS else notifFrom
+            dest == Dest.MEMORY -> dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom
             else -> dest = Dest.HOME
         }
     }
@@ -232,6 +245,7 @@ fun MainShell(
                         Dest.COIN -> ({ dest = coinFrom })
                         Dest.DAY -> ({ dest = if (dayFrom == Dest.DAY) Dest.HOME else dayFrom })
                         Dest.NOTIFICATION -> ({ dest = if (notifFrom == Dest.NOTIFICATION) Dest.NOTIFICATIONS else notifFrom })
+                        Dest.MEMORY -> ({ dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom })
                         else -> ({ dest = Dest.HOME })
                     },
                     onNewChat = if (dest == Dest.CHAT) onNewConversation else null,
@@ -272,7 +286,13 @@ fun MainShell(
                             onRenameBoxChat = onRenameBoxChat,
                             onDeleteBoxChat = onDeleteBoxChat)
                         Dest.MEMORIES -> MemoriesScreen(lifeContext, open = memFocus, onOpened = { memFocus = "" },
-                            onOpenDay = { d -> openDay(d) })
+                            onOpenDay = { d -> openDay(d) },
+                            onOpenMemory = { id -> openMemory(id) },
+                            onOpenCheckin = { dest = Dest.CHECKIN })
+                        Dest.MEMORY -> MemoryScreen(memOpen,
+                            onOpenDay = { d -> openDay(d) },
+                            onBack = { dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom })
+                        Dest.CHECKIN -> CheckinScreen(onOpenDay = { d -> openDay(d) })
                         Dest.NEWS -> NewsScreen(openStory = newsFocus, onStoryShown = { newsFocus = 0L })
                         Dest.NOTIFICATIONS -> {
                             val nctx = androidx.compose.ui.platform.LocalContext.current
@@ -520,7 +540,7 @@ private fun DrawerPanel(
             SectionLabel("YOUR ARCHIVE")
             // PHRASES appears while the lock-screen card is on (from the start; off by hand in settings).
             val phrasesOn = com.localghost.app.phrases.PhraseState.enabled(androidx.compose.ui.platform.LocalContext.current)
-            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.MEMORIES, Dest.NEWS, Dest.CRYPTO, Dest.SYNC)
+            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.CHECKIN, Dest.MEMORIES, Dest.NEWS, Dest.CRYPTO, Dest.SYNC)
                 .filter { it != Dest.PHRASES || phrasesOn || current == Dest.PHRASES }
                 .forEach { DrawerRow(it, it == current) { onSelect(it) } }
 

@@ -167,10 +167,12 @@ if [ ! -x "$LLAMA_DIR/build/bin/llama-server" ]; then
     # still BUILD (observed: it does). That costs build minutes, not security: the enforced
     # guarantee is oracled passing --no-webui at RUNTIME, hardcoded, so the UI is never served
     # regardless of what got compiled in.
-    # GPU BUILD. The box carries an RTX 4070 (12GB, Ada = SM 8.9); building without -DGGML_CUDA=ON
-    # produces a CPU-only llama-server that runs a 12B at single-digit tokens/s while the GPU idles ,
-    # which is exactly the bug this line fixes (the first static build here made that mistake).
-    # Preflight nvcc: no CUDA toolkit = loud CPU-only warning, not a cryptic cmake failure.
+    # GPU BUILD. Building without -DGGML_CUDA=ON produces a CPU-only llama-server that runs a 12B
+    # at single-digit tokens/s while the GPU idles (the first static build here made that mistake).
+    # The CUDA architecture is THIS machine's, read from the driver (nvidia-smi's compute capability,
+    # 8.9 on an RTX 4070 → 89; two different cards give "86;89"), so no one edits a number here for
+    # their card. Preflight nvcc: no CUDA toolkit = loud CPU-only warning, not a cryptic cmake failure;
+    # a toolkit with no card the driver can see = the same, said.
     CUDA_FLAGS=""
     # the CUDA toolkit installs nvcc under /usr/local/cuda*/bin, which root's PATH (sudo, a
     # scripted run) usually lacks: look there before concluding there is none
@@ -180,8 +182,14 @@ if [ ! -x "$LLAMA_DIR/build/bin/llama-server" ]; then
         done
     fi
     if command -v nvcc >/dev/null 2>&1; then
-        CUDA_FLAGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=89"
-        echo "[setup_llama] nvcc found , building WITH CUDA (SM 8.9 for the 4070)"
+        ARCHS="${GHOST_CUDA_ARCHS:-$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | tr -d ' .' | grep -E '^[0-9]+$' | sort -u | paste -sd ';' -)}"
+        if [ -n "$ARCHS" ]; then
+            CUDA_FLAGS="-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=$ARCHS"
+            echo "[setup_llama] nvcc found , building WITH CUDA for compute capability $ARCHS ($(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | paste -sd ',' - || echo 'GHOST_CUDA_ARCHS'))"
+        else
+            echo "[setup_llama] WARNING: nvcc found but nvidia-smi sees no GPU , building CPU-ONLY. A 12B on CPU is ~5 tok/s."
+            echo "[setup_llama]          load the driver (or set GHOST_CUDA_ARCHS=89 for an RTX 4070) and rerun for the GPU build."
+        fi
     else
         echo "[setup_llama] WARNING: nvcc not found , building CPU-ONLY. A 12B on CPU is ~5 tok/s."
         echo "[setup_llama]          install cuda-toolkit and rerun for the GPU build."

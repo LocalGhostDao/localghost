@@ -1233,6 +1233,9 @@ type MemoryRow struct {
 	Source    int64           `json:"source_chat,omitempty"`
 	CreatedAt int64           `json:"created_at"`
 	Meta      json.RawMessage `json:"meta,omitempty"` // kind='outing': the structured detail synthd computed
+	// Ref is what the memory was made from, when it was a day or an outing ("day:2026-10-03",
+	// "outing:2026-09-28"): the memory's own page opens that day from it.
+	Ref string `json:"ref,omitempty"`
 }
 
 // DayRow is one prebuilt day summary (ghost.synthd's day_summaries) as the app reads it.
@@ -1345,7 +1348,7 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		limit = 200
 	}
 	rows, err := c.Query(
-		"SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text FROM memories WHERE NOT tombstoned ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit))
+		"SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text, COALESCE(source_ref,'') FROM memories WHERE NOT tombstoned ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -1373,6 +1376,9 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		}
 		if v[5] != nil {
 			m.CreatedAt, _ = strconv.ParseInt(*v[5], 10, 64)
+		}
+		if len(v) > 7 && v[7] != nil && (strings.HasPrefix(*v[7], "day:") || strings.HasPrefix(*v[7], "outing:")) {
+			m.Ref = *v[7]
 		}
 		out = append(out, m)
 	}

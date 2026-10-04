@@ -93,7 +93,7 @@ fun NotificationScreen(id: Long, onOpenTarget: (NotifLink.Target) -> Unit, onDay
                     "memory" -> AboutMemory(NotifPage.memoryOf(target)) { onOpenTarget(target) }
                     "near" -> AboutNear { onOpenTarget(target) }
                     "news" -> AboutNews { onOpenTarget(target) }
-                    "memories", "status" -> Nav(NotifPage.goes(target)) { onOpenTarget(target) }
+                    "memories", "checkin", "status" -> Nav(NotifPage.goes(target)) { onOpenTarget(target) }
                 }
                 Spacer(Modifier.height(20.dp))
                 Nav("‹ all notifications") { onBack() }
@@ -136,7 +136,8 @@ private fun AboutDay(day: String, onOpen: () -> Unit) {
     Nav("the whole day ›") { onOpen() }
 }
 
-/** The memory a notification brought back. */
+/** The memory a notification brought back: its title, its covers and the first of its body; a tap
+ *  anywhere on it, or the line under, opens the memory's own page. */
 @Composable
 private fun AboutMemory(id: Long, onOpen: () -> Unit) {
     val ctx = LocalContext.current
@@ -145,18 +146,20 @@ private fun AboutMemory(id: Long, onOpen: () -> Unit) {
     m?.let { row ->
         SectionLabel("THE MEMORY")
         Spacer(Modifier.height(6.dp))
-        Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter).padding(12.dp)) {
+        Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter)
+            .clickable { onOpen() }.padding(12.dp)) {
             Text(row.title, color = TerminalGreen, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(4.dp))
-            Text(row.body, color = GhostText, style = MaterialTheme.typography.bodySmall)
+            Text(MemoryText.origin(row.kind, row.outingLine, row.meta?.optString("line") ?: ""), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
             if (row.covers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 ThumbStrip(row.covers.take(8), title = row.title, size = 64.dp)
             }
+            Spacer(Modifier.height(6.dp))
+            Text(row.body, color = GhostText, style = MaterialTheme.typography.bodySmall, maxLines = 6)
         }
         Spacer(Modifier.height(8.dp))
     }
-    Nav("open in MEMORIES ›") { onOpen() }
+    Nav("the memory ›") { onOpen() }
 }
 
 /** The places near the trail's newest point, as MEMORIES › near you ranks them. */

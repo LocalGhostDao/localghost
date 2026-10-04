@@ -23,7 +23,8 @@ class NotifLinkTest {
         assertEquals(NotifLink.Target("map"), NotifLink.resolve("", "ghost.framed", "highlight"))
         assertEquals(NotifLink.Target("memories"), NotifLink.resolve("", "ghost.cued", "reflection"))
         assertEquals(NotifLink.Target("memories", "near"), NotifLink.resolve("", "ghost.cued", "nearby"))
-        assertEquals(NotifLink.Target("memories"), NotifLink.resolve("", "ghost.secd", "checkin"))
+        assertEquals(NotifLink.Target("checkin"), NotifLink.resolve("", "ghost.secd", "checkin"))  // a 0.0.4 box's reminder
+        assertEquals(NotifLink.Target("checkin"), NotifLink.resolve("checkin", "ghost.secd", "checkin"))
         assertEquals(NotifLink.Target("news"), NotifLink.resolve("", "ghost.synthd", "news"))
         assertEquals(NotifLink.Target("status"), NotifLink.resolve("", "ghost.shadowd", "observation"))
         assertEquals(NotifLink.Target(""), NotifLink.resolve("", "ghost.noted", "message"))
@@ -31,10 +32,15 @@ class NotifLinkTest {
 
     @Test fun theShadesExtra() {
         assertEquals("map:2026-09-28", NotifLink.nav("map:2026-09-28", "ghost.framed", "highlight"))
-        assertEquals("memories", NotifLink.nav("", "ghost.secd", "checkin"))
+        assertEquals("checkin", NotifLink.nav("", "ghost.secd", "checkin"))
+        assertEquals("checkin", NotifLink.nav("checkin", "ghost.secd", "checkin"))
+        assertEquals("memories:42", NotifLink.nav("memories:42", "ghost.cued", "reflection"))
         assertEquals("notifications", NotifLink.nav("", "ghost.noted", "message"))
         assertEquals("open on MAP ›", NotifText.opens(NotifLink.Target("map", "2026-09-28")))
         assertEquals("open near you ›", NotifText.opens(NotifLink.Target("memories", "near")))
+        assertEquals("open the memory ›", NotifText.opens(NotifLink.Target("memories", "42")))
+        assertEquals("open in MEMORIES ›", NotifText.opens(NotifLink.Target("memories", "")))
+        assertEquals("open CHECK-IN ›", NotifText.opens(NotifLink.Target("checkin")))
     }
 
     @Test fun thePage() {
@@ -49,6 +55,9 @@ class NotifLinkTest {
         assertEquals(42L, NotifPage.memoryOf(NotifLink.Target("memories", "42")))
         assertEquals(0L, NotifPage.memoryOf(NotifLink.Target("memories", "near")))
         assertEquals("the whole day ›", NotifPage.goes(NotifLink.Target("day", "2026-09-28")))
+        assertEquals("the memory ›", NotifPage.goes(NotifLink.Target("memories", "42")))
+        assertEquals("checkin", NotifPage.shows(NotifLink.Target("checkin")))
+        assertEquals("CHECK-IN ›", NotifPage.goes(NotifLink.Target("checkin")))
         assertEquals("you answered: yes", NotifPage.askLine(listOf("yes", "no"), "yes"))
         assertEquals("waiting for your answer", NotifPage.askLine(listOf("yes", "no"), ""))
         assertEquals("", NotifPage.askLine(emptyList(), ""))

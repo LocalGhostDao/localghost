@@ -22,7 +22,7 @@ object NotifPage {
     }
 
     /** What the page shows under the notification, by where it leads: "day", "memory", "near",
-     *  "memories", "news", "status", "" for nothing more. */
+     *  "memories", "checkin", "news", "status", "" for nothing more. */
     fun shows(t: NotifLink.Target): String = when (t.dest) {
         "day" -> if (t.arg.isNotEmpty()) "day" else ""
         "map" -> if (t.arg.isNotEmpty()) "day" else ""
@@ -31,6 +31,7 @@ object NotifPage {
             t.arg.isNotEmpty() -> "memory"
             else -> "memories"
         }
+        "checkin" -> "checkin"
         "news" -> "news"
         "status" -> "status"
         else -> ""
@@ -42,12 +43,13 @@ object NotifPage {
     /** The memory id a target names, 0 for none. */
     fun memoryOf(t: NotifLink.Target): Long = if (t.dest == "memories") t.arg.toLongOrNull() ?: 0L else 0L
 
-    /** The button that goes on: "the day ›", "open in MEMORIES ›", "near you ›", "NEWS ›", "Box Status ›". */
+    /** The button that goes on: "the whole day ›", "the memory ›", "near you ›", "CHECK-IN ›", "NEWS ›", "Box Status ›". */
     fun goes(t: NotifLink.Target): String = when (shows(t)) {
         "day" -> "the whole day ›"
-        "memory" -> "open in MEMORIES ›"
+        "memory" -> "the memory ›"
         "near" -> "near you ›"
         "memories" -> "MEMORIES ›"
+        "checkin" -> "CHECK-IN ›"
         "news" -> "NEWS ›"
         "status" -> "Box Status ›"
         else -> ""

@@ -11,7 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"log/slog"
+	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/LocalGhostDao/localghost/server/internal/framed"
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
@@ -28,7 +30,10 @@ import (
 // equal-size juggling). The LUKS key is a random full-entropy AMK that is sealed in the TPM bound to
 // the main PIN, so unlock requires the PIN (the TPM checks it and applies its DA lockout in hardware)
 // and the key never exists outside a TPM unseal. The PIN is chosen at setup, so the AMK can be
-// sealed and the disk formatted in one pass.
+// sealed and the disk formatted in one pass. Since 0.0.5 the container can be a FILE on a drive
+// that is mounted at boot instead of a whole disk (setup.IsImage; ghost-setup --image): cryptsetup
+// formats and opens a file the same way, through a loop device of its own making, and nothing else
+// here changes but the step that allocates the file.
 //
 // This is the concrete box backend the orchestration in setup/plan.go drives. It must run as root.
 type System struct {
@@ -42,6 +47,10 @@ type System struct {
 	WipePIN   string // chosen at setup; crypto-erases everything (optional, "" to skip)
 	SealMode  string // "tpm" (default) or "software"; which seal tier to provision
 	SvcUser   string // service user the cohort runs as (default "ghost"); owns the volume bin/logs/run
+	// ImageSize is the size of the volume when Disk is a FILE rather than a block device (setup.IsImage):
+	// the file is allocated in full at that size before it is LUKS-formatted. 0 with a file that is
+	// already there keeps the file's size. Ignored for a disk.
+	ImageSize int64
 
 	// Confirm asks the operator a yes/no question during setup. It is used by the TPM sole-tenant
 	// check: if the box's TPM already holds objects LocalGhost did not create, setting the GLOBAL
@@ -107,21 +116,83 @@ func (s *System) PartitionsReady() (bool, error) {
 	if s.Disk == "" {
 		return false, fmt.Errorf("no disk configured")
 	}
-	// `cryptsetup isLuks` exits 0 if the device is already a LUKS container.
+	// `cryptsetup isLuks` exits 0 if the device (or the file) is already a LUKS container.
 	return run("cryptsetup", "isLuks", s.Disk) == nil, nil
 }
 
 func (s *System) DescribePartitioning() (string, error) {
+	if setup.IsImage(s.Disk) {
+		size := "its present size"
+		if s.ImageSize > 0 {
+			size = setup.SizeText(s.ImageSize) + ", allocated in full"
+		}
+		return fmt.Sprintf("the volume as a FILE: %s (%s), LUKS-formatted as one container, key sealed "+
+			"under the main PIN; THIS ERASES anything the file held", s.Disk, size), nil
+	}
 	return fmt.Sprintf("LUKS-format the WHOLE raw disk %s as one container, key sealed in the TPM "+
 		"under the main PIN; THIS ERASES %s", s.Disk, s.Disk), nil
 }
 
 // CreatePartitions is a no-op in the raw-disk model: there is no partition table to create, the whole
-// disk becomes the LUKS container in FormatContainers. Kept to satisfy the plan's step shape.
+// disk becomes the LUKS container in FormatContainers. Kept to satisfy the plan's step shape. For a
+// volume that is a FILE this is where the file comes to be: allocated in full (fallocate, so the
+// drive cannot run out under the volume later and the file is not sparse), with copy-on-write off
+// first on btrfs (a LUKS container over a copy-on-write file fragments into uselessness).
 func (s *System) CreatePartitions() error {
 	if s.Disk == "" {
 		return fmt.Errorf("no disk configured")
 	}
+	if setup.IsImage(s.Disk) {
+		return s.allocateImage()
+	}
+	return nil
+}
+
+// allocateImage makes the volume's file, or accepts one that is there already at a size.
+func (s *System) allocateImage() error {
+	dir := filepath.Dir(s.Disk)
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("%s is not a directory (is the drive mounted?)", dir)
+	}
+	if fi, err := os.Stat(s.Disk); err == nil {
+		if fi.IsDir() || !fi.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", s.Disk)
+		}
+		if s.ImageSize == 0 || fi.Size() == s.ImageSize {
+			return nil // there, at its size: formatted next
+		}
+		if fi.Size() > 0 {
+			return fmt.Errorf("%s is already %s; remove it, or leave --size off to use it as it is", s.Disk, setup.SizeText(fi.Size()))
+		}
+	}
+	if s.ImageSize <= 0 {
+		return fmt.Errorf("a new volume file needs a size (--size 500G)")
+	}
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err == nil {
+		free := int64(st.Bavail) * int64(st.Bsize)
+		if free < s.ImageSize+(1<<30) {
+			return fmt.Errorf("%s has %s free, the volume wants %s and a gigabyte to spare", dir, setup.SizeText(free), setup.SizeText(s.ImageSize))
+		}
+		if st.Type == 0x9123683E { // btrfs: no copy-on-write for this file, set while it is empty
+			f, err := os.OpenFile(s.Disk, os.O_CREATE|os.O_WRONLY, 0o600)
+			if err != nil {
+				return fmt.Errorf("create %s: %w", s.Disk, err)
+			}
+			_ = f.Close()
+			if err := run("chattr", "+C", s.Disk); err != nil {
+				fmt.Printf("  note: chattr +C %s failed (%v); the volume will be slower on btrfs\n", s.Disk, err)
+			}
+		}
+	}
+	if err := run("fallocate", "-l", strconv.FormatInt(s.ImageSize, 10), s.Disk); err != nil {
+		_ = os.Remove(s.Disk)
+		return fmt.Errorf("allocate %s: %w", s.Disk, err)
+	}
+	if err := os.Chmod(s.Disk, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("  %s allocated, %s\n", s.Disk, setup.SizeText(s.ImageSize))
 	return nil
 }
 

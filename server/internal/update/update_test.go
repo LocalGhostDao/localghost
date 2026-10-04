@@ -76,6 +76,49 @@ func TestUnpackTakesOnlyARelease(t *testing.T) {
 			t.Fatalf("took a bundle it should not: %v", bad[len(bad)-1].name)
 		}
 	}
+	// the notes beside the three, and the installer a 0.0.5 bundle carries at its top, are let through
+	full := append(good("0.0.5"), entry{name: "NOTES.md", body: []byte("# notes\n")}, entry{name: "install.sh", body: []byte("#!/bin/sh\n")})
+	if _, err := Unpack(bundle(t, full), filepath.Join(t.TempDir(), "u")); err != nil {
+		t.Fatalf("a bundle with NOTES.md and install.sh at the top: %v", err)
+	}
+}
+
+// A bundle since 0.0.5 carries what sets a box up as well: those binaries stay in the unpacked
+// release, the guard is never replaced, ghost-qr joins the system binaries, the cohort is staged.
+func TestApplyLeavesTheSetupBinariesAlone(t *testing.T) {
+	p, cohort := boxAt(t)
+	os.WriteFile(filepath.Join(p.BinDir, "ghost-update-guard"), []byte("the guard"), 0o755)
+	ents := append(good("0.0.5"),
+		entry{name: "bin/ghost-setup", body: elf}, entry{name: "bin/ghost-update-guard", body: elf},
+		entry{name: "bin/ghost-landtiles", body: elf}, entry{name: "bin/ghost-qr", body: elf},
+		entry{name: "tools/setup.sh", body: []byte("#!/bin/sh\n")})
+	rel, err := Unpack(bundle(t, ents), filepath.Join(p.State, "releases", "0.0.5"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Apply(p, rel, cohort, "0.0.4"); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"ghost-setup", "ghost-update-guard", "ghost-landtiles"} {
+		if _, err := os.Stat(filepath.Join(p.Staging, n)); err == nil {
+			t.Fatalf("%s staged with the cohort", n)
+		}
+		if _, err := os.Stat(filepath.Join(p.BinDir, n)); err == nil && n != "ghost-update-guard" {
+			t.Fatalf("%s installed as a system binary", n)
+		}
+	}
+	if read(filepath.Join(p.BinDir, "ghost-update-guard")) != "the guard" {
+		t.Fatal("the guard was replaced by the release")
+	}
+	if _, err := os.Stat(filepath.Join(p.BinDir, "ghost-qr")); err != nil {
+		t.Fatal("ghost-qr is a system binary and was not installed")
+	}
+	if _, err := os.Stat(filepath.Join(p.Tools, "setup.sh")); err != nil {
+		t.Fatal("setup.sh not installed with the tools")
+	}
+	if _, err := os.Stat(filepath.Join(rel.Dir, "bin", "ghost-setup")); err != nil {
+		t.Fatal("ghost-setup is not in the unpacked release")
+	}
 }
 
 func boxAt(t *testing.T) (Paths, string) {

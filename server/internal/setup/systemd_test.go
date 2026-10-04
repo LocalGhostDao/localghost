@@ -17,3 +17,15 @@ func TestSecdUnitHasNoCoreDumps(t *testing.T) {
 		}
 	}
 }
+
+// A volume that is a file waits for its drive; a disk needs no such line.
+func TestSecdUnitWaitsForTheDriveOfAFileVolume(t *testing.T) {
+	u := SystemdUnits("/opt/localghost/bin", DaemonConfig{StateDir: "/var/lib/ghost", Disk: "/mnt/data/localghost.img", Port: 8443})
+	if !strings.Contains(u[0].Unit, "RequiresMountsFor=/mnt/data\n") || !strings.Contains(u[0].Unit, "--disk /mnt/data/localghost.img") {
+		t.Fatalf("unit:\n%s", u[0].Unit)
+	}
+	u = SystemdUnits("/opt/localghost/bin", DaemonConfig{StateDir: "/var/lib/ghost", Disk: "/dev/disk/by-id/x", Port: 8443})
+	if strings.Contains(u[0].Unit, "RequiresMountsFor") {
+		t.Fatalf("a disk has no mount to wait for:\n%s", u[0].Unit)
+	}
+}

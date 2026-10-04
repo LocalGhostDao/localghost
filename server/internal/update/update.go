@@ -7,11 +7,15 @@
 // (mirror_fetch.sh over a file:// copy), then this package:
 //
 //  1. unpacks the bundle into its own directory, refusing anything but binaries under bin/, tools
-//     under tools/ and the three notes (VERSION, COMMIT, CHANGES.txt);
+//     under tools/ and the notes at the top (VERSION, COMMIT, CHANGES.txt; NOTES.md and install.sh
+//     are let through too, for a bundle that carries them);
 //  2. keeps what runs now (secd, the tools, the cohort from the volume) in prev/;
 //  3. installs the new: secd and the command-line tools over /opt/localghost/bin (a rename, so the
 //     running secd keeps its old file), the cohort into the staging directory (secd ingests it at
-//     the next unlock, before the daemons start), the tools into /opt/localghost/tools;
+//     the next unlock, before the daemons start), the tools into /opt/localghost/tools. The setup
+//     binaries a bundle carries since 0.0.5 (ghost-setup, the tile cutters, the TPM repair tool) are
+//     left in the unpacked release, and ghost-update-guard is never touched: what undoes a bad
+//     release is not replaced by one;
 //  4. opens a TRIAL (trial.json). secd then locks and restarts onto the new build.
 //
 // THE TRIAL ENDS ONE OF TWO WAYS. Confirmed: the first unlock after it completes and the daemons
@@ -59,8 +63,12 @@ func BoxPaths() Paths {
 	}
 }
 
-// systemBins are the binaries that live in BinDir; every other bin/ file is the cohort.
-var systemBins = map[string]bool{"ghost.secd": true, "ghost-cli": true, "ghost-ctl": true}
+// systemBins are the binaries that live in BinDir; every other bin/ file is the cohort, except
+// setupBins, which stay in the unpacked release (they are for setting a box up, not for running one,
+// and the guard is the one thing a release never replaces).
+var systemBins = map[string]bool{"ghost.secd": true, "ghost-cli": true, "ghost-ctl": true, "ghost-qr": true}
+
+var setupBins = map[string]bool{"ghost-setup": true, "ghost-update-guard": true, "ghost-landtiles": true, "ghost-roadtiles": true, "ghost-tpmreset": true}
 
 // maxBundleFile bounds one file in a bundle (a Go binary is tens of MB).
 const maxBundleFile = 256 << 20
@@ -113,7 +121,7 @@ func Unpack(bundle, dest string) (Release, error) {
 		ok := false
 		switch dir {
 		case "":
-			ok = base == "VERSION" || base == "COMMIT" || base == "CHANGES.txt"
+			ok = base == "VERSION" || base == "COMMIT" || base == "CHANGES.txt" || base == "NOTES.md" || base == "install.sh"
 		case "bin/":
 			ok = safeName(base)
 		case "tools/":
@@ -280,6 +288,9 @@ func Apply(p Paths, rel Release, cohortDir, current string) error {
 	_ = os.WriteFile(filepath.Join(prev, "VERSION"), []byte(current+"\n"), 0o644)
 	// 2. the new
 	for _, b := range rel.Bins {
+		if setupBins[b] {
+			continue
+		}
 		src := filepath.Join(rel.Dir, "bin", b)
 		dst := filepath.Join(p.Staging, b)
 		if systemBins[b] {

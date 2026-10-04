@@ -28,7 +28,7 @@
 # A release is three things committed with the code, so cutting it twice gives the same files:
 #   tools/release.names      "<version> <name>" (0.0.1 is wisp): the name the phone shows
 #   releases/<version>.md    what the release does, what is in it, how it works: the full notes,
-#                            which travel in the bundle (NOTES.md) and in the mirror's set
+#                            which travel beside the bundle (NOTES.md) in the mirror's set
 #   releases/pins.txt        "<version> <commit>", written at the first cut: the pin. A later cut
 #                            refuses to build when the tag no longer points at the pinned commit.
 # The build itself is tools/release_build.sh (reproducible), run in a clean worktree of the tag, so

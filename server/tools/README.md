@@ -14,6 +14,45 @@ The order matters at one point: build and INSTALL the app on the phone BEFORE gh
 the QR. The QR contains the device certificate and private key , it is a credential , so the right
 flow is scan-immediately-and-clear-the-screen, not leave-it-on-screen-while-gradle-runs.
 
+## The short way: from a release, with nothing to build (0.0.5 on)
+
+A release bundle carries the daemons, the setup tools and these scripts, so a box is set up from the
+bundle alone: no git, no Go, no make. Verify, unpack, run the installer; it asks what the long form
+below asks (the disk or a file, the seal tier, the PINs) and does the rest.
+
+    V=0.0.5
+    curl -LO https://github.com/LocalGhostDao/localghost/releases/download/v$V/localghost-server-$V-linux-amd64.tar.gz
+    curl -LO https://github.com/LocalGhostDao/localghost/releases/download/v$V/SHA256SUMS
+    curl -LO https://github.com/LocalGhostDao/localghost/releases/download/v$V/SHA256SUMS.asc
+    gpg --verify SHA256SUMS.asc SHA256SUMS && sha256sum -c --ignore-missing SHA256SUMS
+    mkdir localghost && tar xzf localghost-server-$V-linux-amd64.tar.gz -C localghost
+    sudo localghost/tools/install.sh
+
+The site key for `gpg --verify` is https://www.localghost.ai/.well-known/pgp-key.asc, fingerprint
+`DCE9 A3D1 4EB4 6197 1DD5 F393 706E 4194 F08A 09A0` (the same key signs the mirror's manifests; the
+mirror's `server` set carries the same files). `install.sh` puts the release under
+`/opt/localghost/release/<version>/`, the scripts under `/opt/localghost/tools/` and `ghost-cli`,
+`ghost-ctl` and `ghost-qr` under `/opt/localghost/bin/` (where a release taken from the phone puts
+them too), then runs `setup.sh` from the release, which sees the binaries and builds nothing. The
+steps it walks: the database layer and the box prep (root), a check as your user, the engine and
+the models (llama.cpp built from the mirror's source for this machine's GPU, the weights, the
+phone's model and the speech engine, all staged for the first unlock; `GHOST_LLAMA=0` leaves them
+for `update.sh engine` later), the volume, the seal tier, the dry run, the PINs, the QR. Then: install
+the app on the phone, scan, unlock; `sudo /opt/localghost/tools/update.sh` once unlocked brings the
+streets, and Wikipedia when the volume has 60 GB free (`GHOST_WIKI=0` leaves it out).
+
+**The volume as a file.** The volume is one LUKS container, and it can be a FILE on a drive that is
+mounted at boot instead of a whole disk: at the volume step, give a path (`/mnt/data/localghost.img`)
+and a size (`500G`, `1.5T`; 20G at least) instead of a device. The file is allocated in full
+(`fallocate`, copy-on-write off on btrfs), formatted and opened the same way (cryptsetup attaches
+the loop device itself), and the unit waits for the drive (`RequiresMountsFor`). The seal, the PINs
+and the wipe are unchanged: the file is ciphertext, a copy of it is ciphertext, and there is no key
+outside the seal. By hand: `ghost-setup --image /mnt/data/localghost.img --size 500G --host ...`.
+Not a network share: the key never leaves the box, and neither should the bytes it opens.
+
+The long form below is the same flow from a repository checkout, step by step, which is how a box
+that builds its own code (`redeploy.sh`) is set up.
+
 ## 0. Prerequisites (root, once)
 
 - fTPM enabled in the BIOS (Intel PTT here). Verify: `ls /dev/tpm*` shows `/dev/tpmrm0`.

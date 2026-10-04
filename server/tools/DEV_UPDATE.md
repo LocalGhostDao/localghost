@@ -5083,3 +5083,71 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   against the whole-string result; the rules text passes its own dash and colon rule; Article's
   qualified names; the context's reserved wiki place by review. 48 Go packages, vet on Linux and
   darwin.
+- 0.0.5 opened. v0.0.4 was cut on the box at 1062b7f (2c537fd plus the go_for.sh mode), a
+  sibling of main's e3bfc21 (the ZIM reader fix), so the release went out with the reader that
+  cannot open the real file, and the tag is not on main (main merges it clean; the box's
+  `git pull --no-rebase origin main`, then the pin commit and a push, puts both lines together).
+  releases/0.0.4.md on main is the tag's text again (the voice and the wiki place had been
+  appended to a cut release's notes; they are 0.0.5's, with the reader fix), and
+  releases/0.0.5.md is written as the work lands, its head listing what the cut still has to
+  touch. release.names and the app are at 0.0.5; CITATION.cff, RELEASES.md and the README's
+  status stay at the cut release until the next cut. The tag's own copies date 0.0.4 to
+  3 October (the day the notes were written); it was cut on the 4th, and main's 0.0.4.md,
+  RELEASES.md row and CITATION.cff say so.
+
+## 4 October 2026 , CHECK-IN and MEMORY pages, a box from the release alone, the volume as a file
+
+- CHECK-IN (app/android/.../ui/CheckinScreen.kt, Dest.CHECKIN under YOUR ARCHIVE): the check-in
+  card, the day story, the recorder, the voice notes and the history left MemoriesScreen for a page
+  of their own. The strip of the last two weeks (Feelings.strip, one Cell a day, oldest first, no
+  streaks), each day's tone (Feelings.tone: the first feeling the person picked themselves, the
+  box's guesses after; groupOf, mark), the feelings as the four quadrants two by two with the mind
+  row across (FeelingChips over Feelings.rows at 18 chars a half-width row), what recurred this month
+  (Feelings.recurring), a past check-in's page (PastCheckin: felt, why, said, the day as the box told
+  it, the whole day). Nothing moved on the box: the check-in is a journal entry still; checkins asks
+  for 90 days.
+- MEMORY (ui/MemoryScreen.kt, Dest.MEMORY): one memory's page with kind, title, covers at 112 dp,
+  body, origin (MemoryText.origin, pure), the outing's places and tags and the day's stops and
+  distances from meta, the day it was made from (MemoryText.dayOf over the new `ref` field the list
+  carries, source_ref for day:/outing: rows only), edit and delete. NotifLink: "memories:<id>" opens
+  it (openMemory in MainShell, back to where it came from), "checkin" is a destination, a 0.0.4 box's
+  reminder (kind checkin, link memories) resolves to it too; the notification page's memory card
+  opens the page; a memory row's title opens it; DayScreen's outing card already linked by id.
+  secd's reminder links "checkin" now (internal/secd/notifications.go, one word).
+- The bundle (tools/release_build.sh) carries ghost-setup, ghost-qr, ghost-update-guard,
+  ghost-landtiles, ghost-roadtiles, ghost-tpmreset and the operator scripts with model.pins,
+  phone_model.pins and the key; NOTES.md left the tar (beside it in the set). FOUND: update.Unpack
+  admitted only VERSION, COMMIT and CHANGES.txt at the top, so every bundle since 0.0.1 (NOTES.md
+  since 558d61e) would have been refused by a phone DEPLOY; the 0.0.5 bundle has nothing a 0.0.4
+  box refuses. update.Apply skips setupBins (never staged, the guard never replaced), ghost-qr joined
+  systemBins; Unpack admits NOTES.md and install.sh at the top for later bundles. Tests for both.
+- tools/install.sh (new, in the bundle): checks a release, copies it to
+  /opt/localghost/release/<version>/, lays tools under /opt/localghost/tools and ghost-cli, ghost-ctl,
+  ghost-qr under /opt/localghost/bin, runs setup.sh from the release. setup.sh: PREBUILT when VERSION,
+  COMMIT and bin/ghost-setup are there (no install_go, no make box, the user check told
+  GHOST_PREBUILT=1 says Go is not needed); the default service user is SUDO_USER; a new step 4/7
+  runs setup_llama.sh before the volume (GHOST_LLAMA=0 skips; skipped on a provisioned box, or
+  when bin/llama-server and staged models are there; a failure asks CONTINUE); step 5/7 takes a
+  disk or a file (a path outside /dev: the directory must exist, a new file needs a size, the card
+  shows the file and the drive, a LUKS remains is removed on WIPEIT); ghost-setup gets --image
+  --size for a file, --disk for a device. The after-apply text names update.sh.
+- The volume as a file: setup.IsImage/ParseSize/SizeText (pure, tested); ghost-setup --image PATH
+  --size N (or a file picked interactively, 0 in the list), the whole-disk data checks skipped for
+  a file;
+  debian.System.ImageSize, CreatePartitions allocates (dir must exist, fallocate at the size after
+  a free-space check with a gigabyte to spare, chattr +C first on btrfs, 0600; a file already there
+  is used as it is), DescribePartitioning says file; the unit gets RequiresMountsFor=<dir> for a
+  file (tested); hw.StableDiskName leaves a path outside /dev alone (tested); MapWithKey says the
+  file is not there (is the drive mounted?) rather than trying every LUKS device. cryptsetup
+  isLuks/luksFormat/open take a file as they take a disk, attaching the loop device themselves;
+  the wipe destroys the sealed key, no block-device step in it. Not tested on a real file here (no
+  root cryptsetup in this sandbox): the first box to provision one proves it.
+- setup_llama.sh: CMAKE_CUDA_ARCHITECTURES from nvidia-smi's compute_cap (8.9 → 89; several cards
+  joined with ;), GHOST_CUDA_ARCHS overrides, no card seen → CPU build said loudly.
+- server_setup_user.sh: Go is a note under GHOST_PREBUILT=1, and the probe runs from / with
+  GOTOOLCHAIN=local like every other.
+- tools/README.md: "The short way: from a release" at the top (install.sh, the file volume).
+- Tested: 48 Go packages, vet Linux and darwin; 212 JVM tests (Feelings' tone, strip across a month
+  end and a leap day, recurring; MemoryText; NotifLink's checkin and memory routes); install.sh
+  against a fake release in the sandbox (copies, lays out, runs setup.sh from the release).
+

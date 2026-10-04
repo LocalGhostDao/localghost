@@ -2,6 +2,7 @@ package setup
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -30,7 +31,7 @@ type DaemonConfig struct {
 	Host     string // box IP/hostname for device cert issuance
 	CaDir    string // /etc/ghost/ca
 	StateDir string // /var/lib/ghost
-	Disk     string // the raw LUKS data disk ghost.secd mounts on unlock, e.g. /dev/nvme1n1
+	Disk     string // the LUKS volume ghost.secd opens on unlock: a raw disk (/dev/disk/by-id/...) or a file on a drive mounted at boot
 	Port     int    // mTLS port behind nginx
 	RunUser  string // service user watchd runs the cohort as (passed to secd via --user)
 }
@@ -67,6 +68,11 @@ func renderUnit(name, execDir string, cfg DaemonConfig) string {
 	// room for the update guard's count (a release that keeps failing is rolled back on its fourth
 	// quick start) before systemd would stop restarting secd at all
 	fmt.Fprintf(&b, "StartLimitIntervalSec=120\nStartLimitBurst=20\n")
+	// a volume that is a file lives on a drive of its own: secd starts once that drive is mounted,
+	// else the first unlock after a boot would find no file where the volume is
+	if IsImage(cfg.Disk) {
+		fmt.Fprintf(&b, "RequiresMountsFor=%s\n", filepath.Dir(cfg.Disk))
+	}
 
 	fmt.Fprintf(&b, "\n[Service]\n")
 	fmt.Fprintf(&b, "Type=notify\n")

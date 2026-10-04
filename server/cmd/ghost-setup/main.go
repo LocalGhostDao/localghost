@@ -3,8 +3,9 @@
 //
 // Flow:
 //
-//	ghost-setup --disk /dev/nvme0n1 --host 192.168.1.50 --plan      # dry run, shows what it will do
-//	ghost-setup --disk /dev/nvme0n1 --host 192.168.1.50 --apply     # provisions, then prints QR+code
+//	ghost-setup --disk /dev/nvme0n1 --host 192.168.1.50                # dry run, shows what it will do
+//	ghost-setup --disk /dev/nvme0n1 --host 192.168.1.50 --apply        # provisions, then prints QR+code
+//	ghost-setup --image /mnt/data/localghost.img --size 500G --host ... # the volume as a file on a drive
 //
 // After --apply it prints the exact command to launch the daemon with enrolment armed.
 package main
@@ -129,16 +130,14 @@ func diskHasData(path string) string {
 	return ""
 }
 
-// pickDisk shows the disks and returns the chosen path. It refuses to pre-select an in-use disk: if
-// the user picks one that is in use, it requires an extra explicit confirmation, because picking the
-// wrong disk on this box (blockchain nodes, live DBs) is the one truly catastrophic mistake.
-func pickDisk() (string, error) {
+// pickVolume shows the disks and returns the chosen path, or a file on a drive and its size when
+// the person picks 0. It refuses to pre-select an in-use disk: if the user picks one that is in use,
+// it requires an extra explicit confirmation, because picking the wrong disk on this box (blockchain
+// nodes, live DBs) is the one truly catastrophic mistake.
+func pickVolume() (string, int64, error) {
 	disks, err := listDisks()
 	if err != nil {
-		return "", fmt.Errorf("could not list disks: %w", err)
-	}
-	if len(disks) == 0 {
-		return "", fmt.Errorf("no disks found")
+		return "", 0, fmt.Errorf("could not list disks: %w", err)
 	}
 	fmt.Println("\nAvailable disks:")
 	for i, d := range disks {
@@ -148,12 +147,30 @@ func pickDisk() (string, error) {
 		}
 		fmt.Printf("  %d) %-16s %-7s %s%s\n", i+1, d.path, d.size, d.model, warn)
 	}
+	fmt.Println("  0) a file on a drive that is mounted at boot instead (the volume as one encrypted file)")
 	for {
-		choice := prompt("\nPick the disk to provision by number", "")
+		choice := prompt("\nPick the disk to provision by number, or 0 for a file", "")
 		var idx int
-		if _, err := fmt.Sscanf(choice, "%d", &idx); err != nil || idx < 1 || idx > len(disks) {
-			fmt.Println("  please enter a valid number from the list")
+		if _, err := fmt.Sscanf(choice, "%d", &idx); err != nil || idx < 0 || idx > len(disks) {
+			fmt.Println("  please enter a number from the list")
 			continue
+		}
+		if idx == 0 {
+			path := filepath.Clean(prompt("The file (on a drive mounted at boot, e.g. /mnt/data/localghost.img)", ""))
+			if !setup.IsImage(path) {
+				fmt.Println("  that is a device, not a file; pick it by number instead")
+				continue
+			}
+			if fi, err := os.Stat(path); err == nil && fi.Size() > 0 {
+				fmt.Printf("  %s is there already (%s); it will be used as it is\n", path, setup.SizeText(fi.Size()))
+				return path, 0, nil
+			}
+			n, err := setup.ParseSize(prompt("Its size (500G, 1.5T; allocated in full)", ""))
+			if err != nil {
+				fmt.Println(" ", err)
+				continue
+			}
+			return path, n, nil
 		}
 		d := disks[idx-1]
 		if d.inUse != "" {
@@ -164,12 +181,25 @@ func pickDisk() (string, error) {
 				continue
 			}
 		}
-		return d.path, nil
+		return d.path, 0, nil
 	}
+}
+
+// describeSize says what a file volume's size will be: the one asked for, or the file's own.
+func describeSize(size int64, path string) string {
+	if size > 0 {
+		return setup.SizeText(size) + ", allocated in full"
+	}
+	if fi, err := os.Stat(path); err == nil {
+		return setup.SizeText(fi.Size()) + ", the file as it is"
+	}
+	return "its present size"
 }
 
 func main() {
 	disk := flag.String("disk", "", "disk to provision, e.g. /dev/disk/by-id/nvme-eui.... (DESTRUCTIVE, whole disk)")
+	image := flag.String("image", "", "the volume as a FILE on a drive that is mounted at boot, e.g. /mnt/data/localghost.img, instead of --disk (made with --size; a file already there is used as it is)")
+	imageSize := flag.String("size", "", "the size of a new --image file, e.g. 500G or 1.5T (allocated in full; 20G at least)")
 	eraseData := flag.Bool("erase-disk-with-data", false, "allow --disk to name a disk that is mounted or holds a filesystem (it will be ERASED)")
 	host := flag.String("host", "", "box LAN IP/hostname the phone connects to")
 	domain := flag.String("domain", "", "optional public domain (omit for the zero-server QR default)")
@@ -200,23 +230,49 @@ func main() {
 	}
 
 	// Resolve disk and host. If either is missing, drop into the interactive wizard (pick the disk
-	// from a list, type the host), so you never have to know or type a device path. Flags still work
-	// for scripted/non-interactive use.
+	// from a list, or name a file on a drive, type the host), so you never have to know or type a
+	// device path. Flags still work for scripted/non-interactive use.
 	diskVal, hostVal, domainVal := *disk, *host, *domain
+	var sizeVal int64
+	if *image != "" {
+		if diskVal != "" {
+			fmt.Fprintln(os.Stderr, "ghost-setup: --disk or --image, not both")
+			os.Exit(2)
+		}
+		diskVal = filepath.Clean(*image)
+		if !setup.IsImage(diskVal) {
+			fmt.Fprintln(os.Stderr, "ghost-setup: --image names a file on a drive, not a device under /dev (that is --disk)")
+			os.Exit(2)
+		}
+		if *imageSize != "" {
+			n, err := setup.ParseSize(*imageSize)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "ghost-setup:", err)
+				os.Exit(2)
+			}
+			sizeVal = n
+		} else if fi, err := os.Stat(diskVal); err != nil || fi.Size() == 0 {
+			fmt.Fprintln(os.Stderr, "ghost-setup: a new --image file needs --size (500G, 1.5T)")
+			os.Exit(2)
+		}
+	} else if diskVal != "" && setup.IsImage(diskVal) {
+		fmt.Fprintln(os.Stderr, "ghost-setup: --disk names a device under /dev; a file on a drive is --image")
+		os.Exit(2)
+	}
 	interactive := diskVal == "" || hostVal == ""
 	if interactive {
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			fmt.Fprintln(os.Stderr, "ghost-setup: --disk and --host are required when not run interactively")
+			fmt.Fprintln(os.Stderr, "ghost-setup: --disk (or --image with --size) and --host are required when not run interactively")
 			os.Exit(2)
 		}
 		fmt.Println("LocalGhost box setup. Answer a few questions; nothing is changed until you confirm.")
 		if diskVal == "" {
-			d, err := pickDisk()
+			d, size, err := pickVolume()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "disk selection failed:", err)
 				os.Exit(1)
 			}
-			diskVal = d
+			diskVal, sizeVal = d, size
 		}
 		if hostVal == "" {
 			def, _ := os.Hostname()
@@ -268,6 +324,8 @@ func main() {
 	sys := debian.NewSystem(diskVal, *caDir, hostVal, *execDir, *stateDir, *tpmDevice, mainPIN, wipePIN)
 	sys.SealMode = *sealMode
 	sys.SvcUser = *svcUser
+	sys.ImageSize = sizeVal
+	isImage := setup.IsImage(diskVal)
 
 	// nginx config + systemd units the plan installs.
 	ghostSecdAddr := fmt.Sprintf("127.0.0.1:%d", *port)
@@ -353,10 +411,15 @@ func main() {
 	// wiping the disk first (destroys all data); changing the PIN is a separate operation.
 	if *apply {
 		if already, _ := sys.PartitionsReady(); already {
-			fmt.Fprintf(os.Stderr, "\n%s is already a LUKS container , this disk looks provisioned.\n", diskVal)
+			fmt.Fprintf(os.Stderr, "\n%s is already a LUKS container , this volume looks provisioned.\n", diskVal)
 			fmt.Fprintln(os.Stderr, "ghost-setup will not re-provision it (that would silently keep the original PIN).")
-			fmt.Fprintln(os.Stderr, "To start over (DESTROYS ALL DATA): wipe the disk first, e.g.")
-			fmt.Fprintf(os.Stderr, "    cryptsetup erase %s && wipefs -a %s\n", diskVal, diskVal)
+			if isImage {
+				fmt.Fprintln(os.Stderr, "To start over (DESTROYS ALL DATA): remove the file first, e.g.")
+				fmt.Fprintf(os.Stderr, "    cryptsetup erase %s && rm %s\n", diskVal, diskVal)
+			} else {
+				fmt.Fprintln(os.Stderr, "To start over (DESTROYS ALL DATA): wipe the disk first, e.g.")
+				fmt.Fprintf(os.Stderr, "    cryptsetup erase %s && wipefs -a %s\n", diskVal, diskVal)
+			}
 			fmt.Fprintln(os.Stderr, "then run ghost-setup again. To change the PIN, use the resetup console command.")
 			os.Exit(1)
 		}
@@ -367,7 +430,7 @@ func main() {
 	// be a different disk entirely (it was: the bitcoin SSD). Mounted, or carrying a filesystem or
 	// partition table that is not our LUKS container, is refused outright unless the flag that says
 	// "I know it has data" is given too.
-	if *apply && !interactive {
+	if *apply && !interactive && !isImage {
 		if why := diskHasData(diskVal); why != "" && !*eraseData {
 			fmt.Fprintf(os.Stderr, "\nghost-setup: %s %s , refusing to erase it.\n", diskVal, why)
 			fmt.Fprintln(os.Stderr, "Disk names like /dev/nvme1n1 can point at a different disk after a reboot; check lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT,MODEL.")
@@ -378,7 +441,11 @@ func main() {
 
 	// Final gate before anything destructive runs. The user has seen the plan (with [!] marks) and the
 	// disk they chose; require an explicit "yes" so a stray keypress never erases a disk.
-	fmt.Printf("\nThis will ERASE %s and provision LocalGhost on it.\n", diskVal)
+	if isImage {
+		fmt.Printf("\nThis will make %s the volume (%s) and provision LocalGhost in it.\n", diskVal, describeSize(sizeVal, diskVal))
+	} else {
+		fmt.Printf("\nThis will ERASE %s and provision LocalGhost on it.\n", diskVal)
+	}
 	if !confirm("This cannot be undone.") {
 		fmt.Println("Aborted. Nothing was changed.")
 		return
