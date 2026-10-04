@@ -5040,3 +5040,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   cut_release.sh and release_build.sh, and install_go.sh judges by it. On xyntai: root's module
   cache may hold a toolchain@v0.0.1-go1.27.1 download to delete; `sudo ./tools/install_go.sh`
   then sees 1.25.4 and takes 1.27.1 from the mirror.
+- 0.0.4: v0.0.3 was cut at c3726d3 before the Go, index, geocoder and map changes landed, so
+  those sections moved out of releases/0.0.3.md (put back to the tag's text) into
+  releases/0.0.4.md, and the version is 0.0.4 everywhere the cut reads it (release.names,
+  build.gradle.kts code 4, CITATION.cff, RELEASES.md, the README's status). Still a wisp.

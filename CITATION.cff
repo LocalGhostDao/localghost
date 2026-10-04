@@ -24,7 +24,7 @@ authors:
     given-names: Vlad
     alias: zerocool
     orcid: "https://orcid.org/0009-0008-0642-4046"
-version: "0.0.3"
+version: "0.0.4"
 date-released: 2026-10-03
 license: MIT
 license-url: "https://github.com/LocalGhostDao/localghost/blob/main/LICENSE"
