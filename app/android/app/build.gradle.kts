@@ -42,8 +42,8 @@ val osName: String = System.getProperty("os.name").orEmpty()
 // name beside it from server/tools/release.names ("0.0.2 wisp"), the same file the box reads at
 // an exact tag, so the phone's VERIFY BUILD and the box's SETTINGS › SERVER say the same thing.
 // tools/cut_release.sh refuses an APK whose versionName is not the release being cut.
-val appVersion = "0.0.5"
-val appVersionCode = 5
+val appVersion = "0.0.6"
+val appVersionCode = 6
 val releaseName: String = rootProject.file("../../server/tools/release.names").takeIf { it.isFile }
     ?.readLines()?.map { it.trim() }?.firstOrNull { it.startsWith("$appVersion ") }
     ?.substringAfter(' ')?.trim().orEmpty()

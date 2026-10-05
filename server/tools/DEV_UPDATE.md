@@ -5280,3 +5280,40 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   feeds.Added lists it for boxes seeded before, put on once by synthd's addFeeds (settings marker
   news_added_<id>; an operator's removal stands). PG test extended.
 - App: RECORD_AUDIO in the welcome chain and its rows ("microphone").
+
+## 5 October 2026 , wisp 0.0.5 published; 0.0.6 opened
+
+- Vlad cut and published wisp 0.0.5 (tag v0.0.5 at b5ef714, pinned in 606ca5c). The baseline for
+  drops is main from there. releases/0.0.6.md opened, release.names 0.0.6 wisp, the app 0.0.6 / 6.
+
+## 5 October 2026 , the elevation tiles in packs
+
+- internal/dem/pack.go: the pack format (magic, count, index of lat/lon/off/len/name, the tiles'
+  bytes; little-endian, reproducible), ReadPackIndex, WritePack, BlockOf/PackName/PackCorner (30°
+  blocks). dem.Open reads .heights packs beside .tif files; a tile is read through a section of
+  its pack (ReadTile over io.NewSectionReader); Set.Packs(). pack_test.go.
+- cmd/ghost-heights: pack <tiles dir> <out dir> (one pack a block), list, check. In the release
+  bundle's setup tools (release_build.sh; update.setupBins leaves it in the unpacked release).
+- fetch_geo.sh: elev_names picks packs whose 30° block touches an asked box (and tiles as before);
+  .heights kept current like the tiles; the change check reads any .sha256 record.
+- framed elevation ctl: packs beside tiles.
+- The web side: the mirror's publish packs the Copernicus tiles with ghost-heights before
+  signing the set; packs and tiles may be published side by side while boxes move over.
+
+## 5 October 2026 , the Wikipedia import without its indexes
+
+- internal/wiki: lookupIndexes (the five), Store.EnsureIndexes/DropIndexes; Import drops them once
+  a process while importing and makes them at Done; schemadef no longer carries them. wiki_test
+  checks the drop and the make.
+- synthd wikipedia.go: wikiImportSlice 55 s; EnsureIndexes at start with a finished import;
+  wikiLeft (time left at the pace so far) in the log line, hw.SynthWiki.Left, ctl leftMinutes.
+  notifstore: "about N hours to go" (leftText). health.sh: the same. App: Wiki.leftMinutes,
+  WikiText.left (tested), the WIKIPEDIA line.
+- Measured before: 15k entries/min on xyntai (22 h for the file).
+- Parallel: wiki.Store.ImportWith(w, workers, budget): ImportState.Shards (From/To/Next a
+  reader), Shards(total, n), Read(); readShard (own wiki.Open for readers past the first, own
+  connection through Store.NewConn, batches per reader, the state saved under a mutex every 20k
+  entries, the clock looked at every 1k). Import(w, budget) is ImportWith with one. synthd:
+  wikiImportWorkers() = NumCPU/2 in [2,4], NewConn = chatConn(mount); the status and the ctl read
+  Read(); ctl again=1 saves an empty state so the next slice starts over. Tested: three readers
+  give the same tables, a legacy state resumes as one shard.

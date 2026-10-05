@@ -1,6 +1,8 @@
 package com.localghost.app.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WikiTextTest {
@@ -21,5 +23,15 @@ class WikiTextTest {
         assertEquals("Built in 1889.\nCriticised.", parts[0].text)
         assertEquals("Design", parts[1].heading)
         assertEquals(0, WikiText.parts("").size)
+    }
+
+    @Test fun saysHowLongIsLeft() {
+        assertEquals("40 minutes", WikiText.left(40))
+        assertEquals("1 minute", WikiText.left(1))
+        assertEquals("3 hours", WikiText.left(170))
+        assertEquals("22 hours", WikiText.left(1320))
+        assertEquals("2 days", WikiText.left(3000))
+        assertTrue(WikiText.state("importing", "", 28877, 65710, 120000, 19707096, "", 1320).contains("about 22 hours to go"))
+        assertFalse(WikiText.state("importing", "", 1, 1, 1, 100, "").contains("to go"))
     }
 }

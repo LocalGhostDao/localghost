@@ -300,10 +300,12 @@ var schemaRegistry = []SchemaTable{
 	// Wikipedia without pictures) once, article by article: the title, the lead as plain text, the
 	// rest as plain text with its section headings, and every redirect's title pointing at its
 	// article; then the file goes (internal/wiki Store). A lookup is case-blind on the title, by
-	// prefix (the pattern index), by likeness when pg_trgm is installed (the GIN trigram indexes,
-	// whose creation fails harmlessly without the extension), and by full-text search over the
-	// title and the lead (the GIN tsvector index). idx is the entry's place in the file it came
-	// from, which the import resumes by. About seven million articles and twelve million redirects.
+	// prefix (a pattern index), by likeness when pg_trgm is installed (GIN trigram indexes), and
+	// by full-text search over the title and the lead (a GIN tsvector index): the lookup indexes
+	// are the store's (wiki.Store.EnsureIndexes), made once the import is done and dropped while
+	// one runs, since keeping five indexes current through twenty million inserts is most of the
+	// import's time. idx is the entry's place in the file it came from, which the import resumes
+	// by. About seven million articles and twelve million redirects.
 	{Name: "wiki_articles", PK: "idx", Cols: []SchemaCol{
 		{"idx", "INTEGER", true, ""},
 		{"title", "TEXT", true, ""},
@@ -311,18 +313,11 @@ var schemaRegistry = []SchemaTable{
 		{"lead", "TEXT", true, "''"},
 		{"body", "TEXT", true, "''"},
 		{"disamb", "BOOLEAN", true, "FALSE"},
-	}, Indexes: []string{
-		"CREATE INDEX IF NOT EXISTS wiki_articles_lc ON wiki_articles (title_lc text_pattern_ops)",
-		"CREATE INDEX IF NOT EXISTS wiki_articles_trgm ON wiki_articles USING gin (title_lc gin_trgm_ops)",
-		"CREATE INDEX IF NOT EXISTS wiki_articles_fts ON wiki_articles USING gin (to_tsvector('english', title || ' ' || lead))",
 	}},
 	{Name: "wiki_redirects", Cols: []SchemaCol{
 		{"title_lc", "TEXT", true, ""},
 		{"idx", "INTEGER", true, ""},
-	}, Unique: []string{"title_lc, idx"}, Indexes: []string{
-		"CREATE INDEX IF NOT EXISTS wiki_redirects_lc ON wiki_redirects (title_lc text_pattern_ops)",
-		"CREATE INDEX IF NOT EXISTS wiki_redirects_trgm ON wiki_redirects USING gin (title_lc gin_trgm_ops)",
-	}},
+	}, Unique: []string{"title_lc, idx"}},
 	// NEWS , the publications the phone fetches for the box (ghost.synthd is the single writer):
 	// the list itself with each feed's health, every entry seen, the stories they add up to (one
 	// story for the same event across outlets, with the model's grounded summary), and the

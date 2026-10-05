@@ -194,6 +194,22 @@ func TestStorePGImportsAndFinds(t *testing.T) {
 	if _, ok := s.Ready(); !ok {
 		t.Fatal("not ready after the import")
 	}
+	// the lookup indexes were made at the end (the pattern and text ones at least; the trigram
+	// ones only with pg_trgm), and a new import takes them off until it is done
+	indexes := func() int {
+		rows, _ := db.Query("SELECT count(*) FROM pg_indexes WHERE indexname LIKE 'wiki_%_lc' OR indexname LIKE 'wiki_%_fts' OR indexname LIKE 'wiki_%_trgm'")
+		n, _ := strconv.Atoi(*rows.Vals[0][0])
+		return n
+	}
+	if n := indexes(); n < 3 {
+		t.Fatalf("%d lookup indexes after the import", n)
+	}
+	if err := s.DropIndexes(); err != nil || indexes() != 0 {
+		t.Fatalf("drop: %v, %d left", err, indexes())
+	}
+	if err := s.EnsureIndexes(); err != nil || indexes() < 3 {
+		t.Fatalf("ensure: %v, %d", err, indexes())
+	}
 	for q, want := range map[string][2]string{
 		"bitcoin": {"Bitcoin", "exact"}, "BTC": {"Bitcoin", "redirect"}, "tour eiffel": {"Eiffel Tower", "redirect"},
 		"kassiopi corfu": {"Kassiopi, Corfu", "qualified"}, "greenwich london": {"Greenwich", "like|text"},
@@ -243,5 +259,51 @@ func TestStorePGImportsAndFinds(t *testing.T) {
 	st3, err := s.Import(w, time.Second)
 	if err != nil || !st3.Done || st3.Articles != 6 || st3.Redirects != 2 {
 		t.Fatalf("import again %+v %v", st3, err)
+	}
+}
+
+// Three readers over their own ranges of the file give the same tables as one; a state from a
+// single-reader import goes on as one shard from where it was.
+func TestStorePGImportsInParallel(t *testing.T) {
+	db := pgFresh(t, "lg_wiki_parallel")
+	w := testWiki(t)
+	s := &Store{DB: db}
+	st, err := s.ImportWith(w, 3, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Done || len(st.Shards) != 3 || st.Read() != st.Total || st.Articles != 6 || st.Redirects != 2 {
+		t.Fatalf("state %+v", st)
+	}
+	if a, r := s.Counts(); a != 6 || r != 2 {
+		t.Fatalf("counts %d %d", a, r)
+	}
+	// the shards cut the entries whole and in order
+	var seen uint32
+	for i, sh := range st.Shards {
+		if sh.From != seen || sh.Next != sh.To || (i == 2 && sh.To != st.Total) {
+			t.Fatalf("shard %d %+v", i, sh)
+		}
+		seen = sh.To
+	}
+	// a single-reader state, half way: one shard from there, the rest of the file read
+	_ = db.Exec("DELETE FROM wiki_articles")
+	_ = db.Exec("DELETE FROM wiki_redirects")
+	legacy := ImportState{File: st.File, Size: st.Size, Edition: st.Edition, Total: st.Total, Next: st.Total / 2, StartedAt: 1}
+	if err := s.Save(legacy); err != nil {
+		t.Fatal(err)
+	}
+	st, err = s.ImportWith(w, 3, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Done || len(st.Shards) != 1 || st.Shards[0].Next != st.Total || st.Articles >= 6 || st.Articles == 0 {
+		t.Fatalf("resumed %+v", st)
+	}
+	if n := Shards(10, 4); len(n) != 4 || n[0].To != 2 || n[3].From != 6 || n[3].To != 10 {
+		t.Fatalf("%+v", n)
+	}
+	if n := Shards(3, 8); len(n) != 3 {
+		t.Fatalf("%+v", n)
 	}
 }

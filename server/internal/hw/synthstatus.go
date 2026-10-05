@@ -29,6 +29,7 @@ type SynthWiki struct {
 	Next        int64  `json:"next,omitempty"`        // entries of the file read so far
 	Total       int64  `json:"total,omitempty"`       // entries in the file
 	Downloading int64  `json:"downloading,omitempty"` // bytes of the part file, when one is being fetched
+	Left        int64  `json:"left,omitempty"`        // seconds the import has to go at its pace so far, while importing
 	Error       string `json:"error,omitempty"`
 	Answers     int    `json:"answers,omitempty"` // chat questions an article answered since synthd started
 }

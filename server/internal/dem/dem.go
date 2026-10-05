@@ -5,10 +5,12 @@
 //
 // The tiles are named by their south-west corner ("…_N51_00_W001_00_DEM.tif" is 51°N to 52°N,
 // 1°W to 0°), which is how the set is indexed; a tile is read whole when first needed (a few MB)
-// and the last few are kept.
+// and the last few are kept. The mirror carries the tiles in packs of a 30-degree block each
+// (pack.go: GLO-90_N30_W030.heights), read the same way, a tile out of its section of the pack.
 package dem
 
 import (
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -42,10 +44,11 @@ func Corner(name string) (lat, lon int, ok bool) {
 	return a, b, true
 }
 
-// Set is the tiles in a folder.
+// Set is the tiles in a folder: loose GeoTIFFs, and the tiles of the packs there (pack.go).
 type Set struct {
 	Dir   string
-	files map[[2]int]string
+	files map[[2]int]source
+	packs int
 
 	mu    sync.Mutex
 	cache map[[2]int]*Tile
@@ -53,20 +56,64 @@ type Set struct {
 	bad   map[[2]int]bool
 }
 
-// Open indexes the tiles in a folder (none is an empty set, not an error).
+// source is where a tile's bytes are: a file, whole (off 0, n its size) or a section of a pack.
+type source struct {
+	path   string
+	off, n int64
+}
+
+// Open indexes the tiles in a folder (none is an empty set, not an error). A tile in a pack and
+// loose as well is read from the pack.
 func Open(dir string) *Set {
-	s := &Set{Dir: dir, files: map[[2]int]string{}, cache: map[[2]int]*Tile{}, bad: map[[2]int]bool{}}
+	s := &Set{Dir: dir, files: map[[2]int]source{}, cache: map[[2]int]*Tile{}, bad: map[[2]int]bool{}}
 	ents, _ := os.ReadDir(dir)
+	var packs []string
 	for _, e := range ents {
 		n := e.Name()
-		if e.IsDir() || strings.HasPrefix(n, ".") || !strings.HasSuffix(strings.ToLower(n), ".tif") {
+		if e.IsDir() || strings.HasPrefix(n, ".") {
 			continue
 		}
-		if lat, lon, ok := Corner(n); ok {
-			s.files[[2]int{lat, lon}] = filepath.Join(dir, n)
+		switch {
+		case strings.HasSuffix(strings.ToLower(n), ".tif"):
+			if lat, lon, ok := Corner(n); ok {
+				st, err := e.Info()
+				if err != nil {
+					continue
+				}
+				s.files[[2]int{lat, lon}] = source{filepath.Join(dir, n), 0, st.Size()}
+			}
+		case strings.HasSuffix(n, ".heights"):
+			packs = append(packs, filepath.Join(dir, n))
+		}
+	}
+	for _, p := range packs {
+		f, err := os.Open(p)
+		if err != nil {
+			continue
+		}
+		st, err := f.Stat()
+		var idx []PackEntry
+		if err == nil {
+			idx, err = ReadPackIndex(f, st.Size())
+		}
+		f.Close()
+		if err != nil {
+			continue // not a pack, or a cut one: the loose tiles still serve
+		}
+		s.packs++
+		for _, e := range idx {
+			s.files[[2]int{e.Lat, e.Lon}] = source{p, e.Off, e.Len}
 		}
 	}
 	return s
+}
+
+// Packs is how many packs the set read.
+func (s *Set) Packs() int {
+	if s == nil {
+		return 0
+	}
+	return s.packs
 }
 
 // Tiles is how many tiles the set holds.
@@ -97,22 +144,17 @@ func (s *Set) tile(k [2]int) *Tile {
 	if t, ok := s.cache[k]; ok {
 		return t
 	}
-	path, ok := s.files[k]
+	src, ok := s.files[k]
 	if !ok || s.bad[k] {
 		return nil
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(src.path)
 	if err != nil {
 		s.bad[k] = true
 		return nil
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		s.bad[k] = true
-		return nil
-	}
-	t, err := ReadTile(f, st.Size())
+	t, err := ReadTile(io.NewSectionReader(f, src.off, src.n), src.n)
 	if err != nil {
 		s.bad[k] = true
 		return nil

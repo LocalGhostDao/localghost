@@ -123,9 +123,11 @@ lists differently from what the box has, and hands the result to the daemon that
   chat, a question that names a thing, the coin pages and the phone's WIKIPEDIA page read the
   database (a title in any case, a redirect, a place with its qualifier, a prefix, a likeness, the
   words of a lead), the file is never opened at a question, and a question the box answers never
-  goes to the web. `ghost-cli ghost.synthd wiki q=corfu` searches, `wiki idx=<n>` reads one
-  article whole. A newer edition on the mirror is fetched, imported in place of the old one, and
-  removed again.
+  goes to the web. `ghost-cli ghost.synthd wiki` says how far the import is and how long it has
+  to go (a few readers at once, each over its own part of the file, the lookup indexes made at
+  the end; hours for the English edition), `wiki again=1` starts it over from the first entry,
+  `wiki q=corfu` searches, `wiki idx=<n>` reads one article whole. A newer edition on the mirror
+  is fetched, imported in place of the old one, and removed again.
 
 A set installed from the mirror leaves a record: `<dir>/.<name>.sha256`, `<geo>/.mirror-geo`, and
 `.mirror-landpolygons` beside the shapefile. When everything is current, a rerun costs a few

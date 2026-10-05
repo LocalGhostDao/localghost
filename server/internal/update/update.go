@@ -68,7 +68,7 @@ func BoxPaths() Paths {
 // and the guard is the one thing a release never replaces).
 var systemBins = map[string]bool{"ghost.secd": true, "ghost-cli": true, "ghost-ctl": true, "ghost-qr": true}
 
-var setupBins = map[string]bool{"ghost-setup": true, "ghost-update-guard": true, "ghost-landtiles": true, "ghost-roadtiles": true, "ghost-tpmreset": true}
+var setupBins = map[string]bool{"ghost-setup": true, "ghost-update-guard": true, "ghost-landtiles": true, "ghost-roadtiles": true, "ghost-tpmreset": true, "ghost-heights": true}
 
 // maxBundleFile bounds one file in a bundle (a Go binary is tens of MB).
 const maxBundleFile = 256 << 20

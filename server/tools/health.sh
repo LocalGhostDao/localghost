@@ -237,9 +237,10 @@ for svc in $CHECK; do
                 wr=$(echo "$wk" | sed -n 's/.*"redirects":\([0-9]*\).*/\1/p' | head -1)
                 wi=$(echo "$wk" | sed -n 's/.*"imported":\([0-9]*\).*/\1/p' | head -1)
                 wt=$(echo "$wk" | sed -n 's/.*"entries":\([0-9]*\).*/\1/p' | head -1)
+                wl=$(echo "$wk" | sed -n 's/.*"leftMinutes":\([0-9]*\).*/\1/p' | head -1)
                 case "$ws" in
                     ready) printf '  wikipedia: %s, %s articles and %s redirects in the database\n' "$wn" "${wa:-?}" "${wr:-?}" ;;
-                    importing) printf '  wikipedia: importing, %s of %s entries read, %s articles in so far (Box Status shows it; an hour or two)\n' "${wi:-0}" "${wt:-?}" "${wa:-0}" ;;
+                    importing) printf '  wikipedia: importing, %s of %s entries read, %s articles in so far%s\n' "${wi:-0}" "${wt:-?}" "${wa:-0}" "${wl:+, about $((wl / 60)) h $((wl % 60)) min to go}" ;;
                     downloading) printf '  wikipedia: downloading the file (update.sh), imported into the database once it is here\n' ;;
                     failed) printf '  wikipedia: the import stopped: %s (tried again every minute)\n' "$(echo "$wk" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p' | head -1)" ;;
                     *) printf '  wikipedia: none (sudo ./tools/update.sh wiki fetches it, about 50 GB; imported, then the file goes)\n' ;;

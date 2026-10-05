@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
@@ -35,6 +36,8 @@ type ImportState struct {
 	At        int64  `json:"at"`              // when the state was last written
 	StartedAt int64  `json:"startedAt"`       // when this file's import began
 	Error     string `json:"error,omitempty"` // the last error that stopped a slice
+	// Shards are the readers' ranges and where each is; Next is their reads added up.
+	Shards []Shard `json:"shards,omitempty"`
 }
 
 // ImportKey is the settings key the state is kept under.
@@ -47,8 +50,15 @@ const (
 
 // Store is the box's Wikipedia over a database connection.
 type Store struct {
-	DB   *poltergres.ReadWrite
-	trgm int // 0 unknown, 1 pg_trgm is there, -1 it is not
+	DB *poltergres.ReadWrite
+	// NewConn makes another connection for an import's readers beyond the first (one connection
+	// takes one INSERT at a time); nil shares DB, which still reads the file in parallel.
+	NewConn func() *poltergres.ReadWrite
+
+	trgm    int  // 0 unknown, 1 pg_trgm is there, -1 it is not
+	dropped bool // the lookup indexes were dropped for the import running in this process
+	connMu  sync.Mutex
+	conns   []*poltergres.ReadWrite
 }
 
 // State reads the import's state; a zero state when none was written.
@@ -68,6 +78,43 @@ func (s *Store) Save(st ImportState) error {
 	return s.DB.Exec("INSERT INTO settings (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", ImportKey, string(b))
 }
 
+// lookupIndexes are the store's indexes beyond the tables' keys: made by EnsureIndexes once an
+// import is done, dropped by Import while one runs (an insert into a table with five indexes is
+// several times the work, and the trigram GINs the worst of it). The trigram ones fail harmlessly
+// without pg_trgm; the lookups then go without likeness.
+var lookupIndexes = []struct{ name, create string }{
+	{"wiki_articles_lc", "CREATE INDEX IF NOT EXISTS wiki_articles_lc ON wiki_articles (title_lc text_pattern_ops)"},
+	{"wiki_articles_trgm", "CREATE INDEX IF NOT EXISTS wiki_articles_trgm ON wiki_articles USING gin (title_lc gin_trgm_ops)"},
+	{"wiki_articles_fts", "CREATE INDEX IF NOT EXISTS wiki_articles_fts ON wiki_articles USING gin (to_tsvector('english', title || ' ' || lead))"},
+	{"wiki_redirects_lc", "CREATE INDEX IF NOT EXISTS wiki_redirects_lc ON wiki_redirects (title_lc text_pattern_ops)"},
+	{"wiki_redirects_trgm", "CREATE INDEX IF NOT EXISTS wiki_redirects_trgm ON wiki_redirects USING gin (title_lc gin_trgm_ops)"},
+}
+
+// EnsureIndexes makes the lookup indexes (minutes over a whole Wikipedia, the first time; nothing
+// when they are there). Called when an import finishes and at every start with a finished import.
+// A trigram index that cannot be made (no pg_trgm) is skipped; any other failure is returned.
+func (s *Store) EnsureIndexes() error {
+	for _, ix := range lookupIndexes {
+		if err := s.DB.Exec(ix.create); err != nil {
+			if strings.Contains(ix.name, "trgm") {
+				continue
+			}
+			return fmt.Errorf("%s: %w", ix.name, err)
+		}
+	}
+	return nil
+}
+
+// DropIndexes takes the lookup indexes off for an import.
+func (s *Store) DropIndexes() error {
+	for _, ix := range lookupIndexes {
+		if err := s.DB.Exec("DROP INDEX IF EXISTS " + ix.name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Ready says whether the store answers: an import finished, with articles in it.
 func (s *Store) Ready() (ImportState, bool) {
 	st := s.State()
@@ -81,16 +128,88 @@ func (s *Store) Current(w *Wiki) bool {
 }
 
 const (
-	importArticleBatch  = 40  // articles an INSERT carries (bodies are kilobytes)
-	importRedirectBatch = 500 // redirects an INSERT carries
-	importSaveEvery     = 20000
+	importArticleBatch  = 40    // articles an INSERT carries (bodies are kilobytes)
+	importRedirectBatch = 500   // redirects an INSERT carries
+	importSaveEvery     = 20000 // entries a reader goes between saves of the state
+	importCheckEvery    = 1000  // entries a reader goes between looks at the clock
 )
 
-// Import reads the file from where the state left off, for the time given at most, into the tables;
-// the state comes back and is saved. A state for another file (or an older size of it) starts over:
-// the tables are emptied and the file is read from its first entry. An entry whose content will not
-// read is skipped and counted, never fatal: a single bad cluster must not stop Wikipedia.
+// Shard is one worker's range of the entries and where it is in it.
+type Shard struct {
+	From, To, Next uint32
+}
+
+// Shards cuts the entries into n ranges of a size.
+func Shards(total uint32, n int) []Shard {
+	if n < 1 {
+		n = 1
+	}
+	if uint32(n) > total {
+		n = int(total)
+	}
+	out := make([]Shard, 0, n)
+	step := total / uint32(n)
+	for i := 0; i < n; i++ {
+		from := uint32(i) * step
+		to := from + step
+		if i == n-1 {
+			to = total
+		}
+		out = append(out, Shard{From: from, To: to, Next: from})
+	}
+	return out
+}
+
+// Read is how many entries the shards have read together.
+func (st ImportState) Read() uint32 {
+	if len(st.Shards) == 0 {
+		return st.Next
+	}
+	var n uint32
+	for _, sh := range st.Shards {
+		n += sh.Next - sh.From
+	}
+	return n
+}
+
+// batch is the rows of one worker waiting for an INSERT.
+type batch struct {
+	arts, reds       []string
+	artArgs, redArgs []any
+}
+
+func (b *batch) flush(db *poltergres.ReadWrite) error {
+	if len(b.arts) > 0 {
+		q := "INSERT INTO wiki_articles (idx, title, title_lc, lead, body, disamb) VALUES " + strings.Join(b.arts, ",") + " ON CONFLICT (idx) DO NOTHING"
+		if err := db.Exec(q, b.artArgs...); err != nil {
+			return err
+		}
+		b.arts, b.artArgs = b.arts[:0], b.artArgs[:0]
+	}
+	if len(b.reds) > 0 {
+		q := "INSERT INTO wiki_redirects (title_lc, idx) VALUES " + strings.Join(b.reds, ",") + " ON CONFLICT (title_lc, idx) DO NOTHING"
+		if err := db.Exec(q, b.redArgs...); err != nil {
+			return err
+		}
+		b.reds, b.redArgs = b.reds[:0], b.redArgs[:0]
+	}
+	return nil
+}
+
+// Import reads the file from where the state left off, for the time given at most, into the
+// tables, workers at a time: each over its own range of the entries (Shards), with its own open
+// file (its own cluster cache) and, when NewConn is set, its own connection; the state comes back
+// and is saved. A state for another file (or an older size of it) starts over: the tables are
+// emptied and the file is read from its first entry. An entry whose content will not read is
+// skipped and counted, never fatal: a single bad cluster must not stop Wikipedia. The lookup
+// indexes are off while the import runs (once a process) and made when it is done.
 func (s *Store) Import(w *Wiki, budget time.Duration) (ImportState, error) {
+	return s.ImportWith(w, 1, budget)
+}
+
+// ImportWith is Import with workers readers at once; a state from a single-reader import (no
+// shards) goes on as one shard from where it was.
+func (s *Store) ImportWith(w *Wiki, workers int, budget time.Duration) (ImportState, error) {
 	st := s.State()
 	name, size := filepath.Base(w.Path), w.Size()
 	if st.File != name || st.Size != size {
@@ -106,99 +225,176 @@ func (s *Store) Import(w *Wiki, budget time.Duration) (ImportState, error) {
 	if st.Done {
 		return st, s.Save(st)
 	}
-	deadline := time.Now().Add(budget)
-	var arts, reds []string
-	var artArgs, redArgs []any
-	flush := func() error {
-		if len(arts) > 0 {
-			q := "INSERT INTO wiki_articles (idx, title, title_lc, lead, body, disamb) VALUES " + strings.Join(arts, ",") + " ON CONFLICT (idx) DO NOTHING"
-			if err := s.DB.Exec(q, artArgs...); err != nil {
-				return err
-			}
-			arts, artArgs = arts[:0], artArgs[:0]
+	if len(st.Shards) == 0 {
+		if st.Next > 0 {
+			st.Shards = []Shard{{From: 0, To: st.Total, Next: st.Next}}
+		} else {
+			st.Shards = Shards(st.Total, workers)
 		}
-		if len(reds) > 0 {
-			q := "INSERT INTO wiki_redirects (title_lc, idx) VALUES " + strings.Join(reds, ",") + " ON CONFLICT (title_lc, idx) DO NOTHING"
-			if err := s.DB.Exec(q, redArgs...); err != nil {
-				return err
-			}
-			reds, redArgs = reds[:0], redArgs[:0]
-		}
-		return nil
 	}
-	for st.Next < st.Total {
-		e, err := w.z.EntryAt(st.Next)
-		st.Next++
-		if err != nil {
-			st.Skipped++
+	if !s.dropped {
+		// no lookup indexes to keep current through the import (made at the end); once a process
+		s.dropped = true
+		if err := s.DropIndexes(); err != nil {
+			st.Error = err.Error()
+			_ = s.Save(st)
+			return st, err
+		}
+	}
+	deadline := time.Now().Add(budget)
+	var mu sync.Mutex // st, while the workers run
+	var wg sync.WaitGroup
+	errs := make(chan error, len(st.Shards))
+	for i := range st.Shards {
+		if st.Shards[i].Next >= st.Shards[i].To {
 			continue
 		}
-		if e.Namespace != w.ns || e.Title == "" {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if err := s.readShard(w, i, &st, &mu, deadline); err != nil {
+				errs <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	if err := <-errs; err != nil {
+		st.Error = err.Error()
+		_ = s.Save(st)
+		return st, err
+	}
+	st.Next = st.Read()
+	done := true
+	for _, sh := range st.Shards {
+		if sh.Next < sh.To {
+			done = false
+		}
+	}
+	if !done {
+		return st, s.Save(st)
+	}
+	st.Done = true
+	st.Next = st.Total
+	if err := s.Save(st); err != nil {
+		return st, err
+	}
+	// the lookup indexes, over the whole of it (minutes); the import is done without them, the
+	// lookups want them
+	if err := s.EnsureIndexes(); err != nil {
+		st.Error = "the lookup indexes: " + err.Error()
+		_ = s.Save(st)
+		return st, err
+	}
+	return st, nil
+}
+
+// readShard is one worker: shard i of st, from its Next to its To or the deadline, with its own
+// open file (the coordinator's for shard 0, so a test's file serves) and its own connection when
+// the store can make one. Progress goes into st under mu every importSaveEvery entries, and the
+// coordinator saves the whole.
+func (s *Store) readShard(w *Wiki, i int, st *ImportState, mu *sync.Mutex, deadline time.Time) error {
+	mu.Lock()
+	sh := st.Shards[i]
+	mu.Unlock()
+	src := w
+	if i > 0 {
+		own, err := Open(w.Path)
+		if err != nil {
+			return err
+		}
+		defer own.Close()
+		src = own
+	}
+	db := s.DB
+	if i > 0 && s.NewConn != nil {
+		s.connMu.Lock()
+		for len(s.conns) < i {
+			s.conns = append(s.conns, s.NewConn())
+		}
+		db = s.conns[i-1]
+		s.connMu.Unlock()
+	}
+	var b batch
+	var articles, redirects, skipped int64
+	report := func() {
+		mu.Lock()
+		st.Shards[i].Next = sh.Next
+		st.Articles += articles
+		st.Redirects += redirects
+		st.Skipped += skipped
+		mu.Unlock()
+		articles, redirects, skipped = 0, 0, 0
+	}
+	for sh.Next < sh.To {
+		e, err := src.z.EntryAt(sh.Next)
+		sh.Next++
+		if err != nil {
+			skipped++
+			continue
+		}
+		if e.Namespace != src.ns || e.Title == "" {
 			continue
 		}
 		switch {
 		case e.Redirect:
-			t, err := w.z.Resolve(e)
+			t, err := src.z.Resolve(e)
 			if err != nil || !strings.HasPrefix(t.Mime, "text/html") {
-				st.Skipped++
+				skipped++
 				continue
 			}
-			n := len(redArgs)
-			reds = append(reds, "($"+strconv.Itoa(n+1)+",$"+strconv.Itoa(n+2)+")")
-			redArgs = append(redArgs, strings.ToLower(e.Title), int64(t.Index))
-			st.Redirects++
-			if len(reds) >= importRedirectBatch {
-				if err := flush(); err != nil {
-					st.Error = err.Error()
-					_ = s.Save(st)
-					return st, err
+			n := len(b.redArgs)
+			b.reds = append(b.reds, "($"+strconv.Itoa(n+1)+",$"+strconv.Itoa(n+2)+")")
+			b.redArgs = append(b.redArgs, strings.ToLower(e.Title), int64(t.Index))
+			redirects++
+			if len(b.reds) >= importRedirectBatch {
+				if err := b.flush(db); err != nil {
+					return err
 				}
 			}
 		case strings.HasPrefix(e.Mime, "text/html"):
-			body, err := w.z.Content(e)
+			body, err := src.z.Content(e)
 			if err != nil {
-				st.Skipped++
+				skipped++
 				continue
 			}
 			page := string(body)
 			lead := Lead(page, LeadMax)
 			if lead == "" {
-				st.Skipped++
+				skipped++
 				continue
 			}
-			n := len(artArgs)
-			arts = append(arts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6))
-			artArgs = append(artArgs, int64(e.Index), e.Title, strings.ToLower(e.Title), lead, Body(page, BodyMax), disamb(lead))
-			st.Articles++
-			if len(arts) >= importArticleBatch {
-				if err := flush(); err != nil {
-					st.Error = err.Error()
-					_ = s.Save(st)
-					return st, err
+			n := len(b.artArgs)
+			b.arts = append(b.arts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6))
+			b.artArgs = append(b.artArgs, int64(e.Index), e.Title, strings.ToLower(e.Title), lead, Body(page, BodyMax), disamb(lead))
+			articles++
+			if len(b.arts) >= importArticleBatch {
+				if err := b.flush(db); err != nil {
+					return err
 				}
 			}
 		}
-		if st.Next%importSaveEvery == 0 {
-			if err := flush(); err != nil {
-				st.Error = err.Error()
-				_ = s.Save(st)
-				return st, err
+		if n := sh.Next - sh.From; n%importCheckEvery == 0 && (n%importSaveEvery == 0 || time.Now().After(deadline)) {
+			if err := b.flush(db); err != nil {
+				return err
 			}
-			if err := s.Save(st); err != nil {
-				return st, err
+			report()
+			mu.Lock()
+			err := s.Save(*st)
+			mu.Unlock()
+			if err != nil {
+				return err
 			}
 			if time.Now().After(deadline) {
-				return st, nil
+				return nil
 			}
 		}
 	}
-	if err := flush(); err != nil {
-		st.Error = err.Error()
-		_ = s.Save(st)
-		return st, err
+	if err := b.flush(db); err != nil {
+		return err
 	}
-	st.Done = true
-	return st, s.Save(st)
+	report()
+	return nil
 }
 
 // Hit is one article a lookup found.

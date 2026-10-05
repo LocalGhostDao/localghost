@@ -77,6 +77,16 @@ func chatStore(mount string) *poltergres.ReadWrite {
 	return chatDB
 }
 
+// chatConn is one more connection to the same database (the Wikipedia import's readers each take
+// one: a connection carries one INSERT at a time), nil when services.conf will not read.
+func chatConn(mount string) *poltergres.ReadWrite {
+	sc, err := hw.LoadServicesConfig(mount)
+	if err != nil {
+		return nil
+	}
+	return poltergres.NewReadWrite(hw.SocketForMount(mount), sc.Postgres.Port, sc.Postgres.RWUser, sc.Postgres.RWPass, sc.Postgres.Name)
+}
+
 // chatTurn is one persisted half of an exchange, in the shape oracled's chat endpoint takes.
 type chatTurn struct {
 	Role    string `json:"role"`

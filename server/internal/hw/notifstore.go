@@ -2193,7 +2193,11 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 				if wk.Total > 0 {
 					pct = 100 * float64(wk.Next) / float64(wk.Total)
 				}
-				key("wikipedia", fmt.Sprintf("importing %s: %.0f%% of the file read, %s articles and %s redirects in so far", wk.File, pct, humanCount(wk.Articles), humanCount(wk.Redirects)))
+				left := ""
+				if wk.Left > 0 {
+					left = " · about " + leftText(wk.Left) + " to go"
+				}
+				key("wikipedia", fmt.Sprintf("importing %s: %.0f%% of the file read, %s articles and %s redirects in so far%s", wk.File, pct, humanCount(wk.Articles), humanCount(wk.Redirects), left))
 			case "downloading":
 				key("wikipedia", fmt.Sprintf("downloading, %.1f GB so far of about 50 (%s); imported into the database once it is here", float64(wk.Downloading)/(1<<30), wk.File))
 			case "failed":
@@ -2655,6 +2659,21 @@ func (s *NotifStore) DeviceNameSet(slot int, device, name, model, stableID strin
 			model = CASE WHEN EXCLUDED.model <> '' THEN EXCLUDED.model ELSE device_names.model END,
 			stable_id = CASE WHEN EXCLUDED.stable_id <> '' THEN EXCLUDED.stable_id ELSE device_names.stable_id END`,
 		device, name, model, stableID)
+}
+
+// leftText says a span in the coarsest unit that fits: "40 minutes", "3 hours", "2 days".
+func leftText(secs int64) string {
+	switch {
+	case secs < 3600:
+		m := (secs + 59) / 60
+		return fmt.Sprintf("%d minute%s", m, plural(int(m)))
+	case secs < 48*3600:
+		h := (secs + 1799) / 3600
+		return fmt.Sprintf("%d hour%s", h, plural(int(h)))
+	default:
+		d := (secs + 43199) / 86400
+		return fmt.Sprintf("%d day%s", d, plural(int(d)))
+	}
 }
 
 // synthDid is a pass's work in a line: "distilled 3 · outings 1 · trips 1", "" when it did nothing.

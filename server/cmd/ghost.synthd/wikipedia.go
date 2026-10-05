@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 	"github.com/LocalGhostDao/localghost/server/internal/wiki"
 )
 
@@ -37,7 +39,7 @@ func wikiDirOf(mount string) string { return filepath.Join(mount, "wiki") }
 const (
 	wikiChatLead    = 900              // characters of an article's lead given to the chat
 	wikiChatSection = 700              // characters of the section a question points at
-	wikiImportSlice = 45 * time.Second // one slice of the import, then the state is saved and the loop breathes
+	wikiImportSlice = 55 * time.Second // one slice of the import, then the state is saved and the loop breathes
 	wikiImportRoom  = 8 << 30          // free bytes the volume must have for a slice to run
 )
 
@@ -65,7 +67,7 @@ func wikiStore() *wiki.Store {
 	defer wikiMu.Unlock()
 	if wikiStoreV == nil {
 		if db := chatStore(wikiMount); db != nil {
-			wikiStoreV = &wiki.Store{DB: db}
+			wikiStoreV = &wiki.Store{DB: db, NewConn: func() *poltergres.ReadWrite { return chatConn(wikiMount) }}
 		}
 	}
 	return wikiStoreV
@@ -99,6 +101,7 @@ func wikiImportLoop(ctx context.Context, mount string, lg *slog.Logger) {
 	}()
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
+	indexed := false // the lookup indexes seen to (once a process, with a finished import)
 	for {
 		select {
 		case <-ctx.Done():
@@ -108,6 +111,14 @@ func wikiImportLoop(ctx context.Context, mount string, lg *slog.Logger) {
 		s := wikiStore()
 		if s == nil {
 			continue // locked
+		}
+		if !indexed {
+			if st := s.State(); st.Done {
+				indexed = true
+				if err := s.EnsureIndexes(); err != nil {
+					lg.Warn("the Wikipedia lookup indexes", "fn", "wikiImportLoop", "err", err)
+				}
+			}
 		}
 		path, ok := wiki.Find(dir)
 		if !ok {
@@ -168,18 +179,46 @@ func wikiImportLoop(ctx context.Context, mount string, lg *slog.Logger) {
 			_ = s.Save(st)
 			continue
 		}
-		before := st.Next
-		st, err := s.Import(open, wikiImportSlice)
+		before := st.Read()
+		st, err := s.ImportWith(open, wikiImportWorkers(), wikiImportSlice)
 		if err != nil {
 			lg.Warn("Wikipedia import slice failed", "fn", "wikiImportLoop", "at", st.Next, "err", err)
 			continue
 		}
 		if st.Done {
+			indexed = true // made at the end of the import
 			lg.Info("Wikipedia import finished", "fn", "wikiImportLoop", "edition", st.Edition, "articles", st.Articles, "redirects", st.Redirects, "skipped", st.Skipped)
-		} else if st.Next > before {
-			lg.Info("Wikipedia import", "fn", "wikiImportLoop", "entries", st.Next, "of", st.Total, "articles", st.Articles, "redirects", st.Redirects)
+		} else if st.Read() > before {
+			lg.Info("Wikipedia import", "fn", "wikiImportLoop", "entries", st.Read(), "of", st.Total, "articles", st.Articles, "redirects", st.Redirects, "readers", len(st.Shards), "left", wikiLeft(st).Round(time.Minute).String())
 		}
 	}
+}
+
+// wikiImportWorkers is how many readers an import slice runs: half the cores, two to four. The
+// box's CPU also runs the photo pipeline and whisper; the file is read in parallel, the inserts
+// go over as many connections.
+func wikiImportWorkers() int {
+	n := runtime.NumCPU() / 2
+	if n < 2 {
+		n = 2
+	}
+	if n > 4 {
+		n = 4
+	}
+	return n
+}
+
+// wikiLeft is how long the import has to go at the pace so far (0 when it cannot say).
+func wikiLeft(st wiki.ImportState) time.Duration {
+	read := st.Read()
+	if st.Done || read == 0 || st.StartedAt == 0 || st.Total <= read {
+		return 0
+	}
+	took := time.Since(time.Unix(st.StartedAt, 0))
+	if took <= 0 {
+		return 0
+	}
+	return time.Duration(float64(took) * float64(st.Total-read) / float64(read))
 }
 
 // wikiStatus is the box's Wikipedia for Box Status: ready with its edition and counts; importing
@@ -193,7 +232,7 @@ func wikiStatus() hw.SynthWiki {
 		return st
 	}
 	is := s.State()
-	st.Name, st.File, st.Articles, st.Redirects, st.Next, st.Total, st.Error = is.Edition, is.File, is.Articles, is.Redirects, int64(is.Next), int64(is.Total), is.Error
+	st.Name, st.File, st.Articles, st.Redirects, st.Next, st.Total, st.Error = is.Edition, is.File, is.Articles, is.Redirects, int64(is.Read()), int64(is.Total), is.Error
 	path, haveFile := wiki.Find(wikiDirOf(wikiMount))
 	switch {
 	case is.Done && is.Articles > 0:
@@ -203,6 +242,7 @@ func wikiStatus() hw.SynthWiki {
 		}
 	case is.Total > 0 && haveFile:
 		st.State = "importing"
+		st.Left = int64(wikiLeft(is).Seconds())
 		if is.Error != "" {
 			st.State = "failed"
 		}
@@ -421,16 +461,25 @@ func wikiCtl(args json.RawMessage) (ctlsock.Response, error) {
 		Title string `json:"title"`
 		Idx   uint32 `json:"idx"`
 		N     int    `json:"n"`
+		Again bool   `json:"again"` // start the import over from the file's first entry
 	}
 	_ = json.Unmarshal(args, &a)
 	s := wikiStore()
 	if s == nil {
 		return ctlsock.Response{OK: false, Err: "no database (box locked?)"}, nil
 	}
+	if a.Again {
+		// a state for no file: the next slice sees another file, empties the tables and reads
+		// from the start, with this build's readers
+		if err := s.Save(wiki.ImportState{}); err != nil {
+			return ctlsock.Response{}, err
+		}
+		return ctlsock.Response{OK: true, Text: "the import starts over at the next slice (within a minute)"}, nil
+	}
 	st := s.State()
 	status := wikiStatus()
 	out := map[string]any{"state": status.State, "edition": st.Edition, "articles": st.Articles, "redirects": st.Redirects,
-		"imported": st.Next, "entries": st.Total, "file": status.File, "answers": status.Answers}
+		"imported": st.Read(), "entries": st.Total, "file": status.File, "answers": status.Answers, "readers": len(st.Shards)}
 	if status.Error != "" {
 		out["error"] = status.Error
 	}
@@ -439,6 +488,9 @@ func wikiCtl(args json.RawMessage) (ctlsock.Response, error) {
 	}
 	if st.StartedAt > 0 && !st.Done {
 		out["importingSince"] = st.StartedAt
+		if status.Left > 0 {
+			out["leftMinutes"] = status.Left / 60
+		}
 	}
 	if q := strings.TrimSpace(a.Q + a.Title); q != "" {
 		n := a.N

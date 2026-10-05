@@ -1051,7 +1051,8 @@ object BoxClient {
     data class WikiHit(val idx: Long, val title: String, val lead: String, val disamb: Boolean, val how: String)
     data class WikiArticle(val idx: Long, val title: String, val lead: String, val body: String, val disamb: Boolean)
     data class Wiki(val state: String, val edition: String, val articles: Long, val redirects: Long, val imported: Long,
-                    val entries: Long, val file: String, val error: String, val hits: List<WikiHit>, val article: WikiArticle?)
+                    val entries: Long, val file: String, val error: String, val hits: List<WikiHit>, val article: WikiArticle?,
+                    val leftMinutes: Long = 0)
 
     suspend fun wiki(ctx: Context, q: String = "", idx: Long = 0, n: Int = 8): Wiki? = try {
         val qs = ArrayList<String>()
@@ -1066,7 +1067,7 @@ object BoxClient {
             WikiArticle(o.optLong("idx"), o.optString("title"), o.optString("lead"), o.optString("body"), o.optBoolean("disamb"))
         }
         Wiki(r.optString("state"), r.optString("edition"), r.optLong("articles"), r.optLong("redirects"), r.optLong("imported"),
-            r.optLong("entries"), r.optString("file"), r.optString("error"), hits, art)
+            r.optLong("entries"), r.optString("file"), r.optString("error"), hits, art, r.optLong("leftMinutes"))
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "wiki: ${e.message}"); null }
 
     /** The On This Day retrospective , read from the box's prebuilt day summaries (no model at

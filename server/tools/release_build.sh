@@ -20,7 +20,8 @@
 #
 # In the bundle, since 0.0.5, everything a box is set up and kept with, so a new box needs no git, Go
 # or make: ghost.secd, the cohort (every cmd/ghost.<x>), ghost-cli and ghost-ctl; the setup tools
-# (ghost-setup, ghost-qr, ghost-update-guard, ghost-landtiles, ghost-roadtiles, ghost-tpmreset) and
+# (ghost-setup, ghost-qr, ghost-update-guard, ghost-landtiles, ghost-roadtiles, ghost-tpmreset,
+# ghost-heights, which packs the elevation tiles for the mirror's publish) and
 # the operator scripts with their pins (tools/install.sh is the entry: unpack, verify, run it). Not in
 # it: llama-server and whisper-cli (built on the box from the mirror's pinned sources: setup.sh runs
 # setup_llama.sh, later update.sh engine and update.sh speech), the source tree (the release's
@@ -79,7 +80,7 @@ build ghost-cli
 build ghost-ctl
 # the setup tools: the provisioner and the QR, the guard the unit runs before secd, the tile cutters
 # fetch_geo.sh uses when it finds them, the TPM repair tool
-for t in ghost-setup ghost-qr ghost-update-guard ghost-landtiles ghost-roadtiles ghost-tpmreset; do
+for t in ghost-setup ghost-qr ghost-update-guard ghost-landtiles ghost-roadtiles ghost-tpmreset ghost-heights; do
     build "$t"
 done
 # the operator scripts, the same files as in the repository (text: they take no part in the

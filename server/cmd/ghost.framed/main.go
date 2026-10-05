@@ -405,7 +405,8 @@ func main() {
 		return ctlsock.Response{OK: true, Text: buildTZ("asked")}, nil
 	})
 	// ELEVATION: the ground's height from the Copernicus tiles under <mount>/geo/elevation (the
-	// mirror's set elevation, internal/dem). Indexed at start and again when the folder changes
+	// mirror's set elevation, internal/dem: packs of a 30-degree block each, or loose tiles).
+	// Indexed at start and again when the folder changes
 	// (an update brought tiles); when the tiles are new to the days drawn, every day is drawn
 	// again in the background so each line carries its heights and its climb. Never asked of a
 	// service: a height comes from the disk.
@@ -473,7 +474,7 @@ func main() {
 			_ = json.Unmarshal(args, &a)
 		}
 		set := elevation()
-		out := map[string]any{"dir": elevDir, "tiles": set.Tiles()}
+		out := map[string]any{"dir": elevDir, "tiles": set.Tiles(), "packs": set.Packs()}
 		if a.Lat != nil && a.Lon != nil {
 			if h, ok := set.Height(*a.Lat, *a.Lon); ok {
 				out["heightM"] = math.Round(h*10) / 10

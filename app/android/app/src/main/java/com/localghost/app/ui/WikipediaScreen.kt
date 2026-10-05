@@ -92,7 +92,7 @@ fun WikipediaScreen() {
         SectionLabel("WIKIPEDIA")
         Spacer(Modifier.height(4.dp))
         val st = state
-        Text(if (st == null) "asking the box…" else WikiText.state(st.state, st.edition, st.articles, st.redirects, st.imported, st.entries, st.error),
+        Text(if (st == null) "asking the box…" else WikiText.state(st.state, st.edition, st.articles, st.redirects, st.imported, st.entries, st.error, st.leftMinutes),
             color = if (st?.state == "failed") Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(12.dp))
         BasicTextField(query, { query = it }, singleLine = true,

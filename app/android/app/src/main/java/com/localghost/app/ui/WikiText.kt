@@ -6,16 +6,25 @@ object WikiText {
     /** "Wikipedia, 2026-06 · 6.9 million articles, 11.2 million redirects", "importing: 42% of the
      *  file read, 2.1 million articles so far", "downloading", "none on the box", "the import
      *  stopped: …", "the box is locked". */
-    fun state(state: String, edition: String, articles: Long, redirects: Long, imported: Long, entries: Long, error: String): String = when (state) {
+    fun state(state: String, edition: String, articles: Long, redirects: Long, imported: Long, entries: Long, error: String,
+              leftMinutes: Long = 0): String = when (state) {
         "ready" -> "$edition · ${millions(articles)} articles, ${millions(redirects)} redirects, on your box"
         "importing" -> {
             val pct = if (entries > 0) (100 * imported / entries) else 0
-            "importing: $pct% of the file read, ${millions(articles)} articles in so far · the chat uses it once it is all in"
+            "importing: $pct% of the file read, ${millions(articles)} articles in so far" +
+                (if (leftMinutes > 0) ", about ${left(leftMinutes)} to go" else "") + " · the chat uses it once it is all in"
         }
         "downloading" -> "downloading the file (about 50 GB) · imported into the box's database once it is here"
         "failed" -> "the import stopped: $error · tried again every minute"
         "locked" -> "the box is locked"
         else -> "none on the box · sudo ./tools/update.sh wiki fetches it from the mirror (about 50 GB)"
+    }
+
+    /** "40 minutes", "3 hours", "2 days": the coarsest unit that fits. */
+    fun left(minutes: Long): String = when {
+        minutes < 60 -> "$minutes minute" + (if (minutes == 1L) "" else "s")
+        minutes < 48 * 60 -> ((minutes + 30) / 60).let { "$it hour" + (if (it == 1L) "" else "s") }
+        else -> ((minutes + 720) / 1440).let { "$it day" + (if (it == 1L) "" else "s") }
     }
 
     fun millions(n: Long): String = when {
