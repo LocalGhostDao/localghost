@@ -5,6 +5,8 @@ package secd
 // front door (archive, transcription, journal).
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,8 +17,96 @@ import (
 	"strings"
 	"time"
 
+	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/voiced"
 )
+
+// askMaxBytes bounds a question asked aloud: 8 MB is four minutes of the phone's WAV.
+const askMaxBytes = 8 << 20
+
+// hearAsk hands a question's WAV to ghost.voiced and brings the words back; tests replace it.
+var hearAsk = func(runDir, path string) (string, string, error) {
+	resp, err := ctlsock.NewClientTimeout("ghost.voiced", runDir, 3*time.Minute).Call("hear", map[string]any{"path": path})
+	if err != nil {
+		return "", "", err
+	}
+	if !resp.OK {
+		return "", "", fmt.Errorf("%s", resp.Err)
+	}
+	var d struct {
+		Text string `json:"text"`
+		Lang string `json:"lang"`
+	}
+	_ = json.Unmarshal(resp.Data, &d)
+	if d.Text == "" {
+		d.Text = resp.Text
+	}
+	return d.Text, d.Lang, nil
+}
+
+// handleVoiceAsk , POST /v1/voice/ask , a question asked aloud: the WAV as the body, the words
+// back ({"text", "lang"}), for the chat to send as a typed question. Nothing is kept: the file
+// goes to <mount>/voiced/ask, ghost.voiced hears it and removes it, no row, no journal entry. A
+// box without a speech engine says so ({"ok": false, "why"}), and the phone falls back to typing.
+func (s *Server) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodPost {
+		s.appearsDown(w)
+		return
+	}
+	mount, ok := s.voiceMount()
+	if !ok || s.closing.Load() {
+		s.appearsDown(w)
+		return
+	}
+	defer s.streaming(w)()
+	dir := voiced.AskDir(mount)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		s.appearsDown(w)
+		return
+	}
+	uid, gid := s.spoolCred()
+	if uid > 0 {
+		_ = os.Chown(filepath.Join(mount, "voiced"), uid, gid)
+		_ = os.Chown(dir, uid, gid)
+	}
+	var rb [8]byte
+	_, _ = rand.Read(rb[:])
+	path := filepath.Join(dir, hex.EncodeToString(rb[:])+".wav")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	if err != nil {
+		s.appearsDown(w)
+		return
+	}
+	n, err := io.Copy(f, gateReader{r: http.MaxBytesReader(w, r.Body, askMaxBytes), stop: &s.closing})
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = wavMagic(path)
+	}
+	if err != nil {
+		_ = os.Remove(path)
+		if s.closing.Load() {
+			s.appearsDown(w)
+			return
+		}
+		http.Error(w, "not a WAV", http.StatusBadRequest)
+		return
+	}
+	if uid > 0 {
+		_ = os.Chown(path, uid, gid)
+	}
+	runDir := filepath.Join(mount, "run")
+	text, lang, err := hearAsk(runDir, path)
+	_ = os.Remove(path) // voiced removes it too; one of the two is enough
+	if err != nil {
+		secdLog.Warn("a question asked aloud was not heard", "fn", "handleVoiceAsk", "bytes", n, "err", err)
+		writeJSON(w, map[string]any{"ok": false, "why": err.Error()})
+		return
+	}
+	text = strings.TrimSpace(text)
+	writeJSON(w, map[string]any{"ok": true, "text": text, "lang": lang, "heard": text != ""})
+}
 
 // voiceMaxBytes bounds one note: 128 MB is 66 minutes of the phone's 16 kHz mono 16-bit WAV. The
 // app stops a recording at 20 minutes (38 MB).

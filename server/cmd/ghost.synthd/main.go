@@ -220,7 +220,7 @@ func main() {
 		}
 	}
 	if runDir != "" {
-		boxWiki.Dir = wikiDirOf(filepath.Dir(runDir)) // the volume's Wikipedia (wikipedia.go)
+		wikiMount = filepath.Dir(runDir) // the volume: its Wikipedia folder and database (wikipedia.go)
 	}
 
 	// Streaming chat , the SAME seam as the ctlsock chat command (context gathered and injected
@@ -1043,9 +1043,12 @@ func main() {
 		mountDir = filepath.Dir(runDir)
 	}
 	if mountDir != "" {
+		wikiMount = mountDir
 		go distillLoop(ctx, mountDir, runDir, lg)
 		// THE NEWS (news.go): the phone's feed bytes in, stories and two digests a day out
 		go newsLoop(ctx, mountDir, runDir, newsProduce, lg)
+		// WIKIPEDIA (wikipedia.go): the mirror's file into the database, a slice a minute
+		go wikiImportLoop(ctx, mountDir, lg)
 	}
 
 	<-ctx.Done()
@@ -1570,20 +1573,27 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 			db = poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port,
 				cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 		}
+		// what this pass did, step by step, for Box Status (hw.SynthStatus, written at the end)
+		did := map[string]int{}
 		// the note about me and my people, when it changed: before the journal, so the names it
 		// gives are known when the entries are read
 		if an, aerr := aboutPass(db, oc, lg); aerr != nil {
 			lg.Warn("about note pass failed", "fn", "distillLoop", "err", aerr)
 		} else if an > 0 {
 			lg.Info("about note made into memories", "fn", "distillLoop", "memories", an)
+			did["about"] = an
 		}
 		// what the check-ins say about me and my people joins the note's
-		if _, cerr := checkinAboutPass(db, oc, lg); cerr != nil {
+		if cn, cerr := checkinAboutPass(db, oc, lg); cerr != nil {
 			lg.Warn("check-in about pass failed", "fn", "distillLoop", "err", cerr)
+		} else if cn > 0 {
+			did["checkins"] = cn
 		}
 		// the memories made before the box knew the name, written again with it
-		if _, nerr := namePass(db, oc, lg); nerr != nil {
+		if nn, nerr := namePass(db, oc, lg); nerr != nil {
 			lg.Warn("name pass failed", "fn", "distillLoop", "err", nerr)
+		} else if nn > 0 {
+			did["named"] = nn
 		}
 		n, err := distillPass(db, oc, lg)
 		if err != nil {
@@ -1593,6 +1603,7 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 		}
 		if n > 0 {
 			lg.Info("distilled", "fn", "distillLoop", "memories", n)
+			did["distilled"] = n
 		}
 		outingsChanged := false
 		if on, oerr := outingPass(db, lg); oerr != nil {
@@ -1600,6 +1611,7 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 		} else if on > 0 {
 			lg.Info("outings updated", "fn", "distillLoop", "outings", on)
 			outingsChanged = true
+			did["outings"] = on
 		}
 		// what belongs together, together: one memory per person, the trips the outings make
 		// (every pass), and once a day the model writes the people whose facts grew
@@ -1607,24 +1619,35 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 			lg.Warn("consolidation failed", "fn", "distillLoop", "err", cerr)
 		} else if folded+trips+people > 0 {
 			lg.Info("consolidated", "fn", "distillLoop", "peopleFolded", folded, "trips", trips, "peopleWritten", people)
+			did["folded"], did["trips"], did["people"] = folded, trips, people
 		}
 		// the places the person keeps going to, counted; and once a day, what the box notices
-		if _, perr := placesPass(db, mount, lg); perr != nil {
+		if pn, perr := placesPass(db, mount, lg); perr != nil {
 			lg.Warn("places pass failed", "fn", "distillLoop", "err", perr)
+		} else if pn > 0 {
+			did["places"] = pn
 		}
-		if _, ierr := insightPass(db, oc, mount, lg); ierr != nil {
+		if in, ierr := insightPass(db, oc, mount, lg); ierr != nil {
 			lg.Warn("insight pass failed", "fn", "distillLoop", "err", ierr)
+		} else if in > 0 {
+			did["insights"] = in
 		}
 		if pn, perr := prosePass(db, oc, mount, lg); perr != nil {
 			lg.Warn("prose pass failed", "fn", "distillLoop", "err", perr)
 		} else if pn > 0 {
 			lg.Info("memories written by the model", "fn", "distillLoop", "memories", pn)
+			did["prose"] = pn
 		}
 		// THE DAYS, after the outings (a day's sheet names the outing it belongs to)
 		if built, wrote, derr := daySummaryPass(db, oc, mount, lg); derr != nil {
 			lg.Warn("day summary pass failed", "fn", "distillLoop", "err", derr)
 		} else if built > 0 {
 			lg.Info("day summaries built", "fn", "distillLoop", "days", built, "byModel", wrote)
+			did["days"], did["daysByModel"] = built, wrote
+		}
+		// and what Box Status shows of this daemon: the pass, the Wikipedia file, the consolidation
+		if serr := hw.SaveSynthStatus(db, hw.SynthStatus{At: time.Now().Unix(), Pass: did, Wiki: wikiStatus(), ConsolidatedDay: setting(db, consolidateKey)}); serr != nil {
+			lg.Warn("status not written", "fn", "distillLoop", "err", serr)
 		}
 	}
 }

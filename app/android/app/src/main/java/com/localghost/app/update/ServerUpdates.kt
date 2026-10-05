@@ -52,16 +52,25 @@ object ServerUpdates {
         return Offer(rel, man.build, man.server)
     }
 
+    /** Why the last check found nothing: the mirror unreachable, no server set in its build, or a
+     *  release that did not read. "" after a check that found one. */
+    fun lastMiss(ctx: Context): String = prefs(ctx).getString("miss", "") ?: ""
+
     /** Reads the mirror (manifest, then the release notes). Null when the mirror has no server set
-     *  or could not be reached. Blocking network: call it off the main thread. */
+     *  or could not be reached ([lastMiss] says which). Blocking network: call it off the main thread. */
     suspend fun check(ctx: Context): Offer? = withContext(Dispatchers.IO) {
-        val manText = fetchText("$MIRROR/MANIFEST.txt") ?: return@withContext null
-        val man = ReleaseInfo.manifest(manText) ?: return@withContext null
-        val notes = man.server.firstOrNull { it.name == "RELEASE.txt" } ?: return@withContext null
-        val relText = fetchText(MIRROR + notes.path) ?: return@withContext null
-        if (sha256(relText.toByteArray()) != notes.sha256) return@withContext null // not what the manifest says
-        val rel = ReleaseInfo.release(relText) ?: return@withContext null
-        prefs(ctx).edit().putString("manifest", manText).putString("release", relText)
+        val miss = { why: String -> prefs(ctx).edit().putString("miss", why).apply(); null }
+        // the manifest is read line by line and only the header and the server set kept: it lists
+        // every file of every set (the elevation tiles alone are tens of thousands of lines)
+        val manText = fetchLines("$MIRROR/MANIFEST.txt", ReleaseInfo::keep) ?: return@withContext miss("the mirror did not answer")
+        val man = ReleaseInfo.manifest(manText) ?: return@withContext miss("the mirror's manifest did not read")
+        val notes = man.server.firstOrNull { it.name == "RELEASE.txt" }
+            ?: return@withContext miss("the mirror's build ${man.build} has no server release in it")
+        val relBytes = fetchBytes(MIRROR + notes.path) ?: return@withContext miss("the release notes did not download")
+        if (sha256(relBytes) != notes.sha256) return@withContext miss("the release notes are not what the manifest says")
+        val relText = String(relBytes)
+        val rel = ReleaseInfo.release(relText) ?: return@withContext miss("the release notes did not read")
+        prefs(ctx).edit().putString("manifest", manText).putString("release", relText).putString("miss", "")
             .putLong("checked", System.currentTimeMillis()).apply()
         Offer(rel, man.build, man.server)
     }
@@ -141,9 +150,29 @@ object ServerUpdates {
             setRequestProperty("Cache-Control", "no-cache")
         }
 
-    private fun fetchText(url: String): String? = try {
+    /** A small text file (a release's notes), whole, up to a megabyte. */
+    private fun fetchBytes(url: String): ByteArray? = try {
         val c = open(url)
-        try { if (c.responseCode == 200) c.inputStream.use { String(it.readBytes().take(1 shl 20).toByteArray()) } else null } finally { c.disconnect() }
+        try { if (c.responseCode == 200) c.inputStream.use { it.readBytes().take(1 shl 20).toByteArray() } else null } finally { c.disconnect() }
+    } catch (e: Exception) { null }
+
+    /** A text file line by line, keeping the lines [keep] says, up to 64 MB read. */
+    private fun fetchLines(url: String, keep: (String) -> Boolean): String? = try {
+        val c = open(url)
+        try {
+            if (c.responseCode != 200) null
+            else c.inputStream.bufferedReader().use { r ->
+                val sb = StringBuilder()
+                var read = 0L
+                while (true) {
+                    val l = r.readLine() ?: break
+                    read += l.length + 1
+                    if (read > (64L shl 20)) break
+                    if (keep(l)) sb.append(l).append('\n')
+                }
+                sb.toString()
+            }
+        } finally { c.disconnect() }
     } catch (e: Exception) { null }
 
     private fun fetchFile(url: String, dst: File): Boolean = try {

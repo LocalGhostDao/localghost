@@ -2103,15 +2103,6 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 		add("from tallyd", one("SELECT count(*) FROM journal_entries WHERE source = 'ghost.tallyd'"))
 		key("awaiting distillation", one("SELECT count(*) FROM journal_entries WHERE NOT distilled"))
 	case "ghost.synthd":
-		key("memories (live)", one("SELECT count(*) FROM memories WHERE NOT tombstoned"))
-		add("yours (user-made)", one("SELECT count(*) FROM memories WHERE kind = 'user' AND NOT tombstoned"))
-		add("tombstoned", one("SELECT count(*) FROM memories WHERE tombstoned"))
-		key("distill queue", one("SELECT count(*) FROM journal_entries WHERE NOT distilled"))
-		add("day episodes", one("SELECT count(*) FROM memories WHERE kind = 'episode' AND NOT tombstoned"))
-		add("cached reports", one("SELECT count(*) FROM reports"))
-		// THE NEWS the phone fetches for the box: the feeds and their health (a feed that has
-		// failed three times in a row is a key row: the person wants to know it stopped), the
-		// entries, the stories, the last digest.
 		nowS := time.Now().Unix()
 		ago := func(ts string) string {
 			n, err := strconv.ParseInt(ts, 10, 64)
@@ -2129,6 +2120,103 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 			}
 			return fmt.Sprintf("%d days ago", int(d.Hours())/24)
 		}
+		// THE LAST PASS, as synthd wrote it at its end (SynthStatus): when, and what it did. A pass
+		// older than half an hour is a key row with a word of warning: the loop runs every ten
+		// minutes while the box is unlocked.
+		st, hasStatus := LoadSynthStatus(c)
+		switch {
+		case !hasStatus:
+			key("last pass", "none yet (the first runs ten minutes after unlock)")
+		default:
+			line := ago(strconv.FormatInt(st.At, 10))
+			if nowS-st.At > 1800 {
+				line += " , LATE (every 10 minutes while unlocked)"
+			}
+			if did := synthDid(st.Pass); did != "" {
+				line += " · " + did
+			} else {
+				line += " · nothing to do"
+			}
+			key("last pass", line)
+		}
+		// THE MEMORIES, by what they are
+		key("memories (live)", one("SELECT count(*) FROM memories WHERE NOT tombstoned")+
+			" · people "+one("SELECT count(*) FROM memories WHERE kind = 'person' AND NOT tombstoned")+
+			" · trips "+one("SELECT count(*) FROM memories WHERE kind = 'trip' AND NOT tombstoned")+
+			" · outings "+one("SELECT count(*) FROM memories WHERE kind = 'outing' AND NOT tombstoned")+
+			" · days "+one("SELECT count(*) FROM memories WHERE kind = 'day' AND NOT tombstoned")+
+			" · distilled "+one("SELECT count(*) FROM memories WHERE kind = 'distilled' AND NOT tombstoned")+
+			" · about me "+one("SELECT count(*) FROM memories WHERE kind = 'me' AND NOT tombstoned")+
+			" · places "+one("SELECT count(*) FROM memories WHERE kind = 'place' AND NOT tombstoned")+
+			" · noticed "+one("SELECT count(*) FROM memories WHERE kind = 'insight' AND NOT tombstoned"))
+		add("yours (user-made)", one("SELECT count(*) FROM memories WHERE kind = 'user' AND NOT tombstoned")+
+			" · edited by hand "+one("SELECT count(*) FROM memories WHERE user_edited AND NOT tombstoned")+
+			" · deleted "+one("SELECT count(*) FROM memories WHERE tombstoned"))
+		key("distill queue", one("SELECT count(*) FROM journal_entries WHERE NOT distilled")+
+			" entries waiting · "+one("SELECT count(*) FROM journal_entries WHERE distilled")+" read")
+		// WRITTEN BY THE MODEL: the outings and trips with prose, the days the model told
+		add("written by the model", "outings "+one("SELECT count(*) FROM memories WHERE kind = 'outing' AND NOT tombstoned AND coalesce(meta->>'prose','') <> ''")+
+			" of "+one("SELECT count(*) FROM memories WHERE kind = 'outing' AND NOT tombstoned")+
+			" · trips "+one("SELECT count(*) FROM memories WHERE kind = 'trip' AND NOT tombstoned AND coalesce(meta->>'prose','') <> ''")+
+			" of "+one("SELECT count(*) FROM memories WHERE kind = 'trip' AND NOT tombstoned")+
+			" · people "+one("SELECT count(*) FROM memories WHERE kind = 'person' AND NOT tombstoned AND coalesce(meta->>'prose','') <> ''")+
+			" of "+one("SELECT count(*) FROM memories WHERE kind = 'person' AND NOT tombstoned")+
+			" · days "+one("SELECT count(*) FROM day_summaries WHERE written_by = 'model'")+
+			" of "+one("SELECT count(*) FROM day_summaries"))
+		add("days told", one("SELECT count(*) FROM day_summaries")+" · newest "+one("SELECT coalesce(max(day),'none') FROM day_summaries")+
+			" · oldest "+one("SELECT coalesce(min(day),'none') FROM day_summaries")+
+			" · folded under a trip or an outing "+one("SELECT count(*) FROM memories WHERE kind IN ('day','outing') AND NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'part_of')"))
+		// CONSOLIDATION: the merging and folding run every pass; the model writes the people once a day
+		{
+			line := "people written by the model " + one("SELECT count(*) FROM memories WHERE kind = 'person' AND NOT tombstoned AND coalesce(meta->>'prose','') <> ''") +
+				" · with facts from the chats and check-ins " + one("SELECT count(*) FROM memories WHERE kind = 'person' AND NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'facts')") +
+				" · with other names " + one("SELECT count(*) FROM memories WHERE kind = 'person' AND NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'aliases')")
+			if hasStatus && st.ConsolidatedDay != "" {
+				line += " · last daily writing " + st.ConsolidatedDay
+			} else {
+				line += " · daily writing not yet (needs the GPU)"
+			}
+			add("consolidation", line)
+		}
+		// WIKIPEDIA, in the database once imported: a key row while it is importing, downloading or failed
+		if hasStatus {
+			wk := st.Wiki
+			switch wk.State {
+			case "ready":
+				v := wk.Name + " · " + humanCount(wk.Articles) + " articles, " + humanCount(wk.Redirects) + " redirects, in Postgres"
+				if wk.Answers > 0 {
+					v += fmt.Sprintf(" · answered %d question%s since start", wk.Answers, plural(wk.Answers))
+				}
+				add("wikipedia", v)
+			case "importing":
+				pct := 0.0
+				if wk.Total > 0 {
+					pct = 100 * float64(wk.Next) / float64(wk.Total)
+				}
+				key("wikipedia", fmt.Sprintf("importing %s: %.0f%% of the file read, %s articles and %s redirects in so far", wk.File, pct, humanCount(wk.Articles), humanCount(wk.Redirects)))
+			case "downloading":
+				key("wikipedia", fmt.Sprintf("downloading, %.1f GB so far of about 50 (%s); imported into the database once it is here", float64(wk.Downloading)/(1<<30), wk.File))
+			case "failed":
+				key("wikipedia", "the import stopped: "+wk.Error+" (tried again every minute)")
+			case "locked":
+				add("wikipedia", "the database is locked")
+			default:
+				add("wikipedia", "none on the box (sudo ./tools/update.sh wiki fetches the file, about 50 GB; it is imported into the database and then removed)")
+			}
+		}
+		add("about note", func() string {
+			if one("SELECT coalesce(value,'') FROM settings WHERE key = 'about_me'") == "0" {
+				return "not written yet"
+			}
+			if one("SELECT count(*) FROM settings WHERE key = 'about_me_distilled' AND value = $1", AboutHash(one("SELECT value FROM settings WHERE key = 'about_me'"))) == "1" {
+				return "made into memories · name " + one("SELECT coalesce(value,'(none)') FROM settings WHERE key = 'owner_name'")
+			}
+			return "changed, memories not made yet (needs the GPU)"
+		}())
+		add("chats answered", one("SELECT count(*) FROM chats")+" chats · "+one("SELECT count(*) FROM chat_messages WHERE role = 'assistant'")+" answers")
+		// THE NEWS the phone fetches for the box: the feeds and their health (a feed that has
+		// failed three times in a row is a key row: the person wants to know it stopped), the
+		// entries, the stories, the last digest.
 		key("news", one("SELECT count(*) FROM news_feeds WHERE enabled")+" feeds, "+
 			one("SELECT count(*) FROM news_feeds WHERE enabled AND last_ok >= $1", nowS-3*3600)+" answered in the last 3 h · "+
 			one("SELECT count(*) FROM news_items WHERE published >= $1", nowS-7*86400)+" entries this week · "+
@@ -2302,6 +2390,9 @@ type CheckinRow struct {
 	// Voice: the note recorded with the check-in (the "Voice: <id>" line), with its transcript once
 	// ghost.voiced has one.
 	Voice *VoiceNote `json:"voice,omitempty"`
+	// Voices: every note said to the check-in, in the order said: the one recorded with it first,
+	// then the ones added through the day (kind checkin, the same day). Voice is the first of them.
+	Voices []VoiceNote `json:"voices,omitempty"`
 }
 
 // CheckinHistory , past check-ins, newest first. The check-in is a journal entry by design (one
@@ -2346,6 +2437,26 @@ func (s *NotifStore) CheckinHistory(slot, n int) ([]CheckinRow, error) {
 				// uploaded later than the check-in text, or deleted: the id alone says a note was made
 				out[i].Voice = &VoiceNote{ID: id, Status: "missing"}
 			}
+		}
+	}
+	// the notes added to the check-in through the day (kind checkin, that day), after the first
+	days := make([]string, 0, len(out))
+	for _, r := range out {
+		days = append(days, r.Day)
+	}
+	added := voiceOfDays(c, "checkin", days)
+	for i := range out {
+		if out[i].Voice != nil {
+			out[i].Voices = append(out[i].Voices, *out[i].Voice)
+		}
+		for _, n := range added[out[i].Day] {
+			if out[i].Voice == nil || n.ID != out[i].Voice.ID {
+				out[i].Voices = append(out[i].Voices, n)
+			}
+		}
+		if out[i].Voice == nil && len(out[i].Voices) > 0 {
+			first := out[i].Voices[0]
+			out[i].Voice = &first
 		}
 	}
 	return out, nil
@@ -2544,4 +2655,44 @@ func (s *NotifStore) DeviceNameSet(slot int, device, name, model, stableID strin
 			model = CASE WHEN EXCLUDED.model <> '' THEN EXCLUDED.model ELSE device_names.model END,
 			stable_id = CASE WHEN EXCLUDED.stable_id <> '' THEN EXCLUDED.stable_id ELSE device_names.stable_id END`,
 		device, name, model, stableID)
+}
+
+// synthDid is a pass's work in a line: "distilled 3 · outings 1 · trips 1", "" when it did nothing.
+func synthDid(pass map[string]int) string {
+	order := []string{"about", "checkins", "named", "distilled", "outings", "folded", "trips", "people", "places", "insights", "prose", "days", "daysByModel"}
+	names := map[string]string{"about": "note", "checkins": "check-in facts", "named": "renamed", "distilled": "distilled", "outings": "outings",
+		"folded": "people merged", "trips": "trips", "people": "people written", "places": "places", "insights": "noticed", "prose": "written", "days": "days", "daysByModel": "days by the model"}
+	var parts []string
+	for _, k := range order {
+		if n := pass[k]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%s %d", names[k], n))
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+// humanCount: 19707096 → "19.7 million", 1234 → "1,234".
+func humanCount(n int64) string {
+	switch {
+	case n >= 1000000:
+		return strconv.FormatFloat(float64(n)/1e6, 'f', 1, 64) + " million"
+	case n >= 1000:
+		s := strconv.FormatInt(n, 10)
+		var b strings.Builder
+		for i, r := range s {
+			if i > 0 && (len(s)-i)%3 == 0 {
+				b.WriteByte(',')
+			}
+			b.WriteRune(r)
+		}
+		return b.String()
+	}
+	return strconv.FormatInt(n, 10)
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

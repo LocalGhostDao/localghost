@@ -228,15 +228,22 @@ for svc in $CHECK; do
                 dl=$(echo "$d" | sed -n 's/.*"oldest":"\([^"]*\)".*/\1/p' | head -1)
                 dw=$(echo "$d" | sed -n 's/.*"backfillAt":"\([^"]*\)".*/\1/p' | head -1)
                 [ -n "$dn" ] && printf '  day summaries %s (%s by the model), back to %s, backfill at %s\n' "$dn" "${dm:-0}" "${dl:-?}" "${dw:-start}"
-                # The box's own Wikipedia (ghost-cli ghost.synthd wiki title=… reads one article).
+                # The box's own Wikipedia, in the database once the file is imported (ghost-cli
+                # ghost.synthd wiki q=… searches it, idx=… reads one article).
                 wk=$(cj ghost.synthd wiki)
-                wn=$(echo "$wk" | sed -n 's/.*"name":"\([^"]*\)".*/\1/p' | head -1)
-                we=$(echo "$wk" | sed -n 's/.*"entries":\([0-9]*\).*/\1/p' | head -1)
-                if [ -n "$wn" ]; then
-                    printf '  wikipedia: %s, %s entries, read on the box\n' "$wn" "${we:-?}"
-                else
-                    printf '  wikipedia: none (sudo ./tools/update.sh wiki fetches it, about 50 GB)\n'
-                fi
+                ws=$(echo "$wk" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p' | head -1)
+                wn=$(echo "$wk" | sed -n 's/.*"edition":"\([^"]*\)".*/\1/p' | head -1)
+                wa=$(echo "$wk" | sed -n 's/.*"articles":\([0-9]*\).*/\1/p' | head -1)
+                wr=$(echo "$wk" | sed -n 's/.*"redirects":\([0-9]*\).*/\1/p' | head -1)
+                wi=$(echo "$wk" | sed -n 's/.*"imported":\([0-9]*\).*/\1/p' | head -1)
+                wt=$(echo "$wk" | sed -n 's/.*"entries":\([0-9]*\).*/\1/p' | head -1)
+                case "$ws" in
+                    ready) printf '  wikipedia: %s, %s articles and %s redirects in the database\n' "$wn" "${wa:-?}" "${wr:-?}" ;;
+                    importing) printf '  wikipedia: importing, %s of %s entries read, %s articles in so far (Box Status shows it; an hour or two)\n' "${wi:-0}" "${wt:-?}" "${wa:-0}" ;;
+                    downloading) printf '  wikipedia: downloading the file (update.sh), imported into the database once it is here\n' ;;
+                    failed) printf '  wikipedia: the import stopped: %s (tried again every minute)\n' "$(echo "$wk" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p' | head -1)" ;;
+                    *) printf '  wikipedia: none (sudo ./tools/update.sh wiki fetches it, about 50 GB; imported, then the file goes)\n' ;;
+                esac
             fi
         else
             printf '  %s   (socket present but not answering ping , wedged or mid-restart)\n' "$(red STALE)"

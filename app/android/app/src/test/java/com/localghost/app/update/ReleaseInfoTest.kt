@@ -38,6 +38,34 @@ d23072b4dd44e7c82758696f242d74d8c51bac6895bd4907fa05ef72ed8c8ccd  /20260930T1200
         assertEquals("0.9.3", ReleaseInfo.release("version=0.9.3\n")!!.label)
     }
 
+    @Test fun keepsOnlyTheHeaderAndTheServerSetWhileReading() {
+        // the manifest lists every set; a phone reading it line by line keeps these and drops the rest
+        val kept = manifest.lines().filter(ReleaseInfo::keep)
+        assertTrue(kept.contains("# Build: 20260930T120000Z"))
+        assertTrue(kept.contains(""))
+        assertTrue(kept.any { it.endsWith("/server/RELEASE.txt") })
+        assertFalse(kept.any { it.contains("/geo/") })
+        assertFalse(ReleaseInfo.keep("e23072b4dd44e7c82758696f242d74d8c51bac6895bd4907fa05ef72ed8c8ccd  /20260930T120000Z/elevation/Copernicus_DSM_COG_10_N51_00_W001_00_DEM.tif"))
+        // what is kept still reads as the manifest
+        val m = ReleaseInfo.manifest(kept.joinToString("\n"))!!
+        assertEquals(3, m.server.size)
+        assertEquals("0.9.3", ReleaseInfo.release("version=0.9.3\ngo=1.27.1\n")!!.version)
+        assertEquals("1.27.1", ReleaseInfo.release("version=0.9.3\ngo=1.27.1\n")!!.go)
+    }
+
+    @Test fun describesABuild() {
+        assertEquals("4 Oct 2026, 17:12 UTC", ReleaseInfo.at("2026-10-04T17:12:00Z"))
+        assertEquals("4 Oct 2026, 17:12 +01:00", ReleaseInfo.at("2026-10-04T17:12:00+01:00"))
+        assertEquals("30 Sep 2026", ReleaseInfo.at("2026-09-30"))
+        assertEquals("yesterday", ReleaseInfo.at("yesterday"))
+        assertEquals("1062b7f", ReleaseInfo.short("1062b7f9a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6"))
+        assertEquals("wisp 0.0.4 (1062b7f), built 4 Oct 2026, 17:12 UTC, Go 1.27.1",
+            ReleaseInfo.describe("wisp 0.0.4", "1062b7f9a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6", "2026-10-04T17:12:00Z", "go1.27.1"))
+        assertEquals("v0.0.3-12-gfb28812-dirty, built 4 Oct 2026, 18:02 UTC, Go 1.27.1",
+            ReleaseInfo.describe("v0.0.3-12-gfb28812-dirty", "", "2026-10-04T18:02:11Z", "go1.27.1"))
+        assertEquals("0.0.3", ReleaseInfo.describe("0.0.3", "", "", "")) // an older box says only its version
+    }
+
     @Test fun comparesVersions() {
         assertTrue(ReleaseInfo.newer("0.9.3", "0.9.2"))
         assertTrue(ReleaseInfo.newer("0.10.0", "0.9.9"))

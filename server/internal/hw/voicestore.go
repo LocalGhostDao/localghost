@@ -103,6 +103,23 @@ func (s *NotifStore) VoiceDelete(slot int, id string) (string, bool, error) {
 }
 
 // voiceByIDs fills check-in rows with their notes (the "Voice: <id>" line of the check-in text).
+// voiceOfDays , the notes of a kind on each of the days given, in the order said.
+func voiceOfDays(c *poltergres.ReadWrite, kind string, days []string) map[string][]VoiceNote {
+	out := map[string][]VoiceNote{}
+	if len(days) == 0 {
+		return out
+	}
+	rows, err := c.Query("SELECT "+voiceCols+" FROM voice_notes WHERE kind = $1 AND day = ANY($2) ORDER BY taken_at", kind, "{"+strings.Join(days, ",")+"}")
+	if err != nil {
+		return out
+	}
+	for _, v := range rows.Vals {
+		n := voiceRow(v)
+		out[n.Day] = append(out[n.Day], n)
+	}
+	return out
+}
+
 func voiceByIDs(c *poltergres.ReadWrite, ids []string) map[string]VoiceNote {
 	out := map[string]VoiceNote{}
 	if len(ids) == 0 {

@@ -114,11 +114,18 @@ lists differently from what the box has, and hands the result to the daemon that
   `llama-server` goes onto the volume and ghost.oracled is restarted. A CPU-only build never
   replaces a CUDA one.
 - **Wikipedia.** English, without pictures (set `wikipedia`, one ZIM file of about 50 GB, as Kiwix
-  packages it), into the volume's `wiki/`, when the volume has 60 GB free; ghost.synthd opens it
-  within a minute. From then on "what is X" in the chat and the coin pages read it on the box, and
-  a question it answers never goes to the web (the plan says the box has it, as for the weather).
-  `tools/health.sh` shows "wikipedia: <file>, <n> entries"; `ghost-cli ghost.synthd wiki
-  title=Corfu` reads one article. Kept current with the rest once it is there.
+  packages it), into the volume's `wiki/`, when the volume has 60 GB free. ghost.synthd then
+  IMPORTS it into the volume's database, a slice a minute in the background (an hour or two; Box
+  Status and `tools/health.sh` show how far): every article's title, lead and text, and every
+  redirect, into `wiki_articles` and `wiki_redirects`; when it is all in, the file is removed and
+  `.imported` is left in its place (the file's name, its hash and the edition), which this script
+  reads so the file is fetched again only for a newer edition. From then on "what is X" in the
+  chat, a question that names a thing, the coin pages and the phone's WIKIPEDIA page read the
+  database (a title in any case, a redirect, a place with its qualifier, a prefix, a likeness, the
+  words of a lead), the file is never opened at a question, and a question the box answers never
+  goes to the web. `ghost-cli ghost.synthd wiki q=corfu` searches, `wiki idx=<n>` reads one
+  article whole. A newer edition on the mirror is fetched, imported in place of the old one, and
+  removed again.
 
 A set installed from the mirror leaves a record: `<dir>/.<name>.sha256`, `<geo>/.mirror-geo`, and
 `.mirror-landpolygons` beside the shapefile. When everything is current, a rerun costs a few
@@ -535,7 +542,10 @@ After this the box takes a new server release from the app, with the PIN and no 
 reads the mirror once a day on Wi-Fi, says when there is a newer release, and DEPLOY in SETTINGS ›
 SERVER hands the signed set to the box. The box checks the signature with the key it already holds,
 puts the release on, locks, and restarts onto it; the first unlock after is a trial, and the earlier
-build comes back by itself if the new one fails it (or from ROLL BACK). Once, as root:
+build comes back by itself if the new one fails it (or from ROLL BACK). The box keeps the signed
+set of every release it took (the last four, under /var/lib/ghost/update/releases/<version>/set):
+SETTINGS lists them under ON THE SHELF, and `[ put on ]` deploys one again from there, verified
+again, on trial again; the mirror offers only the newest. Once, as root:
 
     sudo ./tools/redeploy.sh    # installs ghost-update-guard, its unit drop-in, and the verifier +
                                 # site key in /opt/localghost/tools

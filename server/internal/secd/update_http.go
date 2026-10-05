@@ -9,14 +9,21 @@ package secd
 // daemons up; a failed first unlock, a daemon that keeps dying, a secd that will not stay up, or
 // the person asking, puts the earlier build back.
 //
-//   GET  /v1/update                  , {"version", "trial": {...}}: what runs, and the trial's state
+//   GET  /v1/update                  , what runs (version, name, commit, builtAt, go), the trial's
+//                                      state, and the shelf: the releases the box keeps
 //   POST /v1/update/file?name=...    , one file of the set: MANIFEST.txt (first; it starts a new
 //                                      upload), MANIFEST.txt.asc, <build>/server/<file>
 //   POST /v1/update/apply            , verify, put on, lock and restart; {"ok", "version"}
+//   POST /v1/update/switch           , {"version"}: a release from the shelf back on (verified
+//                                      again, unpacked again, tried again), lock and restart
 //   POST /v1/update/rollback         , the earlier build back, lock and restart
+//
+// THE SHELF (internal/update/shelf.go). The mirror offers one release, the newest; the box keeps
+// the signed set of every release it took, so an earlier one can go back on without the mirror.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +32,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +48,15 @@ var Version = "dev"
 // ReleaseName is the release's name (tools/release.names: 0.0.1 is "wisp"), "" for a build from
 // source.
 var ReleaseName = ""
+
+// Commit is the commit the build came from (Makefile: git rev-parse; tools/release_build.sh: the
+// tag's), "" when the build did not say.
+var Commit = ""
+
+// BuiltAt is when the build was made, RFC 3339 UTC. For a release it is the commit's time
+// (release_build.sh: the build is reproducible, and a clock reading would make it not), for a build
+// from source the moment make ran.
+var BuiltAt = ""
 
 // updateMaxBytes bounds one uploaded file of the set (the bundle is the big one).
 const updateMaxBytes = 512 << 20
@@ -58,8 +75,9 @@ type updateState struct {
 	busy     bool
 	watching bool
 	paths    *update.Paths // nil: the box's
-	// verify runs the mirror's verifier over the uploaded copy into dir; tests replace it
-	verify func(ctx context.Context, p update.Paths, incoming, dir string) error
+	// verify runs the mirror's verifier over the set at from into dir; tests replace it. shelf
+	// says the set is one the box kept (an older manifest than the newest it has used).
+	verify func(ctx context.Context, p update.Paths, from, dir string, shelf bool) error
 }
 
 func (s *Server) updPaths() update.Paths {
@@ -71,8 +89,11 @@ func (s *Server) updPaths() update.Paths {
 
 // mirrorVerify is the mirror's own check over a copy of the mirror on disk: the manifest's
 // signature against the site key pinned in tools (installed beside the verifier, never taken from
-// the upload), every file's SHA-256, and no manifest older than the newest the box has used.
-func mirrorVerify(ctx context.Context, p update.Paths, incoming, dir string) error {
+// the upload), every file's SHA-256, and no manifest older than the newest the box has used. A set
+// from the shelf is older by nature (the box took it when it was the newest, and verified it then),
+// so for that run the verifier reads and writes its "newest build used" marker in the scratch
+// directory: the real marker neither refuses the set nor moves back to it.
+func mirrorVerify(ctx context.Context, p update.Paths, from, dir string, shelf bool) error {
 	script := filepath.Join(p.Tools, "mirror_fetch.sh")
 	key := filepath.Join(p.Tools, "mirror-key.asc")
 	for _, f := range []string{script, key} {
@@ -81,7 +102,10 @@ func mirrorVerify(ctx context.Context, p update.Paths, incoming, dir string) err
 		}
 	}
 	cmd := exec.CommandContext(ctx, "/bin/sh", script, "server", dir)
-	cmd.Env = append(os.Environ(), "GHOST_MIRROR=file://"+incoming, "GHOST_MIRROR_KEY="+key)
+	cmd.Env = append(os.Environ(), "GHOST_MIRROR=file://"+from, "GHOST_MIRROR_KEY="+key)
+	if shelf {
+		cmd.Env = append(cmd.Env, "GHOST_MIRROR_STATE="+filepath.Join(p.State, "shelf-build"))
+	}
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("the release did not verify: %v: %s", err, lastLine(string(out)))
@@ -100,7 +124,9 @@ func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
-	writeJSON(w, map[string]any{"version": Version, "name": ReleaseName, "trial": update.LoadTrial(s.updPaths())})
+	p := s.updPaths()
+	writeJSON(w, map[string]any{"version": Version, "name": ReleaseName, "commit": Commit, "builtAt": BuiltAt, "go": runtime.Version(),
+		"trial": update.LoadTrial(p), "shelf": update.Shelf(p)})
 }
 
 // handleUpdateFile , POST /v1/update/file?name=... , one file of the set, streamed to incoming/.
@@ -144,12 +170,43 @@ func (s *Server) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"ok": true, "bytes": n})
 }
 
-// handleUpdateApply , POST /v1/update/apply.
+// handleUpdateApply , POST /v1/update/apply: the set the phone uploaded.
 func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodPost {
 		s.appearsDown(w)
 		return
 	}
+	p := s.updPaths()
+	s.putOn(w, r, filepath.Join(p.State, "incoming"), false)
+}
+
+// handleUpdateSwitch , POST /v1/update/switch {"version"}: a release from the shelf.
+func (s *Server) handleUpdateSwitch(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodPost {
+		s.appearsDown(w)
+		return
+	}
+	var in struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil || !updateVersionRE.MatchString(in.Version) {
+		http.Error(w, "which version?", http.StatusBadRequest)
+		return
+	}
+	p := s.updPaths()
+	set := update.SetDir(p, in.Version)
+	if _, err := os.Stat(filepath.Join(set, "MANIFEST.txt.asc")); err != nil {
+		writeJSON(w, map[string]any{"ok": false, "why": "the box keeps no signed set of " + in.Version})
+		return
+	}
+	s.putOn(w, r, set, true)
+}
+
+var updateVersionRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`)
+
+// putOn verifies the set at from (the upload, or a set from the shelf), unpacks its bundle, puts the
+// release on and restarts onto it; the set goes to (or stays on) the shelf. One at a time.
+func (s *Server) putOn(w http.ResponseWriter, r *http.Request, from string, shelf bool) {
 	s.mu.Lock()
 	mounted := s.mounted
 	s.mu.Unlock()
@@ -176,8 +233,8 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
-	if err := verify(ctx, p, filepath.Join(p.State, "incoming"), verified); err != nil {
-		secdLog.Warn("update refused", "fn", "handleUpdateApply", "err", err)
+	if err := verify(ctx, p, from, verified, shelf); err != nil {
+		secdLog.Warn("update refused", "fn", "putOn", "shelf", shelf, "err", err)
 		writeJSON(w, map[string]any{"ok": false, "why": err.Error()})
 		return
 	}
@@ -189,9 +246,20 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	rel, err := update.Unpack(bundles[0], filepath.Join(p.State, "releases", "unpacking"))
 	if err == nil {
 		final := filepath.Join(p.State, "releases", rel.Version)
-		_ = os.RemoveAll(final)
-		if err = os.Rename(rel.Dir, final); err == nil {
-			rel.Dir = final
+		if shelf {
+			// the set being put on lives under final: it moves with the fresh unpack
+			if err = os.Rename(from, filepath.Join(rel.Dir, "set")); err == nil {
+				from = filepath.Join(rel.Dir, "set")
+			}
+		}
+		if err == nil {
+			_ = os.RemoveAll(final)
+			if err = os.Rename(rel.Dir, final); err == nil {
+				rel.Dir = final
+				if shelf {
+					from = update.SetDir(p, rel.Version)
+				}
+			}
 		}
 	}
 	if err != nil {
@@ -204,16 +272,23 @@ func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	}
 	cohort := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "bin")
 	if err := update.Apply(p, rel, cohort, Version); err != nil {
-		secdLog.Error("update not put on (the running build is untouched where the error came first)", "fn", "handleUpdateApply", "err", err)
+		secdLog.Error("update not put on (the running build is untouched where the error came first)", "fn", "putOn", "err", err)
 		if rerr := update.Rollback(p, "putting it on failed: "+err.Error()); rerr != nil {
-			secdLog.Error("and the earlier build could not be put back", "fn", "handleUpdateApply", "err", rerr)
+			secdLog.Error("and the earlier build could not be put back", "fn", "putOn", "err", rerr)
 		}
 		writeJSON(w, map[string]any{"ok": false, "why": err.Error()})
 		return
 	}
-	secdLog.Info("release put on, restarting onto it", "fn", "handleUpdateApply", "from", Version, "to", rel.Version)
+	// the set onto the shelf (a switch's is there already), the oldest off it
+	if err := update.Keep(p, rel.Version, from); err != nil {
+		secdLog.Warn("the set was not kept on the shelf", "fn", "putOn", "version", rel.Version, "err", err)
+	}
+	if dropped := update.Prune(p, rel.Version); len(dropped) > 0 {
+		secdLog.Info("shelf pruned", "fn", "putOn", "dropped", strings.Join(dropped, " "))
+	}
+	secdLog.Info("release put on, restarting onto it", "fn", "putOn", "from", Version, "to", rel.Version, "shelf", shelf)
 	writeJSON(w, map[string]any{"ok": true, "version": rel.Version, "changes": rel.Changes})
-	s.restartOnto("the new release " + rel.Version)
+	s.restartOnto("the release " + rel.Version)
 }
 
 // handleUpdateRollback , POST /v1/update/rollback.

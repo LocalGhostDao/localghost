@@ -251,8 +251,8 @@ func chatIdentity(mount string) string {
 func holdingsText() string {
 	var b strings.Builder
 	b.WriteString("What you hold besides my archive: ")
-	if w, err := boxWiki.Get(); err == nil && w != nil {
-		b.WriteString("a copy of the English Wikipedia (" + w.Name + "), which is yours to quote when an article is given to you as [wikipedia] context; ")
+	if _, edition, ok := wikiReady(); ok {
+		b.WriteString("a copy of the English Wikipedia (" + edition + "), which is yours to quote when an article is given to you as [wikipedia] context; ")
 	}
 	b.WriteString("the weather for the world's larger places, pulled once a day; the prices and the news the box keeps. ")
 	b.WriteString("You have no internet of your own; anything from the web was fetched by my phone and is labelled as such. When you were given nothing on a thing, say the box has nothing on it.")

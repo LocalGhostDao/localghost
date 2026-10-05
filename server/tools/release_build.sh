@@ -58,6 +58,8 @@ if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
     exit 1
 fi
 EPOCH="$(git log -1 --format=%ct 2>/dev/null || date +%s)"
+# the build's time is the commit's: the bytes must not depend on when the build ran
+BUILT="$(date -u -d "@$EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
 PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
 
 W="$(mktemp -d)"
@@ -65,6 +67,7 @@ trap 'rm -rf "$W"' EXIT
 mkdir -p "$W/b/bin" "$W/b/tools" "$OUT"
 
 LDFLAGS="-s -w -buildid= -X github.com/LocalGhostDao/localghost/server/internal/secd.Version=$VERSION -X github.com/LocalGhostDao/localghost/server/internal/secd.ReleaseName=$RELNAME"
+LDFLAGS="$LDFLAGS -X github.com/LocalGhostDao/localghost/server/internal/secd.Commit=$COMMIT -X github.com/LocalGhostDao/localghost/server/internal/secd.BuiltAt=$BUILT"
 build() { CGO_ENABLED=0 GOOS=linux GOARCH=amd64 "$GO" build -trimpath -ldflags "$LDFLAGS" -o "$W/b/bin/$1" "./cmd/$1"; }
 build ghost.secd
 for d in cmd/ghost.*; do
@@ -112,7 +115,7 @@ NAME="localghost-server-$VERSION-linux-amd64.tar.gz"
     echo "version=$VERSION"
     [ -n "$RELNAME" ] && echo "name=$RELNAME"
     echo "commit=$COMMIT"
-    echo "date=$(date -u -d "@$EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
+    echo "date=$BUILT"
     echo "go=$GO_HAVE"
     echo "bundle=$NAME"
     echo "since=${PREV:-the first release}"

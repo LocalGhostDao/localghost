@@ -240,6 +240,7 @@ class MainActivity : ComponentActivity() {
         permChain.add(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
         if (Build.VERSION.SDK_INT >= 29) permChain.add(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
         permChain.add(arrayOf(Manifest.permission.CAMERA))
+        permChain.add(arrayOf(Manifest.permission.RECORD_AUDIO))
         AppSettings.setEverAskedMedia(this, true)
         AppSettings.setWelcomeAsked(this, true)
         permAsking = true
@@ -271,6 +272,9 @@ class MainActivity : ComponentActivity() {
             "synced to your box and indexed there, nowhere else",
             state(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED))
         rows += Grant("◈", "camera", "to scan the codes on your box", state(Manifest.permission.CAMERA))
+        rows += Grant("◈", "microphone",
+            "voice notes to your check-in, and questions asked aloud; heard on your box, nowhere else",
+            state(Manifest.permission.RECORD_AUDIO))
         return rows
     }
 

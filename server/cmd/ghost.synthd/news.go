@@ -65,9 +65,13 @@ type newsResult struct {
 }
 
 // seedFeeds puts the default list in once; an operator's edits stand after that. The papers an
-// earlier list seeded and this one does not are taken off once (feeds.Retired).
+// earlier list seeded and this one does not are taken off once (feeds.Retired); the ones a later
+// list brings are put on once (feeds.Added).
 func seedFeeds(db *poltergres.ReadWrite) error {
 	if err := retireFeeds(db); err != nil {
+		return err
+	}
+	if err := addFeeds(db); err != nil {
 		return err
 	}
 	if err := retellStories(db, time.Now()); err != nil {
@@ -87,6 +91,28 @@ func seedFeeds(db *poltergres.ReadWrite) error {
 		}
 	}
 	return db.Exec("INSERT INTO settings (key, value) VALUES ('news_seeded', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", strconv.FormatInt(now, 10))
+}
+
+// addFeeds puts each of feeds.Added on a box that has not had it yet, once: a marker in settings
+// says it was offered, so an operator who removes it is not given it again at the next start.
+func addFeeds(db *poltergres.ReadWrite) error {
+	now := time.Now().Unix()
+	for _, a := range feeds.Added {
+		rows, err := db.Query("SELECT 1 FROM settings WHERE key = $1", "news_added_"+a.ID)
+		if err != nil {
+			return err
+		}
+		if len(rows.Vals) > 0 {
+			continue
+		}
+		if err := db.Exec("INSERT INTO news_feeds (id, name, url, added_at) VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING", a.ID, a.Name, a.URL, now); err != nil {
+			return err
+		}
+		if err := db.Exec("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING", "news_added_"+a.ID, strconv.FormatInt(now, 10)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // retireFeeds takes the retired papers off, once: the feed, its entries, and its count in the

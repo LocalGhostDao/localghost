@@ -288,9 +288,17 @@ object BoxClient {
         false
     }
 
-    /** What the box runs and a release on trial (GET /v1/update); null from a box that predates it. */
+    /** A release the box keeps on its shelf (GET /v1/update "shelf"): one with [set] can go back on. */
+    class Kept(val version: String, val name: String, val commit: String, val date: String, val go: String,
+               val changes: Int, val at: Long, val set: Boolean) {
+        val label: String get() = if (name.isNotBlank()) "$name $version" else version
+    }
+
+    /** What the box runs and a release on trial (GET /v1/update); null from a box that predates it.
+     *  [commit], [builtAt] and [go] come from a 0.0.5 box, "" before. */
     class UpdateStatus(val version: String, val trialVersion: String, val trialPrev: String, val trialState: String, val trialReason: String,
-                       val name: String = "") {
+                       val name: String = "", val commit: String = "", val builtAt: String = "", val go: String = "",
+                       val shelf: List<Kept> = emptyList()) {
         /** "wisp 0.0.1", or the version alone (a build from source has no name). */
         val label: String get() = if (name.isNotBlank()) "$name $version" else version
     }
@@ -300,13 +308,32 @@ object BoxClient {
         if (!o.has("version")) null
         else {
             val t = o.optJSONObject("trial") ?: org.json.JSONObject()
+            val shelf = ArrayList<Kept>()
+            o.optJSONArray("shelf")?.let { a ->
+                for (i in 0 until a.length()) {
+                    val k = a.optJSONObject(i) ?: continue
+                    shelf.add(Kept(k.optString("version", ""), k.optString("name", ""), k.optString("commit", ""), k.optString("date", ""),
+                        k.optString("go", ""), k.optInt("changes", 0), k.optLong("at", 0L), k.optBoolean("set", false)))
+                }
+            }
             UpdateStatus(o.optString("version", ""), t.optString("version", ""), t.optString("prev", ""),
-                t.optString("state", ""), t.optString("reason", ""), o.optString("name", ""))
+                t.optString("state", ""), t.optString("reason", ""), o.optString("name", ""),
+                o.optString("commit", ""), o.optString("builtAt", ""), o.optString("go", ""), shelf)
         }
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e
     } catch (e: Exception) {
         null
+    }
+
+    /** A release from the box's shelf back on (POST /v1/update/switch): ok, or why not. */
+    suspend fun updateSwitch(ctx: Context, version: String): Pair<Boolean, String> = try {
+        val r = BoxHttp.postJson(ctx, "/v1/update/switch", org.json.JSONObject().put("version", version), readTimeoutMs = 6 * 60_000)
+        if (r.optBoolean("ok", false)) true to r.optString("version", "") else false to r.optString("why", "the box said no")
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        false to (e.message ?: "the box did not answer")
     }
 
     /** One file of the server set to the box (POST /v1/update/file?name=). */
@@ -903,17 +930,22 @@ object BoxClient {
     } catch (_: Exception) { null }
 
     /** One check-in. [preselected] is what the app ticked from the day before the person looked;
-     *  [voice] the note recorded with it (status "missing" until the phone has sent it). */
+     *  [voice] the note recorded with it (status "missing" until the phone has sent it); [voices]
+     *  every note said to it, that one first, then the ones added through the day. */
     data class CheckinRow(val day: String, val feelings: String, val why: String,
-                          val preselected: String = "", val voice: VoiceNoteRow? = null)
+                          val preselected: String = "", val voice: VoiceNoteRow? = null,
+                          val voices: List<VoiceNoteRow> = emptyList())
 
     suspend fun checkins(ctx: Context, days: Int = 30): List<CheckinRow>? = try {
         val r = BoxHttp.getJson(ctx, "/v1/checkins?days=$days")
         val a = r.optJSONArray("checkins") ?: org.json.JSONArray()
         (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null
+            val voice = o.optJSONObject("voice")?.let { voiceRow(it) }
+            val voices = o.optJSONArray("voices")?.let { a -> (0 until a.length()).mapNotNull { j -> a.optJSONObject(j)?.let { voiceRow(it) } } }
+                ?: listOfNotNull(voice) // a box from before 0.0.5 names the first alone
             CheckinRow(o.optString("day"), o.optString("feelings"), o.optString("why"),
-                o.optString("preselected"), o.optJSONObject("voice")?.let { voiceRow(it) })
+                o.optString("preselected"), voice, voices)
         }
     } catch (_: Exception) { null }
 
@@ -941,6 +973,21 @@ object BoxClient {
         val a = r.optJSONArray("notes") ?: org.json.JSONArray()
         (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { voiceRow(it) } }
     } catch (_: Exception) { null }
+
+    /** A question asked aloud (POST /v1/voice/ask): the WAV to the box, the words back. The box keeps
+     *  nothing of it. ok false with [why] when the box cannot hear (no speech engine, out of reach);
+     *  ok true with "" when nothing was said that it could hear. */
+    data class Heard(val ok: Boolean, val text: String, val why: String)
+
+    suspend fun voiceAsk(ctx: Context, wav: java.io.File): Heard = try {
+        val r = BoxHttp.postFileJson(ctx, "/v1/voice/ask", wav, "audio/wav", readTimeoutMs = 3 * 60_000)
+        if (r.optBoolean("ok")) Heard(true, r.optString("text", "").trim(), "")
+        else Heard(false, "", r.optString("why", "the box said no"))
+    } catch (e: kotlinx.coroutines.CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Heard(false, "", e.message ?: "the box did not answer")
+    }
 
     /** Delete a note on the box: its audio, its transcript and its journal entry. */
     suspend fun voiceDelete(ctx: Context, id: String): Boolean = try {
@@ -997,6 +1044,30 @@ object BoxClient {
     data class OtdYear(val year: Int, val yearsAgo: Int, val narrative: String,
         val places: List<String>, val photos: List<String>, val notes: List<String>,
         val title: String = "", val line: String = "")
+
+    /** THE BOX'S WIKIPEDIA, in its database once the mirror's file is imported (GET /v1/wiki). The
+     *  state and the edition always; with a phrase, the articles it names, surest first; with an
+     *  idx, one article whole. Nothing leaves the box. */
+    data class WikiHit(val idx: Long, val title: String, val lead: String, val disamb: Boolean, val how: String)
+    data class WikiArticle(val idx: Long, val title: String, val lead: String, val body: String, val disamb: Boolean)
+    data class Wiki(val state: String, val edition: String, val articles: Long, val redirects: Long, val imported: Long,
+                    val entries: Long, val file: String, val error: String, val hits: List<WikiHit>, val article: WikiArticle?)
+
+    suspend fun wiki(ctx: Context, q: String = "", idx: Long = 0, n: Int = 8): Wiki? = try {
+        val qs = ArrayList<String>()
+        if (q.isNotBlank()) qs.add("q=" + java.net.URLEncoder.encode(q.trim(), "UTF-8") + "&n=$n")
+        if (idx > 0) qs.add("idx=$idx")
+        val r = BoxHttp.getJson(ctx, "/v1/wiki" + (if (qs.isEmpty()) "" else "?" + qs.joinToString("&")), readTimeoutMs = 30_000)
+        val hits = r.optJSONArray("hits")?.let { a -> (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            WikiHit(o.optLong("idx"), o.optString("title"), o.optString("lead"), o.optBoolean("disamb"), o.optString("how"))
+        } } ?: emptyList()
+        val art = r.optJSONObject("article")?.let { o ->
+            WikiArticle(o.optLong("idx"), o.optString("title"), o.optString("lead"), o.optString("body"), o.optBoolean("disamb"))
+        }
+        Wiki(r.optString("state"), r.optString("edition"), r.optLong("articles"), r.optLong("redirects"), r.optLong("imported"),
+            r.optLong("entries"), r.optString("file"), r.optString("error"), hits, art)
+    } catch (e: Exception) { android.util.Log.w("LocalGhost", "wiki: ${e.message}"); null }
 
     /** The On This Day retrospective , read from the box's prebuilt day summaries (no model at
      *  request time); years the backfill has not reached yet come with photos and places only. */

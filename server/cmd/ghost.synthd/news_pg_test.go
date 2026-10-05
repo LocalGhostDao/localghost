@@ -227,12 +227,21 @@ func TestFeedsRetiredAndGivenUp(t *testing.T) {
 	if err := seedFeeds(db); err != nil { // once only
 		t.Fatal(err)
 	}
+	// the FT off; the paper the later list brings (the WSJ) on, once: taken off by the operator,
+	// it stays off at the next start
 	rows, _ := db.Query("SELECT id FROM news_feeds ORDER BY id")
-	if len(rows.Vals) != 2 || *rows.Vals[0][0] != "bbc" || *rows.Vals[1][0] != "dead" {
+	if len(rows.Vals) != 3 || *rows.Vals[0][0] != "bbc" || *rows.Vals[1][0] != "dead" || *rows.Vals[2][0] != "wsj-world" {
 		t.Fatalf("feeds: %v", rows.Vals)
 	}
 	if rows, _ := db.Query("SELECT sources FROM news_stories WHERE id = 3"); *rows.Vals[0][0] != "1" {
 		t.Fatalf("the story still counts the FT: %s", *rows.Vals[0][0])
+	}
+	_ = db.Exec("DELETE FROM news_feeds WHERE id = 'wsj-world'")
+	if err := seedFeeds(db); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := db.Query("SELECT 1 FROM news_feeds WHERE id = 'wsj-world'"); len(rows.Vals) != 0 {
+		t.Fatal("a feed the operator took off came back")
 	}
 	enabled := func() string {
 		rows, _ := db.Query("SELECT enabled FROM news_feeds WHERE id = 'dead'")

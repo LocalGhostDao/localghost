@@ -126,6 +126,25 @@ func TestVoicePGNoteToCheckin(t *testing.T) {
 		h.Voice.Transcript != "Swam to the lighthouse and back. Feeling calm." || h.Voice.DurationMS != 3000 {
 		t.Fatalf("history row %+v voice %+v", h, h.Voice)
 	}
+	if len(h.Voices) != 1 || h.Voices[0].ID != id {
+		t.Fatalf("voices %+v", h.Voices)
+	}
+	// a second note said to the same check-in later in the day: listed after the first; a journal
+	// note of the day, and a check-in note of another day, are not
+	later := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, n := range []struct{ id, kind, day string }{{later, "checkin", day}, {"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "journal", day}, {"cccccccccccccccccccccccccccccccc", "checkin", "2001-01-01"}} {
+		if err := db.Exec(`INSERT INTO voice_notes (id, kind, day, taken_at, duration_ms, status, transcript, received_at) VALUES ($1,$2,$3,$4,4000,'done','More, later.',$4)`,
+			n.id, n.kind, n.day, time.Now().Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hist, _ = ns.CheckinHistory(0, 10)
+	if len(hist) != 1 || len(hist[0].Voices) != 2 || hist[0].Voices[0].ID != id || hist[0].Voices[1].ID != later || hist[0].Voice.ID != id {
+		t.Fatalf("with a note added %+v", hist[0].Voices)
+	}
+	for _, n := range []string{later, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "cccccccccccccccccccccccccccccccc"} {
+		_ = db.Exec("DELETE FROM voice_notes WHERE id = $1", n)
+	}
 	notes, err := ns.VoiceNotes(0, 10)
 	if err != nil || len(notes) != 1 || notes[0].ID != id {
 		t.Fatalf("list %v %v", notes, err)
@@ -143,7 +162,7 @@ func TestVoicePGNoteToCheckin(t *testing.T) {
 		t.Fatal("journal entry outlived the delete")
 	}
 	hist, _ = ns.CheckinHistory(0, 10)
-	if len(hist) != 1 || hist[0].Voice == nil || hist[0].Voice.Status != "missing" {
+	if len(hist) != 1 || hist[0].Voice == nil || hist[0].Voice.Status != "missing" || len(hist[0].Voices) != 1 {
 		t.Fatalf("after delete %+v", hist)
 	}
 }

@@ -1,21 +1,22 @@
-// Package wiki is the box's own Wikipedia: Kiwix's English Wikipedia without pictures (the mirror's
-// set wikipedia, one ZIM file of about 50 GB under <volume>/wiki), read with internal/zim. Asking it
-// reaches nothing outside the box: "what is Solana" is answered from the disk, so the question
-// never leaves. What the box takes from it is an article's lead: the paragraphs before the first
-// section, references and tables out, the text plain.
+// Package wiki is the box's own Wikipedia: the mirror's ZIM file (the English Wikipedia without
+// pictures, as Kiwix packages it) imported into Postgres once, then every lookup from the tables.
+// The chat's "what is Solana" and the coin pages are answered from the disk; the question reaches
+// nothing outside the box.
+//
+// Two halves. The FILE (this file): opening the ZIM, reading an article's HTML into plain text (the
+// lead, the sections). The STORE (store.go): the import into wiki_articles and wiki_redirects, in
+// slices the daemon spreads over time, and the lookups: by title in any case, a qualified place
+// without its comma, a prefix, a likeness (pg_trgm), and full-text search over the title and the
+// lead. The file is read at import and never at a question: a question is a few SQL reads, and
+// the file can go once it is in.
 package wiki
 
 import (
-	"errors"
 	"html"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
-	"sync"
-	"time"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/LocalGhostDao/localghost/server/internal/zim"
@@ -23,13 +24,14 @@ import (
 
 // Article is what the box keeps of an article.
 type Article struct {
+	Idx    uint32 // the entry's place in the file it came from
 	Title  string
-	Path   string
 	Lead   string
-	Disamb bool // a "may refer to" page, not an article about one thing
+	Body   string // the sections after the lead, "== Heading ==" lines between them ("" when not asked for)
+	Disamb bool   // a "may refer to" page, not an article about one thing
 }
 
-// Wiki is an open Wikipedia file.
+// Wiki is an open Wikipedia file, for the import.
 type Wiki struct {
 	z    *zim.File
 	ns   byte
@@ -75,118 +77,13 @@ func (w *Wiki) Close() error { return w.z.Close() }
 // Entries is how many entries the file holds (articles, redirects and the rest).
 func (w *Wiki) Entries() uint32 { return w.z.H.EntryCount }
 
-// variants of what was asked: as written, the first letter capitalised (Wikipedia's titles all
-// start with one), each word capitalised, and all capitals for a short one (an acronym).
-func variants(q string) []string {
-	q = strings.Join(strings.Fields(q), " ")
-	if q == "" {
-		return nil
-	}
-	seen := map[string]bool{}
-	var out []string
-	add := func(s string) {
-		if s != "" && !seen[s] {
-			seen[s] = true
-			out = append(out, s)
-		}
-	}
-	add(q)
-	add(upperFirst(q))
-	words := strings.Fields(strings.ToLower(q))
-	for i, wd := range words {
-		if i == 0 || len(wd) > 3 {
-			words[i] = upperFirst(wd)
-		}
-	}
-	add(strings.Join(words, " "))
-	add(upperFirst(strings.ToLower(q)))
-	if utf8.RuneCountInString(q) <= 5 && !strings.Contains(q, " ") {
-		add(strings.ToUpper(q))
-	}
-	return out
-}
-
-func upperFirst(s string) string {
-	r, n := utf8.DecodeRuneInString(s)
-	if r == utf8.RuneError {
-		return s
-	}
-	return string(unicode.ToUpper(r)) + s[n:]
-}
-
-// Article is the article a title names (redirects followed), trying the ways it may be written,
-// and then, for a phrase of two or more words, the ways a place is qualified ("Greenwich London"
-// as "Greenwich, London", "Greenwich (London)", and "Greenwich" alone when the last word is a
-// qualifier like a city or a country).
-func (w *Wiki) Article(title string, maxLead int) (Article, bool, error) {
-	a, ok, err := w.article(title, maxLead)
-	if err != nil || ok {
-		return a, ok, err
-	}
-	words := strings.Fields(title)
-	if len(words) < 2 {
-		return Article{}, false, nil
-	}
-	head, last := strings.Join(words[:len(words)-1], " "), words[len(words)-1]
-	for _, t := range []string{head + ", " + last, head + " (" + last + ")"} {
-		if a, ok, err := w.article(t, maxLead); err != nil || ok {
-			return a, ok, err
-		}
-	}
-	if qualifier[strings.ToLower(last)] {
-		return w.article(head, maxLead)
-	}
-	return Article{}, false, nil
-}
-
-// qualifier is a trailing word that places a thing rather than names it.
-var qualifier = map[string]bool{"london": true, "uk": true, "england": true, "scotland": true, "wales": true, "ireland": true, "france": true,
-	"italy": true, "spain": true, "greece": true, "romania": true, "germany": true, "europe": true, "usa": true, "us": true, "america": true,
-	"city": true, "town": true, "village": true, "island": true, "county": true, "borough": true, "district": true, "park": true, "area": true}
-
-func (w *Wiki) article(title string, maxLead int) (Article, bool, error) {
-	for _, v := range variants(title) {
-		e, ok, err := w.z.FindPath(w.ns, strings.ReplaceAll(v, " ", "_"))
-		if err != nil {
-			return Article{}, false, err
-		}
-		if !ok {
-			if e, ok, err = w.z.FindTitle(w.ns, v); err != nil {
-				return Article{}, false, err
-			}
-		}
-		if !ok {
-			continue
-		}
-		e, err = w.z.Resolve(e)
-		if err != nil {
-			return Article{}, false, err
-		}
-		if !strings.HasPrefix(e.Mime, "text/html") {
-			continue
-		}
-		body, err := w.z.Content(e)
-		if err != nil {
-			return Article{}, false, err
-		}
-		lead := Lead(string(body), maxLead)
-		return Article{Title: e.Title, Path: e.Path, Lead: lead, Disamb: disamb(lead)}, true, nil
-	}
-	return Article{}, false, nil
-}
-
-// Titles is up to n titles that start with prefix (the first letter capitalised).
-func (w *Wiki) Titles(prefix string, n int) ([]string, error) {
-	es, err := w.z.TitlesWithPrefix(w.ns, upperFirst(strings.TrimSpace(prefix)), n)
+// Size is the file's size in bytes.
+func (w *Wiki) Size() int64 {
+	fi, err := os.Stat(w.Path)
 	if err != nil {
-		return nil, err
+		return 0
 	}
-	out := make([]string, 0, len(es))
-	for _, e := range es {
-		out = append(out, e.Title)
-	}
-	sort.Strings(out)
-	return out, nil
+	return fi.Size()
 }
 
 var reDisamb = regexp.MustCompile(`(?i)\bmay (also )?refer to\b|\bmay stand for\b`)
@@ -298,60 +195,24 @@ func dropElement(s, tag string) string {
 	}
 }
 
-// Shared is the box's Wikipedia for a daemon: opened when first asked for, opened again when the
-// file changes (an update put a newer one in place), nil while the volume has none.
-type Shared struct {
-	Dir string
-
-	mu      sync.Mutex
-	w       *Wiki
-	modTime time.Time
-	checked time.Time
-	err     error
-}
-
-// ErrNone says the volume holds no Wikipedia.
-var ErrNone = errors.New("no Wikipedia on this box (sudo ./tools/update.sh wiki fetches it from the mirror, about 50 GB)")
-
-// Get is the open file, or why there is none.
-func (s *Shared) Get() (*Wiki, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if time.Since(s.checked) < time.Minute {
-		if s.w != nil {
-			return s.w, nil
+// Body is the article after its lead as plain text: each section's heading on a line of its own
+// between double equals, then its paragraphs; sections that are lists of references are left out;
+// at most max characters in all.
+func Body(page string, max int) string {
+	var b strings.Builder
+	for _, s := range Sections(page, 0) {
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
 		}
-		if s.err != nil {
-			return nil, s.err
+		b.WriteString("== " + s.Heading + " ==\n")
+		b.WriteString(s.Text)
+		if max > 0 && b.Len() >= max {
+			break
 		}
 	}
-	s.checked = time.Now()
-	s.err = nil
-	path, ok := Find(s.Dir)
-	if !ok {
-		if s.w != nil {
-			s.w.Close()
-			s.w = nil
-		}
-		s.err = ErrNone
-		return nil, ErrNone
+	out := b.String()
+	if max > 0 && len(out) > max {
+		out = cutAt(out, max)
 	}
-	st, err := os.Stat(path)
-	if err != nil {
-		return nil, err
-	}
-	if s.w != nil && s.w.Path == path && st.ModTime().Equal(s.modTime) {
-		return s.w, nil
-	}
-	if s.w != nil {
-		s.w.Close()
-		s.w = nil
-	}
-	w, err := Open(path)
-	if err != nil {
-		s.err = err
-		return nil, err
-	}
-	s.w, s.modTime = w, st.ModTime()
-	return w, nil
+	return out
 }

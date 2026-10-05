@@ -979,6 +979,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %[
 	if err := run(roleEnsure); err != nil {
 		return fmt.Errorf("ensure grants: %w", err)
 	}
+	// pg_trgm, for the Wikipedia title index's likeness lookups (a trusted extension, the owner
+	// may install it; contrib ships it with the server). Best-effort: without it the index answers
+	// by exact title and prefix, and the GIN index in the registry is simply not created.
+	if err := run("CREATE EXTENSION IF NOT EXISTS pg_trgm"); err != nil {
+		slog.Warn("pg_trgm not installed; Wikipedia lookups by likeness are off", "fn", "EnsureSchema", "err", err)
+	}
 	// Search layer, same converge rule: core must apply; vector is best-effort with the documented
 	// FTS-only fallback , mirrors provision, authed for the hardened world.
 	if err := run(searchsql.SchemaCore); err != nil {

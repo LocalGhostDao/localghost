@@ -30,6 +30,9 @@ class HomeBriefTextTest {
         val p = listOf(Price("ETH", 3250.0, -0.42, now), Price("BTC", 65000.4, 1.234, now), Price("SOL", 150.0, 2.0, now))
         assertEquals("BTC 65,000 +1.2% · ETH 3,250 -0.4%", HomeBriefText.prices(p))
         assertEquals("BTC 65.0k", HomeBriefText.chip(p))
+        // the widget's big line: one coin a line, always in view
+        assertEquals("BTC 65,000 +1.2%\nETH 3,250 -0.4%", HomeBriefText.stacked(HomeBriefText.prices(p)))
+        assertEquals("BTC 65,000", HomeBriefText.stacked("BTC 65,000"))
         assertEquals("BTC 65,000", HomeBriefText.prices(listOf(Price("BTC", 65000.0, null, now))))
         assertEquals("", HomeBriefText.prices(emptyList()))
         assertEquals("", HomeBriefText.chip(emptyList()))

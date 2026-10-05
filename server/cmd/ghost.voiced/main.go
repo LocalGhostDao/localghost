@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/ghosthealth"
@@ -156,6 +157,24 @@ func main() {
 				return ctlsock.Response{}, err
 			}
 			return ctlsock.Response{OK: true, Text: fmt.Sprintf("%d note(s) back in the queue; transcribed on the next pass (15 s)", n)}, nil
+		})
+		// hear path=<mount>/voiced/ask/<name>.wav , the words of a question asked aloud (secd, for
+		// the chat); nothing is kept, the file goes
+		ctl.Handle("hear", func(args json.RawMessage) (ctlsock.Response, error) {
+			var a struct {
+				Path string `json:"path"`
+			}
+			if len(args) > 0 {
+				_ = json.Unmarshal(args, &a)
+			}
+			hctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+			defer cancel()
+			res, err := d.Hear(hctx, strings.TrimSpace(a.Path))
+			if err != nil {
+				return ctlsock.Response{}, err
+			}
+			data, _ := json.Marshal(map[string]any{"text": res.Text, "lang": res.Lang, "ms": res.Took.Milliseconds()})
+			return ctlsock.Response{OK: true, Text: res.Text, Data: data}, nil
 		})
 		defer ctl.Cleanup()
 		go func() {

@@ -96,7 +96,12 @@ func TestDefaultSourcesAreWellFormed(t *testing.T) {
 		}
 		seen[s.ID] = true
 	}
-	if len(seen) != 11 { // the FT is read in its own app
+	if len(seen) != 12 { // the FT is read in its own app
 		t.Fatalf("%d sources", len(seen))
+	}
+	for _, a := range Added {
+		if !seen[a.ID] {
+			t.Fatalf("%s is added later but not in the list", a.ID)
+		}
 	}
 }

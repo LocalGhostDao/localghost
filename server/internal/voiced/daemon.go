@@ -63,6 +63,9 @@ type Daemon struct {
 	mu      sync.Mutex
 	stat    Stat
 	working string // the note whisper is on now
+	// engMu: one whisper at a time, the queue's or a question's (Hear); two on the card would
+	// slow both and can run the memory out
+	engMu sync.Mutex
 }
 
 // State is what the phone is told beside each waiting note: why nothing is being transcribed, or
@@ -354,7 +357,9 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 	id, rel := *rows.Vals[0][0], *rows.Vals[0][1]
 	d.setWorking(id)
 	defer d.setWorking("")
+	d.engMu.Lock()
 	res, terr := d.transcribeFile(ctx, filepath.Join(d.Mount, rel), id, eng)
+	d.engMu.Unlock()
 	if terr != nil {
 		if ctx.Err() != nil {
 			return false, ctx.Err() // shutting down: not the note's fault, no try counted
@@ -385,6 +390,34 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 		"words", len(strings.Fields(res.Text)), "took", res.Took.Round(time.Second).String())
 	d.setLast(fmt.Sprintf("transcribed %s (%d words, %s)", id[:8], len(strings.Fields(res.Text)), res.Took.Round(time.Second)))
 	return true, nil
+}
+
+// AskDir is where secd puts a question asked aloud for Hear: <mount>/voiced/ask.
+func AskDir(mount string) string { return filepath.Join(mount, "voiced", "ask") }
+
+// Hear transcribes one WAV under AskDir and keeps nothing: no row, no archive, no journal entry.
+// The file is removed whatever happens. A question asked aloud is heard once and goes into the
+// chat as words, like a typed one. The queue's whisper waits while it runs (engMu), and it waits
+// for the queue's.
+func (d *Daemon) Hear(ctx context.Context, path string) (Result, error) {
+	defer os.Remove(path)
+	ask := AskDir(d.Mount)
+	if rel, err := filepath.Rel(ask, path); err != nil || strings.HasPrefix(rel, "..") || strings.ContainsRune(rel, filepath.Separator) {
+		return Result{}, fmt.Errorf("not a file of %s", ask)
+	}
+	eng, why, ok := d.Find(d.Mount)
+	if !ok {
+		return Result{}, fmt.Errorf("no speech engine: %s", why)
+	}
+	id := strings.TrimSuffix(filepath.Base(path), ".wav")
+	d.engMu.Lock()
+	defer d.engMu.Unlock()
+	res, err := d.transcribeFile(ctx, path, "ask-"+id, eng)
+	if err != nil {
+		return Result{}, err
+	}
+	d.Log.Info("question heard", "fn", "Hear", "lang", res.Lang, "words", len(strings.Fields(res.Text)), "took", res.Took.Round(time.Second).String())
+	return res, nil
 }
 
 func (d *Daemon) transcribeFile(ctx context.Context, path, id string, eng Engine) (Result, error) {

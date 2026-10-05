@@ -546,11 +546,12 @@ private fun WipeButton(onWipe: () -> Unit) {
 }
 
 /**
- * SERVER: the build the box runs, a newer release from the mirror (the phone checks once a day,
- * update/ServerUpdates.kt), and DEPLOY. The box checks the release's signature with the key it
- * already holds, puts it on, locks and restarts onto it, so the app locks too; unlock again when it
- * is back. On trial until its first unlock has run ten minutes with the daemons up; back by itself
- * if it fails, or with ROLL BACK.
+ * SERVER: the build the box runs (name, version, commit, when it was built, which Go), a newer
+ * release from the mirror (the phone checks once a day, update/ServerUpdates.kt) and DEPLOY, the
+ * shelf (the releases the box keeps, any of which can go back on), and ROLL BACK. The box checks a
+ * release's signature with the key it already holds, puts it on, locks and restarts onto it, so the
+ * app locks too; unlock again when it is back. On trial until its first unlock has run ten minutes
+ * with the daemons up; back by itself if it fails, or with ROLL BACK.
  */
 @Composable
 private fun ServerUpdateSection(onLock: () -> Unit) {
@@ -560,27 +561,29 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
     var offer by remember { mutableStateOf(com.localghost.app.update.ServerUpdates.lastOffer(ctx)) }
     var busy by remember { mutableStateOf("") }
     var result by remember { mutableStateOf("") }
+    var armed by remember { mutableStateOf("") } // a shelf release tapped once: the next tap puts it on
     LaunchedEffect(Unit) {
         status = com.localghost.app.net.BoxClient.updateStatus(ctx)
         status?.let { com.localghost.app.update.ServerUpdates.noteBoxVersion(ctx, it.version) }
         if (offer == null) offer = com.localghost.app.update.ServerUpdates.check(ctx)
     }
+    val lock: suspend (String) -> Unit = { what -> result = what; kotlinx.coroutines.delay(2500); onLock() }
     SectionLabel("SERVER")
     Spacer(Modifier.height(8.dp))
     val st = status
     Text(when {
         st == null -> "the box has not said which build it runs (an older build, or it is out of reach)"
-        else -> "your box runs ${st.label}" + when (st.trialState) {
-            "trial" -> " · on trial: back to ${st.trialPrev} by itself if its first unlock fails; confirmed after ten minutes up"
-            "rolled_back" -> " · ${st.trialVersion} was rolled back: ${st.trialReason}"
-            else -> ""
-        }
+        else -> "your box runs " + com.localghost.app.update.ReleaseInfo.describe(st.label, st.commit, st.builtAt, st.go)
     }, color = GhostText, style = MaterialTheme.typography.bodyMedium)
+    if (st != null && st.trialState == "trial") Text("on trial: back to ${st.trialPrev} by itself if its first unlock fails; confirmed after ten minutes up",
+        color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+    if (st != null && st.trialState == "rolled_back") Text("${st.trialVersion} was rolled back: ${st.trialReason}",
+        color = Warning, style = MaterialTheme.typography.labelMedium)
     val o = offer
     val newer = o != null && st != null && com.localghost.app.update.ReleaseInfo.newer(o.release.version, st.version)
+    Spacer(Modifier.height(6.dp))
     if (o != null && newer) {
-        Spacer(Modifier.height(6.dp))
-        Text("${o.release.label} is out" + (if (o.release.date.isNotEmpty()) " (${o.release.date.take(10)})" else "") +
+        Text("${o.release.label} is out" + (if (o.release.date.isNotEmpty()) " (${com.localghost.app.update.ReleaseInfo.at(o.release.date)})" else "") +
             ", ${o.release.changes.size} change${if (o.release.changes.size == 1) "" else "s"}" +
             (if (o.release.since.isNotEmpty()) " since ${o.release.since}" else "") + ":",
             color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
@@ -588,9 +591,13 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
             Text("  $it", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
         }
         if (o.release.changes.size > 12) Text("  … ${o.release.changes.size - 12} more", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
-    } else if (o != null && st != null) {
-        Spacer(Modifier.height(4.dp))
-        Text("the newest release on the mirror is ${o.release.label}: nothing to deploy", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+    } else if (o != null) {
+        Text("the mirror's newest is " + com.localghost.app.update.ReleaseInfo.describe(o.release.label, o.release.commit, o.release.date, o.release.go) +
+            (if (st != null && o.release.version == st.version.removePrefix("v")) ": what your box runs" else ""),
+            color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+    } else {
+        val miss = com.localghost.app.update.ServerUpdates.lastMiss(ctx)
+        Text(if (miss.isEmpty()) "the mirror has not been read yet" else miss, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
     }
     if (busy.isNotEmpty()) {
         Spacer(Modifier.height(6.dp))
@@ -607,13 +614,36 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
             scope.launch {
                 val (ok, what) = com.localghost.app.update.ServerUpdates.deploy(ctx, o) { busy = it }
                 busy = ""
-                if (ok) {
-                    result = "your box is restarting onto $what. It locks as it does: unlock it again in a minute."
-                    kotlinx.coroutines.delay(2500)
-                    onLock()
-                } else result = "not deployed: $what"
+                if (ok) lock("your box is restarting onto $what. It locks as it does: unlock it again in a minute.")
+                else result = "not deployed: $what"
             }
         }, modifier = Modifier.fillMaxWidth())
+    }
+    // THE SHELF: the releases the box keeps, the running one left out; a tap, then a second to
+    // confirm, puts one back on (verified again, on trial again)
+    val shelf = st?.shelf?.filter { it.set && it.version != st.version } ?: emptyList()
+    if (shelf.isNotEmpty() && busy.isEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Text("ON THE SHELF, to put back on", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+        shelf.forEach { k ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(com.localghost.app.update.ReleaseInfo.describe(k.label, k.commit, k.date, k.go),
+                    color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                Text(if (armed == k.version) "[ sure? ]" else "[ put on ]", color = if (armed == k.version) Warning else TerminalGreen,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clickable {
+                        if (armed != k.version) { armed = k.version; return@clickable }
+                        armed = ""
+                        busy = "your box is checking ${k.label} again and putting it on…"; result = ""
+                        scope.launch {
+                            val (ok, why) = com.localghost.app.net.BoxClient.updateSwitch(ctx, k.version)
+                            busy = ""
+                            if (ok) lock("your box is restarting onto ${k.label}. It locks as it does: unlock it again in a minute.")
+                            else result = "not put on: $why"
+                        }
+                    }.padding(start = 10.dp, top = 4.dp, bottom = 4.dp))
+            }
+        }
     }
     if (st != null && (st.trialState == "trial" || st.trialState == "confirmed") && busy.isEmpty()) {
         Spacer(Modifier.height(8.dp))
@@ -622,7 +652,7 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
             scope.launch {
                 val (ok, why) = com.localghost.app.net.BoxClient.updateRollback(ctx)
                 busy = ""
-                if (ok) { result = "your box is restarting onto the earlier build. Unlock it again in a minute."; kotlinx.coroutines.delay(2500); onLock() }
+                if (ok) lock("your box is restarting onto the earlier build. Unlock it again in a minute.")
                 else result = "not rolled back: $why"
             }
         }, modifier = Modifier.fillMaxWidth())
@@ -635,7 +665,7 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
                 offer = fresh ?: offer
                 status = com.localghost.app.net.BoxClient.updateStatus(ctx) ?: status
                 busy = ""
-                if (fresh == null) result = "no server release on the mirror yet, or the mirror did not answer"
+                if (fresh == null) result = com.localghost.app.update.ServerUpdates.lastMiss(ctx).ifEmpty { "the mirror did not answer" }
             }
         }.padding(vertical = 6.dp))
 }

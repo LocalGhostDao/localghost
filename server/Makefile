@@ -21,7 +21,12 @@ TAGS    ?=
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 # a tree exactly at a release's tag carries the release's name too (tools/release.names: wisp)
 RELNAME ?= $(shell awk -v v="$(patsubst v%,%,$(VERSION))" '$$1 == v { print $$2; exit }' tools/release.names 2>/dev/null)
-LDFLAGS := -X github.com/LocalGhostDao/localghost/server/internal/secd.Version=$(VERSION) -X github.com/LocalGhostDao/localghost/server/internal/secd.ReleaseName=$(RELNAME)
+# the commit built and the moment of the build (UTC), shown with the version on the phone
+# (SETTINGS > SERVER); a release takes its commit's time instead (tools/release_build.sh)
+COMMIT  ?= $(shell git rev-parse HEAD 2>/dev/null)
+BUILT   ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -X github.com/LocalGhostDao/localghost/server/internal/secd.Version=$(VERSION) -X github.com/LocalGhostDao/localghost/server/internal/secd.ReleaseName=$(RELNAME) \
+           -X github.com/LocalGhostDao/localghost/server/internal/secd.Commit=$(COMMIT) -X github.com/LocalGhostDao/localghost/server/internal/secd.BuiltAt=$(BUILT)
 
 # all builds every binary under cmd/ into bin/, each named for its dir. There is ONE build now: the
 # seal tier (TPM or software) is selected at RUNTIME from seal.env, not a build tag, so a box can

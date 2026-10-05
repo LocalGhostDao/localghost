@@ -170,6 +170,25 @@ object BoxHttp {
         }
     }
 
+    /** POST a file and read the JSON answer (a question asked aloud: the WAV up, the words back).
+     *  [readTimeoutMs] covers the box's work on it. Throws on a transport failure or a non-200. */
+    suspend fun postFileJson(ctx: Context, path: String, file: java.io.File, contentType: String,
+                             readTimeoutMs: Int = 60_000): JSONObject = withContext(Dispatchers.IO) {
+        val conn = open(ctx, path, "POST")
+        conn.doOutput = true
+        conn.readTimeout = readTimeoutMs
+        conn.setFixedLengthStreamingMode(file.length())
+        conn.setRequestProperty("Content-Type", contentType)
+        try {
+            file.inputStream().use { ins -> conn.outputStream.use { out -> ins.copyTo(out, 256 * 1024) } }
+            val code = conn.responseCode
+            if (code != 200) throw java.io.IOException("the box answered $code")
+            JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     /** GET streamed straight to DISK , the big-payload path (video originals). A bounded 512KB
      *  buffer is the entire RAM footprint no matter how large the file; onBytes reports progress.
      *  Returns true on a complete 200; a partial write deletes itself , half a video is not a

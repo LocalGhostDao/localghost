@@ -133,21 +133,21 @@ object PhraseSurface {
                     o.optString("m"), o.optString("x"), o.optString("chip"), o.optString("asof"))
             }.getOrNull()
 
-            /** The home brief as a snapshot: one card per story, the prices on every card. */
+            /** The home brief as a snapshot: one card per story, the prices ([extra]) first on every
+             *  card, whichever story is up; with no story yet the prices stand alone. */
             fun home(now: Now, kept: HomeBrief.Kept?): Snapshot {
                 val cards = kept?.cards.orEmpty().map { c -> Card(c.id, 1, c.headline, c.outlets, "", c.summary, "") }
                 val prices = kept?.prices.orEmpty()
                 val why = when {
                     kept == null -> "the news and the prices come from your box; the phone asks it every quarter hour"
                     cards.isEmpty() && prices.isEmpty() -> "nothing from your box yet today"
+                    cards.isEmpty() -> "no stories from your box yet today"
                     else -> ""
                 }
                 val asOf = kept?.at?.takeIf { it > 0 }?.let {
                     java.text.SimpleDateFormat("HH:mm", java.util.Locale.UK).format(java.util.Date(it * 1000))
                 } ?: ""
-                // no stories but prices: one card that is the prices
-                val shown = if (cards.isEmpty() && prices.isNotEmpty()) listOf(Card("prices", 1, prices, "", "", "", "")) else cards
-                return Snapshot(now.slotKey, now.late, "home · news & markets", "", "", "en-GB", shown, why,
+                return Snapshot(now.slotKey, now.late, "home · news & markets", "", "", "en-GB", cards, why,
                     mode = "home", extra = prices, chip = kept?.chip.orEmpty(), asOf = asOf)
             }
 
@@ -293,22 +293,29 @@ object PhraseSurface {
         val card = snap.cards.getOrNull(index)
         var chip = ""
         if (snap.home) {
-            // HOME: the story as the title, the prices as the line under it, the summary, the
-            // outlets and the next two stories when pulled open; the BTC price on the chip
+            // HOME: BTC and ETH as the title, always in view; the story as the line under it, its
+            // summary, outlets and the next two stories when pulled open; the BTC price on the
+            // chip. Without prices yet the story takes the title; without a story the prices stand
+            // alone over why.
             chip = snap.chip
-            if (card == null) {
-                b.setSubText(snap.headline).setContentTitle("…").setContentText(snap.why)
-            } else {
-                b.setSubText(snap.headline)
-                    .setContentTitle(card.local)
-                    .setContentText(snap.extra.ifEmpty { card.say })
+            val prices = snap.extra
+            val sub = snap.headline + (if (snap.asOf.isNotEmpty()) " · " + snap.asOf else "")
+            b.setSubText(sub)
+            when {
+                card == null -> b.setContentTitle(prices.ifEmpty { "…" }).setContentText(snap.why)
+                prices.isNotEmpty() -> b.setContentTitle(prices).setContentText(card.local)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(card.local + "\n" +
+                        HomeBriefText.expanded(snap.cards.map { HomeBriefText.Card(it.id, it.local, it.en, it.say) }, index, "", "")))
+                else -> b.setContentTitle(card.local).setContentText(card.say)
                     .setStyle(NotificationCompat.BigTextStyle().bigText(
-                        HomeBriefText.expanded(snap.cards.map { HomeBriefText.Card(it.id, it.local, it.en, it.say) }, index, snap.extra, snap.asOf)))
+                        HomeBriefText.expanded(snap.cards.map { HomeBriefText.Card(it.id, it.local, it.en, it.say) }, index, "", "")))
+            }
+            if (card != null) {
                 if (snap.cards.size > 1) b.addAction(0, "NEXT", broadcast(ctx, ACTION_NEXT, 2))
                 b.addAction(0, "OPEN NEWS", openApp(ctx, true))
             }
-            if (PhraseState.liveUpdate(ctx) && card != null) {
-                b.setRequestPromotedOngoing(true).setShortCriticalText((chip.ifEmpty { card.local }).take(24))
+            if (PhraseState.liveUpdate(ctx) && (card != null || prices.isNotEmpty())) {
+                b.setRequestPromotedOngoing(true).setShortCriticalText((chip.ifEmpty { card?.local ?: prices }).take(24))
             }
             NotificationManagerCompat.from(ctx).notify(NOTIF_ID, b.build())
             return
@@ -389,10 +396,27 @@ object PhraseSurface {
         val rv = RemoteViews(ctx.packageName, R.layout.widget_phrase)
         val card = snap.cards.getOrNull(index)
         if (snap.home) {
+            // BTC and ETH on the big line, one a line, always in view; the story under them in the
+            // accent, its outlets last. Without prices yet the story moves up.
+            val prices = snap.extra
             rv.setTextViewText(R.id.w_head, "› " + snap.headline + (if (snap.asOf.isNotEmpty()) " · " + snap.asOf else ""))
-            rv.setTextViewText(R.id.w_local, card?.local ?: "…")
-            rv.setTextViewText(R.id.w_say, if (card == null) snap.why.substringBefore(";") else card.say)
-            rv.setTextViewText(R.id.w_en, snap.extra)
+            when {
+                prices.isNotEmpty() -> {
+                    rv.setTextViewText(R.id.w_local, HomeBriefText.stacked(prices))
+                    rv.setTextViewText(R.id.w_say, card?.local ?: snap.why.substringBefore(";"))
+                    rv.setTextViewText(R.id.w_en, card?.say ?: "")
+                }
+                card == null -> {
+                    rv.setTextViewText(R.id.w_local, "…")
+                    rv.setTextViewText(R.id.w_say, snap.why.substringBefore(";"))
+                    rv.setTextViewText(R.id.w_en, "")
+                }
+                else -> {
+                    rv.setTextViewText(R.id.w_local, card.local)
+                    rv.setTextViewText(R.id.w_say, card.say)
+                    rv.setTextViewText(R.id.w_en, card.en)
+                }
+            }
         } else if (card == null) {
             rv.setTextViewText(R.id.w_head, "› ghost.phrased")
             rv.setTextViewText(R.id.w_local, snap.headline.substringAfter("· ", "where are we?"))

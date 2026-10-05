@@ -36,6 +36,12 @@ var Retired = []Source{
 	{"ft", "Financial Times", "https://www.ft.com/rss/home"},
 }
 
+// Added are the papers this list has that an earlier one did not: put on a box seeded by the
+// earlier list, once each (a box whose operator takes one off again keeps it off).
+var Added = []Source{
+	{"wsj-world", "The Wall Street Journal", "https://feeds.content.dowjones.io/public/rss/RSSWorldNews"},
+}
+
 // GiveUpAfter is how many fetches in a row a feed that has never once given a feed gets before it
 // is switched off (twelve hours at one fetch every two).
 const GiveUpAfter = 6
@@ -55,6 +61,7 @@ func DefaultSources() []Source {
 		{"npr", "NPR", "https://feeds.npr.org/1001/rss.xml"},
 		{"dw", "DW", "https://rss.dw.com/rdf/rss-en-all"},
 		{"politico-eu", "Politico Europe", "https://www.politico.eu/feed/"},
+		{"wsj-world", "The Wall Street Journal", "https://feeds.content.dowjones.io/public/rss/RSSWorldNews"},
 		{"ars", "Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"},
 		{"hn", "Hacker News", "https://news.ycombinator.com/rss"},
 		{"coindesk", "CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"},

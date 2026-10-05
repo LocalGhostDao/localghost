@@ -209,6 +209,22 @@ wiki)
         continue
     fi
     mkdir -p "$WK"
+    # IMPORTED: ghost.synthd reads the file into the volume's database and removes it, leaving
+    # .imported ("<file> <sha256> <edition>"). With no file and that marker, the file is fetched
+    # again only when the mirror lists a different one (a new edition); the box has this one.
+    if ! ls "$WK"/*.zim >/dev/null 2>&1 && [ -s "$WK/.imported" ]; then
+        imp_name="$(cut -d' ' -f1 "$WK/.imported")"; imp_sha="$(cut -d' ' -f2 "$WK/.imported")"; imp_ed="$(cut -d' ' -f3- "$WK/.imported")"
+        cur_sha="$(sh "$TOOLS/mirror_fetch.sh" --list wikipedia 2>/dev/null | awk -v n="$imp_name" '$2 == n { print $1 }')"
+        if [ -z "$cur_sha" ]; then
+            result wiki "in the database ($imp_ed); the mirror did not answer or lists no file, so nothing to compare"
+            continue
+        fi
+        if [ "$cur_sha" = "$imp_sha" ]; then
+            result wiki "current: $imp_ed is in the database (the file was removed after the import)"
+            continue
+        fi
+        say "the mirror lists a newer edition than the one in the database ($imp_ed): fetched and imported again"
+    fi
     if ! ls "$WK"/*.zim >/dev/null 2>&1; then
         # the volume's own free space: through the /proc door, df answers for the OS disk (it matches
         # the path against the host's mount table, where the vault is not), and said 6 GB of a free
@@ -232,9 +248,9 @@ wiki)
         0) chown -R "$OWNER:$OWNER" "$WK" 2>/dev/null || true
            chmod 640 "$WK"/*.zim 2>/dev/null || true
            if [ "$(cat "$WK"/.*.zim.sha256 2>/dev/null)" != "$before" ]; then
-               result wiki "$(ls "$WK"/*.zim | xargs -n1 basename) on the volume ($(du -sh "$WK" 2>/dev/null | cut -f1)); ghost.synthd reads it within a minute"
+               result wiki "$(ls "$WK"/*.zim | xargs -n1 basename) on the volume ($(du -sh "$WK" 2>/dev/null | cut -f1)); ghost.synthd imports it into the database from the next minute (an hour or two; Box Status shows how far) and removes the file after"
            else
-               result wiki "current"
+               result wiki "current (on the volume, being imported or waiting for the box to be unlocked)"
            fi ;;
         3) result wiki "not on the mirror yet (set wikipedia)" ;;
         *) result wiki "FAILED (above; a rerun resumes the download)"; failed=1 ;;

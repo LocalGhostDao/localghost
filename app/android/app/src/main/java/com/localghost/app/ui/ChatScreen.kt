@@ -50,6 +50,7 @@ fun ChatScreen(
     genStats: String = "",                 // debug-mode tok/s line ("" = hidden)
 ) {
     var input by remember { mutableStateOf("") }
+    var voiceNote by remember { mutableStateOf("") } // the microphone's one line: listening, hearing, or why not
     val listState = rememberLazyListState()
     // FOLLOW THE TAIL, unless the person takes the wheel. followTail flips false the moment a user
     // drag leaves the bottom, and back true when they return there , so reading something upstream
@@ -178,6 +179,11 @@ fun ChatScreen(
                     },
                 )
 
+                // a question asked aloud: the box hears it and the words land in the field, sent
+                // like typed ones (nothing of the audio is kept)
+                if (!streaming) VoiceAskButton(onWords = { w -> input = if (input.isBlank()) w else input.trimEnd() + " " + w },
+                    onNote = { voiceNote = it })
+
                 // send / stop (circular, filled when actionable)
                 val active = streaming || canSend
                 Box(
@@ -193,7 +199,73 @@ fun ChatScreen(
                         color = Void, fontSize = if (streaming) 14.sp else 20.sp)
                 }
             }
+            if (voiceNote.isNotEmpty()) Text(voiceNote, color = if (voiceNote.startsWith("!")) Warning else TerminalDim,
+                style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
         }
+    }
+}
+
+/**
+ * THE MICROPHONE IN THE COMPOSER. A tap records (the screen stays on: a locked phone gives an app
+ * silence), a second tap stops; the take goes to the box, which hears it with its speech engine and
+ * sends the words back, and keeps nothing: no file, no row, no journal entry. The words land in the
+ * field for the person to read, fix and send, like typed ones. The recorder is the voice notes'
+ * (VoiceCapture, one at a time); only a take started here is heard here.
+ */
+@Composable
+private fun VoiceAskButton(onWords: (String) -> Unit, onNote: (String) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val rec by com.localghost.app.voice.VoiceCapture.state.collectAsState()
+    var askId by remember { mutableStateOf("") }
+    var hearing by remember { mutableStateOf(false) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val mine = askId.isNotEmpty() && (com.localghost.app.voice.VoiceCapture.activeId() == askId)
+    DisposableEffect(rec.recording && mine) {
+        if (rec.recording && mine) view.keepScreenOn = true
+        onDispose { if (mine) view.keepScreenOn = false }
+    }
+    fun begin() {
+        if (com.localghost.app.voice.VoiceCapture.start(ctx)) {
+            askId = com.localghost.app.voice.VoiceCapture.activeId() ?: ""
+            onNote("● listening · tap ■ when you have asked")
+        } else onNote("! " + rec.error.ifEmpty { "the microphone did not start" })
+    }
+    val mic = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) begin() else onNote("! no microphone permission · allow it for LocalGhost in the phone's settings")
+    }
+    // the recording stopped: the take is ours, the box hears it
+    val take = rec.take
+    LaunchedEffect(take?.id, mine) {
+        if (take == null || !mine || hearing) return@LaunchedEffect
+        hearing = true
+        onNote("your box is listening…")
+        val heard = com.localghost.app.net.BoxClient.voiceAsk(ctx, take.file)
+        com.localghost.app.voice.VoiceCapture.discard() // the audio is not kept on the phone either
+        askId = ""
+        hearing = false
+        when {
+            !heard.ok -> onNote("! not heard: " + heard.why)
+            heard.text.isEmpty() -> onNote("nothing your box could hear · try again, a little closer")
+            else -> { onWords(heard.text); onNote("") }
+        }
+    }
+    if (rec.recording && mine) {
+        LaunchedEffect(rec.elapsedMs / 1000) { onNote("● " + com.localghost.app.checkin.Feelings.clock(rec.elapsedMs) + " listening · tap ■ when you have asked") }
+    }
+    val busy = rec.recording && !mine // the check-in's recorder has the microphone
+    Box(
+        Modifier.size(40.dp).clip(CircleShape)
+            .background(if (rec.recording && mine) Warning else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(enabled = !hearing && !busy) {
+                if (rec.recording && mine) com.localghost.app.voice.VoiceCapture.stop()
+                else if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) begin()
+                else mic.launch(android.Manifest.permission.RECORD_AUDIO)
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(when { hearing -> "…"; rec.recording && mine -> "■"; else -> "●" },
+            color = when { rec.recording && mine -> Void; busy -> GhostBorder; else -> TerminalGreen },
+            fontSize = if (rec.recording && mine) 14.sp else 18.sp)
     }
 }
 

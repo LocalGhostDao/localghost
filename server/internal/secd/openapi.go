@@ -152,6 +152,37 @@ type dayDoc struct {
 	Built     bool      `json:"built"`
 }
 
+type wikiHitDoc struct {
+	Idx    uint32 `json:"idx"`
+	Title  string `json:"title"`
+	Lead   string `json:"lead"`
+	Disamb bool   `json:"disamb,omitempty"`
+	How    string `json:"how"`
+}
+
+type wikiArticleDoc struct {
+	Idx    uint32 `json:"idx"`
+	Title  string `json:"title"`
+	Lead   string `json:"lead"`
+	Body   string `json:"body"`
+	Disamb bool   `json:"disamb"`
+}
+
+type wikiDoc struct {
+	State     string         `json:"state"` // ready | importing | downloading | missing | failed | locked
+	Edition   string         `json:"edition"`
+	Articles  int64          `json:"articles"`
+	Redirects int64          `json:"redirects"`
+	Imported  int64          `json:"imported"` // entries of the file read so far
+	Entries   int64          `json:"entries"`  // entries in the file
+	File      string         `json:"file"`
+	Answers   int            `json:"answers"`
+	Error     string         `json:"error,omitempty"`
+	Found     bool           `json:"found,omitempty"`
+	Hits      []wikiHitDoc   `json:"hits,omitempty"`
+	Article   wikiArticleDoc `json:"article,omitempty"`
+}
+
 type trailForgetDoc struct {
 	TS      int64   `json:"ts"`
 	RadiusM float64 `json:"radiusM,omitempty"`
@@ -166,12 +197,32 @@ type trailForgottenDoc struct {
 
 type updateDoc struct {
 	Version string `json:"version"`
+	Name    string `json:"name,omitempty"`
+	Commit  string `json:"commit,omitempty"`
+	BuiltAt string `json:"builtAt,omitempty"`
+	Go      string `json:"go"`
 	Trial   struct {
 		Version string `json:"version"`
 		Prev    string `json:"prev"`
 		State   string `json:"state"`
 		Reason  string `json:"reason,omitempty"`
 	} `json:"trial"`
+	// Shelf is the releases the box keeps, newest taken first; one with set:true can go back on
+	// (POST /v1/update/switch).
+	Shelf []struct {
+		Version string `json:"version"`
+		Name    string `json:"name,omitempty"`
+		Commit  string `json:"commit,omitempty"`
+		Date    string `json:"date,omitempty"`
+		Go      string `json:"go,omitempty"`
+		Changes int    `json:"changes"`
+		At      int64  `json:"at"`
+		Set     bool   `json:"set"`
+	} `json:"shelf"`
+}
+
+type updateSwitchDoc struct {
+	Version string `json:"version"`
 }
 
 type updateAppliedDoc struct {
@@ -275,18 +326,22 @@ func (s *Server) routes() []route {
 			Auth: true, Response: whereDoc{}, Handler: s.handleAt},
 		{Method: "GET", Path: "/v1/day", Summary: "One day's summary from photos, trail, health, voice notes and the check-in (?d=YYYY-MM-DD; &build=1 writes it now).",
 			Auth: true, Response: dayDoc{}, Handler: s.handleDay},
+		{Method: "GET", Path: "/v1/wiki", Summary: "The box's own Wikipedia, in its database once the mirror's file is imported: the state and counts; ?q= the articles a phrase names, surest first; ?idx= one article whole. Nothing leaves the box.",
+			Auth: true, Response: wikiDoc{}, Handler: s.handleWiki},
 		{Method: "POST", Path: "/v1/geo/trail/forget", Summary: "Delete one fix and its neighbours at the same spot (dry=true only says which).",
 			Auth: true, Request: trailForgetDoc{}, Response: trailForgottenDoc{}, Handler: s.handleTrailForget},
 		{Method: "GET", Path: "/v1/trail/key", Summary: "This device's trail key, to read its own sealed trail while unlocked ({have:false} when none).",
 			Auth: true, Response: trailKeyDoc{}, Handler: s.handleTrailKey},
 		{Method: "POST", Path: "/v1/trail/key", Summary: "The phone hands its trail key (raw X25519, base64) to the vault, once.",
 			Auth: true, Request: trailKeyFile{}, Response: okDoc{}, Handler: s.handleTrailKey},
-		{Method: "GET", Path: "/v1/update", Summary: "The build the box runs, and a release on trial (trial, confirmed, rolled back).",
+		{Method: "GET", Path: "/v1/update", Summary: "The build the box runs (version, name, commit, when, Go), a release on trial (trial, confirmed, rolled back), and the shelf of releases it keeps.",
 			Auth: true, Response: updateDoc{}, Handler: s.handleUpdate},
 		{Method: "POST", Path: "/v1/update/file", Summary: "One file of the signed server set (?name=MANIFEST.txt first, then its .asc, then <build>/server/<file>).",
 			Auth: true, Response: okDoc{}, Handler: s.handleUpdateFile},
 		{Method: "POST", Path: "/v1/update/apply", Summary: "Verify the uploaded set against the pinned site key, put it on, lock and restart onto it.",
 			Auth: true, Response: updateAppliedDoc{}, Handler: s.handleUpdateApply},
+		{Method: "POST", Path: "/v1/update/switch", Summary: "A release from the shelf back on: its kept set verified again, unpacked, put on, lock and restart onto it (on trial like a new one).",
+			Auth: true, Request: updateSwitchDoc{}, Response: updateAppliedDoc{}, Handler: s.handleUpdateSwitch},
 		{Method: "POST", Path: "/v1/update/rollback", Summary: "Put the earlier build back, lock and restart onto it.",
 			Auth: true, Response: updateAppliedDoc{}, Handler: s.handleUpdateRollback},
 		{Method: "POST", Path: "/v1/device/rekey", Summary: "A certificate for a key the phone made itself (spki + a signature proving it holds the key).",

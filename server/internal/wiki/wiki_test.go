@@ -1,11 +1,17 @@
 package wiki
 
 import (
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 	"github.com/LocalGhostDao/localghost/server/internal/zim/zimtest"
 )
 
@@ -16,7 +22,15 @@ const bitcoinPage = `<!DOCTYPE html><html><head><title>Bitcoin</title><style>p{c
 <p class="mw-empty-elt"></p>
 <p><b>Bitcoin</b> (abbreviation: <b>BTC</b>) is the first <a href="Decentralization">decentralized</a> cryptocurrency.<sup class="mw-ref reference" id="cite_ref-1"><a href="#cite_note-1"><span class="mw-reflink-text">[1]</span></a></sup> It was invented in 2008 by an unknown person.[2][citation needed]</p>
 <p>Bitcoin &amp; its ledger are kept by a network of nodes, without a central bank.</p>
-</section><section data-mw-section-id="1"><h2>History</h2><p>Later history, never in the lead.</p></section></div></body></html>`
+</section><section data-mw-section-id="1"><h2>History</h2><p>Later history, never in the lead: the first block was mined in January 2009.</p></section>
+<section data-mw-section-id="2"><h2>References</h2><p>Reference one, two and three, long enough to count as a paragraph.</p></section></div></body></html>`
+
+const towerPage = `<body><section data-mw-section-id="0"><p>The <b>Eiffel Tower</b> is a wrought-iron lattice tower in Paris, France. It is named after the engineer Gustave Eiffel.</p></section>
+<details data-mw-section-id="1"><summary><h2>History</h2></summary><p>The tower was built between 1887 and 1889 as the entrance to the 1889 World's Fair. It was criticised by artists at first.</p></details>
+<details data-mw-section-id="2"><summary><h2>Design</h2></summary><p>The tower is 330 metres tall, about the same height as an 81-storey building. Its base is square, 125 metres on each side.</p>
+<details data-mw-section-id="3"><summary><h3>Materials</h3></summary><p>The puddle iron came from the Pompey forges.</p></details></details>
+<details data-mw-section-id="4"><summary><h2>See also</h2></summary><p>A list of tall towers, never a section worth reading.</p></details>
+<details data-mw-section-id="5"><summary><h2>References</h2></summary><p>Reference one, two and three, all long enough to count.</p></details></body>`
 
 func testWiki(t *testing.T) *Wiki {
 	t.Helper()
@@ -26,8 +40,10 @@ func testWiki(t *testing.T) *Wiki {
 		{NS: 'C', Path: "Solana", Mime: "text/html", Body: []byte(`<body><p><b>Solana</b> may refer to: a city in California, a blockchain platform.</p></body>`)},
 		{NS: 'C', Path: "Solana_(blockchain_platform)", Title: "Solana (blockchain platform)", Mime: "text/html", Body: []byte(`<body><p>Solana is a blockchain platform which uses a proof-of-stake mechanism. It launched in 2020.</p></body>`)},
 		{NS: 'C', Path: "style.css", Mime: "text/css", Body: []byte("p{}")},
-		{NS: 'C', Path: "Greenwich", Mime: "text/html", Body: []byte(`<body><p>Greenwich is an area in south-east London, England, on the Thames.</p></body>`)},
-		{NS: 'C', Path: "Kassiopi,_Corfu", Title: "Kassiopi, Corfu", Mime: "text/html", Body: []byte(`<body><p>Kassiopi is a village on Corfu.</p></body>`)},
+		{NS: 'C', Path: "Greenwich", Mime: "text/html", Body: []byte(`<body><p>Greenwich is an area in south-east London, England, on the Thames, home of the Royal Observatory.</p></body>`)},
+		{NS: 'C', Path: "Kassiopi,_Corfu", Title: "Kassiopi, Corfu", Mime: "text/html", Body: []byte(`<body><p>Kassiopi is a village on the north-east coast of Corfu, Greece.</p></body>`)},
+		{NS: 'C', Path: "Eiffel_Tower", Title: "Eiffel Tower", Mime: "text/html", Body: []byte(towerPage)},
+		{NS: 'C', Path: "Tour_Eiffel", Title: "Tour Eiffel", Redirect: "Eiffel_Tower"},
 		{NS: 'M', Path: "Title", Mime: "text/plain", Body: []byte("Wikipedia")},
 		{NS: 'M', Path: "Date", Mime: "text/plain", Body: []byte("2026-06-14")},
 	}, 1)
@@ -44,74 +60,75 @@ func testWiki(t *testing.T) *Wiki {
 	return w
 }
 
-func TestArticleLead(t *testing.T) {
+func TestLeadAndBody(t *testing.T) {
 	w := testWiki(t)
 	if w.Name != "Wikipedia, 2026-06" {
 		t.Fatal(w.Name)
 	}
-	for _, q := range []string{"Bitcoin", "bitcoin", "BTC", "btc"} {
-		a, ok, err := w.Article(q, 2000)
-		if err != nil || !ok || a.Title != "Bitcoin" || a.Disamb {
-			t.Fatalf("%q: %+v %v %v", q, a, ok, err)
-		}
-	}
-	a, _, _ := w.Article("Bitcoin", 2000)
 	want := "Bitcoin (abbreviation: BTC) is the first decentralized cryptocurrency. It was invented in 2008 by an unknown person.\nBitcoin & its ledger are kept by a network of nodes, without a central bank."
-	if a.Lead != want {
-		t.Fatalf("%q", a.Lead)
+	if got := Lead(bitcoinPage, 2000); got != want {
+		t.Fatalf("%q", got)
 	}
-	if strings.Contains(a.Lead, "Infobox") || strings.Contains(a.Lead, "Later") || strings.Contains(a.Lead, "[") {
-		t.Fatal(a.Lead)
+	if short := Lead(bitcoinPage, 60); len(short) > 64 || !strings.HasSuffix(short, "…") {
+		t.Fatalf("%q", short)
 	}
-	if short, _, _ := w.Article("Bitcoin", 60); len(short.Lead) > 64 || !strings.HasSuffix(short.Lead, "…") {
-		t.Fatalf("%q", short.Lead)
+	body := Body(bitcoinPage, BodyMax)
+	if !strings.HasPrefix(body, "== History ==\nLater history") || strings.Contains(body, "Reference one") {
+		t.Fatalf("body %q", body)
 	}
-	if s, ok, _ := w.Article("solana", 500); !ok || !s.Disamb {
-		t.Fatalf("a disambiguation page says so: %+v", s)
-	}
-	if s, ok, _ := w.Article("Solana (blockchain platform)", 500); !ok || s.Disamb || !strings.HasPrefix(s.Lead, "Solana is a blockchain") {
-		t.Fatalf("%+v", s)
-	}
-	if _, ok, _ := w.Article("style.css", 100); ok {
-		t.Fatal("not an article")
-	}
-	if _, ok, _ := w.Article("Dogecoin", 100); ok {
-		t.Fatal("not there")
-	}
-	// a place said with its city or country: "Greenwich london" is Greenwich, "Kassiopi Corfu"
-	// is "Kassiopi, Corfu"; "Dogecoin London" is still nothing
-	if g, ok, _ := w.Article("Greenwich london", 500); !ok || g.Title != "Greenwich" {
-		t.Fatalf("%+v %v", g, ok)
-	}
-	if k, ok, _ := w.Article("kassiopi corfu", 500); !ok || k.Title != "Kassiopi, Corfu" {
-		t.Fatalf("%+v %v", k, ok)
-	}
-	if _, ok, _ := w.Article("Dogecoin London", 100); ok {
-		t.Fatal("a qualifier does not make an article")
-	}
-	ts, err := w.Titles("solana", 5)
-	if err != nil || len(ts) != 2 || ts[1] != "Solana (blockchain platform)" {
-		t.Fatalf("%v %v", ts, err)
+	if !disamb("Solana may refer to: a city") || disamb("Solana is a blockchain platform") {
+		t.Fatal("disamb")
 	}
 }
 
-func TestVariantsAndShared(t *testing.T) {
-	got := variants("solana beach")
-	if strings.Join(got, "|") != "solana beach|Solana beach|Solana Beach" {
-		t.Fatal(got)
+func TestSectionsAndTheBestOne(t *testing.T) {
+	secs := Sections(towerPage, 400)
+	if len(secs) != 3 || secs[0].Heading != "History" || secs[1].Heading != "Design" || secs[2].Heading != "Materials" {
+		t.Fatalf("sections %+v", secs)
 	}
-	if v := variants("btc"); v[len(v)-1] != "BTC" {
-		t.Fatal(v)
+	if !strings.HasPrefix(secs[0].Text, "The tower was built between 1887 and 1889") {
+		t.Fatalf("history %q", secs[0].Text)
 	}
-	s := &Shared{Dir: t.TempDir()}
-	if _, err := s.Get(); err != ErrNone {
-		t.Fatal(err)
+	if s := BestSection(secs, "How tall is the Eiffel Tower?"); s == nil || s.Heading != "Design" {
+		t.Fatalf("tall → %+v", s)
 	}
-	w := testWiki(t)
-	s2 := &Shared{Dir: filepath.Dir(w.Path)}
-	got2, err := s2.Get()
-	if err != nil || got2.Name != "Wikipedia, 2026-06" {
-		t.Fatal(err)
+	if s := BestSection(secs, "when was the Eiffel Tower built?"); s == nil || s.Heading != "History" {
+		t.Fatalf("built → %+v", s)
+	}
+	if s := BestSection(secs, "what is the Eiffel Tower"); s != nil {
+		t.Fatalf("a what-is has no section: %+v", s)
+	}
+	if s := BestSection(secs, "which iron forges supplied it?"); s == nil || s.Heading != "Materials" {
+		t.Fatalf("forges → %+v", s)
+	}
+	if got := cutAt("One sentence. Another sentence that runs on and on.", 22); got != "One sentence." {
+		t.Fatalf("cut %q", got)
+	}
+	// the body as stored reads back into the same sections
+	body := Body(towerPage, BodyMax)
+	back := parseBody(body)
+	if len(back) != 3 || back[1].Heading != "Design" || !strings.HasPrefix(back[1].Text, "The tower is 330 metres tall") {
+		t.Fatalf("parsed back %+v", back)
+	}
+	if h, txt := SectionFor(body, "how tall is it", 300); h != "Design" || !strings.Contains(txt, "330 metres") {
+		t.Fatalf("section for: %q %q", h, txt)
+	}
+}
+
+func TestNamesInAQuestion(t *testing.T) {
+	for q, want := range map[string][]string{
+		"How tall is the Eiffel Tower?":                         {"Eiffel Tower"},
+		"Tell me about Greenwich":                               {"Greenwich"},
+		"is Kassiopi worth visiting, and what about Corfu Town": {"Corfu Town", "Kassiopi"},
+		"what time is it":                                       nil,
+		"Paris":                                                 {"Paris"},
+		"Who was Gustave Eiffel, the engineer?":                 {"Gustave Eiffel"},
+		"did Vlad go to Toronto in September":                   {"September", "Toronto", "Vlad"},
+	} {
+		got := Names(q)
+		if strings.Join(got, "|") != strings.Join(want, "|") {
+			t.Fatalf("%q: %v (want %v)", q, got, want)
+		}
 	}
 }
 
@@ -119,5 +136,112 @@ func TestDropElement(t *testing.T) {
 	in := `a<table x><tr><td><table><tr><td>b</td></tr></table></td></tr></table>c<tablex>d</tablex>`
 	if got := dropElement(in, "table"); got != "ac<tablex>d</tablex>" {
 		t.Fatal(got)
+	}
+}
+
+func pgFresh(t *testing.T, name string) *poltergres.ReadWrite {
+	t.Helper()
+	dir := os.Getenv("GHOST_PG_SOCKET_DIR")
+	if dir == "" {
+		t.Skip("GHOST_PG_SOCKET_DIR not set; no Postgres to test against")
+	}
+	port := 5432
+	if p, err := strconv.Atoi(os.Getenv("GHOST_PG_PORT")); err == nil {
+		port = p
+	}
+	user := os.Getenv("GHOST_PG_USER")
+	if user == "" {
+		user = "postgres"
+	}
+	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
+	if err := admin.Ping(); err != nil {
+		t.Fatalf("postgres unreachable: %v", err)
+	}
+	if err := admin.ExecSimple("DROP DATABASE IF EXISTS " + name); err != nil {
+		t.Fatal(err)
+	}
+	if err := admin.ExecSimple("CREATE DATABASE " + name); err != nil {
+		t.Fatal(err)
+	}
+	db := poltergres.NewReadWrite(dir, port, user, "", name)
+	_ = db.Exec("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+	if _, err := hw.ConvergeSchema(db, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	return db
+}
+
+// The store against Postgres: the file imported in slices (the state carried between them), then
+// the lookups: the title in any case, a redirect, a qualified place without its comma, a prefix,
+// a typo (with pg_trgm), the words of a lead; an article read whole; a new file starts over.
+func TestStorePGImportsAndFinds(t *testing.T) {
+	db := pgFresh(t, "lg_wiki_store")
+	w := testWiki(t)
+	s := &Store{DB: db}
+	if _, ok := s.Ready(); ok {
+		t.Fatal("ready before the import")
+	}
+	st, err := s.Import(w, 0) // a budget of nothing still reads the first slice, which is all of this file
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.Done || st.Articles != 6 || st.Redirects != 2 || st.Edition != "Wikipedia, 2026-06" || !s.Current(w) {
+		t.Fatalf("state %+v", st)
+	}
+	if a, r := s.Counts(); a != 6 || r != 2 {
+		t.Fatalf("counts %d %d", a, r)
+	}
+	if _, ok := s.Ready(); !ok {
+		t.Fatal("not ready after the import")
+	}
+	for q, want := range map[string][2]string{
+		"bitcoin": {"Bitcoin", "exact"}, "BTC": {"Bitcoin", "redirect"}, "tour eiffel": {"Eiffel Tower", "redirect"},
+		"kassiopi corfu": {"Kassiopi, Corfu", "qualified"}, "greenwich london": {"Greenwich", "like|text"},
+		"eiffel": {"Eiffel Tower", "prefix"}, "royal observatory": {"Greenwich", "text"},
+	} {
+		h, ok, err := s.Best(q, 400)
+		if err != nil || !ok || h.Title != want[0] || !strings.Contains(want[1], h.How) {
+			t.Fatalf("%q: %+v %v %v (want %v)", q, h, ok, err, want)
+		}
+	}
+	if s.hasTrgm() {
+		if h, ok, _ := s.Best("grenwich", 400); !ok || h.Title != "Greenwich" || h.How != "like" {
+			t.Fatalf("typo: %+v %v", h, ok)
+		}
+	} else {
+		t.Log("pg_trgm not installed here; the likeness lookup was not exercised")
+	}
+	// the exact title is a page of meanings: the lookup lists it first and says so, the article by
+	// prefix after it, and Best takes the article
+	hits, _ := s.Lookup("solana", 4, 400)
+	if len(hits) != 2 || !hits[0].Disamb || hits[0].How != "exact" || hits[1].Title != "Solana (blockchain platform)" {
+		t.Fatalf("solana: %+v", hits)
+	}
+	if b, ok, _ := s.Best("solana", 400); !ok || b.Title != "Solana (blockchain platform)" {
+		t.Fatalf("best solana: %+v", b)
+	}
+	if _, ok, _ := s.Best("dogecoin", 400); ok {
+		t.Fatal("not there")
+	}
+	a, ok, err := s.Article(hits[1].Idx)
+	if err != nil || !ok || a.Title != "Solana (blockchain platform)" || !strings.HasPrefix(a.Lead, "Solana is a blockchain") {
+		t.Fatalf("article %+v %v %v", a, ok, err)
+	}
+	tower, _, _ := s.Best("eiffel tower", 400)
+	full, _, _ := s.Article(tower.Idx)
+	if h, txt := SectionFor(full.Body, "when was the Eiffel Tower built", 300); h != "History" || !strings.Contains(txt, "1887") {
+		t.Fatalf("section %q %q", h, txt)
+	}
+	// the same file: nothing to do; a changed size: everything again
+	if st2, err := s.Import(w, time.Second); err != nil || !st2.Done || st2.Articles != 6 {
+		t.Fatalf("second import %+v %v", st2, err)
+	}
+	_ = db.Exec("UPDATE settings SET value = replace(value, '\"size\":', '\"size\":1') WHERE key = $1", ImportKey)
+	if s.Current(w) {
+		t.Fatal("current for another size")
+	}
+	st3, err := s.Import(w, time.Second)
+	if err != nil || !st3.Done || st3.Articles != 6 || st3.Redirects != 2 {
+		t.Fatalf("import again %+v %v", st3, err)
 	}
 }

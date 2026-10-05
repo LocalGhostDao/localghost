@@ -43,6 +43,9 @@ object HomeBriefText {
         sym + " " + money(p.usd) + (p.change24?.let { " " + "%+.1f".format(java.util.Locale.US, it) + "%" } ?: "")
     }.joinToString(" · ")
 
+    /** The prices one a line, for the widget's big line: "BTC 65,000 +1.2%" over "ETH 3,250 -0.4%". */
+    fun stacked(prices: String): String = prices.replace(" · ", "\n")
+
     /** The status-bar chip: "BTC 65.0k" (a live update's chip has room for a few characters). */
     fun chip(prices: List<Price>): String {
         val b = prices.firstOrNull { it.symbol == "BTC" && it.usd > 0 } ?: return ""
@@ -56,7 +59,8 @@ object HomeBriefText {
         else -> "%,d".format(java.util.Locale.US, Math.round(v))
     }
 
-    /** The card pulled open: the summary, the outlets, the prices, then what comes next and after. */
+    /** The card pulled open: the summary, the outlets, the prices when they are not the title
+     *  already ("" then), then what comes next and after. */
     fun expanded(cards: List<Card>, index: Int, prices: String, asOf: String): String {
         val c = cards.getOrNull(index) ?: return prices
         val sb = StringBuilder(400)

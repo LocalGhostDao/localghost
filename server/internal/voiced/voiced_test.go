@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"io"
+	"log/slog"
 	"math"
 	"os"
 	"path/filepath"
@@ -253,5 +255,42 @@ func TestStateFile(t *testing.T) {
 	}
 	if _, err := os.Stat(StatePath(mount) + ".tmp"); err == nil {
 		t.Fatal("tmp file left behind")
+	}
+}
+
+// A question asked aloud: heard from under voiced/ask, the file gone after, nothing else written;
+// a file anywhere else is refused (and removed, since the caller meant it to go).
+func TestHearAQuestion(t *testing.T) {
+	_, mount := fakeEngine(t)
+	t.Setenv("FAKE_WHISPER_MODE", "json")
+	d := &Daemon{Mount: mount, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Find: FindEngine}
+	ask := AskDir(mount)
+	_ = os.MkdirAll(ask, 0o750)
+	wav := filepath.Join(ask, "q1.wav")
+	writeWav(t, wav, 16000, 1, 16000, false)
+	r, err := d.Hear(context.Background(), wav)
+	if err != nil || r.Text != "Walked to the harbour. Tired but good." || r.Lang != "en" {
+		t.Fatalf("%+v %v", r, err)
+	}
+	if _, err := os.Stat(wav); err == nil {
+		t.Fatal("the question's file was kept")
+	}
+	for _, e := range func() []os.DirEntry { ents, _ := os.ReadDir(filepath.Join(mount, "voiced")); return ents }() {
+		if e.Name() != "ask" && e.Name() != "work" {
+			t.Fatalf("something else was written: %s", e.Name())
+		}
+	}
+	if ents, _ := os.ReadDir(filepath.Join(mount, "voiced", "work")); len(ents) != 0 {
+		t.Fatalf("scratch left behind: %v", ents)
+	}
+	// not under ask: refused
+	other := filepath.Join(mount, "voiced", "inbox", "x.wav")
+	_ = os.MkdirAll(filepath.Dir(other), 0o750)
+	writeWav(t, other, 16000, 1, 16000, false)
+	if _, err := d.Hear(context.Background(), other); err == nil || !strings.Contains(err.Error(), "not a file of") {
+		t.Fatalf("a file outside ask: %v", err)
+	}
+	if _, err := d.Hear(context.Background(), filepath.Join(ask, "..", "inbox", "x.wav")); err == nil {
+		t.Fatal("a path climbing out of ask")
 	}
 }

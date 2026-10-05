@@ -5192,4 +5192,91 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   Canada trip, part_of on outings and days, a lone Paris outing folds its days, idempotent second
   pass, an edited trip survives a changed template, a dissolved trip goes and unfolds; tripFacts).
   48 Go packages, vet Linux and darwin; 213 JVM tests + WebSearchTest 10.
+- Box Status, synthd: hw.SynthStatus (internal/hw/synthstatus.go; settings synthd_status, synthd
+  the single writer, SaveSynthStatus at the end of every distillLoop pass with the pass's tallies
+  by step, wikiStatus() and the consolidation day). wikiStatus (wikipedia.go): open (name, file,
+  entries), downloading (a hidden .part in <volume>/wiki with its size), missing, failed (the
+  reader's error); wikiAnswers counts the chat questions the article answered since start.
+  DaemonSummaryFrom "ghost.synthd" rewritten: last pass (key, LATE past 30 min), memories by kind
+  (key), yours/edited/deleted, distill queue (key), written by the model, days told (and folded),
+  consolidation, wikipedia (key when downloading or failed), about note, chats answered, then the
+  news rows as before. synthDid and humanCount tested.
 
+## 4 October 2026 , Wikipedia into Postgres, the file only imported
+
+- internal/wiki: the package is the file (Open, Lead, Body, Sections, BestSection, Names) and
+  the Store (store.go): Import(w, budget) reads entries in path order from ImportState.Next
+  (settings synthd_wiki_import), articles in batches of 40 (title, title_lc, lead ≤ 1500, body
+  ≤ 60k with "== Heading ==" lines, disamb) and redirects in batches of 500 (title_lc → the
+  target's idx), saves every 20k entries, starts over for another file name or size (DELETE both
+  tables), counts entries that would not read as skipped and never fails on one. Lookup(q, n,
+  maxLead): exact, redirect, qualified ("a, b" / "a (b)"), prefix (text_pattern_ops), like
+  (pg_trgm, articles then redirects), text (GIN tsvector over title || lead); Best takes the first
+  hit that is not a page of meanings; Article(idx); SectionFor(body, question, max); Counts;
+  Ready/Current. The ZIM-time code went: Shared, Article/variants/Titles, the qualifier map,
+  index.go. internal/zim stays as the import's reader.
+- hw schema: wiki_articles (idx PK, title, title_lc, lead, body, disamb; indexes: pattern btree,
+  trigram GIN, tsvector GIN) and wiki_redirects (title_lc, idx unique; pattern btree, trigram
+  GIN); EnsureSchema runs CREATE EXTENSION IF NOT EXISTS pg_trgm as the owner (a trusted
+  extension; a warning when it fails, the GIN trigram indexes then simply do not come to be).
+- cmd/ghost.synthd/wikipedia.go rewritten: wikiStore over chatStore(wikiMount); wikiImportLoop
+  (a minute between slices of 45 s; opens the file once; after Done, writes <wiki>/.imported
+  "<file> <sha256> <edition>" with the hash from mirror_fetch's record and removes the file; an
+  8 GB free-space guard before a slice, said in the state); wikiStatus states ready | importing |
+  downloading | missing | failed | locked with articles/redirects/next/total (hw.SynthWiki widened);
+  wikiAboutCoin, wikiSource, wikiCovers over the store (a names path: wiki.Names minus the owner
+  and the people, exact/redirect/qualified only; the section for a detail question, reDetailAsk);
+  wikiCtl: q=, idx=, n= → state, counts, hits, article. aboutme.go holdingsText uses wikiReady.
+- secd GET /v1/wiki (?q=&n= | ?idx=) through synthd's ctl, in the OpenAPI document (wikiDoc).
+- update.sh wiki: with no file and .imported, the mirror's listed hash for the file name is
+  compared with the marker's; the same → "current … in the database"; different → fetched again
+  (imported in place of the old, removed again). health.sh reads the new ctl keys.
+- App: BoxClient.wiki(q, idx, n); WikipediaScreen (search, hits with how they were found, an
+  article with its sections); WikiText (pure, tested); Dest.WIKIPEDIA under YOUR ARCHIVE.
+- Tested: internal/wiki (Lead/Body, Sections/BestSection/SectionFor/parseBody, Names, the store
+  against Postgres: import in slices, every lookup kind, a page of meanings ordered after an
+  article, a new size starts over); synthd's wiki test against Postgres (coin, "tell me about", a
+  name with its section, covers/leaves, status); secd's OpenAPI coverage; 48 packages, vet Linux
+  and darwin; 215 JVM tests.
+
+
+## 5 October 2026 , SETTINGS › SERVER whole, the shelf, prices first, check-in notes, a question asked aloud
+
+- The phone said "no server release on the mirror" with 0.0.4 published: ServerUpdates.fetchText
+  read a megabyte of MANIFEST.txt and the manifest, listing every elevation tile, had grown past
+  it, the server lines after the cut. check() reads it line by line now and keeps the header and
+  the /server/ lines (ReleaseInfo.keep, tested), stores only those, and records why it found
+  nothing (lastMiss: the mirror did not answer, the build has no server set, the notes did not
+  match); SETTINGS says that instead of the one line.
+- secd: Commit and BuiltAt ldflags beside Version and ReleaseName (Makefile: git rev-parse HEAD
+  and the moment of the build; release_build.sh: the tag's commit and the commit's time, the same
+  BUILT as RELEASE.txt's date, so the bytes stay reproducible). GET /v1/update carries commit,
+  builtAt, go (runtime.Version()) and the shelf.
+- internal/update/shelf.go: the signed set the phone handed over moves to
+  releases/<version>/set once the release is on (Keep); Shelf() lists the releases kept (VERSION,
+  COMMIT, CHANGES.txt, and RELEASE.txt's name/commit/date/go when the set is there); Prune keeps
+  four, never the running one. POST /v1/update/switch {"version"} puts a kept release back on
+  through the same putOn as a deploy: verified again by mirror_fetch.sh over the kept set (its
+  "newest build used" marker pointed at a scratch file for that run, so the real one neither
+  refuses the older manifest nor moves back), unpacked again, Apply, trial, restart. The verifier
+  hook takes a shelf flag.
+- App SETTINGS › SERVER: "your box runs wisp 0.0.4 (1062b7f), built 4 Oct 2026, 17:12 UTC, Go
+  1.27.1" (ReleaseInfo.describe/at/short, tested); the mirror's newest the same way; ON THE SHELF
+  rows with [ put on ] → [ sure? ] → updateSwitch; ROLL BACK as before.
+- Widget and lock-screen card at home: the prices first (HomeBriefText.stacked for the widget's big
+  line, one coin a line; the card's title), the story under them; the fake "prices" card is gone.
+- CheckinRow.Voices: every check-in note of the day (voiceOfDays kind=checkin), the "Voice:" one
+  first; the app's CheckedIn recorder saves kind checkin ([ add to today's check-in ]) and lists
+  the day's notes with the ones still on the phone; PastCheckin lists them all.
+- voiced.Daemon.Hear(path): a WAV under <mount>/voiced/ask transcribed and removed, nothing
+  written (engMu: one whisper at a time with the queue's); ctl `hear path=`. secd POST
+  /v1/voice/ask spools the body there, calls voiced, answers {"text","lang","heard"} or
+  {"ok":false,"why"}, removes the file. App: VoiceAskButton in the chat composer (record, stop,
+  "your box is listening…", the words into the field; BoxClient.voiceAsk, BoxHttp.postFileJson).
+- Tested: update (TestShelf), secd (TestUpdateFromThePhone with the shelf, TestSwitchFromTheShelf,
+  TestVoiceAsk), voiced (TestHearAQuestion), hw (the PG voice test with notes added through the
+  day); 48 packages ok, vet Linux and darwin; 217 JVM tests.
+- feeds.DefaultSources gains wsj-world (https://feeds.content.dowjones.io/public/rss/RSSWorldNews);
+  feeds.Added lists it for boxes seeded before, put on once by synthd's addFeeds (settings marker
+  news_added_<id>; an operator's removal stands). PG test extended.
+- App: RECORD_AUDIO in the welcome chain and its rows ("microphone").

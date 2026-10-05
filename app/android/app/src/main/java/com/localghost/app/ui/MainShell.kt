@@ -40,6 +40,7 @@ enum class Dest(val label: String, val glyph: String) {
     MEMORIES("MEMORIES", "◇"),
     MEMORY("MEMORY", "◇"),
     CHECKIN("CHECK-IN", "◐"),
+    WIKIPEDIA("WIKIPEDIA", "W"),
     NEWS("NEWS", "¶"),
     CRYPTO("CRYPTO", "₿"),
     COIN("COIN", "◈"),
@@ -294,6 +295,7 @@ fun MainShell(
                             onOpenMemory = { id -> openMemory(id) },
                             onBack = { dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom })
                         Dest.CHECKIN -> CheckinScreen(onOpenDay = { d -> openDay(d) })
+                        Dest.WIKIPEDIA -> WikipediaScreen()
                         Dest.NEWS -> NewsScreen(openStory = newsFocus, onStoryShown = { newsFocus = 0L })
                         Dest.NOTIFICATIONS -> {
                             val nctx = androidx.compose.ui.platform.LocalContext.current
@@ -541,7 +543,7 @@ private fun DrawerPanel(
             SectionLabel("YOUR ARCHIVE")
             // PHRASES appears while the lock-screen card is on (from the start; off by hand in settings).
             val phrasesOn = com.localghost.app.phrases.PhraseState.enabled(androidx.compose.ui.platform.LocalContext.current)
-            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.CHECKIN, Dest.MEMORIES, Dest.NEWS, Dest.CRYPTO, Dest.SYNC)
+            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.CHECKIN, Dest.MEMORIES, Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.SYNC)
                 .filter { it != Dest.PHRASES || phrasesOn || current == Dest.PHRASES }
                 .forEach { DrawerRow(it, it == current) { onSelect(it) } }
 

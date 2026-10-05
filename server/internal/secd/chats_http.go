@@ -408,6 +408,46 @@ func (s *Server) handleNoteAdd(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
+// handleWiki , GET /v1/wiki?q=<phrase>&n=8 or ?idx=<n>: the box's Wikipedia, in its database once
+// the mirror's file is imported (ghost.synthd wikipedia.go). The state and counts always; with q,
+// the articles the phrase names, surest first (the title in any case, a redirect, a qualified
+// place, a prefix, a likeness, the words of a lead); with idx, one article whole. Nothing leaves the
+// box: the question is a few SQL reads. Asked through synthd's control socket, which owns the store.
+func (s *Server) handleWiki(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	args := map[string]any{}
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		args["q"] = q
+	}
+	if n, err := strconv.Atoi(r.URL.Query().Get("n")); err == nil && n > 0 {
+		args["n"] = n
+	}
+	if idx, err := strconv.ParseUint(r.URL.Query().Get("idx"), 10, 32); err == nil && idx > 0 {
+		args["idx"] = idx
+	}
+	runDir := fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)
+	resp, err := ctlsock.NewClientTimeout("ghost.synthd", runDir, 30*time.Second).Call("wiki", args)
+	if err != nil || !resp.OK {
+		if err != nil {
+			secdLog.Warn("wiki failed", "fn", "handleWiki", "err", err)
+		}
+		s.appearsDown(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(resp.Text))
+}
+
 // handleOnThisDay , GET /v1/onthisday?day=MM-DD (empty = today) , synthd's retrospective, proxied.
 func (s *Server) handleOnThisDay(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {

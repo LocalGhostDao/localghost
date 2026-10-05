@@ -129,7 +129,8 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
             }
         }
         if (done) {
-            CheckedIn(today, todayRow, onPhone, justSaved = justSaved, onSaved = { reload() })
+            CheckedIn(today, todayRow, onPhone, voiceLocal.filter { it.kind == "checkin" && it.day == today },
+                justSaved = justSaved, onSaved = { reload() })
         } else {
             CheckinForm(today, rows, onSaved = { justSaved = true; reload() })
         }
@@ -153,7 +154,7 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
                     Text(Feelings.shortDay(r.day), color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(84.dp))
                     Text(if (picks.isEmpty()) "(no feeling picked)" else picks.joinToString(", "), color = GhostText,
                         style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1)
-                    if (r.voice != null) Text("🎙", color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 6.dp))
+                    if (r.voices.isNotEmpty()) Text(if (r.voices.size > 1) "🎙${r.voices.size}" else "🎙", color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 6.dp))
                     Text("›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
                 }
             }
@@ -352,11 +353,14 @@ private fun FeelingChips(words: List<String>, picked: List<String>, guessed: Lis
     }
 }
 
-/** TODAY, CHECKED IN: what was said (the feelings, the why, the voice note as the box has it), the
- *  day as the box tells it, and a recorder for more notes to the same day. [row] is null while the
- *  check-in is still on its way into the journal (noted ingests on its next tick). */
+/** TODAY, CHECKED IN: what was said (the feelings, the why, every voice note said to the check-in
+ *  as the box has it, and the ones still on the phone), the day as the box tells it, and a
+ *  recorder that adds to the check-in until the day ends: a note said here is a check-in note (kind
+ *  checkin, today), listed with the first and journaled "said at the daily check-in". [row] is null
+ *  while the check-in is still on its way into the journal (noted ingests on its next tick). */
 @Composable
-private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<String>, justSaved: Boolean, onSaved: () -> Unit) {
+private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<String>, waiting: List<VoiceNotes.Pending>,
+                      justSaved: Boolean, onSaved: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth().animateContentSize()) {
@@ -372,7 +376,14 @@ private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<St
                 FeelingChips(picks, picks, guessed, emptySet(), onTap = null, maxChars = 40, maxPer = 6)
             }
             if (row.why.isNotBlank()) Text(row.why, color = GhostText, style = MaterialTheme.typography.bodySmall)
-            row.voice?.let { v -> key("today-" + v.id) { VoiceNoteCard(v, onPhone = v.id in onPhone, onDelete = null) } }
+        }
+        val said = row?.voices ?: emptyList()
+        said.forEach { v -> key("today-" + v.id) { VoiceNoteCard(v, onPhone = v.id in onPhone, onDelete = null) } }
+        // said to the check-in, not yet on the box (no network, or the upload still going)
+        waiting.filter { p -> said.none { it.id == p.id } }.forEach { p ->
+            key("today-local-" + p.id) {
+                VoiceNoteCard(BoxClient.VoiceNoteRow(p.id, p.kind, p.day, p.takenAt / 1000, p.durationMs, "missing", "", "", ""), onPhone = true, onDelete = null)
+            }
         }
         Spacer(Modifier.height(12.dp))
         // YOUR DAY, written up: once the check-in is in, the box folds the photos, the trail, the
@@ -381,9 +392,9 @@ private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<St
         // check-in to land, then the model writes); read back after.
         DayStoryCard(today, justSaved = justSaved)
         Spacer(Modifier.height(10.dp))
-        VoiceRecorder(hint = "say more about today · kept and transcribed on your box",
-            saveLabel = "[ save to today's journal ]", onSave = { take ->
-                VoiceNotes.enqueue(ctx, take, "journal", today)
+        VoiceRecorder(hint = "more to say about today · added to the check-in until the day ends, transcribed on your box",
+            saveLabel = "[ add to today's check-in ]", onSave = { take ->
+                VoiceNotes.enqueue(ctx, take, "checkin", today)
                 VoiceCapture.taken()
                 scope.launch { VoiceNotes.uploadPending(ctx); onSaved() }
             })
@@ -429,10 +440,10 @@ private fun PastCheckin(day: String, today: String, row: BoxClient.CheckinRow?, 
                 Spacer(Modifier.height(6.dp))
                 Text(row.why, color = GhostText, style = MaterialTheme.typography.bodyMedium)
             }
-            row.voice?.let { v ->
+            if (row.voices.isNotEmpty()) {
                 Spacer(Modifier.height(14.dp))
-                SectionLabel("SAID")
-                key("past-" + v.id) { VoiceNoteCard(v, onPhone = v.id in onPhone, onDelete = null) }
+                SectionLabel(if (row.voices.size == 1) "SAID" else "SAID, ${row.voices.size} NOTES")
+                row.voices.forEach { v -> key("past-" + v.id) { VoiceNoteCard(v, onPhone = v.id in onPhone, onDelete = null) } }
             }
         }
         Spacer(Modifier.height(18.dp))

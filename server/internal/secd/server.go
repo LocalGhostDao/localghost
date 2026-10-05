@@ -314,7 +314,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/voice/notes", s.handleVoiceNotes)            // the notes with transcripts and status
 	mux.HandleFunc("/v1/voice/audio", s.handleVoiceAudio)            // one note's audio (?id=), Range works
 	mux.HandleFunc("/v1/voice/delete", s.handleVoiceDelete)          // audio, row and journal entry gone
+	mux.HandleFunc("/v1/voice/ask", s.handleVoiceAsk)                // a question asked aloud: the words back, nothing kept
 	mux.HandleFunc("/v1/onthisday", s.handleOnThisDay)               // synthd's retrospective, from the prebuilt days
+	mux.HandleFunc("/v1/wiki", s.handleWiki)                         // the box's Wikipedia (in Postgres): state, a search (?q=), an article (?idx=)
 	mux.HandleFunc("/v1/days", s.handleDays)                         // the prebuilt day summaries, newest first (?before&limit)
 	mux.HandleFunc("/v1/day", s.handleDay)                           // one day's summary (?d=YYYY-MM-DD&build=1 writes it now, after the check-in)
 	mux.HandleFunc("/v1/devices/name", s.handleDeviceName)           // a device names itself
@@ -338,6 +340,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/update", s.handleUpdate)                     // what runs, and a release on trial
 	mux.HandleFunc("/v1/update/file", s.handleUpdateFile)            // one file of the signed server set, from the phone
 	mux.HandleFunc("/v1/update/apply", s.handleUpdateApply)          // verify, put on, lock and restart
+	mux.HandleFunc("/v1/update/switch", s.handleUpdateSwitch)        // a release from the shelf back on
 	mux.HandleFunc("/v1/update/rollback", s.handleUpdateRollback)    // the earlier build back
 	mux.HandleFunc("/v1/device/rekey", s.handleRekey)                // the phone's own key, a new certificate for it
 	mux.HandleFunc("/v1/device/rekey/confirm", s.handleRekeyConfirm) // over the new one: the QR's retires
