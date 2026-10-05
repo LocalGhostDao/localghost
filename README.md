@@ -23,12 +23,13 @@ Read [why we build](https://www.localghost.ai/manifesto), or the
 
 ## Status
 
-**wisp**, the first release, was cut on 2 October 2026 and is at 0.0.4:
+**wisp**, the first release, was cut on 2 October 2026 and is at 0.0.5:
 [the release](https://github.com/LocalGhostDao/localghost/releases/latest),
 [what is in it and how it works](server/releases/0.0.1.md), and what the
-[second](server/releases/0.0.2.md), [third](server/releases/0.0.3.md) and
-[fourth](server/releases/0.0.4.md) cuts changed. One box runs it with one phone. The
-server is about 70,000 lines of Go with 170 test files, the app about 33,000 lines of Kotlin.
+[second](server/releases/0.0.2.md), [third](server/releases/0.0.3.md),
+[fourth](server/releases/0.0.4.md) and [fifth](server/releases/0.0.5.md) cuts changed. One box
+runs it with one phone. The server is about 74,000 lines of Go with 177 test files, the app
+about 34,000 lines of Kotlin.
 
 What works, as of wisp: the encrypted volume and its unlock from the phone, the photo archive
 with captions, tags and search, the trail on a map drawn from the box's own data, the heights
