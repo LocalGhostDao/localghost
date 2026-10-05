@@ -116,6 +116,8 @@ if ls /usr/share/postgresql/*/extension/vector.control >/dev/null 2>&1; then
 else
     echo "  pgvector: MISSING (search runs FTS-only until installed; install_db.sh includes it)"
 fi
+# every extension the box needs (vector, pg_trgm), from one list
+sh "$(dirname "$0")/pg_extensions.sh" || echo "  an extension is missing: run tools/install_db.sh (root); the box runs without it, the lookups that want it do not"
 if [ "$DB_MISSING" = 1 ]; then
     echo "  run tools/install_db.sh first (root), then re-run this script"
     exit 1

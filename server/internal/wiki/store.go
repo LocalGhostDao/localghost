@@ -2,6 +2,7 @@ package wiki
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -178,22 +179,62 @@ type batch struct {
 	artArgs, redArgs []any
 }
 
-func (b *batch) flush(db *poltergres.ReadWrite) error {
+// flush writes the batch. A batch the database refuses (a row it will not take: a byte sequence
+// that is not UTF-8 got past the cleaning, a value too long) is written a row at a time and the
+// rows refused are dropped and counted, so one bad page never stops Wikipedia; any other error
+// (the connection, the disk) comes back.
+func (b *batch) flush(db *poltergres.ReadWrite) (dropped int, err error) {
 	if len(b.arts) > 0 {
 		q := "INSERT INTO wiki_articles (idx, title, title_lc, lead, body, disamb) VALUES " + strings.Join(b.arts, ",") + " ON CONFLICT (idx) DO NOTHING"
 		if err := db.Exec(q, b.artArgs...); err != nil {
-			return err
+			if !dataError(err) {
+				return dropped, err
+			}
+			for i := 0; i < len(b.artArgs); i += 6 {
+				if err := db.Exec("INSERT INTO wiki_articles (idx, title, title_lc, lead, body, disamb) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (idx) DO NOTHING", b.artArgs[i:i+6]...); err != nil {
+					if !dataError(err) {
+						return dropped, err
+					}
+					dropped++
+				}
+			}
 		}
 		b.arts, b.artArgs = b.arts[:0], b.artArgs[:0]
 	}
 	if len(b.reds) > 0 {
 		q := "INSERT INTO wiki_redirects (title_lc, idx) VALUES " + strings.Join(b.reds, ",") + " ON CONFLICT (title_lc, idx) DO NOTHING"
 		if err := db.Exec(q, b.redArgs...); err != nil {
-			return err
+			if !dataError(err) {
+				return dropped, err
+			}
+			for i := 0; i < len(b.redArgs); i += 2 {
+				if err := db.Exec("INSERT INTO wiki_redirects (title_lc, idx) VALUES ($1,$2) ON CONFLICT (title_lc, idx) DO NOTHING", b.redArgs[i:i+2]...); err != nil {
+					if !dataError(err) {
+						return dropped, err
+					}
+					dropped++
+				}
+			}
 		}
 		b.reds, b.redArgs = b.reds[:0], b.redArgs[:0]
 	}
-	return nil
+	return dropped, nil
+}
+
+// dataError says whether the database refused the data itself (class 22, data exception: a bad
+// byte sequence, a value out of range) rather than failing to take it.
+func dataError(err error) bool {
+	var pe *poltergres.PGError
+	return errors.As(err, &pe) && strings.HasPrefix(pe.Code, "22")
+}
+
+// clean makes a string one the database takes: valid UTF-8 (a byte sequence that is not becomes
+// the replacement character; some pages carry a stray Latin-1 byte) and no NUL.
+func clean(s string) string {
+	if strings.IndexByte(s, 0) >= 0 {
+		s = strings.ReplaceAll(s, "\x00", "")
+	}
+	return strings.ToValidUTF8(s, "\uFFFD")
 }
 
 // Import reads the file from where the state left off, for the time given at most, into the
@@ -345,10 +386,12 @@ func (s *Store) readShard(w *Wiki, i int, st *ImportState, mu *sync.Mutex, deadl
 			}
 			n := len(b.redArgs)
 			b.reds = append(b.reds, "($"+strconv.Itoa(n+1)+",$"+strconv.Itoa(n+2)+")")
-			b.redArgs = append(b.redArgs, strings.ToLower(e.Title), int64(t.Index))
+			b.redArgs = append(b.redArgs, strings.ToLower(clean(e.Title)), int64(t.Index))
 			redirects++
 			if len(b.reds) >= importRedirectBatch {
-				if err := b.flush(db); err != nil {
+				d, err := b.flush(db)
+				skipped += int64(d)
+				if err != nil {
 					return err
 				}
 			}
@@ -365,22 +408,27 @@ func (s *Store) readShard(w *Wiki, i int, st *ImportState, mu *sync.Mutex, deadl
 				continue
 			}
 			n := len(b.artArgs)
+			title := clean(e.Title)
 			b.arts = append(b.arts, fmt.Sprintf("($%d,$%d,$%d,$%d,$%d,$%d)", n+1, n+2, n+3, n+4, n+5, n+6))
-			b.artArgs = append(b.artArgs, int64(e.Index), e.Title, strings.ToLower(e.Title), lead, Body(page, BodyMax), disamb(lead))
+			b.artArgs = append(b.artArgs, int64(e.Index), title, strings.ToLower(title), clean(lead), clean(Body(page, BodyMax)), disamb(lead))
 			articles++
 			if len(b.arts) >= importArticleBatch {
-				if err := b.flush(db); err != nil {
+				d, err := b.flush(db)
+				skipped += int64(d)
+				if err != nil {
 					return err
 				}
 			}
 		}
 		if n := sh.Next - sh.From; n%importCheckEvery == 0 && (n%importSaveEvery == 0 || time.Now().After(deadline)) {
-			if err := b.flush(db); err != nil {
+			d, err := b.flush(db)
+			skipped += int64(d)
+			if err != nil {
 				return err
 			}
 			report()
 			mu.Lock()
-			err := s.Save(*st)
+			err = s.Save(*st)
 			mu.Unlock()
 			if err != nil {
 				return err
@@ -390,7 +438,9 @@ func (s *Store) readShard(w *Wiki, i int, st *ImportState, mu *sync.Mutex, deadl
 			}
 		}
 	}
-	if err := b.flush(db); err != nil {
+	d, err := b.flush(db)
+	skipped += int64(d)
+	if err != nil {
 		return err
 	}
 	report()
@@ -561,6 +611,9 @@ func (s *Store) Counts() (articles, redirects int64) {
 	}
 	return
 }
+
+// Likeness says whether lookups by likeness are on (pg_trgm installed in the database).
+func (s *Store) Likeness() bool { return s.hasTrgm() }
 
 // hasTrgm says whether pg_trgm is installed (asked once).
 func (s *Store) hasTrgm() bool {

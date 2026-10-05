@@ -44,6 +44,8 @@ func testWiki(t *testing.T) *Wiki {
 		{NS: 'C', Path: "Kassiopi,_Corfu", Title: "Kassiopi, Corfu", Mime: "text/html", Body: []byte(`<body><p>Kassiopi is a village on the north-east coast of Corfu, Greece.</p></body>`)},
 		{NS: 'C', Path: "Eiffel_Tower", Title: "Eiffel Tower", Mime: "text/html", Body: []byte(towerPage)},
 		{NS: 'C', Path: "Tour_Eiffel", Title: "Tour Eiffel", Redirect: "Eiffel_Tower"},
+		// a page with a stray Latin-1 byte in its title and its text (the database takes UTF-8 only)
+		{NS: 'C', Path: "Lodz", Title: "\xc5\x61ód\xc5\xba", Mime: "text/html", Body: []byte("<body><p>\xc5\x61ód\xc5\xba is a city in central Poland, the third largest in the country, with a textile past.</p></body>")},
 		{NS: 'M', Path: "Title", Mime: "text/plain", Body: []byte("Wikipedia")},
 		{NS: 'M', Path: "Date", Mime: "text/plain", Body: []byte("2026-06-14")},
 	}, 1)
@@ -185,11 +187,15 @@ func TestStorePGImportsAndFinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.Done || st.Articles != 6 || st.Redirects != 2 || st.Edition != "Wikipedia, 2026-06" || !s.Current(w) {
+	if !st.Done || st.Articles != 7 || st.Redirects != 2 || st.Edition != "Wikipedia, 2026-06" || !s.Current(w) {
 		t.Fatalf("state %+v", st)
 	}
-	if a, r := s.Counts(); a != 6 || r != 2 {
+	if a, r := s.Counts(); a != 7 || r != 2 {
 		t.Fatalf("counts %d %d", a, r)
+	}
+	// the stray byte became the replacement character, the page is in and found by its clean part
+	if h, ok, err := s.Best("\uFFFDaód\u017A", 400); err != nil || !ok || !strings.Contains(h.Lead, "central Poland") {
+		t.Fatalf("a page with a bad byte: %+v %v %v", h, ok, err)
 	}
 	if _, ok := s.Ready(); !ok {
 		t.Fatal("not ready after the import")
@@ -249,7 +255,7 @@ func TestStorePGImportsAndFinds(t *testing.T) {
 		t.Fatalf("section %q %q", h, txt)
 	}
 	// the same file: nothing to do; a changed size: everything again
-	if st2, err := s.Import(w, time.Second); err != nil || !st2.Done || st2.Articles != 6 {
+	if st2, err := s.Import(w, time.Second); err != nil || !st2.Done || st2.Articles != 7 {
 		t.Fatalf("second import %+v %v", st2, err)
 	}
 	_ = db.Exec("UPDATE settings SET value = replace(value, '\"size\":', '\"size\":1') WHERE key = $1", ImportKey)
@@ -257,7 +263,7 @@ func TestStorePGImportsAndFinds(t *testing.T) {
 		t.Fatal("current for another size")
 	}
 	st3, err := s.Import(w, time.Second)
-	if err != nil || !st3.Done || st3.Articles != 6 || st3.Redirects != 2 {
+	if err != nil || !st3.Done || st3.Articles != 7 || st3.Redirects != 2 {
 		t.Fatalf("import again %+v %v", st3, err)
 	}
 }
@@ -272,10 +278,10 @@ func TestStorePGImportsInParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.Done || len(st.Shards) != 3 || st.Read() != st.Total || st.Articles != 6 || st.Redirects != 2 {
+	if !st.Done || len(st.Shards) != 3 || st.Read() != st.Total || st.Articles != 7 || st.Redirects != 2 {
 		t.Fatalf("state %+v", st)
 	}
-	if a, r := s.Counts(); a != 6 || r != 2 {
+	if a, r := s.Counts(); a != 7 || r != 2 {
 		t.Fatalf("counts %d %d", a, r)
 	}
 	// the shards cut the entries whole and in order
@@ -297,7 +303,7 @@ func TestStorePGImportsInParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !st.Done || len(st.Shards) != 1 || st.Shards[0].Next != st.Total || st.Articles >= 6 || st.Articles == 0 {
+	if !st.Done || len(st.Shards) != 1 || st.Shards[0].Next != st.Total || st.Articles >= 7 || st.Articles == 0 {
 		t.Fatalf("resumed %+v", st)
 	}
 	if n := Shards(10, 4); len(n) != 4 || n[0].To != 2 || n[3].From != 6 || n[3].To != 10 {

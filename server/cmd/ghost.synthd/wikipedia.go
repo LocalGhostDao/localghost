@@ -479,7 +479,8 @@ func wikiCtl(args json.RawMessage) (ctlsock.Response, error) {
 	st := s.State()
 	status := wikiStatus()
 	out := map[string]any{"state": status.State, "edition": st.Edition, "articles": st.Articles, "redirects": st.Redirects,
-		"imported": st.Read(), "entries": st.Total, "file": status.File, "answers": status.Answers, "readers": len(st.Shards)}
+		"imported": st.Read(), "entries": st.Total, "file": status.File, "answers": status.Answers, "readers": len(st.Shards),
+		"likeness": s.Likeness()}
 	if status.Error != "" {
 		out["error"] = status.Error
 	}

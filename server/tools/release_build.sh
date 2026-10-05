@@ -86,7 +86,7 @@ done
 # the operator scripts, the same files as in the repository (text: they take no part in the
 # reproducibility question beyond being the commit's bytes), with the pins they read
 for t in install.sh setup.sh server_setup_root.sh server_setup_user.sh install_db.sh \
-         setup_llama.sh setup_whisper.sh update.sh health.sh ns.sh watchdog.sh privacy_check.sh \
+         setup_llama.sh setup_whisper.sh update.sh health.sh ns.sh watchdog.sh privacy_check.sh pg_extensions.sh \
          gpu.sh fetch_geo.sh phone_model.sh bundle_db_runtime.sh own_user.sh unwedge.sh \
          stage_models.sh model_pins.sh models_check.sh mirror_fetch.sh; do
     install -m755 "tools/$t" "$W/b/tools/$t"

@@ -99,6 +99,8 @@ echo "> installing binaries..."
 # -y, correctly) and violate the version-pinning philosophy everything else here is built on. On this
 # box, database upgrades are a deliberate act (see bundle_db_runtime.sh), not something setup does to
 # you in passing.
+# postgresql-18 carries the contrib extensions (pg_trgm, for the Wikipedia lookups by likeness);
+# pgvector is its own package. tools/pg_extensions.sh checks both are in the tree.
 MISSING=""
 for _pkg in postgresql-18 postgresql-client-18 postgresql-18-pgvector redis-server redis-tools; do
     dpkg -s "$_pkg" >/dev/null 2>&1 || MISSING="$MISSING $_pkg"

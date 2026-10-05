@@ -238,6 +238,8 @@ for svc in $CHECK; do
                 wi=$(echo "$wk" | sed -n 's/.*"imported":\([0-9]*\).*/\1/p' | head -1)
                 wt=$(echo "$wk" | sed -n 's/.*"entries":\([0-9]*\).*/\1/p' | head -1)
                 wl=$(echo "$wk" | sed -n 's/.*"leftMinutes":\([0-9]*\).*/\1/p' | head -1)
+                wlk=$(echo "$wk" | sed -n 's/.*"likeness":\(true\|false\).*/\1/p' | head -1)
+                [ "$wlk" = false ] && echo "  wikipedia: lookups by likeness off (pg_trgm is not in the vault's Postgres; tools/pg_extensions.sh says where it is missing)"
                 case "$ws" in
                     ready) printf '  wikipedia: %s, %s articles and %s redirects in the database\n' "$wn" "${wa:-?}" "${wr:-?}" ;;
                     importing) printf '  wikipedia: importing, %s of %s entries read, %s articles in so far%s\n' "${wi:-0}" "${wt:-?}" "${wa:-0}" "${wl:+, about $((wl / 60)) h $((wl % 60)) min to go}" ;;

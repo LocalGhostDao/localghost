@@ -79,6 +79,14 @@ if [ "$NGINX_ONLY" = 1 ]; then
     exit 0
 fi
 
+# the Postgres extensions the box needs, in the OS tree and, on an unlocked box, in the runtime
+# bundled onto the volume (bundle_db_runtime.sh); a missing one is said, with the fix, and the
+# redeploy goes on: the box runs without it, the lookups that want it do not
+say "0/4  postgres extensions"
+sh "$REPO/tools/pg_extensions.sh" /var/lib/ghost/mnt/slot0 || {
+    echo "  missing in the OS tree: sudo ./tools/install_db.sh; missing on the volume: as $SVC_USER with the box unlocked, ./tools/bundle_db_runtime.sh /var/lib/ghost/mnt/slot0"
+}
+
 if [ "$NO_BUILD" = 0 ]; then
     say "1/4  build (as $SVC_USER)"
     # the Go go.mod asks for, first: a newer one is installed from the mirror (tools/install_go.sh),

@@ -73,6 +73,7 @@ ls /usr/lib/postgresql/*/bin/initdb >/dev/null 2>&1 || DB_NEEDED=1
 command -v redis-server >/dev/null 2>&1 || DB_NEEDED=1
 command -v redis-cli    >/dev/null 2>&1 || DB_NEEDED=1
 ls /usr/share/postgresql/*/extension/vector.control >/dev/null 2>&1 || DB_NEEDED=1
+sh "$REPO/tools/pg_extensions.sh" >/dev/null 2>&1 || DB_NEEDED=1   # vector and pg_trgm, in the OS tree
 # NOTE: unit state (enabled/masked) is deliberately NOT part of this gate. On a shared box the system
 # postgres/redis power other things and stay enabled; install_db.sh only neutralises units for
 # packages it installed itself. Binaries present = database layer complete.

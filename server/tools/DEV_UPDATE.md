@@ -5317,3 +5317,9 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   wikiImportWorkers() = NumCPU/2 in [2,4], NewConn = chatConn(mount); the status and the ctl read
   Read(); ctl again=1 saves an empty state so the next slice starts over. Tested: three readers
   give the same tables, a legacy state resumes as one shard.
+- UTF-8: wiki store clean() (ToValidUTF8, NUL out) on titles and texts; batch.flush falls back to
+  one row at a time on a class-22 data error (dataError), dropping and counting the refused rows;
+  the test wiki has a page with a stray 0xC5 byte. Store.Likeness(); ctl "likeness".
+- tools/pg_extensions.sh (vector, pg_trgm in /usr/share/postgresql/*/extension and, through
+  /proc/<secd>/root, in <mount>/runtime/pgroot's); setup.sh gate, server_setup_root.sh line,
+  redeploy.sh step 0/4, health.sh likeness line; in the release bundle's tools.
