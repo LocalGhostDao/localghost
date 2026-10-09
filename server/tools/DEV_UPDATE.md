@@ -5411,3 +5411,20 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   shown as said.
 - tally.RatesResult.String(): the index block is a count, the venue spread, the one-venue
   count, and BTC/ETH/SOL (priceWord); the per-coin list is no longer in the health line.
+
+## 9 October 2026, night , weather list and pace, wiki tables owned by ghost_rw
+
+- internal/weather: MinPopulation 15_000, Cell 0.5, MaxPlaces 6000, BatchEvery 2 min; placesSQL
+  (DISTINCT ON the cell, largest; the MaxPlaces largest cells); NextBatch(db, now) (the Batch
+  longest unpulled by LEFT JOIN weather_places, due when the oldest is a day old or never
+  pulled); Due reads OldestAt; Nearest ignores rows older than Stale. Tests: the cell's loser is
+  left out, NextBatch's order and due.
+- tallyd weather.go: ticker BatchEvery; pass pulls NextBatch when due or forced; counters since
+  start and "pace" in the snapshot; ctl adds "list" (the list's size). Wording in synthd's
+  weather context, monitor, secd sources, README, the app's Explain.
+- internal/hw/daemon_owned.go: DaemonOwnedTables (wiki_articles, wiki_redirects),
+  ensureDaemonOwned (superuser, after ConvergeSchema: ALTER OWNER TO rw + GRANT SELECT TO ro
+  for a table whose owner is wrong); datastore.go's ownership converge skips them (two lines,
+  the file left unformatted as before). synthd wikiImportLoop: EnsureIndexes tried every tick
+  until it works, the state's error set and cleared accordingly. WikipediaScreen shows a ready
+  state's error.

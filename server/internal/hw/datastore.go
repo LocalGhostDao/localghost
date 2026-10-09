@@ -885,7 +885,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 DO $$ DECLARE r record; BEGIN
-  FOR r IN SELECT tablename AS n FROM pg_tables WHERE schemaname = 'public' AND tableowner <> %[3]s ORDER BY 1 LOOP
+  FOR r IN SELECT tablename AS n FROM pg_tables WHERE schemaname = 'public' AND tableowner <> %[3]s AND tablename NOT IN (%[4]s) ORDER BY 1 LOOP
     EXECUTE format('ALTER TABLE public.%%I OWNER TO %[2]s', r.n);
   END LOOP;
   FOR r IN SELECT sequencename AS n FROM pg_sequences WHERE schemaname = 'public' AND sequenceowner <> %[3]s ORDER BY 1 LOOP
@@ -894,7 +894,7 @@ DO $$ DECLARE r record; BEGIN
   FOR r IN SELECT viewname AS n FROM pg_views WHERE schemaname = 'public' AND viewowner <> %[3]s ORDER BY 1 LOOP
     EXECUTE format('ALTER VIEW public.%%I OWNER TO %[2]s', r.n);
   END LOOP;
-END $$;`, c.Postgres.Name, owner, pgLit(owner))
+END $$;`, c.Postgres.Name, owner, pgLit(owner), daemonOwnedList())
 	var oerr error
 	for try := 1; try <= 2; try++ {
 		if _, oerr = super(c.Postgres.Name, ownSQL); oerr == nil || !strings.Contains(oerr.Error(), "deadlock detected") {
@@ -958,6 +958,9 @@ func (d *DataStore) EnsureSchema(slot int, c ServicesConfig) error {
 			slog.Info("schema convergence", "fn", "EnsureSchema", "summary", summary)
 		}
 	}
+	// the tables a daemon builds whole are its own (DaemonOwnedTables): the import's index drop
+	// and make need the owner's hand, and the owner role's is not the daemon's
+	d.ensureDaemonOwned(slot, c)
 	// Service-role GRANTS , the owner may grant on what it owns (everything, post-bootstrap), and
 	// ONLY grant: role creation and passwords are CREATEROLE work, done in ensureOwnerAndDB as the
 	// superuser. The roles are guaranteed to exist by the time this runs.

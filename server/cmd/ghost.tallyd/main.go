@@ -262,7 +262,7 @@ func main() {
 		go ratesFetchLoop(ctx, filepath.Dir(runDir), rs, fs, hot, lg, forceFetch)
 		go fastLoop(ctx, hot, fast, lg)
 		go weatherLoop(ctx, filepath.Dir(runDir), ws, lg, forceWeather)
-		lg.Info("health and rates ingestion up; the box fetches rates itself when the phone is not on Wi-Fi, and the weather of the larger places once a day", "fn", "main")
+		lg.Info("health and rates ingestion up; the box fetches rates itself when the phone is not on Wi-Fi, and the weather of the larger places, a hundred every two minutes", "fn", "main")
 	} else {
 		ing.note("", errors.New("no run dir: ingestion is off (started by hand without GHOST_RUN_DIR)"), tally.Result{})
 	}

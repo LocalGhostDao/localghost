@@ -1028,7 +1028,7 @@ func news(db *poltergres.ReadWrite, now time.Time) Section {
 // the same places whoever and wherever the person is, so the section counts places and the
 // pull's age, never a position.
 func forecasts(db *poltergres.ReadWrite, now time.Time) Section {
-	s := Section{ID: "weather", Title: "Weather", Every: "once a day, " + strconv.Itoa(weather.MaxPlaces) + " places", AgeS: -1}
+	s := Section{ID: "weather", Title: "Weather", Every: strconv.Itoa(weather.Batch) + " places every " + weather.BatchEvery.String() + ", " + strconv.Itoa(weather.MaxPlaces) + " places a day", AgeS: -1}
 	st := weather.Load(db)
 	if st.Places == 0 {
 		s.State = Waiting

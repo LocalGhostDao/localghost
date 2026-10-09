@@ -84,10 +84,10 @@ func TestDescribe(t *testing.T) {
 
 func TestDue(t *testing.T) {
 	now := time.Unix(2_000_000, 0)
-	if !Due(State{}, now) || !Due(State{Places: 10, FetchedAt: now.Unix() - int64(Every/time.Second)}, now) {
-		t.Fatal("empty or a day old: due")
+	if !Due(State{}, now) || !Due(State{Places: 10, FetchedAt: now.Unix(), OldestAt: now.Unix() - int64(Every/time.Second)}, now) {
+		t.Fatal("empty or an oldest row a day old: due")
 	}
-	if Due(State{Places: 10, FetchedAt: now.Unix() - 3600}, now) {
+	if Due(State{Places: 10, FetchedAt: now.Unix(), OldestAt: now.Unix() - 3600}, now) {
 		t.Fatal("an hour old: not due")
 	}
 }
@@ -138,9 +138,10 @@ func TestPassNearestByNamePG(t *testing.T) {
 	if _, err := hw.ConvergeSchema(db, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
 		t.Fatal(err)
 	}
-	// 150 places over the threshold (two batches), one under it, one that is not a populated place
+	// 150 places over the threshold (two batches), one cell each; one under it; one that is not
+	// a populated place; one in Place 0's cell, smaller, which the cell's winner stands for
 	for i := 0; i < 150; i++ {
-		lat := 40.0 + float64(i)*0.5 // a line up the map, 55 km apart
+		lat := 40.0 + float64(i)*0.5 // a line up the map, 55 km apart, a cell each
 		if err := db.Exec("INSERT INTO geo_points (geonameid, name, lat, lon, kind, country, population) VALUES ($1,$2,$3,$4,'P','XX',$5)",
 			1000+i, "Place "+strconv.Itoa(i), lat, 10.0, 100_000+int64(150-i)*1000); err != nil {
 			t.Fatal(err)
@@ -148,14 +149,25 @@ func TestPassNearestByNamePG(t *testing.T) {
 	}
 	_ = db.Exec("INSERT INTO geo_points (geonameid, name, lat, lon, kind, country, population) VALUES (1, 'Hamlet', 40.1, 10.0, 'P', 'XX', 400)")
 	_ = db.Exec("INSERT INTO geo_points (geonameid, name, lat, lon, kind, country, population) VALUES (2, 'Mount Big', 40.2, 10.0, 'T', 'XX', 900000)")
+	_ = db.Exec("INSERT INTO geo_points (geonameid, name, lat, lon, kind, country, population) VALUES (3, 'Suburb', 40.3, 10.2, 'P', 'XX', 60000)")
 	places, err := Places(db)
 	if err != nil || len(places) != 150 || places[0].Name != "Place 0" || places[149].Name != "Place 149" {
 		t.Fatal(err, len(places))
 	}
+	for _, p := range places {
+		if p.Name == "Suburb" {
+			t.Fatal("a cell keeps its largest place alone")
+		}
+	}
 	if st := Load(db); st.Places != 0 || !Due(st, time.Now()) {
 		t.Fatalf("empty table: %+v", st)
 	}
-	now := time.Unix(1_700_000_000, 0)
+	now := time.Now().Add(-time.Hour).Truncate(time.Second) // recent: a row older than Stale is no answer
+	// the next batch with nothing pulled: the hundred largest, due
+	batch, due, err := NextBatch(db, now)
+	if err != nil || !due || len(batch) != Batch || batch[0].Name != "Place 0" || batch[99].Name != "Place 99" {
+		t.Fatalf("%v %v %d", err, due, len(batch))
+	}
 	g := &fakeGet{}
 	r := Pass(context.Background(), db, g, places, now, func(time.Duration) {})
 	if r.Batches != 2 || r.Failed != 0 || r.Places != 150 || g.calls != 2 || len(r.Fetches) != 2 || !r.Fetches[0].OK || r.Fetches[0].Items != 100 || r.Fetches[1].Items != 50 {
@@ -167,6 +179,18 @@ func TestPassNearestByNamePG(t *testing.T) {
 	st := Load(db)
 	if st.Places != 150 || st.FetchedAt != now.Unix() || st.OldestAt != now.Unix() || Due(st, now.Add(time.Hour)) || !Due(st, now.Add(Every)) {
 		t.Fatalf("%+v", st)
+	}
+	// every row an hour old: the next batch is the hundred largest again, not due; a day on, due;
+	// one row made old goes first
+	if batch, due, err := NextBatch(db, now.Add(time.Hour)); err != nil || due || len(batch) != Batch || batch[0].Name != "Place 0" {
+		t.Fatalf("%v %v %d", err, due, len(batch))
+	}
+	if _, due, _ := NextBatch(db, now.Add(Every)); !due {
+		t.Fatal("a day on: due")
+	}
+	_ = db.Exec("UPDATE weather_places SET fetched_at = $1 WHERE name = 'Place 42'", now.Unix()-7200)
+	if batch, due, _ := NextBatch(db, now.Add(time.Hour)); due || batch[0].Name != "Place 42" || batch[1].Name != "Place 0" {
+		t.Fatalf("the oldest first: %s %s %v", batch[0].Name, batch[1].Name, due)
 	}
 	// 20 km from Place 3 (41.5, 10.0): that one, with the distance
 	f, km, ok := Nearest(db, 41.5, 10.25)

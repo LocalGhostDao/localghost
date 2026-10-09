@@ -1,18 +1,28 @@
-// Package weather is the forecast for the world's larger places, pulled by the box once a day as
-// one fixed list, so that the forecast where the person is can be looked up on the box and no
-// weather service ever learns where that is. Until 3 October 2026 the phone asked Open-Meteo for
-// the forecast at its own position (rounded to a kilometre) when a question named no place; the
+// Package weather is the forecast for the world's larger places, pulled by the box as one fixed
+// list, so that the forecast where the person is can be looked up on the box and no weather
+// service ever learns where that is. Until 3 October 2026 the phone asked Open-Meteo for the
+// forecast at its own position (rounded to a kilometre) when a question named no place; the
 // review that noticed it was right, "never a location" has to be true. Now the box asks for the
-// same three thousand places every day, whoever and wherever the person is, and the question
-// "what's the weather like" is answered from the box's own table by the trail's newest point, a
-// named place from the box's own GeoNames.
+// same places whoever and wherever the person is, and the question "what's the weather like" is
+// answered from the box's own table by the trail's newest point, a named place from the box's
+// own GeoNames.
 //
-// Open-Meteo (open-meteo.com) answers without an account or a key and takes many places in one
-// request; the free tier is for non-commercial use under ten thousand place-days a day, which a
-// daily pull of three thousand places with four days each respects by a margin. The places are
-// GeoNames' populated places of a hundred thousand people or more, largest first, from the geo
-// set already on the box (tools/fetch_geo.sh); without it there is nothing to pull and the
-// feed says so.
+// THE LIST. Until 9 October 2026 it was the three thousand largest places (a hundred thousand
+// people or more), which crowded into the countries with the biggest cities and left Neu-Ulm
+// with nothing within 120 km. Now the world is cut into half-degree cells (some 55 km a side)
+// and each cell keeps its largest town of fifteen thousand people or more; the largest MaxPlaces
+// of those cells are the list. Towns in the same cell share a sky anyway, and a cell's winner is
+// within reach of its neighbours' questions, so the same count covers far more of the inhabited
+// world. The list is the geo set's (tools/fetch_geo.sh); without it there is nothing to pull.
+//
+// THE PACE. Open-Meteo (open-meteo.com) answers without an account or a key and takes many
+// places in one request; the free tier is for non-commercial use under ten thousand calls a
+// day, five thousand an hour, six hundred a minute, a request of more than ten weather variables
+// counted as more than one call (the thirteen asked here: 1.3). Counting every place in a
+// request as a call, the sternest reading, the list is pulled a hundred places at a time, one
+// batch every two minutes, the hundred longest unpulled first: a place is pulled again once its
+// row is a day old, so a day's pull is MaxPlaces × 1.3 calls spread over the hours, under every
+// limit. Which batch goes first is the row's age and nothing else, never where the person is.
 package weather
 
 import (
@@ -30,16 +40,20 @@ import (
 )
 
 const (
-	// MinPopulation and MaxPlaces bound the daily list: every GeoNames populated place of at
-	// least this many people, the largest MaxPlaces of them.
-	MinPopulation = 100_000
-	MaxPlaces     = 3000
+	// MinPopulation, Cell and MaxPlaces bound the list: every GeoNames populated place of at
+	// least this many people, the largest in each Cell-degree cell, the largest MaxPlaces of
+	// those.
+	MinPopulation = 15_000
+	Cell          = 0.5
+	MaxPlaces     = 6000
 	// Batch is how many places go in one request (Open-Meteo takes a comma list; a hundred
-	// keeps the URL short and the answer under a megabyte).
-	Batch = 100
+	// keeps the URL short and the answer under a megabyte); BatchEvery is the pace between
+	// batches, which keeps a day's pull under the service's hourly and minute limits.
+	Batch      = 100
+	BatchEvery = 2 * time.Minute
 	// Days is the forecast length kept: today and the three after.
 	Days = 4
-	// Every is how often the pull runs; Stale is when the table is old enough to say so.
+	// Every is how often a place is pulled again; Stale is when a row is too old to answer with.
 	Every = 24 * time.Hour
 	Stale = 36 * time.Hour
 	// NearKm is how far a place may be from the point asked about and still be its weather:
@@ -101,14 +115,44 @@ type Querier interface {
 	Query(sql string, args ...any) (*poltergres.Rows, error)
 }
 
-// Places is the daily list from the box's GeoNames: populated places of MinPopulation or more,
-// largest first, at most MaxPlaces. Empty when the geo set is not on the box.
+// placesSQL is the list: the largest populated place of MinPopulation or more in each Cell-degree
+// cell, the largest MaxPlaces of those, largest first.
+const placesSQL = `SELECT geonameid, name, country, lat, lon, population FROM (
+		SELECT DISTINCT ON (floor(lat / $3), floor(lon / $3)) geonameid, name, country, lat, lon, population
+		FROM geo_points WHERE kind = 'P' AND population >= $1
+		ORDER BY floor(lat / $3), floor(lon / $3), population DESC, geonameid) c
+	ORDER BY population DESC, geonameid LIMIT $2`
+
+// Places is the list from the box's GeoNames: the largest place of MinPopulation or more in each
+// Cell-degree cell, the largest MaxPlaces of those, largest first. Empty when the geo set is not
+// on the box.
 func Places(db Querier) ([]Place, error) {
-	rows, err := db.Query(`SELECT geonameid, name, country, lat, lon, population FROM geo_points
-		WHERE kind = 'P' AND population >= $1 ORDER BY population DESC, geonameid LIMIT $2`, MinPopulation, MaxPlaces)
+	rows, err := db.Query(placesSQL, MinPopulation, MaxPlaces, Cell)
 	if err != nil {
 		return nil, err
 	}
+	return readPlaces(rows), nil
+}
+
+// NextBatch is the Batch places longest unpulled (never pulled first, then the oldest rows), and
+// whether they are due: the oldest of them a day old or never pulled. Nothing when the geo set
+// is not on the box. The age of a row is the only order: never where the person is.
+func NextBatch(db Querier, now time.Time) (batch []Place, due bool, err error) {
+	rows, err := db.Query(`SELECT g.geonameid, g.name, g.country, g.lat, g.lon, g.population, coalesce(w.fetched_at, 0)
+		FROM (`+placesSQL+`) g LEFT JOIN weather_places w ON w.geonameid = g.geonameid
+		ORDER BY coalesce(w.fetched_at, 0), g.population DESC, g.geonameid LIMIT $4`, MinPopulation, MaxPlaces, Cell, Batch)
+	if err != nil {
+		return nil, false, err
+	}
+	batch = readPlaces(rows)
+	if len(batch) == 0 {
+		return nil, false, nil
+	}
+	oldest, _ := strconv.ParseInt(deref(rows.Vals[0][6]), 10, 64)
+	return batch, oldest == 0 || now.Unix()-oldest >= int64(Every/time.Second), nil
+}
+
+func readPlaces(rows *poltergres.Rows) []Place {
 	out := make([]Place, 0, len(rows.Vals))
 	for _, v := range rows.Vals {
 		if len(v) < 6 || v[0] == nil {
@@ -123,7 +167,7 @@ func Places(db Querier) ([]Place, error) {
 		p.Population, _ = strconv.ParseInt(deref(v[5]), 10, 64)
 		out = append(out, p)
 	}
-	return out, nil
+	return out
 }
 
 // URL is the request for one batch of places: current conditions and Days days, each place in
@@ -271,10 +315,11 @@ func Load(db Querier) State {
 	return st
 }
 
-// Due says whether the daily pull is wanted: nothing in the table, or the newest row older than
-// Every.
+// Due says whether the next batch is wanted, from the table's oldest row: nothing in the table
+// or a row a day old. NextBatch says it for the list proper (a place not yet in the table is a
+// row of age nothing); this is the glance for the status pages.
 func Due(st State, now time.Time) bool {
-	return st.FetchedAt == 0 || now.Unix()-st.FetchedAt >= int64(Every/time.Second)
+	return st.OldestAt == 0 || now.Unix()-st.OldestAt >= int64(Every/time.Second)
 }
 
 // Nearest is the forecast of the pulled place closest to a point, within NearKm, with the
@@ -286,8 +331,9 @@ func Nearest(db Querier, lat, lon float64) (f Forecast, km float64, ok bool) {
 	}
 	dLat := NearKm / 111.0
 	dLon := NearKm / (111.0 * cosLat)
-	rows, err := db.Query(`SELECT forecast FROM weather_places WHERE lat BETWEEN $1 AND $2 AND lon BETWEEN $3 AND $4`,
-		lat-dLat, lat+dLat, lon-dLon, lon+dLon)
+	// a row too old to answer with is no answer (a place that fell off the list keeps its row)
+	rows, err := db.Query(`SELECT forecast FROM weather_places WHERE lat BETWEEN $1 AND $2 AND lon BETWEEN $3 AND $4 AND fetched_at > $5`,
+		lat-dLat, lat+dLat, lon-dLon, lon+dLon, time.Now().Add(-Stale).Unix())
 	if err != nil {
 		return f, 0, false
 	}

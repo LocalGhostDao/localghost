@@ -250,14 +250,14 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 		switch {
 		case places > 0:
 			d.State = "ready"
-			d.Line = fmt.Sprintf("the forecast of %s places, pulled %s ago", humanCount(places), agoWords(time.Now().Unix()-fetched))
-			d.Detail = "Open-Meteo, the same three thousand largest places every day whoever and wherever you are; where you are is looked up on the box"
+			d.Line = fmt.Sprintf("the forecast of %s places, the newest pulled %s ago", humanCount(places), agoWords(time.Now().Unix()-fetched))
+			d.Detail = "Open-Meteo, the same list every day whoever and wherever you are (the largest town of every 55 km cell of the world, six thousand cells), a hundred every two minutes; where you are is looked up on the box"
 		case noGeo:
 			d.State, d.Line = "missing", "nothing to pull: the box's place list has no populations (the geo set is missing or from before the populations)"
 			d.Detail = "fetching the maps again brings the places with their populations; the weather pulls within the hour after"
 			d.Action, d.Label = "maps", "fetch the maps from the mirror"
 		default:
-			d.State, d.Line = "missing", "not pulled yet (the box pulls once a day, and within the hour of a start)"
+			d.State, d.Line = "missing", "not pulled yet (the box pulls a hundred places every two minutes from a few minutes after it starts)"
 		}
 	}
 	out = append(out, d)

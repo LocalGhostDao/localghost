@@ -113,10 +113,22 @@ func wikiImportLoop(ctx context.Context, mount string, lg *slog.Logger) {
 			continue // locked
 		}
 		if !indexed {
+			// tried every tick until it works: the tables may not be the daemon's yet (the
+			// next unlock hands them over), and the error stays in the state until they are
 			if st := s.State(); st.Done {
-				indexed = true
 				if err := s.EnsureIndexes(); err != nil {
+					if msg := "the lookup indexes: " + err.Error(); st.Error != msg {
+						st.Error = msg
+						_ = s.Save(st)
+					}
 					lg.Warn("the Wikipedia lookup indexes", "fn", "wikiImportLoop", "err", err)
+				} else {
+					indexed = true
+					if strings.HasPrefix(st.Error, "the lookup indexes: ") {
+						st.Error = ""
+						_ = s.Save(st)
+						lg.Info("the Wikipedia lookup indexes are made", "fn", "wikiImportLoop")
+					}
 				}
 			}
 		}

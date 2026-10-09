@@ -1,6 +1,6 @@
 package main
 
-// THE WEATHER, FROM THE BOX. tallyd pulls the forecast of the world's larger places once a day
+// THE WEATHER, FROM THE BOX. tallyd pulls the forecast of the world's larger places, each once a day,
 // (internal/weather), the same list whoever and wherever the person is, so no weather service
 // learns where they are. A weather question is answered from that table: the place the question
 // names (the box's GeoNames finds it, then the nearest pulled place), else the phone's own fix
@@ -84,11 +84,11 @@ func weatherItems(db *poltergres.ReadWrite, prompt string, here *hereT, now time
 		return []ctxItem{{When: now.UTC().Format("2006-01-02"), Source: "weather", Snippet: text, Why: why}}
 	}
 	if place := placeOf(prompt); place != "" {
-		return []ctxItem{{Source: "weather", Snippet: "the box has no forecast for " + place + " (it pulls the world's " + strconv.Itoa(weather.MaxPlaces) + " larger places once a day; this one is not within " + strconv.Itoa(int(weather.NearKm)) + " km of any); say so rather than guess", Why: "a weather question about a place the box has no forecast for"}}
+		return []ctxItem{{Source: "weather", Snippet: "the box has no forecast for " + place + " (it pulls the largest town of every 55 km cell of the world, " + strconv.Itoa(weather.MaxPlaces) + " places; this one is not within " + strconv.Itoa(int(weather.NearKm)) + " km of any pulled yet); say so rather than guess", Why: "a weather question about a place the box has no forecast for"}}
 	}
 	st := weather.Load(db)
 	if st.Places == 0 {
-		return []ctxItem{{Source: "weather", Snippet: "the box has no forecast yet (it pulls the world's larger places once a day; the first pull comes a few minutes after tallyd starts, once the geo set is on the box); say so rather than guess", Why: "a weather question with no forecast on the box"}}
+		return []ctxItem{{Source: "weather", Snippet: "the box has no forecast yet (it pulls the world's larger places a hundred every two minutes, from a few minutes after tallyd starts, once the geo set is on the box); say so rather than guess", Why: "a weather question with no forecast on the box"}}
 	}
 	return []ctxItem{{Source: "weather", Snippet: "the box does not know where the phone is (no fix came with the question and the trail is empty), so it cannot say the weather there; ask for a place by name", Why: "a weather question naming no place, with no position on the box"}}
 }

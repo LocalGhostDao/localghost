@@ -104,6 +104,8 @@ fun WikipediaScreen() {
         Text(if (st == null && stateFailed) "! the box did not answer , is it unlocked?" else if (st == null) "asking the box…" else WikiText.state(st.state, st.edition, st.articles, st.redirects, st.imported, st.entries, st.error, st.leftMinutes, st.readers),
             color = if (st?.state == "failed" || (st == null && stateFailed)) Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
         if (note.isNotEmpty()) Text(note, color = Warning, style = MaterialTheme.typography.labelMedium)
+        // ready, but something the box keeps trying (the lookup indexes, say): said under the line
+        if (st?.state == "ready" && st.error.isNotEmpty()) Text("! " + st.error, color = Warning, style = MaterialTheme.typography.labelSmall)
         if (st != null) WikiText.stats(st.articles, st.redirects, st.bytes, st.startedAt, st.doneAt, st.skipped, st.indexed, st.likeness, st.answers, st.state).forEach {
             Text(it, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
         }
