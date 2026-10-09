@@ -43,7 +43,8 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Long) -> Unit, onOpenCrypto: () -> Unit,
-               onOpenCoin: (String) -> Unit = {}, onOpenTarget: (String) -> Unit = {}) {
+               onOpenCoin: (String) -> Unit = {}, onOpenTarget: (String) -> Unit = {},
+               continuing: String = "", onNewChat: () -> Unit = {}, onOpenChat: () -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     // the latest the phone kept (HomeCache): home opens on it, then reads the box
@@ -53,6 +54,9 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
     var fast by remember { mutableStateOf<BoxClient.Fast?>(HomeCache.fastOf(kept)) }
     var snap by remember { mutableStateOf<HomeData.Snap?>(kept) }
     var forYou by remember { mutableStateOf<HomeData.ForYou?>(HomeCache.forYou) }
+    // the weather where the phone is, from the box's daily pull (its position goes to the box and
+    // nowhere else); read with the rest, every minute
+    var weather by remember { mutableStateOf<BoxClient.Weather?>(null) }
     var failed by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var fetching by remember { mutableStateOf(false) }
@@ -72,6 +76,7 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
             }
             val r = BoxClient.rates(ctx, keep = true)
             val n = BoxClient.news(ctx, since = System.currentTimeMillis() / 1000 - 86_400, keep = true)
+            com.localghost.app.sync.LocationLog.last(ctx)?.let { fix -> BoxClient.weather(ctx, fix.lat, fix.lon)?.let { weather = it } }
             if (r != null) rates = r
             if (n != null) news = HomeCache.newsWith(n, snap)
             failed = r == null && n == null && h == null
@@ -126,15 +131,18 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
                     color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(12.dp))
                 PricesCard(rates, fast, HomeCache.marketOf(rates, snap), failed, onOpenCrypto, onOpenCoin)
+                Spacer(Modifier.height(12.dp))
+                WeatherCard(weather, stamp)
                 Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionLabel("THE DAY'S NEWS")
+                    InfoButton("news")
                     Spacer(Modifier.weight(1f))
                     Text(if (writing) "writing…" else "[ write now ]", color = if (writing) GhostTextDim else TerminalGreen,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable(enabled = !writing) { writeBrief() }.padding(4.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("all ▸", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                    Text("all ›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { onOpenNews() }.padding(4.dp))
                 }
                 if (briefNote.isNotEmpty()) {
@@ -185,8 +193,49 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
                 Spacer(Modifier.height(16.dp))
             }
         }
+        // which chat a question goes to: the recent one (named, a tap opens it, [ new ] starts
+        // over), else a new one
+        if (continuing.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("continues “${continuing.take(40)}${if (continuing.length > 40) "…" else ""}” ›", color = TerminalDim, style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).clickable { onOpenChat() })
+                Text("[ new chat ]", color = TerminalGreen, style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.clickable { onNewChat() }.padding(start = 8.dp))
+            }
+        }
         AskBox(onAsk)
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+/**
+ * THE WEATHER where the phone is: the conditions now, three days, and under them where it came
+ * from (the nearest of the places the box pulls daily, and how fresh). Nothing when the phone has
+ * no position yet or the box has no pull; a line says which.
+ */
+@Composable
+private fun WeatherCard(w: BoxClient.Weather?, nowS: Long) {
+    Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter).padding(14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("WEATHER", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            InfoButton("weather")
+        }
+        when {
+            w == null -> Text("no position yet, or the box has not answered", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            w.noGeo -> Text("nothing pulled: the box's place list is missing · SOURCES › Weather", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            w.place.isEmpty() -> Text(w.text.ifBlank { "no forecast on the box yet (pulled once a day)" }, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            else -> {
+                Spacer(Modifier.height(4.dp))
+                Text(HomeText.weatherNow(w.tempC, w.feelsC, w.code, w.windKmh), color = GhostText, style = MaterialTheme.typography.titleMedium)
+                if (w.days.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(w.days.take(3).joinToString("   ") { HomeText.weatherDay(it.date, it.maxC, it.minC, it.code, it.rainPct) },
+                        color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(HomeText.weatherSource(w.place, w.country, w.fetchedAt, w.places, nowS), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }
 
@@ -250,7 +299,7 @@ private fun PricesCard(rates: BoxClient.Rates?, fast: BoxClient.Fast?, market: B
             val m = market
             Text(if (m != null && m.value > 0) "${m.code} " + "%.1f".format(java.util.Locale.US, m.value) + "  " + HomeText.change(m.dayChange) + " today" else "",
                 color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
-            Text("prices ▸", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+            Text("prices ›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -262,7 +311,7 @@ private fun PricesCard(rates: BoxClient.Rates?, fast: BoxClient.Fast?, market: B
  */
 @Composable
 private fun ForYouCard(f: HomeData.ForYou, nowS: Long, onOpenStory: (Long) -> Unit, onOpenTarget: (String) -> Unit) {
-    SectionLabel("FOR YOU")
+    Row(verticalAlignment = Alignment.CenterVertically) { SectionLabel("FOR YOU"); InfoButton("memories") }
     if (f.places.isNotEmpty()) {
         Spacer(Modifier.height(6.dp))
         Text(HomeData.nearFrom(f.from, nowS), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
@@ -308,6 +357,7 @@ private fun ForYouRow(title: String, line: String, more: String, onTap: () -> Un
 @Composable
 private fun AskBox(onAsk: (String) -> Unit) {
     var input by remember { mutableStateOf("") }
+    var voiceNote by remember { mutableStateOf("") }
     val canSend = input.isNotBlank()
     Row(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RoundedCornerShape(22.dp))
         .background(VoidLighter, RoundedCornerShape(22.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
@@ -325,12 +375,15 @@ private fun AskBox(onAsk: (String) -> Unit) {
                 inner()
             },
         )
+        VoiceAskButton(onWords = { w -> input = if (input.isBlank()) w else input.trimEnd() + " " + w }, onNote = { voiceNote = it })
         Box(Modifier.size(36.dp).clip(CircleShape).background(if (canSend) TerminalGreen else VoidLighter)
             .clickable(enabled = canSend) { onAsk(input.trim()); input = "" },
             contentAlignment = Alignment.Center) {
             Text("›", color = if (canSend) Void else GhostTextDim, fontSize = 20.sp)
         }
     }
+    if (voiceNote.isNotEmpty()) Text(voiceNote, color = if (voiceNote.startsWith("!")) Warning else TerminalDim,
+        style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 12.dp, top = 2.dp))
 }
 
 /**
@@ -375,7 +428,7 @@ fun CryptoScreen(onOpenCoin: (String) -> Unit = {}) {
     var sparks by remember { mutableStateOf<Map<String, List<Double>>>(emptyMap()) }
     LaunchedEffect(tick) { BoxClient.sparks(ctx)?.let { sparks = it } }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 16.dp)) {
-        SectionLabel("CRYPTO PRICES")
+        Row(verticalAlignment = Alignment.CenterVertically) { SectionLabel("CRYPTO PRICES"); InfoButton("prices") }
         Spacer(Modifier.height(6.dp))
         Refreshable(refreshing, { refreshing = true; tick++ }, Modifier.weight(1f).fillMaxWidth()) {
             val r = rates

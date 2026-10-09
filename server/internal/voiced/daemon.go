@@ -62,7 +62,8 @@ type Daemon struct {
 
 	mu      sync.Mutex
 	stat    Stat
-	working string // the note whisper is on now
+	working string   // the note whisper is on now
+	names   []string // the people's names as the box spells them, read every pass (names.go)
 	// engMu: one whisper at a time, the queue's or a question's (Hear); two on the card would
 	// slow both and can run the memory out
 	engMu sync.Mutex
@@ -193,7 +194,10 @@ func (d *Daemon) Pass(ctx context.Context, db DB) error {
 		d.Log.Info("voice notes archived", "fn", "Pass", "n", n)
 	}
 	eng, why, ok := d.Find(d.Mount)
+	names := Names(db)
+	eng.Prompt = Prompt(names)
 	d.mu.Lock()
+	d.names = names
 	if ok {
 		d.stat.Engine, d.stat.Why = eng.Name(), ""
 	} else {
@@ -373,6 +377,13 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 		d.setLast("failed on " + id[:8])
 		return false, fmt.Errorf("%s: %w", id[:8], terr)
 	}
+	d.mu.Lock()
+	names := d.names
+	d.mu.Unlock()
+	if text, n := FixNames(res.Text, names); n > 0 {
+		d.Log.Info("names spelt the box's way", "fn", "TranscribeNext", "id", id[:8], "words", n)
+		res.Text = text
+	}
 	back, err := db.Query(`UPDATE voice_notes SET status = 'done', transcript = $2, lang = $3, model = $4, transcribed_at = $5, error = ''
 		WHERE id = $1 AND status = 'pending' RETURNING kind, day, taken_at, duration_ms`,
 		id, res.Text, res.Lang, eng.Name(), time.Now().UnixMilli())
@@ -409,6 +420,10 @@ func (d *Daemon) Hear(ctx context.Context, path string) (Result, error) {
 	if !ok {
 		return Result{}, fmt.Errorf("no speech engine: %s", why)
 	}
+	d.mu.Lock()
+	names := d.names
+	d.mu.Unlock()
+	eng.Prompt = Prompt(names)
 	id := strings.TrimSuffix(filepath.Base(path), ".wav")
 	d.engMu.Lock()
 	defer d.engMu.Unlock()
@@ -416,6 +431,7 @@ func (d *Daemon) Hear(ctx context.Context, path string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	res.Text, _ = FixNames(res.Text, names)
 	d.Log.Info("question heard", "fn", "Hear", "lang", res.Lang, "words", len(strings.Fields(res.Text)), "took", res.Took.Round(time.Second).String())
 	return res, nil
 }

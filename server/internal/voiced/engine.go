@@ -24,6 +24,9 @@ import (
 type Engine struct {
 	Bin   string
 	Model string
+	// Prompt is whisper's initial prompt, the people's names as the box spells them (names.go);
+	// "" asks for nothing.
+	Prompt string
 }
 
 // Name is the model's file name without its extension, as recorded beside each transcript.
@@ -135,6 +138,9 @@ func (e Engine) Transcribe(ctx context.Context, wav, workDir string, audio time.
 	args := []string{"-m", e.Model, "-f", wav, "-l", "auto", "-t", fmt.Sprint(Threads()), "-oj", "-otxt", "-of", base, "-np"}
 	if filepath.Base(e.Bin) == "whisper-cli" && os.Getenv("GHOST_WHISPER_GPU") != "1" {
 		args = append(args, "-ng")
+	}
+	if e.Prompt != "" {
+		args = append(args, "--prompt", e.Prompt)
 	}
 	cmd := exec.CommandContext(cctx, e.Bin, args...)
 	var stderr tailBuffer

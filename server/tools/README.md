@@ -101,6 +101,13 @@ no network; this ships data):
     sudo GHOST_WIKI=0 ./tools/update.sh     # everything but Wikipedia (about 50 GB)
     sudo GHOST_GEO_ROADS=europe-latest.osm.pbf ./tools/update.sh maps   # add a continent's streets
 
+The phone runs the same script: a fetch started on the app's SOURCES page is `POST
+/v1/sources/fetch {step}` to ghost.secd, which runs `/opt/localghost/tools/update.sh <step>` as root
+(wiki, maps, speech, engine or weights; the maps with `GHOST_GEO_ELEVATION` set to the region the
+phone asked for), one at a time, its output under `/var/lib/ghost/update/jobs/<step>.log`;
+`redeploy.sh` puts this folder and the geo tools under `/opt/localghost/` so secd finds them.
+`GET /v1/sources` says how the job goes.
+
 It reads the mirror first and stops if it cannot. Then, set by set, it fetches only what the mirror
 lists differently from what the box has, and hands the result to the daemon that uses it:
 - **Maps.** It fetches straight onto the volume. ghost.framed then imports the place names and cuts

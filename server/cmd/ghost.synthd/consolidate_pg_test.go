@@ -53,18 +53,31 @@ func TestConsolidatePGOnePersonOneMemory(t *testing.T) {
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Cristina','Cristina is Vlad''s wife.','person','about:person:cristina',$1,$1)", now-3))
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Cristina','Cristina paints.','person','person:cristina',$1,$1)", now-2))
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Cristina Cealicu','Cristina Cealicu sails with Vlad.','person','person:cristina cealicu',$1,$1)", now-1))
-	// two Anas with full names stay two; a hand-edited James is nobody's to merge
+	// two Anas with full names stay two; a hand-edited James is the one kept, the note's row and
+	// a misspelt row fold into it, the misspelling becomes an alias and his words stand
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Ana Pop','Ana Pop is a colleague.','person','person:ana pop',$1,$1)", now))
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Ana Ionescu','Ana Ionescu is a neighbour.','person','person:ana ionescu',$1,$1)", now))
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at, user_edited) VALUES ('James','James, as I wrote him.','person','person:james',$1,$1,TRUE)", now))
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('James','James sails.','person','about:person:james',$1,$1)", now))
+	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at, meta) VALUES ('Jaymes','Jaymes rows.','person','person:jaymes',$1,$1,'{\"aliases\":[\"James\"]}'::jsonb)", now))
+	// a distilled memory named for a person folds into theirs; one named for nobody known stays
+	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Cristina','Cristina is Vlad''s wife.','distilled','journal:5',$1,$1)", now))
+	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Cristina','Cristina likes Corfu.','distilled','journal:6',$1,$1)", now))
+	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ('Bitcoin','Vlad holds some.','distilled','journal:7',$1,$1)", now))
 
 	folded, err := mergePeople(db, quietLog())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if folded != 2 {
+	if folded != 4 {
 		t.Fatalf("folded %d", folded)
+	}
+	named, err := foldNamedMemories(db, quietLog())
+	if err != nil || named != 2 {
+		t.Fatalf("named %d %v", named, err)
+	}
+	if n := memRows(t, db, "kind = 'distilled'"); len(n) != 1 || n[0][1] != "Bitcoin" {
+		t.Fatalf("distilled left: %v", n)
 	}
 	cr := memRows(t, db, "lower(title) LIKE 'cristina%'")
 	if len(cr) != 1 {
@@ -75,18 +88,24 @@ func TestConsolidatePGOnePersonOneMemory(t *testing.T) {
 	if cr[0][1] != "Cristina Cealicu" || cr[0][2] != "person:cristina cealicu" {
 		t.Fatalf("title %q ref %q", cr[0][1], cr[0][2])
 	}
-	if m.Note != "Cristina is Vlad's wife." || len(m.Facts) != 2 || len(m.Aliases) != 1 || m.Aliases[0] != "Cristina" {
+	// the distilled "wife" line was there already (the note); "likes Corfu" is a fact now
+	if m.Note != "Cristina is Vlad's wife." || len(m.Facts) != 3 || m.Facts[2].T != "Cristina likes Corfu." || m.Facts[2].Ref != "journal:6" || len(m.Aliases) != 1 || m.Aliases[0] != "Cristina" {
 		t.Fatalf("meta %+v", m)
 	}
-	if cr[0][3] != "Cristina is Vlad's wife. Cristina paints. Cristina Cealicu sails with Vlad." {
+	if cr[0][3] != "Cristina is Vlad's wife. Cristina paints. Cristina Cealicu sails with Vlad. Cristina likes Corfu." {
 		t.Fatalf("body %q", cr[0][3])
 	}
 	if len(memRows(t, db, "title LIKE 'Ana%'")) != 2 {
 		t.Fatal("two Anas merged")
 	}
-	js := memRows(t, db, "title = 'James'")
-	if len(js) != 2 {
-		t.Fatalf("James rows %d: the hand-edited one takes no part, the note's stands beside it", len(js))
+	js := memRows(t, db, "title = 'James' OR title = 'Jaymes'")
+	if len(js) != 1 || js[0][1] != "James" || js[0][5] != "true" || js[0][3] != "James, as I wrote him." {
+		t.Fatalf("James rows %v: the hand-edited one is kept with its words and its spelling", js)
+	}
+	var jm0 personMeta
+	_ = json.Unmarshal([]byte(js[0][4]), &jm0)
+	if jm0.Note != "James sails." || len(jm0.Facts) != 1 || len(jm0.Aliases) != 1 || jm0.Aliases[0] != "Jaymes" {
+		t.Fatalf("the edited James's meta %+v", jm0)
 	}
 
 	// a fact by the first name lands on the one row and is not added twice; a hand-edited row
@@ -97,13 +116,13 @@ func TestConsolidatePGOnePersonOneMemory(t *testing.T) {
 	cr = memRows(t, db, "lower(title) LIKE 'cristina%'")
 	m = personMeta{}
 	_ = json.Unmarshal([]byte(cr[0][4]), &m)
-	if len(cr) != 1 || len(m.Facts) != 3 || m.Facts[2].Ref != "chat:8" || !strings.HasSuffix(cr[0][3], "Cristina grew up in Brasov.") {
+	if len(cr) != 1 || len(m.Facts) != 4 || m.Facts[3].Ref != "chat:8" || !strings.HasSuffix(cr[0][3], "Cristina grew up in Brasov.") {
 		t.Fatalf("after facts: %d rows, %+v, body %q", len(cr), m, cr[0][3])
 	}
 	js = memRows(t, db, "title = 'James' AND user_edited")
 	var jm personMeta
 	_ = json.Unmarshal([]byte(js[0][4]), &jm)
-	if js[0][3] != "James, as I wrote him." || len(jm.Facts) != 1 {
+	if js[0][3] != "James, as I wrote him." || len(jm.Facts) != 2 {
 		t.Fatalf("the edited James: body %q meta %+v", js[0][3], jm)
 	}
 
@@ -115,7 +134,7 @@ func TestConsolidatePGOnePersonOneMemory(t *testing.T) {
 	cr = memRows(t, db, "lower(title) LIKE 'cristina%'")
 	m = personMeta{}
 	_ = json.Unmarshal([]byte(cr[0][4]), &m)
-	if m.Note != "Cristina is Vlad's wife and a painter." || len(m.Facts) != 3 || !strings.HasPrefix(cr[0][3], "Cristina is Vlad's wife and a painter. Cristina paints.") {
+	if m.Note != "Cristina is Vlad's wife and a painter." || len(m.Facts) != 4 || !strings.HasPrefix(cr[0][3], "Cristina is Vlad's wife and a painter. Cristina paints.") {
 		t.Fatalf("after the note: %+v body %q", m, cr[0][3])
 	}
 	if len(memRows(t, db, "title = 'Toby'")) != 0 {

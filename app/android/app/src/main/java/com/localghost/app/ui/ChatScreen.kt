@@ -93,7 +93,7 @@ fun ChatScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
         }
         if (messages.isEmpty()) {
-            EmptyState(Modifier.weight(1f))
+            EmptyState(Modifier.weight(1f), onAsk = { if (!streaming) onSend(it) })
         } else {
             LazyColumn(
                 state = listState,
@@ -213,7 +213,7 @@ fun ChatScreen(
  * (VoiceCapture, one at a time); only a take started here is heard here.
  */
 @Composable
-private fun VoiceAskButton(onWords: (String) -> Unit, onNote: (String) -> Unit) {
+internal fun VoiceAskButton(onWords: (String) -> Unit, onNote: (String) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val rec by com.localghost.app.voice.VoiceCapture.state.collectAsState()
     var askId by remember { mutableStateOf("") }
@@ -270,7 +270,7 @@ private fun VoiceAskButton(onWords: (String) -> Unit, onNote: (String) -> Unit) 
 }
 
 @Composable
-private fun EmptyState(modifier: Modifier) {
+private fun EmptyState(modifier: Modifier, onAsk: (String) -> Unit) {
     Column(modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 40.dp),
         verticalArrangement = Arrangement.Top) {
         SectionLabel("GHOST.SYNTHD")
@@ -278,14 +278,16 @@ private fun EmptyState(modifier: Modifier) {
         Text("Local model, on the box.", color = TerminalGreen,
             style = glow(MaterialTheme.typography.titleMedium))
         Spacer(Modifier.height(10.dp))
-        Text("Runs on your box. Retrieves from the index built out of your synced photos, " +
-             "videos and voice notes, then answers from that. The prompt and the index never " +
-             "leave the box.",
+        Text("Runs on your box. Answers from your memories, your photos, voice notes and trail, " +
+             "the box's own Wikipedia and news, and the web only where you allow it. The prompt " +
+             "and the index never leave the box.",
              color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
         Spacer(Modifier.height(20.dp))
-        listOf("what did I do in Rome?", "summarise last week", "when was I last diving?").forEach {
-            Text("> $it", color = TerminalDim, style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(vertical = 4.dp))
+        // the examples are asks: a tap sends one
+        Text("try one", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+        listOf("what did I do in Rome?", "summarise last week", "what's the weather like?", "what is a quasar?").forEach {
+            Text("› $it", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.clickable { onAsk(it) }.padding(vertical = 6.dp))
         }
     }
 }
@@ -295,6 +297,7 @@ private fun MessageBubble(msg: Message, selectable: Boolean = true) {
     val isUser = msg.role == Message.Role.USER
     var memOpen by remember { mutableStateOf(false) }
     var thinkOpen by remember { mutableStateOf(false) }
+    var trailOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
         // injected memories, collapsed behind a green + toggle; white when expanded
         if (msg.memoriesUsed.isNotEmpty()) {
@@ -350,8 +353,11 @@ private fun MessageBubble(msg: Message, selectable: Boolean = true) {
                 style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 4.dp))
         }
         if (msg.status.isNotEmpty() && msg.text.isEmpty()) {
-            Text("› " + msg.status, color = TerminalDim, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(top = 2.dp, bottom = 6.dp, end = 12.dp))
+            // the steps so far, the current one last and brightest
+            Column(Modifier.padding(top = 2.dp, bottom = 6.dp, end = 12.dp)) {
+                msg.steps.dropLast(1).takeLast(4).forEach { Text("› $it", color = GhostBorder, style = MaterialTheme.typography.labelSmall) }
+                Text("› " + msg.status, color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            }
         }
         // The model's reasoning, collapsed behind a toggle. It STREAMS while expanded (the message
         // object is replaced per chunk, so this just recomposes), doubles as the progress indicator
@@ -409,6 +415,17 @@ private fun MessageBubble(msg: Message, selectable: Boolean = true) {
                     modifier = Modifier.padding(top = 2.dp))
             }
             if (!isUser) {
+                // THE TRAIL: what the turn did, the phone's steps and the box's, behind a toggle
+                if (msg.steps.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { trailOpen = !trailOpen }.padding(top = 4.dp, bottom = 2.dp, end = 12.dp)) {
+                        Text(if (trailOpen) "−" else "+", color = TerminalDim, fontSize = 13.sp, modifier = Modifier.padding(end = 6.dp))
+                        Text("how (${msg.steps.size} step${if (msg.steps.size == 1) "" else "s"})", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                    }
+                    if (trailOpen) Column(Modifier.padding(start = 18.dp, bottom = 4.dp)) {
+                        msg.steps.forEach { Text("› $it", color = GhostTextDim, style = MaterialTheme.typography.labelSmall) }
+                    }
+                }
                 // marked sensitive: no paste preview, not kept in the keyboard's clipboard history
                 val ctx = androidx.compose.ui.platform.LocalContext.current
                 Text("[ copy ]", color = TerminalDim, style = MaterialTheme.typography.labelSmall,
@@ -480,7 +497,7 @@ private fun ModelPill(
                             Column {
                                 Text(name, color = GhostText, style = MaterialTheme.typography.bodyMedium,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(if (installed) "downloaded" else "tap to download",
+                                Text(if (installed) "on this phone" else "not on this phone · opens MODELS",
                                     color = if (installed) TerminalDim else GhostTextDim,
                                     style = MaterialTheme.typography.labelMedium)
                             }

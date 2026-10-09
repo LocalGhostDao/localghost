@@ -61,11 +61,12 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
     var past by rememberSaveable { mutableStateOf("") }
     var voiceOpen by rememberSaveable { mutableStateOf(false) }
     var voiceList by remember { mutableStateOf<List<BoxClient.VoiceNoteRow>?>(null) }
+    var voiceFailed by remember { mutableStateOf(false) } // the box did not list them: said, not spun on
     // this visit saved the check-in: the day is written up now, once (a later visit reads it)
     var justSaved by remember { mutableStateOf(false) }
     fun reloadVoice() {
         voiceLocal = VoiceNotes.pending(ctx)
-        scope.launch { voiceList = BoxClient.voiceNotes(ctx) }
+        scope.launch { val l = BoxClient.voiceNotes(ctx); if (l != null) { voiceList = l; voiceFailed = false } else voiceFailed = voiceList == null }
     }
     fun reload() {
         voiceLocal = VoiceNotes.pending(ctx)
@@ -83,7 +84,8 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
     val todayRow = byDay[today]
     val onPhone = voiceLocal.map { it.id }.toSet()
 
-    // ONE PAST CHECK-IN
+    // ONE PAST CHECK-IN (the system back key returns to today's page first)
+    androidx.activity.compose.BackHandler(enabled = past.isNotEmpty()) { past = "" }
     past.takeIf { it.isNotEmpty() }?.let { d ->
         val row = byDay[d]
         PastCheckin(d, today, row, onPhone, onBack = { past = "" }, onOpenDay = { onOpenDay(d) })
@@ -92,7 +94,10 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(12.dp))
-        Text(DayText.heading(today), color = GhostText, style = MaterialTheme.typography.titleLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(DayText.heading(today), color = GhostText, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            InfoButton("checkin")
+        }
         Text("how are you feeling today, and why · kept on your box", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(14.dp))
 
@@ -110,11 +115,14 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(Feelings.mark(c.tone), color = toneColour(c.tone, c.checked), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
                     Text(Feelings.dayNumber(c.day), color = if (isToday) TerminalGreen else TerminalDim, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                    Text(Feelings.weekdayInitial(c.day), color = if (isToday) TerminalGreen else GhostBorder, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
                 }
             }
         }
-        Text("▲ bright  ● easy  ◆ tense  ▼ heavy  ◇ mind · a tap opens the day", color = TerminalDim, style = MaterialTheme.typography.labelSmall,
-            modifier = Modifier.padding(top = 4.dp))
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("▲ bright  ● easy  ◆ tense  ▼ heavy  ◇ mind", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+            Text("tap a day", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+        }
         Spacer(Modifier.height(16.dp))
 
         // TODAY
@@ -154,7 +162,7 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
                     Text(Feelings.shortDay(r.day), color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(84.dp))
                     Text(if (picks.isEmpty()) "(no feeling picked)" else picks.joinToString(", "), color = GhostText,
                         style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1)
-                    if (r.voices.isNotEmpty()) Text(if (r.voices.size > 1) "🎙${r.voices.size}" else "🎙", color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 6.dp))
+                    if (r.voices.isNotEmpty()) Text(if (r.voices.size > 1) "◍${r.voices.size}" else "◍", color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 6.dp))
                     Text("›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
                 }
             }
@@ -183,6 +191,7 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
             }
             val list = voiceList
             when {
+                list == null && voiceFailed -> Text("! the box did not answer , is it unlocked?", color = Warning, style = MaterialTheme.typography.labelMedium)
                 list == null -> Text("asking the box…", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 list.isEmpty() && voiceLocal.isEmpty() -> Text("none yet · record one with the check-in above",
                     color = TerminalDim, style = MaterialTheme.typography.labelMedium)
@@ -285,29 +294,42 @@ private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSa
                 FeelingChips(g.feelings, picked, suggested, usual, tap, maxChars = 40, maxPer = 6)
             }
         }
-        Spacer(Modifier.height(12.dp))
-        Text("why?", color = GhostText, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        BasicTextField(why, { why = it },
-            textStyle = MaterialTheme.typography.bodySmall.copy(color = GhostText),
-            cursorBrush = SolidColor(TerminalGreen),
-            decorationBox = { inner -> Box(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape)
-                .padding(8.dp)) { if (why.isEmpty()) Text("prefilled from your day once the box answers · edit freely",
-                    color = TerminalDim, style = MaterialTheme.typography.bodySmall); inner() } },
-            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp))
-        Spacer(Modifier.height(12.dp))
-        Text("or say it", color = GhostText, style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        // the take in hand goes with the check-in when it is saved
-        VoiceRecorder(hint = "a minute about the day, in your own words · kept and transcribed on your box",
-            saveLabel = null, onSave = {})
         Spacer(Modifier.height(14.dp))
+        // WHY, AND IN YOUR OWN VOICE: one card, the words typed or said (or both)
+        Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter).padding(10.dp)) {
+            Text("why?", color = GhostText, style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(6.dp))
+            BasicTextField(why, { why = it },
+                textStyle = MaterialTheme.typography.bodySmall.copy(color = GhostText),
+                cursorBrush = SolidColor(TerminalGreen),
+                decorationBox = { inner -> Box(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(Void)
+                    .padding(8.dp)) { if (why.isEmpty()) Text("prefilled from your day once the box answers · edit freely",
+                        color = TerminalDim, style = MaterialTheme.typography.bodySmall); inner() } },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp))
+            Spacer(Modifier.height(10.dp))
+            Text("or say it", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(2.dp))
+            // the take in hand goes with the check-in when it is saved
+            VoiceRecorder(hint = "a minute about the day, in your own words · kept and transcribed on your box",
+                saveLabel = null, onSave = {})
+        }
+        Spacer(Modifier.height(12.dp))
         val take = rec.take
         val canSave = !saving && !rec.recording && (picked.isNotEmpty() || why.isNotBlank() || take != null)
-        Text(when { saving -> "saving…"; rec.recording -> "[ save check-in ] · stop the recording first"; else -> "[ save check-in ]" },
-            color = if (canSave) TerminalGreen else TerminalDim, style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.clickable {
-                if (!canSave) return@clickable
+        // what goes in, in one line, then the button
+        val summary = buildList {
+            if (picked.isNotEmpty()) add(picked.joinToString(", "))
+            if (why.isNotBlank()) add("why")
+            if (take != null) add("a voice note of " + Feelings.clock(take.durationMs))
+        }
+        Text(when {
+            rec.recording -> "stop the recording to save"
+            summary.isEmpty() -> "pick a feeling, write or say why"
+            else -> "today: " + summary.joinToString(" · ")
+        }, color = if (summary.isEmpty() || rec.recording) TerminalDim else GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(6.dp))
+        GhostButton(if (saving) "SAVING…" else "SAVE CHECK-IN", {
+                if (!canSave) return@GhostButton
                 saving = true
                 note = ""
                 scope.launch {
@@ -326,7 +348,7 @@ private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSa
                     }
                     saving = false
                 }
-            })
+            }, modifier = Modifier.fillMaxWidth(), enabled = canSave)
         if (note.isNotEmpty()) Text(note, color = TerminalDim, style = MaterialTheme.typography.labelMedium)
     }
 }
@@ -365,24 +387,32 @@ private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<St
     val scope = rememberCoroutineScope()
     Column(Modifier.fillMaxWidth().animateContentSize()) {
         val picks = row?.let { Feelings.picks(it.feelings) } ?: emptyList()
-        Text("✓ checked in" + (if (picks.isNotEmpty()) " · " + picks.joinToString(", ") else ""),
-            color = TerminalGreen, style = MaterialTheme.typography.titleMedium)
-        if (row == null) {
-            Text("on its way into the journal · here within a minute", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
-        } else {
-            val guessed = Feelings.picks(row.preselected)
-            if (picks.isNotEmpty()) {
-                Spacer(Modifier.height(6.dp))
-                FeelingChips(picks, picks, guessed, emptySet(), onTap = null, maxChars = 40, maxPer = 6)
+        val tone = row?.let { Feelings.tone(it.feelings, it.preselected) } ?: ""
+        Column(Modifier.fillMaxWidth().border(1.dp, TerminalGreen, RectangleShape).background(VoidLighter).padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (tone.isNotEmpty()) Text(Feelings.mark(tone), color = toneColour(tone, true), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(end = 8.dp))
+                Text("checked in", color = TerminalGreen, style = MaterialTheme.typography.titleMedium)
             }
-            if (row.why.isNotBlank()) Text(row.why, color = GhostText, style = MaterialTheme.typography.bodySmall)
-        }
-        val said = row?.voices ?: emptyList()
-        said.forEach { v -> key("today-" + v.id) { VoiceNoteCard(v, onPhone = v.id in onPhone, onDelete = null) } }
-        // said to the check-in, not yet on the box (no network, or the upload still going)
-        waiting.filter { p -> said.none { it.id == p.id } }.forEach { p ->
-            key("today-local-" + p.id) {
-                VoiceNoteCard(BoxClient.VoiceNoteRow(p.id, p.kind, p.day, p.takenAt / 1000, p.durationMs, "missing", "", "", ""), onPhone = true, onDelete = null)
+            if (row == null) {
+                Text("on its way into the journal · here within a minute", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            } else {
+                val guessed = Feelings.picks(row.preselected)
+                if (picks.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    FeelingChips(picks, picks, guessed, emptySet(), onTap = null, maxChars = 40, maxPer = 6)
+                }
+                if (row.why.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(row.why, color = GhostText, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            val said = row?.voices ?: emptyList()
+            said.forEach { v -> key("today-" + v.id) { VoiceNoteCard(v, onPhone = v.id in onPhone, onDelete = null) } }
+            // said to the check-in, not yet on the box (no network, or the upload still going)
+            waiting.filter { p -> said.none { it.id == p.id } }.forEach { p ->
+                key("today-local-" + p.id) {
+                    VoiceNoteCard(BoxClient.VoiceNoteRow(p.id, p.kind, p.day, p.takenAt / 1000, p.durationMs, "missing", "", "", ""), onPhone = true, onDelete = null)
+                }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -558,7 +588,7 @@ internal fun VoiceRecorder(hint: String, saveLabel: String?, onSave: (VoiceCaptu
             }
             take != null -> {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🎙 voice note ${Feelings.clock(take.durationMs)}", color = GhostText, style = MaterialTheme.typography.labelMedium)
+                    Text("◍ voice note ${Feelings.clock(take.durationMs)}", color = GhostText, style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.width(10.dp))
                     Text(if (playing == take.id) "[ ■ ]" else "[ ▶ ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { scope.launch { VoicePlayback.toggle(ctx, take.id) } })
@@ -619,7 +649,7 @@ internal fun VoiceNoteCard(v: BoxClient.VoiceNoteRow, onPhone: Boolean, onDelete
         Row(verticalAlignment = Alignment.CenterVertically) {
             val whenText = if (v.takenAt > 0) java.text.SimpleDateFormat("EEE d MMM, HH:mm", java.util.Locale.UK)
                 .format(java.util.Date(v.takenAt * 1000)) else v.day
-            Text("🎙 $whenText · ${Feelings.clock(v.durationMs)}" + (if (v.kind == "checkin") " · check-in" else ""),
+            Text("◍ $whenText · ${Feelings.clock(v.durationMs)}" + (if (v.kind == "checkin") " · check-in" else ""),
                 color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
             if (v.status != "missing" || onPhone) {
                 Text(if (playing == v.id) " [ ■ ]" else " [ ▶ ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
@@ -631,7 +661,7 @@ internal fun VoiceNoteCard(v: BoxClient.VoiceNoteRow, onPhone: Boolean, onDelete
                     Text(" [ delete? ]", color = Warning, style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { VoicePlayback.stop(); onDelete() })
                 } else {
-                    Text(" 🗑", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+                    Text(" ✕", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { confirmDel = true })
                 }
             }

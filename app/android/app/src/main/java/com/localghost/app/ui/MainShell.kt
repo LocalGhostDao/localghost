@@ -40,6 +40,8 @@ enum class Dest(val label: String, val glyph: String) {
     MEMORIES("MEMORIES", "◇"),
     MEMORY("MEMORY", "◇"),
     CHECKIN("CHECK-IN", "◐"),
+    SOURCES("SOURCES", "⊛"),
+    FEEDS("NEWS FEEDS", "¶"),
     WIKIPEDIA("WIKIPEDIA", "W"),
     NEWS("NEWS", "¶"),
     CRYPTO("CRYPTO", "₿"),
@@ -70,6 +72,7 @@ fun MainShell(
     messages: List<Message>,
     streaming: Boolean,
     onSend: (String) -> Unit,
+    chatTouchedMs: Long = 0L,
     onStopChat: () -> Unit,
     pendingAttachments: List<Attachment>,
     onClearAttachment: (Attachment) -> Unit,
@@ -138,6 +141,8 @@ fun MainShell(
     // the coin whose page is open, and where it was opened from (‹ and back go there)
     var coinSym by rememberSaveable { mutableStateOf("BTC") }
     var coinFrom by rememberSaveable { mutableStateOf(Dest.CRYPTO) }
+    // the pages SOURCES opens (WIKIPEDIA, NEWS, CRYPTO, MAP, the feeds) go back to it when opened from there
+    var fromSources by rememberSaveable { mutableStateOf(false) }
     fun openCoin(sym: String, from: Dest) { coinSym = sym; coinFrom = from; dest = Dest.COIN }
     // what a notification opens: a day on MAP, "near" in MEMORIES ("" none)
     var mapDay by rememberSaveable { mutableStateOf("") }
@@ -210,12 +215,20 @@ fun MainShell(
     LaunchedEffect(orientation) { drawerState.close() }
 
     BackHandler(enabled = drawerState.isOpen || dest != Dest.HOME) {
-        when {
-            drawerState.isOpen -> close()
-            dest == Dest.COIN -> dest = coinFrom
-            dest == Dest.DAY -> dest = if (dayFrom == Dest.DAY) Dest.HOME else dayFrom
-            dest == Dest.NOTIFICATION -> dest = if (notifFrom == Dest.NOTIFICATION) Dest.NOTIFICATIONS else notifFrom
-            dest == Dest.MEMORY -> dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom
+        if (drawerState.isOpen) close() else goBack()
+    }
+
+    // WHERE BACK GOES, one answer for the system key and the TopBar's ‹: a page opened from another
+    // returns there (a coin to its list, a day or a memory or a notification to what opened it, a
+    // page SOURCES opened to SOURCES), the rest to HOME
+    fun goBack() {
+        when (dest) {
+            Dest.COIN -> dest = coinFrom
+            Dest.DAY -> dest = if (dayFrom == Dest.DAY) Dest.HOME else dayFrom
+            Dest.NOTIFICATION -> dest = if (notifFrom == Dest.NOTIFICATION) Dest.NOTIFICATIONS else notifFrom
+            Dest.MEMORY -> dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom
+            Dest.FEEDS -> dest = Dest.SOURCES
+            Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.MAP -> { dest = if (fromSources) Dest.SOURCES else Dest.HOME; fromSources = false }
             else -> dest = Dest.HOME
         }
     }
@@ -228,7 +241,7 @@ fun MainShell(
                 boxConnected = boxConnected,
                 conversations = conversations,
                 activeConvId = activeConvId,
-                onSelect = { dest = it; close() },
+                onSelect = { dest = it; fromSources = false; close() },
                 onSelectConversation = { onSelectConversation(it); close() },
                 onNewConversation = { onNewConversation(); close() },
                 onDeleteConversation = onDeleteConversation,
@@ -241,14 +254,7 @@ fun MainShell(
                 .padding(top = pad.calculateTopPadding())
                 .padding(top = 4.dp)) {
                 TopBar(title = if (dest == Dest.COIN) coinSym else dest.label, onMenu = { open() },
-                    onHome = when (dest) {
-                        Dest.HOME -> null
-                        Dest.COIN -> ({ dest = coinFrom })
-                        Dest.DAY -> ({ dest = if (dayFrom == Dest.DAY) Dest.HOME else dayFrom })
-                        Dest.NOTIFICATION -> ({ dest = if (notifFrom == Dest.NOTIFICATION) Dest.NOTIFICATIONS else notifFrom })
-                        Dest.MEMORY -> ({ dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom })
-                        else -> ({ dest = Dest.HOME })
-                    },
+                    onHome = if (dest == Dest.HOME) null else ({ goBack() }),
                     onNewChat = if (dest == Dest.CHAT) onNewConversation else null,
                     chatToggles = dest == Dest.CHAT, incognito = incognito, onToggleIncognito = onToggleIncognito)
 
@@ -259,7 +265,16 @@ fun MainShell(
                     .padding(bottom = pad.calculateBottomPadding())) {
                     when (dest) {
                         Dest.HOME -> HomeScreen(
-                            onAsk = { q -> onNewConversation(); onSend(q); dest = Dest.CHAT },
+                            // a question from HOME goes on with the chat while it is recent (twenty
+                            // minutes), else starts a new one; HOME says which under its box
+                            onAsk = { q ->
+                                if (messages.isEmpty() || System.currentTimeMillis() - chatTouchedMs > 20 * 60_000L) onNewConversation()
+                                onSend(q); dest = Dest.CHAT
+                            },
+                            continuing = if (messages.isNotEmpty() && System.currentTimeMillis() - chatTouchedMs <= 20 * 60_000L)
+                                messages.lastOrNull { it.role == Message.Role.USER }?.text ?: "" else "",
+                            onNewChat = { onNewConversation() },
+                            onOpenChat = { dest = Dest.CHAT },
                             onOpenNews = { newsFocus = 0L; dest = Dest.NEWS },
                             onOpenStory = { id -> newsFocus = id; dest = Dest.NEWS },
                             onOpenCrypto = { dest = Dest.CRYPTO },
@@ -293,8 +308,16 @@ fun MainShell(
                         Dest.MEMORY -> MemoryScreen(memOpen,
                             onOpenDay = { d -> openDay(d) },
                             onOpenMemory = { id -> openMemory(id) },
-                            onBack = { dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom })
+                            backLabel = (if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom).label.lowercase(),
+                            onBack = { goBack() })
                         Dest.CHECKIN -> CheckinScreen(onOpenDay = { d -> openDay(d) })
+                        Dest.SOURCES -> SourcesScreen(
+                            onOpen = { page ->
+                                fromSources = true
+                                dest = when (page) { "wikipedia" -> Dest.WIKIPEDIA; "news" -> { newsFocus = 0L; Dest.NEWS }; "crypto" -> Dest.CRYPTO; "map" -> Dest.MAP; else -> Dest.SOURCES }
+                            },
+                            onFeeds = { dest = Dest.FEEDS })
+                        Dest.FEEDS -> NewsFeedsScreen(onBack = { dest = Dest.SOURCES })
                         Dest.WIKIPEDIA -> WikipediaScreen()
                         Dest.NEWS -> NewsScreen(openStory = newsFocus, onStoryShown = { newsFocus = 0L })
                         Dest.NOTIFICATIONS -> {
@@ -511,6 +534,7 @@ private fun DrawerPanel(
                 // tight, "view more" doubles it in place for the deep-switch days, and only past
                 // ten do you leave the drawer at all.
                 var showMoreChats by remember { mutableStateOf(false) }
+                var armedDelete by remember { mutableStateOf("") } // a chat's ✕ tapped once: the second tap deletes
                 conversations.take(if (showMoreChats) 10 else 5).forEach { c ->
                     Row(Modifier.fillMaxWidth()
                         .clickable { onSelectConversation(c.id); onSelect(Dest.CHAT) }
@@ -523,8 +547,8 @@ private fun DrawerPanel(
                             Text("${c.updatedLabel} · ${c.messageCount} msgs", color = GhostTextDim,
                                 style = MaterialTheme.typography.labelMedium)
                         }
-                        Text("✕", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.clickable { onDeleteConversation(c.id) }.padding(start = 8.dp))
+                        Text(if (armedDelete == c.id) "[ delete? ]" else "✕", color = if (armedDelete == c.id) Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.clickable { if (armedDelete == c.id) { armedDelete = ""; onDeleteConversation(c.id) } else armedDelete = c.id }.padding(start = 8.dp))
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -533,7 +557,7 @@ private fun DrawerPanel(
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { showMoreChats = true }.padding(vertical = 4.dp))
                 } else if (showMoreChats || conversations.size > 10) {
-                    Text("see all chats →", color = TerminalDim,
+                    Text("see all chats ›", color = TerminalDim,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { onSelect(Dest.CHATS) }.padding(vertical = 4.dp))
                 }
@@ -543,9 +567,17 @@ private fun DrawerPanel(
             SectionLabel("YOUR ARCHIVE")
             // PHRASES appears while the lock-screen card is on (from the start; off by hand in settings).
             val phrasesOn = com.localghost.app.phrases.PhraseState.enabled(androidx.compose.ui.platform.LocalContext.current)
-            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.CHECKIN, Dest.MEMORIES, Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.SYNC)
+            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.CHECKIN, Dest.MEMORIES, Dest.SYNC)
                 .filter { it != Dest.PHRASES || phrasesOn || current == Dest.PHRASES }
                 .forEach { DrawerRow(it, it == current) { onSelect(it) } }
+
+            Spacer(Modifier.height(20.dp))
+            // SOURCES: what the box draws on beyond the archive (Wikipedia, the news and its feeds,
+            // the market numbers, the weather, the maps, speech), one page with every state and the
+            // fetches; the three pages that had rows here open from it, and from HOME
+            SectionLabel("SOURCES")
+            DrawerRow(Dest.SOURCES, current == Dest.SOURCES || current == Dest.FEEDS) { onSelect(Dest.SOURCES) }
+            listOf(Dest.NEWS, Dest.CRYPTO, Dest.WIKIPEDIA).forEach { DrawerRowSub(it, it == current) { onSelect(it) } }
 
             Spacer(Modifier.height(20.dp))
             SectionLabel("THE BOX")
@@ -569,6 +601,12 @@ private fun DrawerPanel(
 private fun SectionLabel(text: String) {
     Text(text, color = TerminalDim, style = MaterialTheme.typography.labelMedium,
         modifier = Modifier.padding(bottom = 6.dp))
+}
+
+/** A row under its group's row, indented, for the pages SOURCES holds. */
+@Composable
+private fun DrawerRowSub(dest: Dest, selected: Boolean, onClick: () -> Unit) {
+    Box(Modifier.padding(start = 22.dp)) { DrawerRow(dest, selected, onClick) }
 }
 
 @Composable

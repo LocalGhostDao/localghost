@@ -33,6 +33,7 @@ fun NotificationScreen(id: Long, onOpenTarget: (NotifLink.Target) -> Unit, onDay
     val scope = rememberCoroutineScope()
     var n by remember(id) { mutableStateOf<PendingNotification?>(null) }
     var missing by remember(id) { mutableStateOf(false) }
+    var armed by remember(id) { mutableStateOf(false) } // ✕ tapped once: the next tap deletes
     var answering by remember(id) { mutableStateOf("") }
     LaunchedEffect(id) {
         val h = BoxClient.notificationHistory(ctx)
@@ -54,8 +55,11 @@ fun NotificationScreen(id: Long, onOpenTarget: (NotifLink.Target) -> Unit, onDay
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(NotifPage.who(nn.daemonId, nn.kind), color = TerminalGreen, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                     if (nn.created > 0) Text(NotificationTime.ago(System.currentTimeMillis() / 1000 - nn.created), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
-                    Text("  ✕", color = TerminalDim, style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.clickable { scope.launch { if (BoxClient.notificationDelete(ctx, id)) onBack() } }.padding(start = 8.dp))
+                    Text(if (armed) "  [ delete? ]" else "  ✕", color = if (armed) Warning else TerminalDim, style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.clickable {
+                            if (!armed) { armed = true; return@clickable }
+                            scope.launch { if (BoxClient.notificationDelete(ctx, id)) onBack() else armed = false }
+                        }.padding(start = 8.dp))
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(nn.title, color = GhostText, style = MaterialTheme.typography.titleLarge)

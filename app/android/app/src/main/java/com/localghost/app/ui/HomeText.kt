@@ -107,4 +107,45 @@ object HomeText {
         0 -> "no news on the box yet: pull down to fetch the feeds"
         else -> "the box writes the day's brief once a few stories have their summaries"
     }
+
+    /** A WMO weather code in a word or two (Open-Meteo gives the code; the box keeps it). */
+    fun weatherWord(code: Int): String = when (code) {
+        0 -> "clear"; 1 -> "mostly clear"; 2 -> "partly cloudy"; 3 -> "overcast"
+        45, 48 -> "fog"; 51, 53, 55 -> "drizzle"; 56, 57 -> "freezing drizzle"
+        61, 63, 65 -> "rain"; 66, 67 -> "freezing rain"; 71, 73, 75 -> "snow"; 77 -> "snow grains"
+        80, 81, 82 -> "showers"; 85, 86 -> "snow showers"; 95 -> "thunderstorm"; 96, 99 -> "thunderstorm with hail"
+        else -> ""
+    }
+
+    /** "24° feels 26 · partly cloudy · wind 12 km/h" for the card's main line. */
+    fun weatherNow(tempC: Double, feelsC: Double, code: Int, windKmh: Double): String {
+        if (tempC.isNaN()) return ""
+        val sb = StringBuilder("%.0f°".format(java.util.Locale.UK, tempC))
+        if (!feelsC.isNaN() && Math.abs(feelsC - tempC) >= 1.5) sb.append(" feels %.0f".format(java.util.Locale.UK, feelsC))
+        weatherWord(code).takeIf { it.isNotEmpty() }?.let { sb.append(" · ").append(it) }
+        if (windKmh >= 20) sb.append(" · wind %.0f km/h".format(java.util.Locale.UK, windKmh))
+        return sb.toString()
+    }
+
+    /** One day of the forecast in a few characters: "Thu 28/19 rain 60%". */
+    fun weatherDay(date: String, maxC: Double, minC: Double, code: Int, rainPct: Int): String {
+        val day = try {
+            java.text.SimpleDateFormat("EEE", java.util.Locale.UK).format(java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.UK).parse(date)!!)
+        } catch (_: Exception) { date.takeLast(2) }
+        val w = weatherWord(code)
+        return "$day %.0f/%.0f".format(java.util.Locale.UK, maxC, minC) + (if (w.isNotEmpty()) " $w" else "") + (if (rainPct >= 30) " $rainPct%" else "")
+    }
+
+    /** Under the card: where it is from and how fresh. */
+    fun weatherSource(place: String, country: String, fetchedAt: Long, places: Long, nowS: Long): String {
+        val where = if (country.isNotBlank()) "$place, $country" else place
+        val age = nowS - fetchedAt
+        val fresh = when {
+            fetchedAt == 0L -> "not pulled yet"
+            age < 3600 -> "pulled ${age / 60} min ago"
+            age < 48 * 3600 -> "pulled ${age / 3600} h ago"
+            else -> "pulled ${age / 86400} days ago"
+        }
+        return "$where · nearest of ${"%,d".format(places)} places the box pulls daily · $fresh"
+    }
 }

@@ -33,6 +33,9 @@ class HomeBriefTextTest {
         // the widget's big line: one coin a line, always in view
         assertEquals("BTC 65,000 +1.2%\nETH 3,250 -0.4%", HomeBriefText.stacked(HomeBriefText.prices(p)))
         assertEquals("BTC 65,000", HomeBriefText.stacked("BTC 65,000"))
+        // the widget's top line abroad: the prices without their changes
+        assertEquals("BTC 65,000 · ETH 3,250", HomeBriefText.short(HomeBriefText.prices(p)))
+        assertEquals("BTC 65,000", HomeBriefText.short("BTC 65,000"))
         assertEquals("BTC 65,000", HomeBriefText.prices(listOf(Price("BTC", 65000.0, null, now))))
         assertEquals("", HomeBriefText.prices(emptyList()))
         assertEquals("", HomeBriefText.chip(emptyList()))

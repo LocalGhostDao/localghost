@@ -367,7 +367,8 @@ private fun ServiceStatsDialog(name: String, onDismiss: () -> Unit) {
     // The DRILL-IN , each daemon's domain from its own tables (/v1/daemon/summary), stacked above
     // the sparklines. Box Status is the menu; this dialog is the per-daemon screen.
     var detail by remember(name) { mutableStateOf<List<DaemonRows.Row>?>(null) }
-    LaunchedEffect(name) { detail = BoxClient.daemonSummary(ctx, name) }
+    var detailFailed by remember(name) { mutableStateOf(false) }
+    LaunchedEffect(name) { val d = BoxClient.daemonSummary(ctx, name); if (d != null) detail = d else detailFailed = true }
     var stats by remember { mutableStateOf<BoxClient.ServiceStats?>(null) }
     var failed by remember { mutableStateOf(false) }
     LaunchedEffect(name) {
@@ -385,6 +386,8 @@ private fun ServiceStatsDialog(name: String, onDismiss: () -> Unit) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 val rows = detail
                 when {
+                    rows == null && detailFailed -> Text("! the box did not answer for this one", color = Warning,
+                        style = MaterialTheme.typography.labelMedium)
                     rows == null -> Text("reading from the box…", color = GhostTextDim,
                         style = MaterialTheme.typography.labelMedium)
                     rows.isEmpty() -> Text("nothing to say about this one yet", color = GhostTextDim,
@@ -393,7 +396,7 @@ private fun ServiceStatsDialog(name: String, onDismiss: () -> Unit) {
                         val pick = DaemonRows.pick(rows, showAll)
                         pick.shown.forEach { r -> DetailRow(r.k, r.v) }
                         if (pick.hidden > 0 || showAll) {
-                            Text(if (showAll) "[ - fewer ]" else "[ + ${pick.hidden} more ]",
+                            Text(if (showAll) "[ − fewer ]" else "[ + ${pick.hidden} more ]",
                                 color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                                 modifier = Modifier.clickable { showAll = !showAll }.padding(vertical = 6.dp))
                         }

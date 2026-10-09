@@ -61,13 +61,18 @@ fun GalleryScreen() {
     }
     var loading by remember { mutableStateOf(true) }
     var endReached by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) } // the box did not answer: not the same as an empty archive
     val thumbs = remember { mutableStateMapOf<String, android.graphics.Bitmap?>() }
 
     suspend fun loadPage() {
         loading = true
         val before = frames.lastOrNull()?.takenAt ?: 0L
         val page = BoxClient.framesList(ctx, before)
-        if (page.isEmpty()) endReached = true else frames = frames + page
+        when {
+            page == null -> failed = true
+            page.isEmpty() -> { endReached = true; failed = false }
+            else -> { frames = frames + page; failed = false }
+        }
         loading = false
     }
 
@@ -110,9 +115,11 @@ fun GalleryScreen() {
             Spacer(Modifier.height(6.dp))
         }
         if (shown.isEmpty() && !loading) {
-            Text(if (results != null) "! nothing matches , try fewer words"
-                 else "! nothing archived yet , run a sync",
-                color = TerminalDim, style = MaterialTheme.typography.bodyMedium)
+            Text(when {
+                results != null -> "! nothing matches , try fewer words"
+                failed -> "! the box did not answer , is it unlocked?"
+                else -> "! nothing archived yet , run a sync"
+            }, color = if (failed && results == null) Warning else TerminalDim, style = MaterialTheme.typography.bodyMedium)
         }
 
         LazyVerticalGrid(

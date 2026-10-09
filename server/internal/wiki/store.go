@@ -24,19 +24,20 @@ import (
 
 // ImportState is how far the import is, and for which file.
 type ImportState struct {
-	File      string `json:"file"`            // the file's name
-	Size      int64  `json:"size"`            // and size: another file starts over
-	Edition   string `json:"edition"`         // "Wikipedia, 2026-06"
-	Next      uint32 `json:"next"`            // the next entry to read
-	Total     uint32 `json:"total"`           // the file's entry count
-	Articles  int64  `json:"articles"`        // written so far
-	Redirects int64  `json:"redirects"`       // written so far
-	Skipped   int64  `json:"skipped"`         // entries that would not read (said in the log, not fatal)
-	Done      bool   `json:"done"`            // every entry read
-	Removed   bool   `json:"removed"`         // the file was removed after the import
-	At        int64  `json:"at"`              // when the state was last written
-	StartedAt int64  `json:"startedAt"`       // when this file's import began
-	Error     string `json:"error,omitempty"` // the last error that stopped a slice
+	File      string `json:"file"`             // the file's name
+	Size      int64  `json:"size"`             // and size: another file starts over
+	Edition   string `json:"edition"`          // "Wikipedia, 2026-06"
+	Next      uint32 `json:"next"`             // the next entry to read
+	Total     uint32 `json:"total"`            // the file's entry count
+	Articles  int64  `json:"articles"`         // written so far
+	Redirects int64  `json:"redirects"`        // written so far
+	Skipped   int64  `json:"skipped"`          // entries that would not read (said in the log, not fatal)
+	Done      bool   `json:"done"`             // every entry read
+	Removed   bool   `json:"removed"`          // the file was removed after the import
+	At        int64  `json:"at"`               // when the state was last written
+	StartedAt int64  `json:"startedAt"`        // when this file's import began
+	DoneAt    int64  `json:"doneAt,omitempty"` // when it finished
+	Error     string `json:"error,omitempty"`  // the last error that stopped a slice
 	// Shards are the readers' ranges and where each is; Next is their reads added up.
 	Shards []Shard `json:"shards,omitempty"`
 }
@@ -57,9 +58,11 @@ type Store struct {
 	NewConn func() *poltergres.ReadWrite
 
 	trgm    int  // 0 unknown, 1 pg_trgm is there, -1 it is not
-	dropped bool // the lookup indexes were dropped for the import running in this process
+	dropped bool // the heavy indexes were dropped for the import running in this process
 	connMu  sync.Mutex
 	conns   []*poltergres.ReadWrite
+	heavy   bool // the GIN indexes are there (heavyIndexed)
+	heavyAt time.Time
 }
 
 // State reads the import's state; a zero state when none was written.
@@ -79,23 +82,26 @@ func (s *Store) Save(st ImportState) error {
 	return s.DB.Exec("INSERT INTO settings (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", ImportKey, string(b))
 }
 
-// lookupIndexes are the store's indexes beyond the tables' keys: made by EnsureIndexes once an
-// import is done, dropped by Import while one runs (an insert into a table with five indexes is
-// several times the work, and the trigram GINs the worst of it). The trigram ones fail harmlessly
-// without pg_trgm; the lookups then go without likeness.
-var lookupIndexes = []struct{ name, create string }{
+// The store's indexes beyond the tables' keys. The light ones (a btree on the lower-cased title of
+// each table: exact, qualified and prefix lookups) are kept through an import, so a search works
+// while the file is going in and the chat's exact lookups stay quick. The heavy ones (the trigram
+// GINs for likeness, the tsvector GIN for the words of a lead) are dropped while an import runs
+// (keeping them current through twenty million inserts was most of the import's time) and made
+// once at its end. The trigram ones fail harmlessly without pg_trgm; the lookups then go without
+// likeness.
+var lightIndexes = []struct{ name, create string }{
 	{"wiki_articles_lc", "CREATE INDEX IF NOT EXISTS wiki_articles_lc ON wiki_articles (title_lc text_pattern_ops)"},
+	{"wiki_redirects_lc", "CREATE INDEX IF NOT EXISTS wiki_redirects_lc ON wiki_redirects (title_lc text_pattern_ops)"},
+}
+
+var heavyIndexes = []struct{ name, create string }{
 	{"wiki_articles_trgm", "CREATE INDEX IF NOT EXISTS wiki_articles_trgm ON wiki_articles USING gin (title_lc gin_trgm_ops)"},
 	{"wiki_articles_fts", "CREATE INDEX IF NOT EXISTS wiki_articles_fts ON wiki_articles USING gin (to_tsvector('english', title || ' ' || lead))"},
-	{"wiki_redirects_lc", "CREATE INDEX IF NOT EXISTS wiki_redirects_lc ON wiki_redirects (title_lc text_pattern_ops)"},
 	{"wiki_redirects_trgm", "CREATE INDEX IF NOT EXISTS wiki_redirects_trgm ON wiki_redirects USING gin (title_lc gin_trgm_ops)"},
 }
 
-// EnsureIndexes makes the lookup indexes (minutes over a whole Wikipedia, the first time; nothing
-// when they are there). Called when an import finishes and at every start with a finished import.
-// A trigram index that cannot be made (no pg_trgm) is skipped; any other failure is returned.
-func (s *Store) EnsureIndexes() error {
-	for _, ix := range lookupIndexes {
+func (s *Store) makeIndexes(list []struct{ name, create string }) error {
+	for _, ix := range list {
 		if err := s.DB.Exec(ix.create); err != nil {
 			if strings.Contains(ix.name, "trgm") {
 				continue
@@ -106,14 +112,32 @@ func (s *Store) EnsureIndexes() error {
 	return nil
 }
 
-// DropIndexes takes the lookup indexes off for an import.
+// EnsureIndexes makes every lookup index (minutes over a whole Wikipedia, the first time; nothing
+// when they are there). Called when an import finishes and at every start with a finished import.
+func (s *Store) EnsureIndexes() error {
+	if err := s.makeIndexes(lightIndexes); err != nil {
+		return err
+	}
+	if err := s.makeIndexes(heavyIndexes); err != nil {
+		return err
+	}
+	s.connMu.Lock()
+	s.heavy, s.heavyAt = true, time.Now()
+	s.connMu.Unlock()
+	return nil
+}
+
+// DropIndexes takes the heavy indexes off for an import and makes sure of the light ones.
 func (s *Store) DropIndexes() error {
-	for _, ix := range lookupIndexes {
+	for _, ix := range heavyIndexes {
 		if err := s.DB.Exec("DROP INDEX IF EXISTS " + ix.name); err != nil {
 			return err
 		}
 	}
-	return nil
+	s.connMu.Lock()
+	s.heavy, s.heavyAt = false, time.Now()
+	s.connMu.Unlock()
+	return s.makeIndexes(lightIndexes)
 }
 
 // Ready says whether the store answers: an import finished, with articles in it.
@@ -274,7 +298,7 @@ func (s *Store) ImportWith(w *Wiki, workers int, budget time.Duration) (ImportSt
 		}
 	}
 	if !s.dropped {
-		// no lookup indexes to keep current through the import (made at the end); once a process
+		// no heavy indexes to keep current through the import (made at the end); once a process
 		s.dropped = true
 		if err := s.DropIndexes(); err != nil {
 			st.Error = err.Error()
@@ -317,6 +341,7 @@ func (s *Store) ImportWith(w *Wiki, workers int, budget time.Duration) (ImportSt
 	}
 	st.Done = true
 	st.Next = st.Total
+	st.DoneAt = time.Now().Unix()
 	if err := s.Save(st); err != nil {
 		return st, err
 	}
@@ -514,7 +539,10 @@ func (s *Store) Lookup(q string, n, maxLead int) ([]Hit, error) {
 			return out, err
 		}
 	}
-	if len(out) < n && s.hasTrgm() {
+	// by likeness and by the words of a lead only once the import is done: those read the GIN
+	// indexes, which are made at the end of it (the title indexes serve the lookups above all
+	// through, so a search works while the file is still going in)
+	if len(out) < n && s.heavyIndexed() && s.hasTrgm() {
 		if err := take(cols+" WHERE a.title_lc % $1 ORDER BY similarity(a.title_lc, $1) DESC, a.disamb, length(a.title_lc) LIMIT $2", "like", lq, int64(n*2)); err != nil {
 			return out, err
 		}
@@ -524,12 +552,32 @@ func (s *Store) Lookup(q string, n, maxLead int) ([]Hit, error) {
 			}
 		}
 	}
-	if len(out) < n {
+	if len(out) < n && s.heavyIndexed() {
 		if err := take(cols+" WHERE to_tsvector('english', a.title || ' ' || a.lead) @@ plainto_tsquery('english', $1) ORDER BY ts_rank(to_tsvector('english', a.title || ' ' || a.lead), plainto_tsquery('english', $1)) DESC, a.disamb LIMIT $2", "text", lq, int64(n)); err != nil {
 			return out, err
 		}
 	}
 	return out, nil
+}
+
+// Indexed says whether the heavy indexes are there: lookups by the words of a lead and by
+// likeness are on.
+func (s *Store) Indexed() bool { return s.heavyIndexed() }
+
+// heavyIndexed says whether the GIN indexes are there (an import done): asked of the database no
+// more than once a minute, since a lookup without them would read the whole table.
+func (s *Store) heavyIndexed() bool {
+	s.connMu.Lock()
+	defer s.connMu.Unlock()
+	if time.Since(s.heavyAt) < time.Minute {
+		return s.heavy
+	}
+	s.heavyAt = time.Now()
+	s.heavy = false
+	if rows, err := s.DB.Query("SELECT 1 FROM pg_indexes WHERE indexname = 'wiki_articles_fts'"); err == nil && len(rows.Vals) == 1 {
+		s.heavy = true
+	}
+	return s.heavy
 }
 
 // Article reads one article whole, by its place.
@@ -610,6 +658,15 @@ func (s *Store) Counts() (articles, redirects int64) {
 		}
 	}
 	return
+}
+
+// Bytes is what the two tables and their indexes take on disk.
+func (s *Store) Bytes() int64 {
+	if rows, err := s.DB.Query("SELECT pg_total_relation_size('wiki_articles') + pg_total_relation_size('wiki_redirects')"); err == nil && len(rows.Vals) == 1 && len(rows.Vals[0]) == 1 && rows.Vals[0][0] != nil {
+		n, _ := strconv.ParseInt(*rows.Vals[0][0], 10, 64)
+		return n
+	}
+	return 0
 }
 
 // Likeness says whether lookups by likeness are on (pg_trgm installed in the database).

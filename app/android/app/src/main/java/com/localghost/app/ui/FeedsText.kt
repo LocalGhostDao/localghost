@@ -101,4 +101,17 @@ object FeedsText {
         val d = nowS - r.at
         return if (d >= 120) "the box's last report is ${age(d)} old" else ""
     }
+
+    /** One feed's line on the FEEDS page: "answered 40 min ago · 32 entries", "off", "failed 3 times:
+     *  404 · last answered 2 days ago", "never answered yet". */
+    fun feedLine(enabled: Boolean, lastOk: Long, lastFetch: Long, lastStatus: String, lastItems: Int, failures: Int, nowS: Long): String {
+        if (!enabled) return "off" + (if (lastOk > 0) " · last answered ${age(nowS - lastOk)} ago" else "")
+        return when {
+            lastFetch == 0L -> "not fetched yet"
+            failures > 0 -> "failed $failures time${if (failures == 1) "" else "s"}" + (if (lastStatus.isNotBlank()) ": $lastStatus" else "") +
+                (if (lastOk > 0) " · last answered ${age(nowS - lastOk)} ago" else " · never answered yet")
+            lastOk > 0 -> "answered ${age(nowS - lastOk)} ago · $lastItems entr${if (lastItems == 1) "y" else "ies"}"
+            else -> "never answered yet"
+        }
+    }
 }

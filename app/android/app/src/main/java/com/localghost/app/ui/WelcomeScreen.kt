@@ -61,7 +61,7 @@ fun WelcomeScreen(
             Spacer(Modifier.height(12.dp))
             GhostButton(
                 when {
-                    asking -> "ASKING..."
+                    asking -> "ASKING…"
                     allGranted -> "ALL GRANTED"
                     else -> "GRANT ACCESS"
                 },

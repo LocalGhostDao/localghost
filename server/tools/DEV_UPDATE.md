@@ -5323,3 +5323,77 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 - tools/pg_extensions.sh (vector, pg_trgm in /usr/share/postgresql/*/extension and, through
   /proc/<secd>/root, in <mount>/runtime/pgroot's); setup.sh gate, server_setup_root.sh line,
   redeploy.sh step 0/4, health.sh likeness line; in the release bundle's tools.
+
+## 9 October 2026 , people through edits, names in transcripts, WIKIPEDIA stats, the chat's trail, the card abroad, check-in
+
+- consolidate.go mergePeople: edited rows take part; the survivor is the latest edited row (its
+  body and title kept: savePerson writes only meta for an edited row), else person:<name>, else
+  the oldest; an edited row folded in gives its body as a fact (ref "edited"); the title is no
+  alias of itself; DELETE without the NOT user_edited guard. foldNamedMemories: distilled rows
+  whose title looksLikeName and matches a person fold into it as a fact (ref = source_ref, or
+  "edited") and go; consolidatePass runs it after mergePeople. PG test extended.
+- voiced names.go: Names(db) (owner_name + person titles + meta aliases), Prompt(names) →
+  Engine.Prompt → whisper-cli --prompt; FixNames(text, names) (capitalised words: same
+  SoundsLike, or Levenshtein 1 against names of six letters or more; possessive kept);
+  SoundsLike folds accents, ch/ck/k/q→c, ph→f, th→t, y→i, w→v, ai→a, doubles, trailing e. Read
+  each pass (d.names), applied in TranscribeNext and Hear. names_test.go.
+- wiki store: lightIndexes (title_lc btrees, kept through an import) and heavyIndexes (the GINs,
+  dropped for an import, made at Done); Lookup runs the likeness and text steps only when
+  heavyIndexed() (pg_indexes, asked once a minute); Indexed(), Bytes(), ImportState.DoneAt. The
+  ctl adds startedAt/doneAt/skipped/bytes/indexed. App: Wiki fields, WikiText.stats/gb/day (tests),
+  the WIKIPEDIA page's stats block and importing copy.
+- Chat trail: synthd chatSteps(items, web, webNote) → ev["steps"]; app Message.steps, Trail.line
+  (status → step), ChatChunk.Steps, status() keeps the trail, the bubble stacks the steps while
+  waiting and shows "how (n steps)" after. TrailTest.
+- Card abroad: Snapshot.aside and withBrief(kept) (prices into extra, the top story into aside);
+  expanded() adds the prices and "news   <story>"; the widget's head line adds
+  HomeBriefText.short(prices) (tested); GOT IT and the redraw key carry aside.
+- CheckinScreen: weekday initials on the strip, the why+voice card, the summary line, GhostButton
+  SAVE CHECK-IN (enabled = canSave), the checked-in card with the day's mark.
+
+## 9 October 2026 , SOURCES, feeds from the app, weather on HOME, the ⓘ explainers, the UX pass
+
+- secd internal/secd/sources_http.go: GET /v1/sources (sourceDoc per source: wikipedia, news,
+  crypto, weather, maps, speech; state ready|partial|importing|missing|off|unknown, line, detail,
+  action, label, open, bytes; read through ctlJSON from synthd wiki/news, tallyd feeds/weather,
+  the mount's geo dirs, voiced), POST /v1/sources/fetch {step, region} (fetchState: one job at a
+  time, runUpdateScript runs /opt/localghost/tools/update.sh <step> as root with GHOST_MOUNT and,
+  for maps, GHOST_GEO_ELEVATION=region; log under /var/lib/ghost/update/jobs/<step>.log; fetchJob
+  Step/Region/StartedAt/EndedAt/Running/Exit/Last/Log), GET/POST /v1/news/feeds (→ synthd ctl
+  news add/remove/enable; feedID(url)), GET /v1/weather?lat&lon (→ tallyd ctl weather). Routes in
+  server.go (Server.fetch), docs in openapi.go (sourcesDoc, sourcesFetchDoc). tallyd weather
+  snapshot: noGeo. sources_http_test.go: TestFeedID, TestFetchJob.
+- redeploy.sh: tools/ (update.sh, the setup scripts, pins) and ghost-landtiles/roadtiles/heights
+  under /opt/localghost. tools/README: the phone's fetch runs the same script.
+- App: BoxClient.sources/sourcesFetch/newsFeeds/newsFeedsChange/weather (Source, FetchJob,
+  Sources, Feed, Weather, WeatherDay); ui/SourcesScreen (polls 5 s while a job runs, AskDialog
+  before a fetch, region from LocationLog.last via SourcesText.region), ui/SourcesText (pure:
+  mark, job, region, span, confirm; tested), ui/NewsFeedsScreen (add by https url + name, ●/○
+  toggle, [ remove ] → [ sure? ]; FeedsText.feedLine, tested), ui/Explain (the ⓘ texts, one
+  object, tested), ui/InfoSheet (InfoButton, InfoSheet, AskDialog). Menu: Dest.SOURCES ⊛ and
+  Dest.FEEDS ¶, a SOURCES group with NEWS/CRYPTO/WIKIPEDIA as sub-rows (fromSources), MainShell
+  goBack() shared by the system key and the TopBar. HOME: WeatherCard (HomeText weatherWord/
+  weatherNow/weatherDay/weatherSource, tested), the ask box continues the chat touched in the
+  last 20 min (MainActivity chatTouchedMs) or starts one, a mic (VoiceAskButton). InfoButton on
+  HOME's news/for you/prices and on NEWS, MEMORIES, HEALTH, WIKIPEDIA, CHECK-IN, SOURCES, FEEDS.
+- The UX pass (the subagent's audit, the cheap wrongs fixed): failure states instead of
+  "reading…" forever (HealthScreen, MemoriesScreen loadFailed, MemoryScreen failed, Wikipedia
+  stateFailed/note, CheckinScreen voiceFailed, GalleryScreen failed with framesList returning
+  null on failure, ChatsScreen ErrorLine/LoadingRow, HarnessScreen detailFailed); said failures
+  on add/edit/delete/jot/About save (MemoriesScreen memNote/changed(), AboutCard failed/saveNote
+  with save held until the note was read, MemoryScreen note and the editor kept open);
+  AskDialog before DEPLOY/ROLL BACK/LOCK (SettingsScreen ask/askLock); two-tap ✕ on
+  NotificationsScreen/NotificationScreen (armed), ModelsScreen DELETE, ConnectorsScreen
+  DISCONNECT; BackHandler for an open Wikipedia article and a past check-in; MemoryScreen
+  backLabel from memFrom; ChatScreen EmptyState examples send on tap (onAsk), pill copy;
+  SettingsScreen VERIFY copy, the stale ghost-cli news line, YOUR DATA copy; Glossary's PIN
+  term; SetupScreen's line under a waiting ENROL; QrScanScreen enrolOutcome on the arrival line;
+  glyphs (› for opens, …, ✕ and ◍ for the emoji, [ − fewer ]).
+- Backlog from the audit, not done: " , " comma-as-dash in ~90 UI strings (the style rule is
+  for comments and docs); "!" on TerminalDim lines that are not errors; US vs UK dates
+  (NotificationTime, DayText); "(s)" plurals; label case drift; six confirm idioms ([ sure? ],
+  [ delete? ], [ SURE? ], AskDialog, 3 s auto-revert, "[ NO, DELETE IT ]" on MAP) could be two;
+  Phrases "start over" and MAP's delete still one idiom each; Models' empty copy; DayScreen and
+  NotificationScreen's day view still spin on a failed load; a sub-page reached from a
+  notification returns HOME rather than NOTIFICATIONS in two cases; the enrol flow could hold
+  the arrival until the box answers rather than moving on to Setup.

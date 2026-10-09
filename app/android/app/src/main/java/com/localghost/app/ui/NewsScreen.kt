@@ -74,6 +74,7 @@ fun NewsScreen(openStory: Long = 0L, onStoryShown: () -> Unit = {}) {
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).padding(top = 20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionLabel("NEWS")
+            InfoButton("news")
             Spacer(Modifier.weight(1f))
             Text(if (fetching) "fetching…" else "[ fetch now ]", color = if (fetching) GhostTextDim else TerminalGreen,
                 style = MaterialTheme.typography.labelMedium,

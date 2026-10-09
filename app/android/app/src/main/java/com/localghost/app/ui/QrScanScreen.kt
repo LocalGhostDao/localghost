@@ -53,6 +53,7 @@ fun QrScanScreen(
     onScanned: (EnrollLink) -> Unit,
     onProceed: () -> Unit,
     onCancel: () -> Unit,
+    enrolOutcome: Boolean? = null, // the box's answer to the enrol started by onScanned: null while it is still out
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -621,7 +622,13 @@ fun QrScanScreen(
                     // the arrival line, fading in only at READY
                     val readyIn = ((a - QrApertureModel.STEPS_FRAC) / (1f - QrApertureModel.STEPS_FRAC)).coerceIn(0f, 1f)
                     Spacer(Modifier.height(10.dp))
-                    Text("READY , unlock with your PIN", color = TerminalGreen,
+                    // the arrival says what the box said, never READY on the code alone: the enrol
+                    // started with the scan and may still be out, or have been refused
+                    Text(when (enrolOutcome) {
+                        true -> "READY , unlock with your PIN"
+                        false -> "the box did not take it , what it said is next"
+                        null -> "code read , waiting for the box to answer…"
+                    }, color = if (enrolOutcome == false) Warning else TerminalGreen,
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.graphicsLayer { alpha = readyIn })
                     Spacer(Modifier.weight(0.40f))

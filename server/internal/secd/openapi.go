@@ -221,6 +221,34 @@ type updateDoc struct {
 	} `json:"shelf"`
 }
 
+type sourcesDoc struct {
+	Sources []struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		State  string `json:"state"`
+		Line   string `json:"line"`
+		Detail string `json:"detail,omitempty"`
+		Action string `json:"action,omitempty"`
+		Label  string `json:"label,omitempty"`
+		Open   string `json:"open,omitempty"`
+		Bytes  int64  `json:"bytes,omitempty"`
+	} `json:"sources"`
+	Job *struct {
+		Step      string `json:"step"`
+		Region    string `json:"region,omitempty"`
+		StartedAt int64  `json:"startedAt"`
+		EndedAt   int64  `json:"endedAt,omitempty"`
+		Running   bool   `json:"running"`
+		Exit      int    `json:"exit"`
+		Last      string `json:"last"`
+	} `json:"job"`
+}
+
+type sourcesFetchDoc struct {
+	Step   string `json:"step"`
+	Region string `json:"region,omitempty"`
+}
+
 type updateSwitchDoc struct {
 	Version string `json:"version"`
 }
@@ -340,6 +368,12 @@ func (s *Server) routes() []route {
 			Auth: true, Response: okDoc{}, Handler: s.handleUpdateFile},
 		{Method: "POST", Path: "/v1/update/apply", Summary: "Verify the uploaded set against the pinned site key, put it on, lock and restart onto it.",
 			Auth: true, Response: updateAppliedDoc{}, Handler: s.handleUpdateApply},
+		{Method: "GET", Path: "/v1/weather", Summary: "The forecast nearest ?lat=&lon= from the box's daily pull of the world's larger places (the position goes to the box and nowhere else), with the pull's state.",
+			Auth: true, Response: okDoc{}, Handler: s.handleWeather},
+		{Method: "GET", Path: "/v1/sources", Summary: "What the box draws on beyond the archive (Wikipedia, news, crypto, weather, maps and heights, speech), each with its state, and the fetch job running if any.",
+			Auth: true, Response: sourcesDoc{}, Handler: s.handleSources},
+		{Method: "POST", Path: "/v1/sources/fetch", Summary: "Start tools/update.sh <step> from the mirror (wiki, maps with an optional region, speech, engine, weights), one at a time; GET /v1/sources follows it.",
+			Auth: true, Request: sourcesFetchDoc{}, Response: okDoc{}, Handler: s.handleSourcesFetch},
 		{Method: "POST", Path: "/v1/update/switch", Summary: "A release from the shelf back on: its kept set verified again, unpacked, put on, lock and restart onto it (on trial like a new one).",
 			Auth: true, Request: updateSwitchDoc{}, Response: updateAppliedDoc{}, Handler: s.handleUpdateSwitch},
 		{Method: "POST", Path: "/v1/update/rollback", Summary: "Put the earlier build back, lock and restart onto it.",

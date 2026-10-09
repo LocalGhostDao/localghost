@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -98,6 +99,7 @@ private fun ModelRow(
     onDownload: (String) -> Unit, onCancel: (String) -> Unit,
     onActivate: (String) -> Unit, onDelete: (String) -> Unit,
 ) {
+    var armed by remember(m.id) { mutableStateOf(false) } // DELETE tapped once: the next tap does it
     Column(Modifier.fillMaxWidth().border(1.dp, if (st.active) TerminalGreen else GhostBorder, RectangleShape)
         .background(VoidLighter).padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -150,8 +152,8 @@ private fun ModelRow(
                 if (!st.active) Text("[ USE THIS ]", color = TerminalGreen,
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.clickable { onActivate(m.id) }.padding(end = 16.dp))
-                Text("[ DELETE ]", color = Warning, style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable { onDelete(m.id) })
+                Text(if (armed) "[ SURE? ${gb(m.sizeBytes)} GOES ]" else "[ DELETE ]", color = Warning, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clickable { if (armed) { armed = false; onDelete(m.id) } else armed = true })
             }
             else -> Text("[ DOWNLOAD ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable { onDownload(m.id) })

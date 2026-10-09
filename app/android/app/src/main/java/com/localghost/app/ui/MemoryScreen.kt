@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
  * in the list opens here too.
  */
 @Composable
-fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> Unit = {}, onBack: () -> Unit) {
+fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> Unit = {}, backLabel: String = "memories", onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var m by remember(id) { mutableStateOf<BoxClient.MemRow?>(null) }
@@ -39,6 +39,8 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
     // folded under this one, oldest first
     var parts by remember(id) { mutableStateOf<List<BoxClient.MemRow>>(emptyList()) }
     var whole by remember(id) { mutableStateOf<BoxClient.MemRow?>(null) }
+    var failed by remember(id) { mutableStateOf(false) } // the box did not answer the load
+    var note by remember(id) { mutableStateOf("") } // an edit or delete that did not land
     fun load() {
         scope.launch {
             val list = BoxClient.memoriesList(ctx)
@@ -47,21 +49,28 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                 m = found
                 parts = if (found.ref.isEmpty()) emptyList() else list.filter { it.partOf == found.ref }.sortedBy { it.createdAt }
                 whole = found.partOf.takeIf { it.isNotEmpty() }?.let { ref -> list.firstOrNull { it.ref == ref } }
-            } else missing = list != null
+                failed = false
+            } else { missing = list != null; failed = list == null && m == null }
         }
     }
     LaunchedEffect(id) { load() }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(12.dp))
-        Text("‹ memories", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+        Text("‹ $backLabel", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.clickable { onBack() }.padding(vertical = 4.dp))
         Spacer(Modifier.height(8.dp))
         val row = m
+        if (note.isNotEmpty()) Text(note, color = Warning, style = MaterialTheme.typography.labelMedium)
         when {
             missing -> ErrorLine("this memory is not on the box any more (deleted, or the box was rebuilt)")
+            row == null && failed -> ErrorLine("the box did not answer , is it unlocked?")
             row == null -> LoadingRow()
             editing -> MemoryEditor(initTitle = row.title, initBody = row.body,
-                onSave = { t, b -> editing = false; scope.launch { BoxClient.memoryEdit(ctx, id, t, b); load() } },
+                // an edit the box did not take keeps the editor open with the words in it
+                onSave = { t, b -> scope.launch {
+                    if (BoxClient.memoryEdit(ctx, id, t, b)) { editing = false; note = ""; load() }
+                    else note = "! the box did not keep the edit , is it unlocked? your words are still below"
+                } },
                 onCancel = { editing = false })
             else -> {
                 SectionLabel(MemoryText.kindLabel(row.kind))
@@ -140,9 +149,11 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                     if (confirmDel) {
                         LaunchedEffect(confirmDel) { kotlinx.coroutines.delay(3000); confirmDel = false }
                         Text("[ delete for good? ]", color = Warning, style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.clickable { scope.launch { if (BoxClient.memoryDelete(ctx, id)) onBack() } }.padding(vertical = 4.dp))
+                            modifier = Modifier.clickable { scope.launch {
+                                if (BoxClient.memoryDelete(ctx, id)) onBack() else { confirmDel = false; note = "! the box did not delete it , is it unlocked?" }
+                            } }.padding(vertical = 4.dp))
                     } else {
-                        Text("[ 🗑 delete ]", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+                        Text("[ ✕ delete ]", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.clickable { confirmDel = true }.padding(vertical = 4.dp))
                     }
                 }

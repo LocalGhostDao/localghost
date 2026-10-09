@@ -102,10 +102,10 @@ fun ChatsScreen(
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 when {
                     boxFailed -> item(key = "box-failed") {
-                        EmptyLine("box unreachable , the chat list needs a connection.")
+                        ErrorLine("the box did not answer , is it unlocked? the chat list lives there.")
                     }
                     boxLoading && boxChats.isEmpty() -> item(key = "box-loading") {
-                        EmptyLine("reading from the box…")
+                        LoadingRow()
                     }
                     boxChats.isEmpty() -> item(key = "box-empty") {
                         EmptyLine("nothing on the box matches \"${query.trim()}\".")
@@ -192,9 +192,9 @@ private fun BoxChatRow(c: BoxClient.BoxChat, active: Boolean = false, onOpen: ()
         } else {
             Text("✎", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable { draft = c.title; editing = true }.padding(start = 8.dp, end = 6.dp))
-            Text("🗑", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+            Text("✕", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable { confirmDel = true }.padding(end = 6.dp))
-            Text("→", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            Text("›", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }
     }
     Spacer(Modifier.height(8.dp))

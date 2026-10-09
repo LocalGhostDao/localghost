@@ -177,12 +177,14 @@ private val GLOSSARY = listOf(
             "noise. Instant, irreversible, complete.",
             "To erase, the box throws away the key. The data is still there but unreadable " +
             "forever (like shredding the only translation of a locked book)."),
-        Term("Change code = wipe",
-            "Re-keying derives the persona key from a new code. The old wrapping key is " +
-            "destroyed; the old data cannot be carried forward. Sovereignty means the data is " +
-            "bound to the key. There is no recovery. That is the design.",
-            "Changing your code makes a new key and destroys the old one. The old data goes " +
-            "with it. This is on purpose: it means your code truly controls your data."),
+        Term("Change code vs reset",
+            "changepin re-wraps the slot's key under a new code, with the current code as the " +
+            "second factor: the data carries forward. resetup is for a lost code: it destroys the " +
+            "slot's key and starts the slot afresh; the old data is unreadable forever. Both run " +
+            "at the box over a local-network session only, never from a phone.",
+            "Changing your code keeps your data; you need the old code to do it. Resetting is for " +
+            "a lost code and wipes that slot. Neither can be done from the app, which is on " +
+            "purpose: a phone taken from you cannot change or reset a code."),
     )),
 )
 

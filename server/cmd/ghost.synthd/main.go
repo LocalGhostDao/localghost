@@ -498,7 +498,7 @@ func main() {
 		fl, _ := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		ev := map[string]any{"context": items}
+		ev := map[string]any{"context": items, "steps": chatSteps(items, web, webNote)}
 		if !speed.at.IsZero() {
 			if note := readingNote(speed, len(input)+histChars, trimmed); note != "" {
 				ev["note"] = note
@@ -1169,6 +1169,85 @@ func gatherContext(runDir, prompt string) []ctxItem {
 		}
 	}
 	return out
+}
+
+// chatSteps says in a few lines what the box drew on for an answer, for the chat to show as the
+// trail of the turn beside the phone's own steps: the memories read, the photos matched, the
+// article from the box's Wikipedia, the archive, the day's news, the box's own numbers, and the
+// web findings the phone handed over with how they were ranked. Nothing for a turn with no context.
+func chatSteps(items []ctxItem, web []webHit, webNote string) []string {
+	var steps []string
+	count := map[string]int{}
+	var wikiTitles, rateWhat []string
+	for _, it := range items {
+		switch it.Source {
+		case "sample", "web":
+			continue
+		case "wikipedia":
+			if t, _, ok := strings.Cut(it.Snippet, ":"); ok {
+				wikiTitles = append(wikiTitles, strings.TrimSpace(t))
+			}
+		case "rates":
+			if w := strings.TrimSpace(it.Why); w != "" && len(rateWhat) < 2 {
+				rateWhat = append(rateWhat, w)
+			}
+		}
+		count[it.Source]++
+	}
+	if n := count["memory"]; n > 0 {
+		steps = append(steps, fmt.Sprintf("read %d %s", n, plural2(n, "memory", "memories")))
+	}
+	if count["photos"] > 0 {
+		steps = append(steps, "matched the photos")
+	}
+	if len(wikiTitles) > 0 {
+		steps = append(steps, "the box's Wikipedia: "+strings.Join(wikiTitles, ", "))
+	}
+	archive := 0
+	for src, n := range count {
+		switch src {
+		case "memory", "photos", "wikipedia", "rates", "news":
+		default:
+			archive += n
+		}
+	}
+	if archive > 0 {
+		steps = append(steps, fmt.Sprintf("%d %s from the archive index", archive, plural2(archive, "match", "matches")))
+	}
+	if count["news"] > 0 {
+		steps = append(steps, "the day's news on the box")
+	}
+	if count["rates"] > 0 {
+		what := "the box's own numbers"
+		if len(rateWhat) > 0 {
+			what += " (" + strings.Join(rateWhat, "; ") + ")"
+		}
+		steps = append(steps, what)
+	}
+	if len(web) > 0 {
+		pages := 0
+		for _, h := range web {
+			if h.Kind == "page" || h.Kind == "" {
+				pages++
+			}
+		}
+		line := fmt.Sprintf("%d web %s from the phone", len(web), plural2(len(web), "finding", "findings"))
+		if pages > 0 && pages != len(web) {
+			line += fmt.Sprintf(", %d of them pages", pages)
+		}
+		if webNote != "" {
+			line += ": " + webNote
+		}
+		steps = append(steps, line)
+	}
+	return steps
+}
+
+func plural2(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // sanitize bounds what a stored chunk can do to the prompt: length-capped, newlines flattened , a

@@ -1,5 +1,6 @@
 package com.localghost.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -42,25 +43,33 @@ fun WikipediaScreen() {
     var searching by remember { mutableStateOf(false) }
     var article by remember { mutableStateOf<BoxClient.WikiArticle?>(null) }
     var opening by remember { mutableStateOf(0L) }
-    LaunchedEffect(Unit) { state = BoxClient.wiki(ctx) }
+    var stateFailed by remember { mutableStateOf(false) } // the box did not answer the first ask
+    var note by remember { mutableStateOf("") } // why a search or an open came back with nothing
+    LaunchedEffect(Unit) { val s = BoxClient.wiki(ctx); if (s != null) state = s else stateFailed = true }
     fun search() {
         val q = query.trim()
         if (q.isEmpty()) return
         searching = true
         article = null
+        note = ""
         scope.launch {
             val r = BoxClient.wiki(ctx, q = q)
-            if (r != null) { state = r; hits = r.hits } else hits = emptyList()
+            // no answer is not "nothing found": the list stays as it was and the line says so
+            if (r != null) { state = r; hits = r.hits; stateFailed = false } else note = "! the box did not answer , is it unlocked?"
             searching = false
         }
     }
     fun open(idx: Long) {
         opening = idx
+        note = ""
         scope.launch {
-            BoxClient.wiki(ctx, idx = idx)?.article?.let { article = it }
+            val a = BoxClient.wiki(ctx, idx = idx)?.article
+            if (a != null) article = a else note = "! the box did not give the article , try again"
             opening = 0L
         }
     }
+    // the system back key closes an open article before it leaves the page
+    BackHandler(enabled = article != null) { article = null }
 
     // ONE ARTICLE
     article?.let { a ->
@@ -89,11 +98,15 @@ fun WikipediaScreen() {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(12.dp))
-        SectionLabel("WIKIPEDIA")
+        Row(verticalAlignment = Alignment.CenterVertically) { SectionLabel("WIKIPEDIA"); InfoButton("wikipedia") }
         Spacer(Modifier.height(4.dp))
         val st = state
-        Text(if (st == null) "asking the box…" else WikiText.state(st.state, st.edition, st.articles, st.redirects, st.imported, st.entries, st.error, st.leftMinutes),
-            color = if (st?.state == "failed") Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        Text(if (st == null && stateFailed) "! the box did not answer , is it unlocked?" else if (st == null) "asking the box…" else WikiText.state(st.state, st.edition, st.articles, st.redirects, st.imported, st.entries, st.error, st.leftMinutes, st.readers),
+            color = if (st?.state == "failed" || (st == null && stateFailed)) Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        if (note.isNotEmpty()) Text(note, color = Warning, style = MaterialTheme.typography.labelMedium)
+        if (st != null) WikiText.stats(st.articles, st.redirects, st.bytes, st.startedAt, st.doneAt, st.skipped, st.indexed, st.likeness, st.answers, st.state).forEach {
+            Text(it, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+        }
         Spacer(Modifier.height(12.dp))
         BasicTextField(query, { query = it }, singleLine = true,
             textStyle = MaterialTheme.typography.bodyMedium.copy(color = GhostText),
@@ -112,7 +125,8 @@ fun WikipediaScreen() {
         when {
             searching -> LoadingRow("reading the box's Wikipedia…")
             list == null -> if (st?.state == "ready") Text("the whole English Wikipedia, on your box; type a word", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
-            list.isEmpty() -> Text("nothing by that name, nor close to it, nor in a lead", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                else if (st?.state == "importing") Text("type a title; what is in already is found", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            list.isEmpty() -> Text(if (st?.state == "importing") "nothing by that title among what is in so far" else "nothing by that name, nor close to it, nor in a lead", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
             else -> list.forEach { h ->
                 Column(Modifier.fillMaxWidth().padding(vertical = 6.dp).border(1.dp, GhostBorder, RectangleShape).background(VoidLighter)
                     .clickable { open(h.idx) }.padding(12.dp)) {

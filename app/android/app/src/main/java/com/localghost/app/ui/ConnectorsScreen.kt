@@ -9,6 +9,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
@@ -47,6 +51,7 @@ fun ConnectorsScreen(
 
 @Composable
 private fun ConnectorRow(c: Connector, onConnect: (String) -> Unit, onDisconnect: (String) -> Unit) {
+    var armed by remember(c.id) { mutableStateOf(false) } // DISCONNECT tapped once: the next tap does it
     Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape)
         .background(VoidLighter).padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -55,8 +60,8 @@ private fun ConnectorRow(c: Connector, onConnect: (String) -> Unit, onDisconnect
                 Text(c.detail, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             }
             if (c.connected) {
-                Text("[ DISCONNECT ]", color = Warning, style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable { onDisconnect(c.id) })
+                Text(if (armed) "[ SURE? ]" else "[ DISCONNECT ]", color = Warning, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clickable { if (armed) { armed = false; onDisconnect(c.id) } else armed = true })
             } else {
                 Text("[ CONNECT ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.clickable { onConnect(c.id) })

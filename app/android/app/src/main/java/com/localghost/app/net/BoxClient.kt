@@ -395,6 +395,8 @@ object BoxClient {
         /** A line from the box about the wait itself ("reading 1,300 words of context on the CPU ,
          *  about 35s before the first word"), shown until the first word arrives. */
         data class Status(val text: String) : ChatChunk
+        /** What the box drew on for the answer, in a few lines (the trail under the answer). */
+        data class Steps(val lines: List<String>) : ChatChunk
         /** The box read the findings, found them thin, and asks for these searches before it
          *  answers (one more round; the caller re-asks with round 2). The stream ends after it. */
         data class More(val queries: List<String>, val why: String) : ChatChunk
@@ -465,6 +467,10 @@ object BoxClient {
                             if (mems.isNotEmpty()) channel.trySendBlocking(ChatChunk.Memories(mems))
                         }
                         o.optString("note").takeIf { it.isNotBlank() }?.let { channel.trySendBlocking(ChatChunk.Status(it)) }
+                        o.optJSONArray("steps")?.let { a ->
+                            val steps = (0 until a.length()).mapNotNull { i -> a.optString(i).takeIf { it.isNotBlank() } }
+                            if (steps.isNotEmpty()) channel.trySendBlocking(ChatChunk.Steps(steps))
+                        }
                         // the chat's id at once (a box from 30 Sep 2026): an app closed mid-answer
                         // reopens on this chat, and the box has kept writing the answer into it
                         o.optLong("chatId", 0L).takeIf { it > 0 }?.let { channel.trySendBlocking(ChatChunk.ChatId(it)) }
@@ -826,7 +832,8 @@ object BoxClient {
 
     /** Page the archive newest-first. before=0 for the first page; pass the last row's takenAt to
      *  continue. Empty list on failure or end of archive. */
-    suspend fun framesList(ctx: Context, before: Long = 0, limit: Int = 60): List<GalleryFrame> = try {
+    /** A page of the archive, newest first; null when the box did not answer (an empty list is a real end). */
+    suspend fun framesList(ctx: Context, before: Long = 0, limit: Int = 60): List<GalleryFrame>? = try {
         val r = BoxHttp.getJson(ctx, "/v1/frames/list?before=$before&limit=$limit")
         val arr = r.optJSONArray("frames") ?: return emptyList()
         (0 until arr.length()).mapNotNull { i ->
@@ -843,7 +850,7 @@ object BoxClient {
         }
     } catch (e: Exception) {
         android.util.Log.w("LocalGhost", "frames/list failed: ${e.message}")
-        emptyList()
+        null
     }
 
     /** Conversations persisted on the box , list, search, keyset paging. */
@@ -1031,7 +1038,7 @@ object BoxClient {
         val out = ArrayList<GalleryFrame>()
         var before = end
         while (out.size < 600) {
-            val page = try { framesList(ctx, before, 200) } catch (_: Exception) { return null }
+            val page = framesList(ctx, before, 200) ?: return null
             if (page.isEmpty()) break
             for (f in page) if (f.takenAt in start until end) out.add(f)
             val oldest = page.minOf { it.takenAt }
@@ -1052,7 +1059,78 @@ object BoxClient {
     data class WikiArticle(val idx: Long, val title: String, val lead: String, val body: String, val disamb: Boolean)
     data class Wiki(val state: String, val edition: String, val articles: Long, val redirects: Long, val imported: Long,
                     val entries: Long, val file: String, val error: String, val hits: List<WikiHit>, val article: WikiArticle?,
-                    val leftMinutes: Long = 0)
+                    val leftMinutes: Long = 0, val readers: Int = 0, val startedAt: Long = 0, val doneAt: Long = 0,
+                    val skipped: Long = 0, val bytes: Long = 0, val indexed: Boolean = false, val likeness: Boolean = false,
+                    val answers: Int = 0)
+
+    // --- SOURCES: what the box draws on, and the fetches from the mirror ---
+    data class Source(val id: String, val name: String, val state: String, val line: String, val detail: String,
+                      val action: String, val label: String, val open: String, val bytes: Long)
+    data class FetchJob(val step: String, val region: String, val startedAt: Long, val endedAt: Long, val running: Boolean,
+                        val exit: Int, val last: String)
+    data class Sources(val sources: List<Source>, val job: FetchJob?)
+
+    private fun jobOf(j: org.json.JSONObject?): FetchJob? = j?.let {
+        FetchJob(it.optString("step"), it.optString("region"), it.optLong("startedAt"), it.optLong("endedAt"),
+            it.optBoolean("running"), it.optInt("exit"), it.optString("last"))
+    }
+
+    suspend fun sources(ctx: Context): Sources? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/sources", readTimeoutMs = 20_000)
+        val a = r.optJSONArray("sources") ?: org.json.JSONArray()
+        Sources((0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { o ->
+            Source(o.optString("id"), o.optString("name"), o.optString("state"), o.optString("line"), o.optString("detail"),
+                o.optString("action"), o.optString("label"), o.optString("open"), o.optLong("bytes"))
+        } }, jobOf(r.optJSONObject("job")))
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+
+    /** Start update.sh <step> on the box, from the mirror. ok, or why not. */
+    suspend fun sourcesFetch(ctx: Context, step: String, region: String = ""): Pair<Boolean, String> = try {
+        val r = BoxHttp.postJson(ctx, "/v1/sources/fetch", org.json.JSONObject().put("step", step).put("region", region))
+        if (r.optBoolean("ok")) true to "" else false to r.optString("why", "the box said no")
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { false to (e.message ?: "the box did not answer") }
+
+    data class Feed(val id: String, val name: String, val url: String, val enabled: Boolean, val lastFetch: Long, val lastOk: Long,
+                    val lastStatus: String, val lastItems: Int, val failures: Int)
+
+    private fun feedsOf(r: org.json.JSONObject): List<Feed>? {
+        val news = r.optJSONObject("news") ?: return null
+        val a = news.optJSONArray("feeds") ?: return emptyList()
+        return (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { o ->
+            Feed(o.optString("id"), o.optString("name"), o.optString("url"), o.optBoolean("enabled"), o.optLong("lastFetch"),
+                o.optLong("lastOk"), o.optString("lastStatus"), o.optInt("lastItems"), o.optInt("failures"))
+        } }
+    }
+
+    suspend fun newsFeeds(ctx: Context): List<Feed>? = try {
+        feedsOf(BoxHttp.getJson(ctx, "/v1/news/feeds", readTimeoutMs = 15_000))
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+
+    /** Add (name, url), remove (id) or switch (id, on) a feed; the list after, or null with why. */
+    suspend fun newsFeedsChange(ctx: Context, body: org.json.JSONObject): Pair<List<Feed>?, String> = try {
+        val r = BoxHttp.postJson(ctx, "/v1/news/feeds", body)
+        if (r.optBoolean("ok")) feedsOf(r) to "" else null to r.optString("why", "the box said no")
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null to (e.message ?: "the box did not answer") }
+
+    // --- THE WEATHER where the phone is, from the box's daily pull ---
+    data class WeatherDay(val date: String, val code: Int, val maxC: Double, val minC: Double, val rainPct: Int)
+    data class Weather(val ok: Boolean, val place: String, val country: String, val tempC: Double, val feelsC: Double, val code: Int,
+                       val windKmh: Double, val humidity: Int, val days: List<WeatherDay>, val fetchedAt: Long, val places: Long,
+                       val text: String, val noGeo: Boolean, val distanceKm: Double)
+
+    suspend fun weather(ctx: Context, lat: Double, lon: Double): Weather? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/weather?lat=$lat&lon=$lon", readTimeoutMs = 15_000)
+        val t = r.optJSONObject("table")
+        val f = r.optJSONObject("forecast")
+        val now = f?.optJSONObject("now")
+        val place = f?.optJSONObject("place")
+        val days = f?.optJSONArray("days")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { d ->
+            WeatherDay(d.optString("date"), d.optInt("code"), d.optDouble("maxC"), d.optDouble("minC"), d.optInt("rainPct")) } } } ?: emptyList()
+        Weather(r.optBoolean("ok"), place?.optString("name") ?: "", place?.optString("country") ?: "",
+            now?.optDouble("tempC") ?: Double.NaN, now?.optDouble("feelsC") ?: Double.NaN, now?.optInt("code") ?: -1,
+            now?.optDouble("windKmh") ?: 0.0, now?.optInt("humidity") ?: 0, days, t?.optLong("fetchedAt") ?: 0L,
+            t?.optLong("places") ?: 0L, r.optString("text"), r.optBoolean("noGeo"), 0.0)
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
 
     suspend fun wiki(ctx: Context, q: String = "", idx: Long = 0, n: Int = 8): Wiki? = try {
         val qs = ArrayList<String>()
@@ -1067,7 +1145,9 @@ object BoxClient {
             WikiArticle(o.optLong("idx"), o.optString("title"), o.optString("lead"), o.optString("body"), o.optBoolean("disamb"))
         }
         Wiki(r.optString("state"), r.optString("edition"), r.optLong("articles"), r.optLong("redirects"), r.optLong("imported"),
-            r.optLong("entries"), r.optString("file"), r.optString("error"), hits, art, r.optLong("leftMinutes"))
+            r.optLong("entries"), r.optString("file"), r.optString("error"), hits, art, r.optLong("leftMinutes"),
+            r.optInt("readers"), r.optLong("startedAt"), r.optLong("doneAt"), r.optLong("skipped"), r.optLong("bytes"),
+            r.optBoolean("indexed"), r.optBoolean("likeness"), r.optInt("answers"))
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "wiki: ${e.message}"); null }
 
     /** The On This Day retrospective , read from the box's prebuilt day summaries (no model at

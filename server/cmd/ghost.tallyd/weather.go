@@ -33,7 +33,7 @@ type weatherState struct {
 func (w *weatherState) snapshot() map[string]any {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	out := map[string]any{"running": w.running}
+	out := map[string]any{"running": w.running, "noGeo": w.noGeo}
 	if !w.at.IsZero() {
 		out["lastAt"] = w.at.Unix()
 		out["last"] = w.last

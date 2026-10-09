@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -45,12 +46,13 @@ private fun fmtVal(metric: String, v: Double): String = when (metric) {
 fun HealthScreen() {
     val ctx = LocalContext.current
     var series by remember { mutableStateOf<List<BoxClient.HealthSeries>?>(null) }
-    LaunchedEffect(Unit) { series = BoxClient.healthStats(ctx, 30) }
+    var failed by remember { mutableStateOf(false) } // the box did not answer: said, not spun on
+    LaunchedEffect(Unit) { val s = BoxClient.healthStats(ctx, 30); if (s != null) series = s else failed = true }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionLabel("HEALTH")
+            Row(verticalAlignment = Alignment.CenterVertically) { SectionLabel("HEALTH"); InfoButton("health") }
             Spacer(Modifier.height(4.dp))
             Text("30 days · your box's copy · from Health Connect, every six hours in the background and on request in SETTINGS › HEALTH",
                 color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
@@ -65,10 +67,8 @@ fun HealthScreen() {
                 color = if (run != null && run.error.isNotEmpty()) Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
         }
         when {
-            series == null -> item {
-                Text("reading from the box…", color = GhostTextDim,
-                    style = MaterialTheme.typography.bodyMedium)
-            }
+            series == null && failed -> item { ErrorLine("the box did not answer , is it unlocked?") }
+            series == null -> item { LoadingRow() }
             series!!.isEmpty() -> item {
                 Text("! no health data on the box yet , allow Health Connect in SETTINGS › HEALTH and it ships the last week",
                     color = TerminalDim, style = MaterialTheme.typography.bodyMedium)

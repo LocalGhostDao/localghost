@@ -25,6 +25,11 @@ data class Message(
     // read , asking your box…", "reading 1,300 words on the CPU , about 35s"). Shown only while
     // the answer is empty; the first reasoning or answer chunk replaces the message without it.
     val status: String = "",
+    // THE TRAIL: every step the turn took, in order, the phone's and the box's ("asked your box what
+    // to look for", "sent 'ferry Corfu Albania' to Brave", "the box's Wikipedia: Kassiopi", "the
+    // box's own numbers"). Shown under the answer behind a toggle, so what the answer was made of
+    // is a tap away after the status line has gone.
+    val steps: List<String> = emptyList(),
 ) {
     enum class Role { USER, GHOST }
 }

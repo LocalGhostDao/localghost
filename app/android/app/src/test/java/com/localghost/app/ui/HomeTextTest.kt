@@ -77,4 +77,13 @@ class HomeTextTest {
         assertEquals("", HomeText.pricesLine(0, now, 0))
         assertEquals("the box did not answer", HomeText.briefNot(""))
     }
+
+    @Test fun theWeatherWords() {
+        assertEquals("24° feels 27 · partly cloudy · wind 25 km/h", HomeText.weatherNow(24.2, 26.8, 2, 25.0))
+        assertEquals("18°", HomeText.weatherNow(18.0, 18.5, 1000, 5.0))
+        assertEquals("", HomeText.weatherNow(Double.NaN, 1.0, 0, 0.0))
+        assertEquals("Thu 28/19 rain 60%", HomeText.weatherDay("2026-10-08", 28.0, 19.0, 61, 60))
+        assertEquals("Fri 20/12", HomeText.weatherDay("2026-10-09", 20.0, 12.0, 1000, 10))
+        assertEquals("Kassiopi, GR · nearest of 3,000 places the box pulls daily · pulled 3 h ago", HomeText.weatherSource("Kassiopi", "GR", 1000, 3000, 1000 + 3 * 3600))
+    }
 }

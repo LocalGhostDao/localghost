@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/LocalGhostDao/localghost/server/internal/oracle"
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
@@ -341,37 +342,32 @@ func clearPersonNotes(db *poltergres.ReadWrite, named []string, now int64) error
 	return nil
 }
 
-// mergePeople folds the rows that are one person into one. The rows the person edited by hand
-// take no part (they are theirs, and never a merge's target or source). Among the rest the one
-// kept is the one under person:<name>, else the oldest; the others' note, facts and body move into
-// it (a body from before the facts existed becomes one fact, with the old source_ref as where it
-// came from), their names become aliases, the longest name becomes the title, and they are deleted.
-// Returns how many rows were folded away.
+// mergePeople folds the rows that are one person into one. The row kept is one the person edited
+// by hand when there is one (the latest, if several: what they wrote stands, their spelling of the
+// name becomes the title and the others' names its aliases), else the row under person:<name>,
+// else the oldest; the others' note, facts and body move into it (a body from before the facts
+// existed becomes one fact, with the old source_ref as where it came from; an edited row that is
+// not the one kept gives its words as a fact too, so nothing the person wrote is lost), their names
+// become aliases, and they are deleted. Returns how many rows were folded away.
 func mergePeople(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 	rows, err := loadPeople(db)
 	if err != nil {
 		return 0, err
 	}
-	var free []personRow
-	for _, r := range rows {
-		if !r.userEdited {
-			free = append(free, r)
-		}
-	}
-	used := make([]bool, len(free))
+	used := make([]bool, len(rows))
 	folded := 0
 	now := time.Now().UnixMilli()
-	for i := range free {
+	for i := range rows {
 		if used[i] {
 			continue
 		}
 		group := []int{i}
-		for j := i + 1; j < len(free); j++ {
+		for j := i + 1; j < len(rows); j++ {
 			if used[j] {
 				continue
 			}
 			for _, g := range group {
-				if namesMatch(free[g], free[j]) && !ambiguous(free, group, j) {
+				if namesMatch(rows[g], rows[j]) && !ambiguous(rows, group, j) {
 					group = append(group, j)
 					break
 				}
@@ -383,40 +379,131 @@ func mergePeople(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 		for _, g := range group {
 			used[g] = true
 		}
-		// the survivor: the row under person:<name>, else the oldest (the first, rows come by id)
-		keep := group[0]
+		// the survivor: the row the person edited (the latest of them), else the one under
+		// person:<name>, else the oldest (the first, rows come by id)
+		keep := -1
 		for _, g := range group {
-			if strings.HasPrefix(free[g].ref, "person:") {
+			if rows[g].userEdited {
 				keep = g
-				break
 			}
 		}
-		k := adopt(free[keep])
+		if keep < 0 {
+			keep = group[0]
+			for _, g := range group {
+				if strings.HasPrefix(rows[g].ref, "person:") {
+					keep = g
+					break
+				}
+			}
+		}
+		k := adopt(rows[keep])
 		for _, g := range group {
 			if g == keep {
 				continue
 			}
-			o := free[g]
+			o := rows[g]
 			k.meta = foldPerson(k.meta, o)
-			if len(o.title) > len(k.title) && samePerson(o.title, k.title) {
+			if o.userEdited && strings.TrimSpace(o.body) != "" && !k.meta.has(o.body) {
+				k.meta.Facts = append(k.meta.Facts, personFact{T: strings.TrimSpace(o.body), Ref: "edited"})
+			}
+			if !k.userEdited && len(o.title) > len(k.title) && samePerson(o.title, k.title) {
 				k.meta.Aliases = addAlias(k.meta.Aliases, k.title, o.title)
 				k.title = o.title
 			} else {
 				k.meta.Aliases = addAlias(k.meta.Aliases, o.title, k.title)
 			}
-			if err := db.Exec("DELETE FROM memories WHERE id = $1 AND NOT user_edited", o.id); err != nil {
+			if err := db.Exec("DELETE FROM memories WHERE id = $1", o.id); err != nil {
 				return folded, err
 			}
 			folded++
 		}
 		k.meta.Prose, k.meta.ProseN, k.meta.ProseTries = "", 0, 0 // written again from everything
 		k.ref = personKey(k.title)
+		// the title is no alias of itself (a folded row may have named it among its aliases)
+		var aliases []string
+		for _, a := range k.meta.Aliases {
+			aliases = addAlias(aliases, a, k.title)
+		}
+		k.meta.Aliases = aliases
 		if err := savePerson(db, k, now); err != nil {
 			return folded, err
 		}
-		lg.Info("one person, one memory", "fn", "mergePeople", "name", k.title, "folded", len(group)-1)
+		lg.Info("one person, one memory", "fn", "mergePeople", "name", k.title, "folded", len(group)-1, "edited", k.userEdited)
 	}
 	return folded, nil
+}
+
+// foldNamedMemories takes the distilled memories whose title is one of the people's names (the
+// distiller wrote "Cristina | Cristina is Vlad's wife" as a memory of its own, before the people
+// had memories) into that person's memory as a fact, and deletes them. Only into a person the box
+// already has: a capitalised title alone does not make a person. Returns how many were folded.
+func foldNamedMemories(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
+	people, err := loadPeople(db)
+	if err != nil || len(people) == 0 {
+		return 0, err
+	}
+	rows, err := db.Query("SELECT id, title, body, source_ref, user_edited FROM memories WHERE kind = 'distilled' AND NOT tombstoned ORDER BY id")
+	if err != nil {
+		return 0, err
+	}
+	folded := 0
+	now := time.Now().UnixMilli()
+	for _, v := range rows.Vals {
+		if len(v) < 5 || v[0] == nil || v[1] == nil || v[2] == nil {
+			continue
+		}
+		title := strings.TrimSpace(*v[1])
+		if !looksLikeName(title) {
+			continue
+		}
+		i := matchPerson(people, title)
+		if i < 0 {
+			continue
+		}
+		body := strings.TrimSpace(*v[2])
+		ref := "memory"
+		if v[3] != nil && *v[3] != "" {
+			ref = *v[3]
+		}
+		if v[4] != nil && *v[4] == "t" {
+			ref = "edited"
+		}
+		p := adopt(people[i])
+		if body != "" && !p.meta.has(body) {
+			p.meta.Facts = append(p.meta.Facts, personFact{T: body, Ref: ref})
+			p.meta.Prose, p.meta.ProseN, p.meta.ProseTries = "", 0, 0
+			if err := savePerson(db, p, now); err != nil {
+				return folded, err
+			}
+			people[i] = p
+		}
+		if err := db.Exec("DELETE FROM memories WHERE id = $1", *v[0]); err != nil {
+			return folded, err
+		}
+		folded++
+		lg.Info("a memory named for a person folded into theirs", "fn", "foldNamedMemories", "name", people[i].title, "memory", *v[0])
+	}
+	return folded, nil
+}
+
+// looksLikeName: one to three capitalised words, letters (and ' or -) only.
+func looksLikeName(s string) bool {
+	words := strings.Fields(s)
+	if len(words) == 0 || len(words) > 3 {
+		return false
+	}
+	for _, w := range words {
+		r := []rune(w)
+		if !unicode.IsUpper(r[0]) {
+			return false
+		}
+		for _, c := range r {
+			if !unicode.IsLetter(c) && c != '\'' && c != '-' && c != '.' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // namesMatch says whether two rows are the same person by any of their names.
@@ -1029,6 +1116,11 @@ func consolidatePass(db *poltergres.ReadWrite, oc *oracle.Client, outingsChanged
 	if folded, err = mergePeople(db, lg); err != nil {
 		return
 	}
+	named, err := foldNamedMemories(db, lg)
+	if err != nil {
+		return
+	}
+	folded += named
 	today := time.Now().UTC().Format("2006-01-02")
 	daily := setting(db, consolidateKey) != today
 	if outingsChanged || daily {

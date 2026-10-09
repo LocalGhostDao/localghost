@@ -493,6 +493,9 @@ func wikiCtl(args json.RawMessage) (ctlsock.Response, error) {
 			out["leftMinutes"] = status.Left / 60
 		}
 	}
+	// the stats the WIKIPEDIA page shows: when the import began and ended, what was skipped, the
+	// tables' size, whether the words-of-a-lead and likeness lookups are on yet
+	out["startedAt"], out["doneAt"], out["skipped"], out["bytes"], out["indexed"] = st.StartedAt, st.DoneAt, st.Skipped, s.Bytes(), s.Indexed()
 	if q := strings.TrimSpace(a.Q + a.Title); q != "" {
 		n := a.N
 		if n <= 0 || n > 20 {

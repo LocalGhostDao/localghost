@@ -78,11 +78,18 @@ fun SetupScreen(
 
             Spacer(Modifier.height(28.dp))
             GhostButton(
-                if (busy) "ENROLLING..." else "ENROL THIS DEVICE",
+                if (busy) "ENROLLING…" else "ENROL THIS DEVICE",
                 { if (canSubmit) onEnroll(url.trim(), code.trim(), name.trim(), fingerprint.trim()) },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = canSubmit,
             )
+            // why the button waits: the pairing code only ever arrives with a scan, so a typed
+            // address alone cannot enrol, and the screen says so instead of sitting grey
+            if (!busy && code.isBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text("scan the box's QR first: the pairing code rides in with it and is never typed. The address and fingerprint fill in from the scan too; edit them only for a box reached by another name.",
+                    color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+            }
 
             Spacer(Modifier.height(20.dp))
             Text("The only cloud is you.", color = TerminalDim,

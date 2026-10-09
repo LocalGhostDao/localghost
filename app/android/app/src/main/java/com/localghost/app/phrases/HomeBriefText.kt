@@ -43,6 +43,11 @@ object HomeBriefText {
         sym + " " + money(p.usd) + (p.change24?.let { " " + "%+.1f".format(java.util.Locale.US, it) + "%" } ?: "")
     }.joinToString(" · ")
 
+    /** The prices without their changes, for a line with little room: "BTC 65,000 · ETH 3,250". */
+    fun short(prices: String): String = prices.split(" · ").joinToString(" · ") { p ->
+        p.split(" ").take(2).joinToString(" ")
+    }
+
     /** The prices one a line, for the widget's big line: "BTC 65,000 +1.2%" over "ETH 3,250 -0.4%". */
     fun stacked(prices: String): String = prices.replace(" · ", "\n")
 

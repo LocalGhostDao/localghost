@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.setValue
@@ -126,6 +127,9 @@ class MainActivity : ComponentActivity() {
 
     private val messages = mutableStateListOf<Message>()
     private var streaming by mutableStateOf(false)
+    // when the chat was last written to (a question sent, an answer finished): a question from HOME
+    // continues the chat while it is recent, else starts a new one
+    private var chatTouchedMs by mutableLongStateOf(0L)
     private var pendingNav by mutableStateOf("")   // set by notification tap, consumed post-unlock
     private var genStartMs = 0L
     private var genChars = 0
@@ -400,6 +404,7 @@ class MainActivity : ComponentActivity() {
                             else screen = Screen.Setup
                         },
                         onCancel = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Setup },
+                        enrolOutcome = scanEnrolOk,
                     )
                     Screen.Gate -> LockScreen(error, unlocking = lockProgress != null, progress = lockProgress, onLocalOnly = ::enterLocalOnly, onReenroll = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Scan }, closing = vaultClosing) { passBiometric() }
                     Screen.Pin -> PinScreen(busy, error, unlockProgress, opening = vaultOpening) { submit(it) }
@@ -407,6 +412,7 @@ class MainActivity : ComponentActivity() {
                 genStats = lastGenStats,
                 navRequest = pendingNav, onNavConsumed = { pendingNav = "" },
                         messages = messages, streaming = streaming, onSend = ::sendChat, onStopChat = ::stopChat,
+                        chatTouchedMs = chatTouchedMs,
                         pendingAttachments = pendingAttachments,
                         onClearAttachment = ::clearAttachment,
                         chatCaps = chatCaps,
@@ -516,6 +522,7 @@ class MainActivity : ComponentActivity() {
         // cancelling would leave the old generator appending to the transcript alongside the new one.
         chatJob?.cancel()
         val atts = pendingAttachments
+        chatTouchedMs = System.currentTimeMillis()
         messages.add(Message(Message.Role.USER, text, attachments = atts))
         pendingAttachments = emptyList()
         streaming = true
@@ -554,10 +561,17 @@ class MainActivity : ComponentActivity() {
         // here?" against its own map data. The web gets the search words and never a position.
         val fix = com.localghost.app.sync.LocationLog.last(this)?.takeIf { System.currentTimeMillis() / 1000 - it.ts < 6 * 3600 }
         // A status line in the answer's place until the first word: what is happening right now.
+        // Every line also joins the TRAIL (steps), which stays under the answer behind a toggle.
+        val steps = ArrayList<String>()
+        fun step(s: String) {
+            val line = com.localghost.app.chat.Trail.line(s)
+            if (line.isNotEmpty() && (steps.isEmpty() || steps.last() != line)) steps.add(line)
+        }
         fun status(s: String) {
+            step(s)
             if (messages.lastOrNull()?.role == Message.Role.GHOST && messages.last().text.isEmpty())
-                messages[messages.size - 1] = Message(Message.Role.GHOST, "", status = s)
-            else messages.add(Message(Message.Role.GHOST, "", status = s))
+                messages[messages.size - 1] = Message(Message.Role.GHOST, "", status = s, steps = steps.toList())
+            else messages.add(Message(Message.Role.GHOST, "", status = s, steps = steps.toList()))
         }
         // THE SMARTER SEARCH: the box's model says first what the question needs and which
         // searches would find it (a few seconds; the phone plans by itself when the box cannot
@@ -635,7 +649,8 @@ class MainActivity : ComponentActivity() {
                 when (chunk) {
                     is BoxClient.ChatChunk.Memories -> mems = chunk.ids
                     is BoxClient.ChatChunk.More -> { more = chunk.queries; status("the box read the findings and wants more: ${chunk.queries.joinToString(" · ")} , searching again…") }
-                    is BoxClient.ChatChunk.Status -> if (reply.isEmpty() && reasoning.isEmpty()) status(chunk.text)
+                    is BoxClient.ChatChunk.Status -> if (reply.isEmpty() && reasoning.isEmpty()) status(chunk.text) else step(chunk.text)
+                    is BoxClient.ChatChunk.Steps -> chunk.lines.forEach { step(it) }
                     is BoxClient.ChatChunk.ChatId -> {
                         currentChatId = chunk.id
                         // Persisted so the conversation survives the PROCESS, not just the box , the box
@@ -652,16 +667,16 @@ class MainActivity : ComponentActivity() {
                         reasoning += chunk.text
                         val body = reply // "" until the first real token
                         if (messages.lastOrNull()?.role == Message.Role.GHOST)
-                            messages[messages.size - 1] = Message(Message.Role.GHOST, body, mems, reasoning = reasoning, web = webHits)
-                        else messages.add(Message(Message.Role.GHOST, body, mems, reasoning = reasoning, web = webHits))
+                            messages[messages.size - 1] = Message(Message.Role.GHOST, body, mems, reasoning = reasoning, web = webHits, steps = steps.toList())
+                        else messages.add(Message(Message.Role.GHOST, body, mems, reasoning = reasoning, web = webHits, steps = steps.toList()))
                     }
                     is BoxClient.ChatChunk.Token -> {
                         if (genStartMs == 0L) genStartMs = System.currentTimeMillis()
                         genChars += chunk.text.length
                         reply += chunk.text
                         if (messages.lastOrNull()?.role == Message.Role.GHOST)
-                            messages[messages.size - 1] = Message(Message.Role.GHOST, reply, mems, reasoning = reasoning, web = webHits)
-                        else messages.add(Message(Message.Role.GHOST, reply, mems, reasoning = reasoning, web = webHits))
+                            messages[messages.size - 1] = Message(Message.Role.GHOST, reply, mems, reasoning = reasoning, web = webHits, steps = steps.toList())
+                        else messages.add(Message(Message.Role.GHOST, reply, mems, reasoning = reasoning, web = webHits, steps = steps.toList()))
                     }
                     BoxClient.ChatChunk.Done -> {
                         if (more != null) return@collect // the second round follows; the bubble stays a status line

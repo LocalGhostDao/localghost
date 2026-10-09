@@ -36,6 +36,7 @@ type Server struct {
 	retired        retiredCerts    // device certificates replaced by a rotation: answered as if down
 	edge           edgeState       // the phone's TLS, served here (edge.go)
 	upd            updateState     // a server release put on from the phone (update_http.go)
+	fetch          fetchState      // a fetch from the mirror started from the phone (sources_http.go)
 	mute           *hw.MuteStore   // notification mute read/write (in-volume Postgres/Redis), per scope
 	notif          *hw.NotifStore  // notification produce/read/seen/delete (in-volume Postgres/Redis)
 	// closing: a lock, halt or shutdown is tearing the volume down. Uploads are refused from the
@@ -283,6 +284,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/rates/fetched", s.handleRatesFetched)        // the tickers' bodies, spooled for tallyd
 	mux.HandleFunc("/v1/news", s.handleNews)                         // the stories, for the NEWS screen
 	mux.HandleFunc("/v1/news/brief", s.handleNewsBrief)              // the day's brief written now (home's button)
+	mux.HandleFunc("/v1/news/feeds", s.handleNewsFeeds)              // the feeds, listed and changed (add, remove, on/off)
+	mux.HandleFunc("/v1/weather", s.handleWeather)                   // the forecast nearest a position, from the box's daily pull
+	mux.HandleFunc("/v1/sources", s.handleSources)                   // what the box draws on, each with its state
+	mux.HandleFunc("/v1/sources/fetch", s.handleSourcesFetch)        // update.sh <step> from the mirror, started from the phone
 	mux.HandleFunc("/v1/rates", s.handleRates)                       // the ECB table, the index per symbol, the rank list
 	mux.HandleFunc("/v1/rates/fast", s.handleRatesFast)              // BTC, ETH, SOL every five seconds, from Redis
 	mux.HandleFunc("/v1/rates/sparks", s.handleRatesSparks)          // a week of hourly closes per coin, for CRYPTO

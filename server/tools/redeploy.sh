@@ -346,6 +346,20 @@ done
 chmod 755 /opt/localghost/tools/mirror_fetch.sh 2>/dev/null || true
 [ -e /opt/localghost/tools/mirror_fetch.sh ] && [ -e /opt/localghost/tools/mirror-key.asc ] &&
     echo "update tools: mirror_fetch.sh + the site key in /opt/localghost/tools"
+# and the operator scripts with their pins, the same set the release bundle lays there: a fetch
+# from the mirror started from the phone (SOURCES: Wikipedia, the maps, the speech engine) runs
+# /opt/localghost/tools/update.sh, which wants the scripts and binaries beside it
+for t in update.sh fetch_geo.sh setup_llama.sh setup_whisper.sh stage_models.sh model_pins.sh models_check.sh \
+         phone_model.sh health.sh ns.sh gpu.sh pg_extensions.sh; do
+    [ -e "$REPO/tools/$t" ] && install -m755 "$REPO/tools/$t" "/opt/localghost/tools/$t"
+done
+for t in model.pins phone_model.pins; do
+    [ -e "$REPO/tools/$t" ] && install -m644 "$REPO/tools/$t" "/opt/localghost/tools/$t"
+done
+for b in ghost-landtiles ghost-roadtiles ghost-heights; do
+    [ -e "$REPO/bin/$b" ] && install -m755 "$REPO/bin/$b" "/opt/localghost/bin/$b"
+done
+echo "update tools: update.sh and the setup scripts in /opt/localghost/tools (a fetch from the phone runs them)"
 systemctl daemon-reload
 echo "systemctl restart ghost.secd"
 systemctl restart ghost.secd

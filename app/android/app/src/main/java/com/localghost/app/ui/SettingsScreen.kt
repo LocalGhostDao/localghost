@@ -38,6 +38,14 @@ fun SettingsScreen(
     // says its state, so the screen reads at a glance and opens only where you are going.
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    var askLock by remember { mutableStateOf(false) } // LOCK BOX NOW asks once: it is one tap from dark
+    if (askLock) AskDialog(
+        title = "LOCK THE BOX",
+        body = "The box stops its databases, unmounts the drive and drops the key from memory. It goes dark until you enter your PIN again; your data is untouched.",
+        confirmLabel = "LOCK",
+        onConfirm = { askLock = false; onLock() },
+        onDismiss = { askLock = false },
+    )
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(20.dp).padding(bottom = 24.dp)) {
         SectionLabel("SETTINGS")
@@ -47,17 +55,18 @@ fun SettingsScreen(
             ServerUpdateSection(onLock)
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.height(8.dp))
-            GhostButton("LOCK BOX NOW", onLock, modifier = Modifier.fillMaxWidth())
+            GhostButton("LOCK BOX NOW", { askLock = true }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
             Text("Spins the box down: stops the databases, unmounts the drive, and drops the key from " +
                  "memory. The box goes dark until you enter your PIN again. Your data is untouched.",
                  color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.height(8.dp))
-            GhostButton("VERIFY BUILD ✓", onOpenVerify, modifier = Modifier.fillMaxWidth())
+            GhostButton("VERIFY THIS APP ✓", onOpenVerify, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
-            Text("Checks that what the box is running matches the public source. An audit action, not " +
-                 "a daily one , which is why it lives here instead of taking a menu slot.",
+            Text("Shows this app's commit, its signing certificate and the source manifest, to check " +
+                 "against the public repository. The box's own build is shown above, under the release " +
+                 "it runs. An audit action, not a daily one , which is why it lives here.",
                  color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
         }
 
@@ -224,7 +233,7 @@ fun SettingsScreen(
                 }, color = if (fetchLast?.note?.isNotEmpty() == true) Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 Text("[ fetch now ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.clickable { com.localghost.app.sync.BoxFetch.runNow(ctx); fetchTick++ }.padding(vertical = 6.dp))
-                Text("> the box pulls general information in to use in context, never anything of yours out: the publishers and the exchanges see this phone's address when it fetches and the box's when the box does, and that is all they get. Digests at 07:00 and 19:00 in your zone. The list of feeds is the box's: ghost-cli ghost.synthd news add=…",
+                Text("> the box pulls general information in to use in context, never anything of yours out: the publishers and the exchanges see this phone's address when it fetches and the box's when the box does, and that is all they get. Digests at 07:00 and 19:00 in your zone. The list of feeds is kept on the box and edited under SOURCES › News › feeds.",
                     color = TerminalDim, style = MaterialTheme.typography.labelMedium)
             }
         }
@@ -339,7 +348,7 @@ fun SettingsScreen(
             }
         }
 
-        Fold("YOUR DATA", "export (not built yet), PIN changes", openAtFirst = false) {
+        Fold("YOUR DATA", "where it lives, backups, codes", openAtFirst = false) {
             Spacer(Modifier.height(8.dp))
             Text("The box holds the index. The phone holds nothing.",
                 color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
@@ -348,7 +357,7 @@ fun SettingsScreen(
             // file); the button says so instead of pretending
             @Suppress("UNUSED_EXPRESSION") onExport
             @Suppress("UNUSED_EXPRESSION") exportState
-            Text("export to JSON: not built yet , your originals are on the box's encrypted volume as ordinary files, and `tools/backup` on the box makes a sealed copy",
+            Text("There is no export from the app. Your originals sit on the box's encrypted volume as ordinary files, readable with your PIN; the box makes nightly backups sealed to a key you place on it (Sunday full, the other nights what changed), and ghost.restore reads them back. Both are the operator's, at the box.",
                 color = TerminalDim, style = MaterialTheme.typography.labelMedium)
 
             Spacer(Modifier.height(12.dp))
@@ -562,6 +571,7 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
     var busy by remember { mutableStateOf("") }
     var result by remember { mutableStateOf("") }
     var armed by remember { mutableStateOf("") } // a shelf release tapped once: the next tap puts it on
+    var ask by remember { mutableStateOf("") } // "deploy" or "rollback": the question open before the box restarts
     LaunchedEffect(Unit) {
         status = com.localghost.app.net.BoxClient.updateStatus(ctx)
         status?.let { com.localghost.app.update.ServerUpdates.noteBoxVersion(ctx, it.version) }
@@ -608,8 +618,13 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
         Text(result, color = GhostText, style = MaterialTheme.typography.labelMedium)
     }
     Spacer(Modifier.height(8.dp))
-    if (o != null && newer && busy.isEmpty()) {
-        GhostButton("DEPLOY ${o.release.label}", {
+    // DEPLOY and ROLL BACK restart the box, so each asks once before it does
+    if (ask == "deploy" && o != null) AskDialog(
+        title = "DEPLOY ${o.release.label}",
+        body = "Your box fetches ${o.release.label} from the mirror, checks every file against the signed list, and restarts onto it on trial: back to what it runs now by itself if the first unlock fails. The box locks as it restarts; unlock it again in a minute.",
+        confirmLabel = "DEPLOY",
+        onConfirm = {
+            ask = ""
             busy = "starting…"; result = ""
             scope.launch {
                 val (ok, what) = com.localghost.app.update.ServerUpdates.deploy(ctx, o) { busy = it }
@@ -617,7 +632,27 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
                 if (ok) lock("your box is restarting onto $what. It locks as it does: unlock it again in a minute.")
                 else result = "not deployed: $what"
             }
-        }, modifier = Modifier.fillMaxWidth())
+        },
+        onDismiss = { ask = "" },
+    )
+    if (ask == "rollback" && st != null) AskDialog(
+        title = "ROLL BACK",
+        body = "Your box puts ${st.trialPrev.ifEmpty { "the earlier build" }} back on and restarts onto it. It locks as it restarts; unlock it again in a minute. Your data is untouched.",
+        confirmLabel = "ROLL BACK",
+        onConfirm = {
+            ask = ""
+            busy = "putting the earlier build back…"; result = ""
+            scope.launch {
+                val (ok, why) = com.localghost.app.net.BoxClient.updateRollback(ctx)
+                busy = ""
+                if (ok) lock("your box is restarting onto the earlier build. Unlock it again in a minute.")
+                else result = "not rolled back: $why"
+            }
+        },
+        onDismiss = { ask = "" },
+    )
+    if (o != null && newer && busy.isEmpty()) {
+        GhostButton("DEPLOY ${o.release.label}", { ask = "deploy" }, modifier = Modifier.fillMaxWidth())
     }
     // THE SHELF: the releases the box keeps, the running one left out; a tap, then a second to
     // confirm, puts one back on (verified again, on trial again)
@@ -647,15 +682,7 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
     }
     if (st != null && (st.trialState == "trial" || st.trialState == "confirmed") && busy.isEmpty()) {
         Spacer(Modifier.height(8.dp))
-        GhostButton("ROLL BACK TO ${st.trialPrev.ifEmpty { "THE EARLIER BUILD" }}", {
-            busy = "putting the earlier build back…"; result = ""
-            scope.launch {
-                val (ok, why) = com.localghost.app.net.BoxClient.updateRollback(ctx)
-                busy = ""
-                if (ok) lock("your box is restarting onto the earlier build. Unlock it again in a minute.")
-                else result = "not rolled back: $why"
-            }
-        }, modifier = Modifier.fillMaxWidth())
+        GhostButton("ROLL BACK TO ${st.trialPrev.ifEmpty { "THE EARLIER BUILD" }}", { ask = "rollback" }, modifier = Modifier.fillMaxWidth())
     }
     Text("[ check the mirror now ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
         modifier = Modifier.clickable {

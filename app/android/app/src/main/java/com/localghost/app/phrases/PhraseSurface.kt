@@ -86,6 +86,8 @@ object PhraseSurface {
         val extra: String = "",
         val chip: String = "",
         val asOf: String = "",
+        /** Away: the day's top story from the box, under the phrase when the card is pulled open. */
+        val aside: String = "",
     ) {
         val home: Boolean get() = mode == "home"
 
@@ -109,7 +111,16 @@ object PhraseSurface {
         }
 
         fun without(id: String): Snapshot = Snapshot(slotKey, late, headline, lang, langCode, tts,
-            cards.filter { it.id != id }, why, known + 1, total, band, mode, extra, chip, asOf)
+            cards.filter { it.id != id }, why, known + 1, total, band, mode, extra, chip, asOf, aside)
+
+        /** The phrases' snapshot with the box's brief beside it: BTC and ETH on the widget's top
+         *  line and the card's expanded text, the top story under them. Abroad the word comes
+         *  first; the prices and the news stay a glance away. */
+        fun withBrief(kept: HomeBrief.Kept?): Snapshot {
+            if (kept == null) return this
+            return Snapshot(slotKey, late, headline, lang, langCode, tts, cards, why, known, total, band, mode,
+                kept.prices, chip, asOf, kept.cards.firstOrNull()?.headline.orEmpty())
+        }
 
         fun toJson(): String {
             val arr = JSONArray()
@@ -117,7 +128,7 @@ object PhraseSurface {
                 .put("r", c.roman).put("e", c.en).put("n", c.note))
             return JSONObject().put("k", slotKey).put("late", late).put("h", headline).put("lang", lang).put("code", langCode)
                 .put("tts", tts).put("why", why).put("cards", arr).put("known", known).put("total", total).put("band", band)
-                .put("m", mode).put("x", extra).put("chip", chip).put("asof", asOf).toString()
+                .put("m", mode).put("x", extra).put("chip", chip).put("asof", asOf).put("aside", aside).toString()
         }
 
         companion object {
@@ -130,7 +141,7 @@ object PhraseSurface {
                 }
                 Snapshot(o.optString("k"), o.optBoolean("late"), o.optString("h"), o.optString("lang"), o.optString("code"),
                     o.optString("tts"), cards, o.optString("why"), o.optInt("known"), o.optInt("total"), o.optInt("band", 1),
-                    o.optString("m"), o.optString("x"), o.optString("chip"), o.optString("asof"))
+                    o.optString("m"), o.optString("x"), o.optString("chip"), o.optString("asof"), o.optString("aside"))
             }.getOrNull()
 
             /** The home brief as a snapshot: one card per story, the prices ([extra]) first on every
@@ -187,7 +198,7 @@ object PhraseSurface {
         val now = PhraseNow.resolve(app)
         // AT HOME the card is the home brief (the news the box picked, BTC and ETH); away, the
         // phrase of the hour in the language around you
-        val snap = if (HomeBrief.atHome(app)) Snapshot.home(now, HomeBrief.kept(app)) else Snapshot.of(now)
+        val snap = if (HomeBrief.atHome(app)) Snapshot.home(now, HomeBrief.kept(app)) else Snapshot.of(now).withBrief(HomeBrief.kept(app))
         if (keep != null) {
             val j = snap.cards.indexOfFirst { it.id == keep }
             if (j >= 0) snap.pinIndex(app, j)
@@ -214,7 +225,7 @@ object PhraseSurface {
         }
         val card = snap.cards.getOrNull(i)
         val next = snap.cards.getOrNull((i + 1) % snap.cards.size.coerceAtLeast(1))
-        val key = "${snap.slotKey}|$i|${card?.id}|${card?.local}|${next?.id}|${snap.known}|${snap.why}|${PhraseState.liveUpdate(ctx)}|${snap.mode}|${snap.extra}|${snap.asOf}"
+        val key = "${snap.slotKey}|$i|${card?.id}|${card?.local}|${next?.id}|${snap.known}|${snap.why}|${PhraseState.liveUpdate(ctx)}|${snap.mode}|${snap.extra}|${snap.asOf}|${snap.aside}"
         if (key == lastPosted) return
         lastPosted = key
         postCard(ctx, snap, i)
@@ -371,6 +382,12 @@ object PhraseSurface {
             sb.append(" · level ").append(snap.band).append(", ").append(Levels.name(snap.band))
             sb.append(" · ").append(index + 1).append('/').append(n).append(' ').append(snap.headline.substringBefore(" ·").lowercase())
         }
+        // the box's brief, a glance away from the word: the prices, the day's top story
+        if (snap.extra.isNotEmpty() || snap.aside.isNotEmpty()) {
+            sb.append('\n')
+            if (snap.extra.isNotEmpty()) sb.append('\n').append(snap.extra)
+            if (snap.aside.isNotEmpty()) sb.append('\n').append("news   ").append(snap.aside)
+        }
         return sb.toString()
     }
 
@@ -378,7 +395,7 @@ object PhraseSurface {
 
     /** Redraw the widgets from the packs (a launcher callback). */
     fun updateWidgets(ctx: Context) {
-        val snap = current(ctx) ?: PhraseNow.resolve(ctx).let { now -> if (HomeBrief.atHome(ctx)) Snapshot.home(now, HomeBrief.kept(ctx)) else Snapshot.of(now) }
+        val snap = current(ctx) ?: PhraseNow.resolve(ctx).let { now -> if (HomeBrief.atHome(ctx)) Snapshot.home(now, HomeBrief.kept(ctx)) else Snapshot.of(now).withBrief(HomeBrief.kept(ctx)) }
         updateWidgets(ctx, snap, snap.index(ctx))
     }
 
@@ -424,7 +441,8 @@ object PhraseSurface {
             rv.setTextViewText(R.id.w_en, "tap to choose")
         } else {
             val progress = if (snap.total > 0) " · ${snap.known}/${snap.total}" else ""
-            rv.setTextViewText(R.id.w_head, "› ${snap.headline.lowercase()} · ${snap.lang}$progress")
+            val prices = if (snap.extra.isNotEmpty()) " · " + HomeBriefText.short(snap.extra) else ""
+            rv.setTextViewText(R.id.w_head, "› ${snap.headline.lowercase()} · ${snap.lang}$progress$prices")
             rv.setTextViewText(R.id.w_local, card.local)
             rv.setTextViewText(R.id.w_say, card.say + (if (card.roman.isNotEmpty()) "  ·  " + card.roman else ""))
             rv.setTextViewText(R.id.w_en, card.en)
@@ -502,7 +520,7 @@ object PhraseSurface {
         val at: Int
         if (i == 0 || snap.cards.size <= 1) { // the greeting, or the last card standing: just advance
             after = Snapshot(snap.slotKey, snap.late, snap.headline, snap.lang, snap.langCode, snap.tts, snap.cards, snap.why,
-                snap.known + 1, snap.total, snap.band, snap.mode, snap.extra, snap.chip, snap.asOf)
+                snap.known + 1, snap.total, snap.band, snap.mode, snap.extra, snap.chip, snap.asOf, snap.aside)
             at = if (snap.cards.size > 1) 1 else 0
         } else {
             after = snap.without(card.id)

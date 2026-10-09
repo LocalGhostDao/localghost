@@ -210,8 +210,15 @@ func TestStorePGImportsAndFinds(t *testing.T) {
 	if n := indexes(); n < 3 {
 		t.Fatalf("%d lookup indexes after the import", n)
 	}
-	if err := s.DropIndexes(); err != nil || indexes() != 0 {
+	// an import drops the heavy ones and keeps the two title indexes, so a search works meanwhile
+	if err := s.DropIndexes(); err != nil || indexes() != 2 {
 		t.Fatalf("drop: %v, %d left", err, indexes())
+	}
+	if h, ok, err := s.Best("bitcoin", 400); err != nil || !ok || h.How != "exact" {
+		t.Fatalf("a lookup by title while importing: %+v %v %v", h, ok, err)
+	}
+	if hits, _ := s.Lookup("royal observatory", 4, 400); len(hits) != 0 {
+		t.Fatalf("the words of a lead before the index: %+v", hits)
 	}
 	if err := s.EnsureIndexes(); err != nil || indexes() < 3 {
 		t.Fatalf("ensure: %v, %d", err, indexes())

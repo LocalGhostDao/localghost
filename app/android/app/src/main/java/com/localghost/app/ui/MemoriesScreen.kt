@@ -46,6 +46,9 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
     var otdLoading by remember { mutableStateOf(false) }
     var jotting by remember { mutableStateOf(false) }
     var jotSent by remember { mutableStateOf(false) }
+    // what the last add, edit or delete said: a failure stays on screen until the next one lands
+    var memNote by remember { mutableStateOf("") }
+    var loadFailed by remember { mutableStateOf(false) }
     // WHAT YOU PHOTOGRAPH and NEAR YOU , the taste synthd distils from the photos' tags, and the
     // places around the phone's last fix that fit it. Both load on tap, from the box, never the net.
     var tasteOpen by remember { mutableStateOf(false) }
@@ -80,7 +83,9 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
             nearLoading = false
         }
     }
-    fun reload() { scope.launch { rows = BoxClient.memoriesList(ctx) } }
+    fun reload() { scope.launch { val r = BoxClient.memoriesList(ctx); if (r != null) { rows = r; loadFailed = false } else loadFailed = true } }
+    // a change that did not land says so instead of vanishing: the list is reloaded either way
+    fun changed(ok: Boolean, what: String) { memNote = if (ok) "" else "! the box did not $what , is it unlocked?"; reload() }
     LaunchedEffect(Unit) { reload() }
     // what a notification opened: "near" opens NEAR YOU (a memory's id opens its own page, in the
     // shell, and never lands here)
@@ -97,7 +102,7 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
             Spacer(Modifier.height(12.dp))
-            SectionLabel("MEMORIES")
+            Row(verticalAlignment = Alignment.CenterVertically) { SectionLabel("MEMORIES"); InfoButton("memories") }
             Spacer(Modifier.height(6.dp))
             if (context != null) {
                 Text("indexed on the box · never leaves it", color = GhostTextDim,
@@ -117,6 +122,7 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
             }
             if (jotSent) Text("sent to the journal , distilled within minutes", color = TerminalDim,
                 style = MaterialTheme.typography.labelMedium)
+            if (memNote.isNotEmpty()) Text(memNote, color = Warning, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(4.dp))
             // the check-in and the voice notes moved to their own page
             Text("the daily check-in and your voice notes: CHECK-IN ›", color = TerminalDim,
@@ -212,17 +218,23 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
         if (jotting) item {
             MemoryEditor(initTitle = "", initBody = "", onSave = { t, b ->
                 scope.launch {
+                    // a note that did not land stays in the editor, with the reason above it
                     jotSent = BoxClient.noteAdd(ctx, (t + "\n\n" + b).trim())
-                    jotting = false
+                    if (jotSent) { jotting = false; memNote = "" } else memNote = "! the box did not take the note , is it unlocked? your words are still below"
                 }
             }, onCancel = { jotting = false })
         }
         if (adding) item {
             MemoryEditor(initTitle = "", initBody = "", onSave = { t, b ->
-                scope.launch { BoxClient.memoryAdd(ctx, t, b); adding = false; reload() }
+                scope.launch {
+                    val ok = BoxClient.memoryAdd(ctx, t, b)
+                    if (ok) adding = false
+                    changed(ok, "keep the memory")
+                }
             }, onCancel = { adding = false })
         }
         when {
+            rows == null && loadFailed -> item { ErrorLine("the box did not answer , is it unlocked?") }
             rows == null -> item {
                 Text("reading memories from the box…", color = GhostTextDim,
                     style = MaterialTheme.typography.bodyMedium)
@@ -267,8 +279,8 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                     key = { "mem-${it.id}" }) { m ->
                 MemoryRowCard(m,
                     onOpen = { onOpenMemory(m.id) },
-                    onEdit = { t, b -> scope.launch { BoxClient.memoryEdit(ctx, m.id, t, b); reload() } },
-                    onDelete = { scope.launch { BoxClient.memoryDelete(ctx, m.id); reload() } })
+                    onEdit = { t, b -> scope.launch { changed(BoxClient.memoryEdit(ctx, m.id, t, b), "keep the edit") } },
+                    onDelete = { scope.launch { changed(BoxClient.memoryDelete(ctx, m.id), "delete the memory") } })
                 }
             }
         }
@@ -318,7 +330,7 @@ private fun OtdYearCard(y: BoxClient.OtdYear, onOpenDay: () -> Unit = {}) {
 }
 
 /** One memory in the list: its title (a tap opens the memory's own page), its covers, its body, where
- *  it came from; ✎ edits in place, 🗑 deletes after a second tap. */
+ *  it came from; ✎ edits in place, ✕ deletes after a second tap. */
 @Composable
 private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (String, String) -> Unit, onDelete: () -> Unit) {
     var editing by remember { mutableStateOf(false) }
@@ -339,7 +351,7 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
                     Text(" [ delete? ]", color = Warning, style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { onDelete() })
                 } else {
-                    Text(" 🗑", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+                    Text(" ✕", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.clickable { confirmDel = true })
                 }
             }
@@ -462,8 +474,13 @@ private fun AboutCard(onSaved: () -> Unit) {
     var about by remember { mutableStateOf<BoxClient.About?>(null) }
     var text by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
+    var failed by remember { mutableStateOf(false) } // the note could not be read: saving is held, so a blank never overwrites it
+    var saveNote by remember { mutableStateOf("") }
     LaunchedEffect(open) {
-        if (open) BoxClient.about(ctx)?.let { about = it; text = it.text }
+        if (open && about == null) {
+            val a = BoxClient.about(ctx)
+            if (a != null) { about = a; text = a.text; failed = false } else failed = true
+        }
     }
     Text(if (open) "[ − about me and my people ]" else "[ + about me and my people ]", color = TerminalGreen,
         style = MaterialTheme.typography.labelMedium, modifier = Modifier.clickable { open = !open })
@@ -481,18 +498,22 @@ private fun AboutCard(onSaved: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall); inner() } },
             modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(6.dp))
+        if (failed) Text("! the box did not answer , the note is kept there, so nothing is saved until it does", color = Warning, style = MaterialTheme.typography.labelSmall)
+        if (saveNote.isNotEmpty()) Text(saveNote, color = Warning, style = MaterialTheme.typography.labelSmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (saving) "saving…" else "[ save ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.clickable(enabled = !saving && text != about?.text) {
+            val a = about
+            // save only over a note the box gave us: with none read, a blank would wipe what is there
+            val can = !saving && a != null && text != a.text
+            Text(if (saving) "saving…" else "[ save ]", color = if (can) TerminalGreen else TerminalDim, style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.clickable(enabled = can) {
                     saving = true
                     scope.launch {
-                        BoxClient.saveAbout(ctx, text.trim())?.let { about = it }
+                        val saved = BoxClient.saveAbout(ctx, text.trim())
+                        if (saved != null) { about = saved; saveNote = ""; onSaved() } else saveNote = "! not saved , the box did not answer; your words are still above"
                         saving = false
-                        onSaved()
                     }
                 })
             Spacer(Modifier.width(12.dp))
-            val a = about
             if (a != null) Text(AboutText.status(a.name, a.me, a.people, a.pending, a.text.isNotBlank()),
                 color = TerminalDim, style = MaterialTheme.typography.labelSmall)
         }

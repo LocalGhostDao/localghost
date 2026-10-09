@@ -52,4 +52,12 @@ class FeedsTextTest {
         assertEquals("archive pipeline · all at the latest stage", FeedsText.pipelineLine(10, 10, 0, true, false))
         assertEquals("archive pipeline · not reported by this build", FeedsText.pipelineLine(0, 0, 0, false, true))
     }
+
+    @Test fun aFeedsLine() {
+        val now = 1_000_000L
+        assertEquals("answered 40 min ago · 32 entries", FeedsText.feedLine(true, now - 2400, now - 2400, "ok", 32, 0, now))
+        assertEquals("failed 3 times: 404 · last answered 2 days ago", FeedsText.feedLine(true, now - 2 * 86400, now - 100, "404", 0, 3, now))
+        assertEquals("off · last answered 2 h ago", FeedsText.feedLine(false, now - 7200, now - 7200, "ok", 5, 0, now))
+        assertEquals("not fetched yet", FeedsText.feedLine(true, 0, 0, "", 0, 0, now))
+    }
 }
