@@ -28,9 +28,16 @@ func daemonOwnedList() string {
 
 // ensureDaemonOwned hands DaemonOwnedTables to the read-write role, as the superuser, once they
 // exist (the converge creates them as the owner role on the first unlock; this runs after it).
-// The read-only role keeps SELECT on them (the owner's blanket grant cannot reach a table it
-// does not own). Idempotent, and like the ownership converge only ever touches a table whose
-// owner is wrong, so a converged database takes no lock. A failure is said, not fatal.
+// The owner role is given every privilege on them with the grant option, every unlock: its
+// blanket GRANT ... ON ALL TABLES that follows is an error, not a warning, on a table it has
+// no privilege on at all (the first unlock with this in place failed at starting the database
+// that way, 9 October 2026), and with the grant option its grants to the service roles go
+// through as before. The read-only role keeps SELECT. The ownership change itself only
+// touches a table whose owner is wrong, so a converged database takes no table lock for it.
+// The read-write role also gets CREATE on schema public: an index is a new object in the schema,
+// and owning the table is not enough without it (PG15 and later grant CREATE on public to no
+// one). A failure is said, not fatal. Proved against Postgres 16 on 9 October 2026: without the
+// owner's grant option the blanket grant errors, without CREATE on the schema the index does.
 func (d *DataStore) ensureDaemonOwned(slot int, c ServicesConfig) {
 	if c.Postgres.RWUser == "" || c.Postgres.ROUser == "" {
 		return
@@ -39,12 +46,16 @@ func (d *DataStore) ensureDaemonOwned(slot int, c ServicesConfig) {
 	port := strconv.Itoa(c.Postgres.Port)
 	sql := fmt.Sprintf(`
 SET lock_timeout = '15s';
+GRANT CREATE ON SCHEMA public TO %[3]s;
 DO $$ DECLARE r record; BEGIN
-  FOR r IN SELECT tablename AS n FROM pg_tables WHERE schemaname = 'public' AND tablename IN (%[1]s) AND tableowner <> %[2]s ORDER BY 1 LOOP
-    EXECUTE format('ALTER TABLE public.%%I OWNER TO %[3]s', r.n);
+  FOR r IN SELECT tablename AS n, tableowner AS o FROM pg_tables WHERE schemaname = 'public' AND tablename IN (%[1]s) ORDER BY 1 LOOP
+    IF r.o <> %[2]s THEN
+      EXECUTE format('ALTER TABLE public.%%I OWNER TO %[3]s', r.n);
+    END IF;
+    EXECUTE format('GRANT ALL ON public.%%I TO %[5]s WITH GRANT OPTION', r.n);
     EXECUTE format('GRANT SELECT ON public.%%I TO %[4]s', r.n);
   END LOOP;
-END $$;`, daemonOwnedList(), pgLit(c.Postgres.RWUser), c.Postgres.RWUser, c.Postgres.ROUser)
+END $$;`, daemonOwnedList(), pgLit(c.Postgres.RWUser), c.Postgres.RWUser, c.Postgres.ROUser, c.Postgres.User)
 	out, err := d.pgCmd(filepath.Dir(data), "psql", "-h", data, "-p", port, "-d", c.Postgres.Name, "-tA",
 		"-v", "ON_ERROR_STOP=1", "-c", sql).CombinedOutput()
 	if err != nil {

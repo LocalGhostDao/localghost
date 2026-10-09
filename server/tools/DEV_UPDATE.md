@@ -5428,3 +5428,9 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   the file left unformatted as before). synthd wikiImportLoop: EnsureIndexes tried every tick
   until it works, the state's error set and cleared accordingly. WikipediaScreen shows a ready
   state's error.
+- Then the first unlock with it failed at starting the database: the owner's `GRANT … ON ALL
+  TABLES IN SCHEMA public` is an ERROR ("permission denied for table wiki_articles") on a table
+  the owner has no privilege on, not a warning; and CREATE INDEX wants CREATE on the schema
+  (PG15+), which ghost_rw did not have. ensureDaemonOwned now grants the owner ALL WITH GRANT
+  OPTION on the daemon-owned tables and ghost_rw CREATE on public, every unlock, before the
+  grants block. Proved on Postgres 16 with three throwaway roles.
