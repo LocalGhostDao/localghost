@@ -16,7 +16,7 @@ object Explain {
             "The list of which coins exist and their ranks comes from Coinbase's public listing, read hourly; the pound, euro and other rates come from the ECB's daily reference rates, read once a working day. Both are fetched by the phone on Wi-Fi or by the box itself when the phone is away.",
             "A price older than a few minutes is said so under it. Box Status › feeds shows every feed's age and health.")),
         Topic("news", "The news", listOf(
-            "The box reads a list of feeds you keep (SOURCES › News › feeds): each is an RSS or Atom address a publication offers. The phone fetches them on Wi-Fi and hands the bytes to the box; when the phone is away the box fetches them itself, every two hours. Nothing of yours goes with a fetch.",
+            "The box reads a list of feeds you keep (INTEGRATIONS › News › feeds): each is an RSS or Atom address a publication offers. The phone fetches them on Wi-Fi and hands the bytes to the box; when the phone is away the box fetches them itself, every two hours. Nothing of yours goes with a fetch.",
             "Stories are the same event told by several outlets: the box groups entries by their titles and words, and counts the outlets. The day's brief on HOME is the box's model writing the most-told stories of the last day in a few points; each point opens its story in NEWS with every outlet's entry and a link to the article, which the phone opens, never the box.",
             "A feed that answers nothing for twelve hours in a row is switched off and said so; you can switch it back on, or take it off the list. A new feed you add is fetched within two hours, sooner on pull-to-refresh.")),
         Topic("wikipedia", "Wikipedia on the box", listOf(
@@ -26,7 +26,7 @@ object Explain {
         Topic("weather", "The weather", listOf(
             "The box asks Open-Meteo for the forecast of the world's larger places: the world cut into cells of 55 km, the largest town of fifteen thousand people or more in each, the six thousand largest of those. The same list whoever and wherever you are, a hundred places every two minutes, the longest unpulled first, each pulled again once its row is a day old. Where you are is then looked up on the box, nearest place first, so no weather service learns where you are, nor that you asked.",
             "HOME shows the forecast nearest the phone's last position (its own, which goes to your box and nowhere else); the chat answers \"what's the weather like\" the same way. When that place was pulled, how many places the box holds and how far the nearest one is are shown under it; a place's forecast is at most a day old.",
-            "The place list is the box's own GeoNames (SOURCES › Maps); without it there is nothing to pull, and SOURCES says so.")),
+            "The place list is the box's own GeoNames (INTEGRATIONS › Maps); without it there is nothing to pull, and INTEGRATIONS says so.")),
         Topic("maps", "The maps and the heights", listOf(
             "The map is drawn on the phone from the box's own tiles: the coastline from OpenStreetMap's land polygons, the roads from Geofabrik's extracts cut on the box into tiles, the places from GeoNames, the time zones from a grid the box builds, and the ground's height from the Copernicus DEM at 90 m, in packs of a 30-degree block each. All of it comes from the LocalGhost mirror, signed, at setup or when you ask on SOURCES; no map service is asked at any time.",
             "The trail is the phone's own fixes, sealed on the phone and opened by your box PIN. A day's path, its stays and its moves are drawn by the box from the trail, the photos' positions and the roads; the climb comes from the heights under the line.",
@@ -45,9 +45,9 @@ object Explain {
         Topic("gallery", "The gallery", listOf(
             "Photos and videos sync from the phone to the box on Wi-Fi (deduplicated by content, so nothing is sent twice) and are indexed there: previews, captions and tags written by the box's own model, faces and places from what the photo carries. Search in the chat and in the gallery reads that index.",
             "The originals stay on the box; the phone keeps previews. A photo you attach to a chat is indexed the same way.")),
-        Topic("sources", "Sources", listOf(
-            "Everything the box draws on beyond your own archive, with its state. A fetch brings a set from the LocalGhost mirror, the one place a box takes files from after setup: the mirror's list is signed, every file's hash is checked, and a file that does not match is refused. The box reaches nothing else.",
-            "A fetch runs on the box in the background (the same tools/update.sh the operator runs by hand) and this page follows it; the box stays usable meanwhile.")),
+        Topic("sources", "Integrations", listOf(
+            "Everything the box draws on beyond your own archive, a card each with its state, and a page each that draws the pull: the places it draws from on the left, your box on the right, the data running between them while the page asks the box and breathing once it has answered. A place that is off sends nothing.",
+            "A fetch brings a set from the LocalGhost mirror, the one place a box takes files from after setup: the mirror's list is signed, every file's hash is checked, and a file that does not match is refused. The box reaches nothing else. A fetch runs on the box in the background (the same tools/update.sh the operator runs by hand) and the page follows it; the box stays usable meanwhile.")),
         Topic("speech", "Speech", listOf(
             "Voice notes and questions asked aloud are transcribed on the box by whisper.cpp with a speech model from the mirror, on the CPU so the chat's model keeps the GPU. The people's names from your memories are given to it first and corrected after, so a name is spelt your way.",
             "A question asked aloud is heard and forgotten: no file, no row. A voice note is kept with its words.")),

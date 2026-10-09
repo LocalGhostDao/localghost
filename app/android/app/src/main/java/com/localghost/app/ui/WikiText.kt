@@ -18,8 +18,8 @@ object WikiText {
         "downloading" -> "downloading the file (about 50 GB) · imported into the box's database once it is here"
         "failed" -> "the import stopped: $error · tried again every minute"
         "locked" -> "the box is locked"
-        "missing", "" -> "none on the box · SOURCES › Wikipedia fetches it from the mirror (about 50 GB)"
-        else -> "the box said \"$state\" · SOURCES › Wikipedia says more"
+        "missing", "" -> "none on the box · INTEGRATIONS › Wikipedia fetches it from the mirror (about 50 GB)"
+        else -> "the box said \"$state\" · INTEGRATIONS › Wikipedia says more"
     }
 
     /** The stats lines under the state: the counts and the size, when it was imported and how long

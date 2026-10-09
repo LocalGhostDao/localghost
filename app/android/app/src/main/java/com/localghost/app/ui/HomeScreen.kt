@@ -222,7 +222,7 @@ private fun WeatherCard(w: BoxClient.Weather?, nowS: Long) {
         }
         when {
             w == null -> Text("no position yet, or the box has not answered", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
-            w.noGeo -> Text("nothing pulled: the box's place list is missing · SOURCES › Weather", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            w.noGeo -> Text("nothing pulled: the box's place list is missing · INTEGRATIONS › Weather", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             w.place.isEmpty() -> Text(w.text.ifBlank { "no forecast on the box yet (pulled once a day)" }, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             else -> {
                 Spacer(Modifier.height(4.dp))

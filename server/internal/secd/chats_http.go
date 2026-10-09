@@ -445,7 +445,17 @@ func (s *Server) handleWiki(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(resp.Text))
+	_, _ = w.Write(ctlBody(resp))
+}
+
+// ctlBody is a ctl answer as an HTTP body: the JSON in Data, else the Text. synthd's wiki
+// command answers in Data and this handler wrote Text, so the phone got an empty body for every
+// ask until 9 October 2026 and showed "none on the box" over a full Wikipedia.
+func ctlBody(resp ctlsock.Response) []byte {
+	if len(resp.Data) > 0 {
+		return resp.Data
+	}
+	return []byte(resp.Text)
 }
 
 // handleOnThisDay , GET /v1/onthisday?day=MM-DD (empty = today) , synthd's retrospective, proxied.
@@ -472,5 +482,5 @@ func (s *Server) handleOnThisDay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(resp.Text))
+	_, _ = w.Write(ctlBody(resp))
 }

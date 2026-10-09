@@ -1065,7 +1065,10 @@ object BoxClient {
 
     // --- SOURCES: what the box draws on, and the fetches from the mirror ---
     data class Source(val id: String, val name: String, val state: String, val line: String, val detail: String,
-                      val action: String, val label: String, val open: String, val bytes: Long)
+                      val action: String, val label: String, val open: String, val bytes: Long,
+                      val from: List<SourceFrom> = emptyList())
+    /** One place an integration draws from: a feed, an exchange, a service, a data set, the mirror. */
+    data class SourceFrom(val name: String, val role: String, val state: String)
     data class FetchJob(val step: String, val region: String, val startedAt: Long, val endedAt: Long, val running: Boolean,
                         val exit: Int, val last: String)
     data class Sources(val sources: List<Source>, val job: FetchJob?)
@@ -1079,8 +1082,11 @@ object BoxClient {
         val r = BoxHttp.getJson(ctx, "/v1/sources", readTimeoutMs = 20_000)
         val a = r.optJSONArray("sources") ?: org.json.JSONArray()
         Sources((0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { o ->
+            val fa = o.optJSONArray("from")
+            val from = if (fa == null) emptyList() else (0 until fa.length()).mapNotNull { k -> fa.optJSONObject(k)?.let { f ->
+                SourceFrom(f.optString("name"), f.optString("role"), f.optString("state")) } }
             Source(o.optString("id"), o.optString("name"), o.optString("state"), o.optString("line"), o.optString("detail"),
-                o.optString("action"), o.optString("label"), o.optString("open"), o.optLong("bytes"))
+                o.optString("action"), o.optString("label"), o.optString("open"), o.optLong("bytes"), from)
         } }, jobOf(r.optJSONObject("job")))
     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
 
@@ -1174,7 +1180,7 @@ object BoxClient {
      *  [ref] is what a day's or an outing's memory was made from ("day:2026-10-03"), "" otherwise
      *  (and on a box from before 0.0.5). */
     data class MemRow(val id: Long, val title: String, val body: String, val kind: String, val createdAt: Long,
-                      val meta: org.json.JSONObject? = null, val ref: String = "") {
+                      val meta: org.json.JSONObject? = null, val ref: String = "", val edited: Boolean = false) {
         val covers: List<String> get() = meta?.optJSONArray("covers")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() } } ?: emptyList()
         /** The trip or the outing this memory is a part of ("trip:2026-09-12", "outing:2026-10-02"), "" for none:
          *  the list shows the whole in its place, and the whole's page lists its parts. */
@@ -1210,7 +1216,7 @@ object BoxClient {
         (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             MemRow(o.optLong("id"), o.optString("title"), o.optString("body"),
-                o.optString("kind"), o.optLong("created_at"), o.optJSONObject("meta"), o.optString("ref"))
+                o.optString("kind"), o.optLong("created_at"), o.optJSONObject("meta"), o.optString("ref"), o.optBoolean("edited"))
         }
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "memories: ${e.message}"); null }
 

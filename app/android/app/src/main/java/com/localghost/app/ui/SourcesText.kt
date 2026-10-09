@@ -6,6 +6,25 @@ object SourcesText {
         "ready" -> "●"; "partial", "importing" -> "◐"; "missing" -> "○"; "off" -> "✕"; else -> "?"
     }
 
+    /** The state as a word on a card. */
+    fun word(state: String): String = when (state) {
+        "ready" -> "ready"; "partial" -> "partly"; "importing" -> "importing"; "missing" -> "not on the box"
+        "off" -> "off"; else -> "unknown"
+    }
+
+    /** Each integration's glyph on its card and in the menu. */
+    fun glyph(id: String): String = when (id) {
+        "wikipedia" -> "W"; "news" -> "¶"; "crypto" -> "◈"; "weather" -> "☂"; "maps" -> "◎"; "speech" -> "◍"; else -> "⊛"
+    }
+
+    /** The one-word mark of a place an integration draws from (a feed, an exchange). */
+    fun fromMark(state: String): String = when (state) {
+        "ok" -> "●"; "late" -> "◐"; "flaky" -> "◐"; "off" -> "○"; else -> "·"
+    }
+
+    /** "from 12 places", "from one place", "" with none. */
+    fun fromCount(n: Int): String = when (n) { 0 -> ""; 1 -> "from one place"; else -> "from $n places" }
+
     /** "fetching the maps · 12 min, running", "fetched the maps in 1 h 03 min", "the fetch of wiki stopped (exit 1)". */
     fun job(step: String, startedAt: Long, endedAt: Long, running: Boolean, exit: Int, nowS: Long): String {
         val what = when (step) { "wiki" -> "Wikipedia"; "maps" -> "the maps"; "speech" -> "the speech engine"; "engine" -> "the chat engine"; "weights" -> "the models"; else -> step }

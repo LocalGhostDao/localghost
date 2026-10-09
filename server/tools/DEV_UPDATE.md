@@ -5434,3 +5434,28 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (PG15+), which ghost_rw did not have. ensureDaemonOwned now grants the owner ALL WITH GRANT
   OPTION on the daemon-owned tables and ghost_rw CREATE on public, every unlock, before the
   grants block. Proved on Postgres 16 with three throwaway roles.
+
+## 9 October 2026, late , /v1/wiki fixed, INTEGRATIONS, the screen
+
+- secd chats_http.go: ctlBody(resp) (Data, else Text) for /v1/wiki and /v1/onthisday; TestCtlBody.
+  The wiki page had read an empty body since it was built.
+- secd sources_http.go: sourceDoc.From []sourceFrom{Name, Role, State}: the feeds (from synthd
+  news, with entries/age/failures and on/off), the exchanges (the monitor's venues rows,
+  venueName), Coinbase listing, ECB, Open-Meteo, GeoNames, OSM, Geofabrik, Copernicus, the
+  mirror, whisper.cpp; openapi sourcesDoc carries it. hw MemoryRow.Edited (user_edited) in
+  MemoriesList.
+- App: BoxClient.SourceFrom and Source.from, MemRow.edited; SourcesScreen is a two-column grid of
+  IntegrationCard (glyph, state word, line, "from N places"); IntegrationScreen(id) with
+  PullCanvas (Pull.kt; PullModel.kt pure: sources/box/packet/phase, tested), the DRAWS FROM
+  rows, the actions, the folded Explain; Dest.SOURCES labelled INTEGRATIONS, Dest.INTEGRATION
+  with integOpen, goBack routes FEEDS and the opened pages back to the integration;
+  SourcesText.word/glyph/fromMark/fromCount (tested). Copy: SOURCES › → INTEGRATIONS ›.
+- Crt.kt: CrtWash(playing) (scanline brush + vignette + a green cast, fading in 350 ms and out
+  900 ms), CrtSweep(playing) (320 ms), TypedText (SectionLabel types in when CrtState.effect is
+  TYPE, restarting a heading already whole); CrtState.effect. CrtMood.kt (pure, tested):
+  pick(nowMs, lastMs, roll) = NONE inside quietMs (90 s) after the last effect, else one in four
+  (SWEEP/WASH/TYPE by roll % 12), holdMs per effect. MainShell rolls on each dest change in a
+  LaunchedEffect, sets CrtState.effect for the hold, lays CrtWash/CrtSweep over the page Box
+  when AppSettings.crt ("the odd flicker", default on; SETTINGS › SCREEN). The journal ink
+  (JournalInk/JournalAccent) was tried and taken out the same evening: one voice, Vlad's call;
+  MemRow.edited stays.

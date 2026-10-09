@@ -1236,6 +1236,9 @@ type MemoryRow struct {
 	// Ref is what the memory was made from, when it was a day or an outing ("day:2026-10-03",
 	// "outing:2026-09-28"): the memory's own page opens that day from it.
 	Ref string `json:"ref,omitempty"`
+	// Edited says the person wrote or rewrote it (kind=user from birth, or an edit by hand):
+	// its words stand as written, and the phone shows them in ink rather than the box's grey.
+	Edited bool `json:"edited,omitempty"`
 }
 
 // DayRow is one prebuilt day summary (ghost.synthd's day_summaries) as the app reads it.
@@ -1348,7 +1351,7 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		limit = 200
 	}
 	rows, err := c.Query(
-		"SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text, COALESCE(source_ref,'') FROM memories WHERE NOT tombstoned ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit))
+		"SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text, COALESCE(source_ref,''), user_edited FROM memories WHERE NOT tombstoned ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -1379,6 +1382,9 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		}
 		if len(v) > 7 && v[7] != nil && (strings.HasPrefix(*v[7], "day:") || strings.HasPrefix(*v[7], "outing:")) {
 			m.Ref = *v[7]
+		}
+		if len(v) > 8 && v[8] != nil {
+			m.Edited = *v[8] == "t" || *v[8] == "true"
 		}
 		out = append(out, m)
 	}

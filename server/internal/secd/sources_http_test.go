@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 )
 
 func TestFeedID(t *testing.T) {
@@ -63,5 +65,19 @@ func TestFetchJob(t *testing.T) {
 	}
 	if _, err := f.start("wiki", ""); err != nil {
 		t.Fatalf("after the first ended: %v", err)
+	}
+}
+
+// A ctl answer in Data is the body; one in Text is the body; the wiki command's Data used to
+// be dropped on the floor.
+func TestCtlBody(t *testing.T) {
+	if got := string(ctlBody(ctlsock.Response{OK: true, Data: []byte(`{"state":"ready"}`)})); got != `{"state":"ready"}` {
+		t.Fatalf("data: %q", got)
+	}
+	if got := string(ctlBody(ctlsock.Response{OK: true, Text: `{"years":[]}`})); got != `{"years":[]}` {
+		t.Fatalf("text: %q", got)
+	}
+	if got := string(ctlBody(ctlsock.Response{OK: true})); got != "" {
+		t.Fatalf("nothing: %q", got)
 	}
 }

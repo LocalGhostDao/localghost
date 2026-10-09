@@ -40,7 +40,8 @@ enum class Dest(val label: String, val glyph: String) {
     MEMORIES("MEMORIES", "◇"),
     MEMORY("MEMORY", "◇"),
     CHECKIN("CHECK-IN", "◐"),
-    SOURCES("SOURCES", "⊛"),
+    SOURCES("INTEGRATIONS", "⊛"),
+    INTEGRATION("INTEGRATION", "⊛"),
     FEEDS("NEWS FEEDS", "¶"),
     WIKIPEDIA("WIKIPEDIA", "W"),
     NEWS("NEWS", "¶"),
@@ -141,8 +142,10 @@ fun MainShell(
     // the coin whose page is open, and where it was opened from (‹ and back go there)
     var coinSym by rememberSaveable { mutableStateOf("BTC") }
     var coinFrom by rememberSaveable { mutableStateOf(Dest.CRYPTO) }
-    // the pages SOURCES opens (WIKIPEDIA, NEWS, CRYPTO, MAP, the feeds) go back to it when opened from there
+    // the pages INTEGRATIONS opens (WIKIPEDIA, NEWS, CRYPTO, MAP, the feeds) go back to it when
+    // opened from there: to the integration's page when one is open, else to the cards
     var fromSources by rememberSaveable { mutableStateOf(false) }
+    var integOpen by rememberSaveable { mutableStateOf("") } // the integration whose page is open
     fun openCoin(sym: String, from: Dest) { coinSym = sym; coinFrom = from; dest = Dest.COIN }
     // what a notification opens: a day on MAP, "near" in MEMORIES ("" none)
     var mapDay by rememberSaveable { mutableStateOf("") }
@@ -223,8 +226,9 @@ fun MainShell(
             Dest.DAY -> dest = if (dayFrom == Dest.DAY) Dest.HOME else dayFrom
             Dest.NOTIFICATION -> dest = if (notifFrom == Dest.NOTIFICATION) Dest.NOTIFICATIONS else notifFrom
             Dest.MEMORY -> dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom
-            Dest.FEEDS -> dest = Dest.SOURCES
-            Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.MAP -> { dest = if (fromSources) Dest.SOURCES else Dest.HOME; fromSources = false }
+            Dest.INTEGRATION -> { dest = Dest.SOURCES; integOpen = "" }
+            Dest.FEEDS -> dest = if (integOpen.isNotEmpty()) Dest.INTEGRATION else Dest.SOURCES
+            Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.MAP -> { dest = if (!fromSources) Dest.HOME else if (integOpen.isNotEmpty()) Dest.INTEGRATION else Dest.SOURCES; fromSources = false }
             else -> dest = Dest.HOME
         }
     }
@@ -311,13 +315,15 @@ fun MainShell(
                             backLabel = (if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom).label.lowercase(),
                             onBack = { goBack() })
                         Dest.CHECKIN -> CheckinScreen(onOpenDay = { d -> openDay(d) })
-                        Dest.SOURCES -> SourcesScreen(
+                        Dest.SOURCES -> SourcesScreen(onOpenIntegration = { id -> integOpen = id; dest = Dest.INTEGRATION })
+                        Dest.INTEGRATION -> IntegrationScreen(integOpen,
                             onOpen = { page ->
                                 fromSources = true
-                                dest = when (page) { "wikipedia" -> Dest.WIKIPEDIA; "news" -> { newsFocus = 0L; Dest.NEWS }; "crypto" -> Dest.CRYPTO; "map" -> Dest.MAP; else -> Dest.SOURCES }
+                                dest = when (page) { "wikipedia" -> Dest.WIKIPEDIA; "news" -> { newsFocus = 0L; Dest.NEWS }; "crypto" -> Dest.CRYPTO; "map" -> Dest.MAP; else -> Dest.INTEGRATION }
                             },
-                            onFeeds = { dest = Dest.FEEDS })
-                        Dest.FEEDS -> NewsFeedsScreen(onBack = { dest = Dest.SOURCES })
+                            onFeeds = { dest = Dest.FEEDS },
+                            onBack = { goBack() })
+                        Dest.FEEDS -> NewsFeedsScreen(onBack = { goBack() })
                         Dest.WIKIPEDIA -> WikipediaScreen()
                         Dest.NEWS -> NewsScreen(openStory = newsFocus, onStoryShown = { newsFocus = 0L })
                         Dest.NOTIFICATIONS -> {
@@ -362,6 +368,25 @@ fun MainShell(
                             onDownloadModel, onCancelModel, onActivateModel, onDeleteModel)
                         Dest.ABOUT -> AboutScreen()
                         Dest.VERIFY -> VerifyScreen()
+                    }
+                    // THE GLASS, now and then (Crt.kt, CrtMood): on a page change the shell rolls
+                    // for one small effect, a wash, a sweep or the heading typing in, never two
+                    // inside a minute and a half; drawing only, no touch taken; off in SETTINGS › SCREEN
+                    val crtOn = com.localghost.app.settings.AppSettings.crt(androidx.compose.ui.platform.LocalContext.current)
+                    var crtLast by rememberSaveable { mutableLongStateOf(0L) }
+                    LaunchedEffect(dest) {
+                        if (!crtOn) { CrtState.effect = CrtMood.Effect.NONE; return@LaunchedEffect }
+                        val now = System.currentTimeMillis()
+                        val e = CrtMood.pick(now, crtLast, kotlin.random.Random.nextInt(0, 1 shl 20))
+                        if (e == CrtMood.Effect.NONE) { CrtState.effect = CrtMood.Effect.NONE; return@LaunchedEffect }
+                        crtLast = now
+                        CrtState.effect = e
+                        kotlinx.coroutines.delay(CrtMood.holdMs(e))
+                        CrtState.effect = CrtMood.Effect.NONE
+                    }
+                    if (crtOn) {
+                        CrtWash(playing = CrtState.effect == CrtMood.Effect.WASH, modifier = Modifier.matchParentSize())
+                        CrtSweep(playing = CrtState.effect == CrtMood.Effect.SWEEP, modifier = Modifier.matchParentSize())
                     }
                 }
 
@@ -572,11 +597,12 @@ private fun DrawerPanel(
                 .forEach { DrawerRow(it, it == current) { onSelect(it) } }
 
             Spacer(Modifier.height(20.dp))
-            // SOURCES: what the box draws on beyond the archive (Wikipedia, the news and its feeds,
-            // the market numbers, the weather, the maps, speech), one page with every state and the
-            // fetches; the three pages that had rows here open from it, and from HOME
-            SectionLabel("SOURCES")
-            DrawerRow(Dest.SOURCES, current == Dest.SOURCES || current == Dest.FEEDS) { onSelect(Dest.SOURCES) }
+            // INTEGRATIONS: what the box draws on beyond the archive (Wikipedia, the news and its
+            // feeds, the market numbers, the weather, the maps, speech), a card each with its state
+            // and a page each with the pull drawn; the three pages that had rows here open from it,
+            // and from HOME
+            SectionLabel("INTEGRATIONS")
+            DrawerRow(Dest.SOURCES, current == Dest.SOURCES || current == Dest.FEEDS || current == Dest.INTEGRATION) { onSelect(Dest.SOURCES) }
             listOf(Dest.NEWS, Dest.CRYPTO, Dest.WIKIPEDIA).forEach { DrawerRowSub(it, it == current) { onSelect(it) } }
 
             Spacer(Modifier.height(20.dp))

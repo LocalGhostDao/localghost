@@ -57,8 +57,9 @@ fun GhostButton(
 
 @Composable
 fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    Text("> $text", color = TerminalDim,
-        style = MaterialTheme.typography.labelMedium, modifier = modifier)
+    // now and then the heading types itself in (the screen writing it): when the shell's roll
+    // for this page change said so (CrtMood), else it is simply there
+    TypedText("> $text", color = TerminalDim, style = MaterialTheme.typography.labelMedium, modifier = modifier, enabled = CrtState.effect == CrtMood.Effect.TYPE)
 }
 
 @Composable

@@ -232,6 +232,11 @@ type sourcesDoc struct {
 		Label  string `json:"label,omitempty"`
 		Open   string `json:"open,omitempty"`
 		Bytes  int64  `json:"bytes,omitempty"`
+		From   []struct {
+			Name  string `json:"name"`
+			Role  string `json:"role"`
+			State string `json:"state,omitempty"`
+		} `json:"from,omitempty"`
 	} `json:"sources"`
 	Job *struct {
 		Step      string `json:"step"`

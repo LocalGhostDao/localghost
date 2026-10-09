@@ -22,4 +22,17 @@ class SourcesTextTest {
         assertEquals("○", SourcesText.mark("missing"))
         assertEquals("?", SourcesText.mark("whatever"))
     }
+
+    @Test fun theCardsWords() {
+        assertEquals("not on the box", SourcesText.word("missing"))
+        assertEquals("partly", SourcesText.word("partial"))
+        assertEquals("W", SourcesText.glyph("wikipedia"))
+        assertEquals("⊛", SourcesText.glyph("whatever"))
+        assertEquals("●", SourcesText.fromMark("ok"))
+        assertEquals("○", SourcesText.fromMark("off"))
+        assertEquals("·", SourcesText.fromMark(""))
+        assertEquals("", SourcesText.fromCount(0))
+        assertEquals("from one place", SourcesText.fromCount(1))
+        assertEquals("from 12 places", SourcesText.fromCount(12))
+    }
 }

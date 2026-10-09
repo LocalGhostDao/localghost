@@ -25,6 +25,11 @@ object AppSettings {
      *  forgot). 0 = none. */
     /** GLOBAL DEBUG MODE , toggled from Settings ("set app in debug mode"). Gates the tok/s
      *  meter and whatever diagnostics attach later. Off by default; a user flag, not a build. */
+    /** THE SCREEN: the odd flicker (a moment of glass now and then on a page change, CrtMood)
+     *  on by default; off for never. */
+    fun crt(ctx: Context): Boolean = prefs(ctx).getBoolean("crt", true)
+    fun setCrt(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("crt", on).apply()
+
     fun debugMode(ctx: Context): Boolean = prefs(ctx).getBoolean("debug_mode", false)
     fun setDebugMode(ctx: Context, on: Boolean) = prefs(ctx).edit().putBoolean("debug_mode", on).apply()
 

@@ -233,7 +233,7 @@ fun SettingsScreen(
                 }, color = if (fetchLast?.note?.isNotEmpty() == true) Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 Text("[ fetch now ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.clickable { com.localghost.app.sync.BoxFetch.runNow(ctx); fetchTick++ }.padding(vertical = 6.dp))
-                Text("> the box pulls general information in to use in context, never anything of yours out: the publishers and the exchanges see this phone's address when it fetches and the box's when the box does, and that is all they get. Digests at 07:00 and 19:00 in your zone. The list of feeds is kept on the box and edited under SOURCES › News › feeds.",
+                Text("> the box pulls general information in to use in context, never anything of yours out: the publishers and the exchanges see this phone's address when it fetches and the box's when the box does, and that is all they get. Digests at 07:00 and 19:00 in your zone. The list of feeds is kept on the box and edited under INTEGRATIONS › News › feeds.",
                     color = TerminalDim, style = MaterialTheme.typography.labelMedium)
             }
         }
@@ -365,6 +365,18 @@ fun SettingsScreen(
                  "(keeps your data) or `ghost.secd resetup-<slot>` (wipes and starts fresh) over a " +
                  "local-network SSH session. A coerced phone cannot change or reset a PIN.",
                  color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        }
+
+        var crt by remember { mutableStateOf(com.localghost.app.settings.AppSettings.crt(ctx)) }
+        Fold("SCREEN", if (crt) "the odd flicker" else "no flicker", openAtFirst = false) {
+            toggleRow(
+                label = "the odd flicker",
+                sub = if (crt) "on: now and then, on a page change, the screen shows its glass for a moment (a wash of scanlines, a sweep, a heading typing itself in), then is plain again"
+                      else "off: never",
+                checked = crt, onChange = { on -> crt = on; com.localghost.app.settings.AppSettings.setCrt(ctx, on) },
+            )
+            Text("> drawing only, nothing of yours; the unlock's rings and the scanner's aperture stay either way",
+                color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }
 
         Fold("DEVELOPER", "debug mode", openAtFirst = false) {

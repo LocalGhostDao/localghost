@@ -50,6 +50,16 @@ type sourceDoc struct {
 	Label  string `json:"label,omitempty"`  // the action's words ("fetch from the mirror")
 	Open   string `json:"open,omitempty"`   // the page on the phone it opens: wikipedia | news | crypto | map | ""
 	Size   int64  `json:"bytes,omitempty"`
+	// From is where the integration draws from, one row a place: the feeds, the exchanges, the
+	// service, the data sets, the mirror. The phone's INTEGRATIONS cards list them.
+	From []sourceFrom `json:"from,omitempty"`
+}
+
+// sourceFrom is one place an integration draws from.
+type sourceFrom struct {
+	Name  string `json:"name"`
+	Role  string `json:"role"`            // what comes from it, and how often
+	State string `json:"state,omitempty"` // ok | late | flaky | off | "" when not watched
 }
 
 // fetchJob is an update.sh run started from the phone.
@@ -175,6 +185,15 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 			d.Detail = "the English edition without pictures, one file from the mirror, imported into the box's database; the file goes once it is in"
 		}
 	}
+	d.From = []sourceFrom{
+		{Name: "LocalGhost mirror", Role: "the one file (about 50 GB), signed, every byte checked"},
+		{Name: "Wikipedia, through Kiwix", Role: "the English edition without pictures" + func() string {
+			if e := str(wk, "edition"); e != "" {
+				return ": " + e
+			}
+			return ""
+		}()},
+	}
 	out = append(out, d)
 
 	// NEWS, from synthd
@@ -196,6 +215,28 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 		d.State = "ready"
 		if on == 0 {
 			d.State = "off"
+		}
+		// the feeds, one row each: the publication, what it answered, on or off
+		for _, f := range feeds {
+			fm, _ := f.(map[string]any)
+			if fm == nil {
+				continue
+			}
+			en, _ := fm["enabled"].(bool)
+			row := sourceFrom{Name: str(fm, "name"), State: "ok"}
+			switch {
+			case !en:
+				row.State, row.Role = "off", "switched off"
+			case int64(num(fm, "lastOk")) == 0:
+				row.State, row.Role = "late", "not answered yet"
+			default:
+				row.Role = fmt.Sprintf("%d entries, %s ago", int(num(fm, "items")), agoWords(time.Now().Unix()-int64(num(fm, "lastOk"))))
+				if num(fm, "failures") > 0 {
+					row.State = "flaky"
+					row.Role += fmt.Sprintf(", %d failures", int(num(fm, "failures")))
+				}
+			}
+			d.From = append(d.From, row)
 		}
 		d.Line = fmt.Sprintf("%d feeds on, %d answered in the last 3 h · %s stories today", on, int(num(st, "feedsOkLast3h")), humanCount(int64(num(st, "stories24h"))))
 		if at := int64(num(st, "lastFetchAt")); at > 0 {
@@ -227,7 +268,22 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 					state = "partial"
 				}
 			}
+			// the exchanges, one row each, as the monitor has them
+			if id == "venues" {
+				rows, _ := sm["rows"].([]any)
+				for _, r := range rows {
+					rm, _ := r.(map[string]any)
+					if rm == nil {
+						continue
+					}
+					d.From = append(d.From, sourceFrom{Name: venueName(str(rm, "k")), Role: str(rm, "v"), State: str(rm, "state")})
+				}
+			}
 		}
+		d.From = append(d.From,
+			sourceFrom{Name: "Coinbase listing", Role: "which coins exist and their ranks, hourly"},
+			sourceFrom{Name: "ECB", Role: "the pound, euro and other rates, once a working day"},
+		)
 		d.State = state
 		d.Line = strings.Join(lines, " · ")
 		if d.Line == "" {
@@ -239,7 +295,10 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 
 	// THE WEATHER, from tallyd
 	ws, ok := ctlJSON("ghost.tallyd", runDir, "weather", nil, 5*time.Second)
-	d = sourceDoc{ID: "weather", Name: "Weather"}
+	d = sourceDoc{ID: "weather", Name: "Weather", From: []sourceFrom{
+		{Name: "Open-Meteo", Role: "the forecasts, a hundred places every two minutes, each again after a day"},
+		{Name: "GeoNames", Role: "the place list, from the box's own geo set"},
+	}}
 	if !ok {
 		d.State, d.Line = "unknown", "the box did not say"
 	} else {
@@ -269,7 +328,13 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	packs := countFiles(filepath.Join(geo, "elevation"), ".heights")
 	tiles := countFiles(filepath.Join(geo, "elevation"), ".tif")
 	_, tz := os.Stat(filepath.Join(geo, "tz", "grid.bin"))
-	d = sourceDoc{ID: "maps", Name: "Maps and heights", Open: "map", Action: "maps", Label: "fetch the maps from the mirror"}
+	d = sourceDoc{ID: "maps", Name: "Maps and heights", Open: "map", Action: "maps", Label: "fetch the maps from the mirror", From: []sourceFrom{
+		{Name: "OpenStreetMap", Role: "the coastline, from the land polygons"},
+		{Name: "Geofabrik", Role: "the roads, from extracts cut into tiles on the box"},
+		{Name: "GeoNames", Role: "the places, with their populations"},
+		{Name: "Copernicus DEM", Role: "the ground's height at 90 m, in packs of a 30-degree block"},
+		{Name: "LocalGhost mirror", Role: "all of it, signed, at setup or when you ask here"},
+	}}
 	var parts []string
 	if coast > 0 {
 		parts = append(parts, fmt.Sprintf("coastline %s tiles", humanCount(int64(coast))))
@@ -306,9 +371,13 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	out = append(out, d)
 
 	// SPEECH, from voiced's state file
-	d = sourceDoc{ID: "speech", Name: "Speech", Action: "speech", Label: "fetch the speech engine and model"}
+	d = sourceDoc{ID: "speech", Name: "Speech", Action: "speech", Label: "fetch the speech engine and model", From: []sourceFrom{
+		{Name: "whisper.cpp", Role: "the engine, built for the box, on the CPU"},
+		{Name: "LocalGhost mirror", Role: "the engine and the speech model, signed"},
+	}}
 	if st, ok := voiced.ReadState(mount); ok && st.Engine != "" {
 		d.State, d.Line = "ready", "whisper.cpp with "+st.Engine+" · voice notes and questions asked aloud are heard on the box"
+		d.From[1].Role = "the engine and the speech model (" + st.Engine + "), signed"
 		d.Label = "refresh from the mirror"
 	} else if ok && st.Why != "" {
 		d.State, d.Line = "missing", st.Why
@@ -317,6 +386,17 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	}
 	out = append(out, d)
 	return out
+}
+
+// venueName is an exchange as the phone names it ("binance" → "Binance").
+func venueName(k string) string {
+	switch k {
+	case "okx":
+		return "OKX"
+	case "":
+		return ""
+	}
+	return strings.ToUpper(k[:1]) + k[1:]
 }
 
 func countFiles(dir, suffix string) int {

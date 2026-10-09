@@ -54,7 +54,7 @@ fun NewsFeedsScreen(onBack: () -> Unit) {
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(12.dp))
-        Text("‹ sources", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+        Text("‹ news", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.clickable { onBack() }.padding(vertical = 4.dp))
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
