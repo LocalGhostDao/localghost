@@ -378,6 +378,9 @@ func (s *Server) front(next http.Handler) http.Handler {
 			}
 			r.Header.Set("X-Client-Cert", headerFor(der))
 			r = r.WithContext(context.WithValue(r.Context(), certIDKey{}, id))
+			if !s.admit(w, r) {
+				return
+			}
 			s.noteVerifiedDevice()
 			next.ServeHTTP(&foldWriter{ResponseWriter: w}, r)
 			return
@@ -392,6 +395,11 @@ func (s *Server) front(next http.Handler) http.Handler {
 			return
 		}
 		if hdr := r.Header.Get("X-Client-Cert"); hdr != "" {
+			// the dates, the device key's retirement, the move to the key's name: secd's own look,
+			// not nginx's alone (devicekey.go)
+			if !s.admit(w, r) {
+				return
+			}
 			s.learn(hdr)
 			s.noteVerifiedDevice()
 		}

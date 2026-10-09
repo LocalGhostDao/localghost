@@ -51,6 +51,26 @@ object HomeBriefText {
     /** The prices one a line, for the widget's big line: "BTC 65,000 +1.2%" over "ETH 3,250 -0.4%". */
     fun stacked(prices: String): String = prices.replace(" · ", "\n")
 
+    /** The weather as one widget line: "13° partly cloudy · Neu-Ulm · today 17/9 showers 40%";
+     *  the day's part left out without a forecast day. */
+    fun weatherLine(place: String, tempC: Double, code: Int, maxC: Double, minC: Double, dayCode: Int, rainPct: Int): String {
+        if (tempC.isNaN()) return ""
+        val sb = StringBuilder("%.0f°".format(java.util.Locale.UK, tempC))
+        com.localghost.app.ui.HomeText.weatherWord(code).takeIf { it.isNotEmpty() }?.let { sb.append(" ").append(it) }
+        if (place.isNotBlank()) sb.append(" · ").append(place)
+        if (!maxC.isNaN() && !minC.isNaN()) {
+            sb.append(" · today %.0f/%.0f".format(java.util.Locale.UK, maxC, minC))
+            com.localghost.app.ui.HomeText.weatherWord(dayCode).takeIf { it.isNotEmpty() }?.let { sb.append(" ").append(it) }
+            if (rainPct >= 30) sb.append(" ").append(rainPct).append("%")
+        }
+        return sb.toString()
+    }
+
+    /** The tall widget's extra lines: the weather, then what comes next (abroad: the next two
+     *  phrases; at home: the next two stories). Each a line; "" with nothing. */
+    fun more(weather: String, nexts: List<String>): String =
+        (listOf(weather) + nexts).filter { it.isNotBlank() }.joinToString("\n")
+
     /** The widget's foot abroad: the prices with their changes on one line, the top story on the
      *  next; "" with neither. */
     fun foot(prices: String, story: String): String {

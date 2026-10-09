@@ -139,6 +139,8 @@ func Run(w io.Writer, opts Options, encodeQR func(string) (Matrix, error)) error
 	fmt.Fprintf(w, "  finger  %s\n", fp)
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Anyone who scanned that QR has a working device identity , it was for your phone only.")
+	fmt.Fprintln(w, "It is good for an hour: unlock the app with your PIN within it and the phone makes a key of its own.")
+	fmt.Fprintln(w, "After the hour it reaches nothing; ghost-qr draws a fresh one.")
 	return nil
 }
 

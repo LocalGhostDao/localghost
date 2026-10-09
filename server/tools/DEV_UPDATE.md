@@ -5459,3 +5459,43 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   when AppSettings.crt ("the odd flicker", default on; SETTINGS › SCREEN). The journal ink
   (JournalInk/JournalAccent) was tried and taken out the same evening: one voice, Vlad's call;
   MemRow.edited stays.
+
+## 10 October 2026 , device certificates: two weeks, renewed daily
+
+- internal/setup/debian/certlife.go: DeviceCertLife (14 d), DeviceCertRenewAfter (24 h); pki.go's
+  two device-cert issuers use DeviceCertLife (the server cert stays ten years; pki.go left
+  unformatted as before). secd rekey.go: issueDeviceCert uses DeviceCertLife; the rekey answer
+  adds lifeDays and renewAfterHours; rekeyPending.OldExp; retiredCerts holds id → expiry,
+  loads "id [expiry]" lines, drops expired ones and rewrites the file, addUntil(id, exp) at
+  confirm (add(id) = for good, the operator's). Tests: the rotation's retired line has an
+  expiry and the certificate lasts two weeks; TestRetiredListForgetsTheExpired.
+- App DeviceCert: dates(), expired(), renewDue() (notBefore older than 25 h); rotateIfNeeded
+  rotates again when due (the same flow: new Keystore key, rekey, switch, confirm, the old key
+  dropped), renewed_at kept. MainActivity.passBiometric says "this phone's key ran out …" and
+  stops when expired (the re-enrol row is on the gate). SettingsScreen › YOUR BOX shows
+  CertText.line (pure, tested).
+- Not done: carrying a device's data (trail key, cursors, name) over to a fresh enrolment
+  after an expiry; the continuity key in device_names is the hook.
+
+## 10 October 2026 , the critique's three, the background renewal, the tall widget
+
+- certlife.go: QRCertLife (1 h) for pki.go's two device issuers; DeviceCertLife (14 d) for
+  secd's. pair/command.go says the hour under the QR.
+- secd devicekey.go: certFacts (dev = sha256(SPKI)[:8] hex, notBefore, notAfter) cached by
+  certID; admit() in the front door (both the TLS and the header paths): dates with 5 min of
+  slack, retired by device key, migrateDevice(certID[:16] → dev) once per process with the
+  volume up (moveTrailKey + notif.MoveDevice); Server.migrated sync.Map. notifications.go
+  deviceKey() uses factsFor first. rekey.go: rekeyMessageV2 = "localghost rekey v2\n" +
+  derID(presented) + "\n" + spki; verifyRekeyProof(spki, sig, presentedDER) tries v2 then v1.
+  Tests: the rotation test renews with the same key under v2 (device key and trail key stay; a
+  proof bound to another certificate is refused), TestFrontDoorChecksTheDates; edge_test's
+  device-key expectation moved to the SPKI.
+- App DeviceCert: rotateIfNeeded under a Mutex (the unlock and the poll can both ask); the
+  first rotation makes a new Keystore key, every renewal after re-signs the current key; the
+  proof is v2 (derHex of the presented certificate). PollWorker renews when renewDue, so a phone
+  that only polls keeps its door open as long as its session lasts. Copy: "renewed once a day
+  while the phone talks to the box".
+- Widget: HomeBrief.Kept.weather (HomeBriefText.weatherLine from BoxClient.weather at
+  LocationLog.last, kept at each fetch); PhraseSurface.updateWidgets builds per widget id with
+  tall = OPTION_APPWIDGET_MIN_HEIGHT ≥ TALL_DP (180); w_more TextView in widget_phrase.xml with
+  HomeBriefText.more(weather, nexts); PhraseWidget.onAppWidgetOptionsChanged redraws. Tests.

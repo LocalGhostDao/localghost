@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -167,6 +168,127 @@ func TestDeviceKeyRotation(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(s.cfg.StateDir, "devices", "retired"))
 	if fi, _ := os.Stat(filepath.Join(s.cfg.StateDir, "devices", "retired")); fi.Mode().Perm() != 0o600 || strings.Contains(string(b), "BEGIN") {
 		t.Fatalf("retired file: %v %q", fi.Mode(), b)
+	}
+	// the retired line carries the old certificate's expiry (two weeks from its issue), and the
+	// issued certificate is good for two weeks, not ten years
+	if f := strings.Fields(strings.TrimSpace(string(b))); len(f) != 2 || f[1] == "" {
+		t.Fatalf("retired line without an expiry: %q", b)
+	}
+	if c, _ := x509.ParseCertificate(qrDER); c.NotAfter.Sub(time.Now()) > 15*24*time.Hour || c.NotAfter.Sub(time.Now()) < 13*24*time.Hour {
+		t.Fatalf("a device certificate lasts two weeks, not until %v", c.NotAfter)
+	}
+
+	// THE DAILY RENEWAL: the same key, a new certificate, the proof bound to the certificate
+	// presented (v2); the device key stays, so nothing on the box moves, and the trail key is
+	// where it was
+	devBefore := deviceKeyFromRequest(newReq)
+	v2 := sha256.Sum256(append([]byte(rekeyMessageV2+derID(blk.Bytes)+"\n"), spki...))
+	sig2, _ := ecdsa.SignASN1(rand.Reader, phoneKey, v2[:])
+	renew, _ := json.Marshal(map[string]string{"spki": enc(spki), "sig": enc(sig2)})
+	// a v2 proof bound to another certificate (the QR's) is no proof over this one
+	wrong := sha256.Sum256(append([]byte(rekeyMessageV2+derID(qrDER)+"\n"), spki...))
+	sigW, _ := ecdsa.SignASN1(rand.Reader, phoneKey, wrong[:])
+	badBind, _ := json.Marshal(map[string]string{"spki": enc(spki), "sig": enc(sigW)})
+	if rr := call("/v1/device/rekey", newHdr, badBind); rr.Code != 400 {
+		t.Fatalf("a proof bound to another certificate: %d", rr.Code)
+	}
+	rr = call("/v1/device/rekey", newHdr, renew)
+	if rr.Code != 200 {
+		t.Fatalf("renew: %d %s", rr.Code, rr.Body)
+	}
+	json.Unmarshal(rr.Body.Bytes(), &got)
+	blk2, _ := pem.Decode([]byte(got.Cert))
+	nc2, _ := x509.ParseCertificate(blk2.Bytes)
+	if !nc2.PublicKey.(*ecdsa.PublicKey).Equal(&phoneKey.PublicKey) || nc2.SerialNumber.Cmp(nc.SerialNumber) == 0 {
+		t.Fatal("the renewal is not a new certificate for the same key")
+	}
+	renewedHdr := escapedPEM(blk2.Bytes)
+	if rr := call("/v1/device/rekey/confirm", renewedHdr, nil); rr.Code != 200 {
+		t.Fatalf("confirm the renewal: %d %s", rr.Code, rr.Body)
+	}
+	if rr := call("/v1/health", newHdr, nil); rr.Code == 200 {
+		t.Fatal("the certificate before the renewal still reaches the box")
+	}
+	renewedReq := httptest.NewRequest("GET", "/", nil)
+	renewedReq.Header.Set("X-Client-Cert", renewedHdr)
+	if dev := deviceKeyFromRequest(renewedReq); dev != devBefore {
+		t.Fatalf("the device key changed with a renewal: %s → %s", devBefore, dev)
+	}
+	if _, err := loadTrailKey(mount, devBefore); err != nil {
+		t.Fatalf("the trail key moved on a renewal: %v", err)
+	}
+}
+
+// secd refuses an expired certificate itself, whatever nginx passed (the header is trusted until
+// the edge passthrough); a not-yet-valid one too, past the clock slack.
+func TestFrontDoorChecksTheDates(t *testing.T) {
+	caDir := t.TempDir()
+	ca, caKey := testCA(t, caDir)
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	s, err := New(Config{StateDir: t.TempDir(), CaDir: caDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue := func(nb, na time.Time) string {
+		sn, _ := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 64))
+		tmpl := &x509.Certificate{SerialNumber: sn, Subject: pkix.Name{CommonName: "p"}, NotBefore: nb, NotAfter: na,
+			KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return escapedPEM(der)
+	}
+	call := func(hdr string) int {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/v1/health", nil)
+		req.Header.Set("X-Client-Cert", hdr)
+		s.Handler().ServeHTTP(rr, req)
+		return rr.Code
+	}
+	now := time.Now()
+	if c := call(issue(now.Add(-time.Hour), now.Add(time.Hour))); c != 200 {
+		t.Fatalf("a valid certificate: %d", c)
+	}
+	if c := call(issue(now.Add(-48*time.Hour), now.Add(-time.Minute))); c == 200 {
+		t.Fatal("an expired certificate reached the box")
+	}
+	if c := call(issue(now.Add(time.Hour), now.Add(2*time.Hour))); c == 200 {
+		t.Fatal("a certificate from the future reached the box")
+	}
+	if c := call(issue(now.Add(2*time.Minute), now.Add(2*time.Hour))); c != 200 {
+		t.Fatalf("two minutes of clock slack: %d", c)
+	}
+}
+
+// The retired list forgets a certificate once it has expired (nginx refuses it by then), keeps
+// the operator's retirements for good, and reads old one-column files.
+func TestRetiredListForgetsTheExpired(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "retired")
+	past := time.Now().Add(-time.Hour).Unix()
+	future := time.Now().Add(time.Hour).Unix()
+	old := strings.Repeat("a", 64)
+	live := strings.Repeat("b", 64)
+	forever := strings.Repeat("c", 16)
+	os.WriteFile(path, []byte(old+" "+strconv.FormatInt(past, 10)+"\n"+live+" "+strconv.FormatInt(future, 10)+"\n"+forever+"\n"), 0o600)
+	rc := &retiredCerts{path: path}
+	if rc.has(old) {
+		t.Fatal("an expired certificate is still retired")
+	}
+	if !rc.has(live) || !rc.has(forever) || !rc.has(strings.Repeat("c", 64)) {
+		t.Fatal("a live retirement was forgotten")
+	}
+	b, _ := os.ReadFile(path)
+	if strings.Contains(string(b), old) || !strings.Contains(string(b), live) || !strings.Contains(string(b), forever) {
+		t.Fatalf("the file after the load: %q", b)
+	}
+	if err := rc.addUntil(strings.Repeat("d", 64), future); err != nil {
+		t.Fatal(err)
+	}
+	rc2 := &retiredCerts{path: path}
+	if !rc2.has(strings.Repeat("d", 64)) {
+		t.Fatal("an added retirement did not read back")
 	}
 }
 

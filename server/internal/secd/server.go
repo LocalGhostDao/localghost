@@ -34,6 +34,7 @@ type Server struct {
 	unlock         *unlockService
 	session        *sessionManager // the one live session token (foreground + poller share it)
 	retired        retiredCerts    // device certificates replaced by a rotation: answered as if down
+	migrated       sync.Map        // device keys whose records were moved from the certificate's name to the key's (devicekey.go)
 	edge           edgeState       // the phone's TLS, served here (edge.go)
 	upd            updateState     // a server release put on from the phone (update_http.go)
 	fetch          fetchState      // a fetch from the mirror started from the phone (sources_http.go)

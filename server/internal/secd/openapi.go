@@ -271,8 +271,10 @@ type rekeyRequestDoc struct {
 }
 
 type rekeyDoc struct {
-	OK   bool   `json:"ok"`
-	Cert string `json:"cert"`
+	OK              bool   `json:"ok"`
+	Cert            string `json:"cert"`
+	LifeDays        int    `json:"lifeDays"`        // how long the certificate is good for (14)
+	RenewAfterHours int    `json:"renewAfterHours"` // when the phone asks again (24)
 }
 
 type trailKeyDoc struct {
@@ -383,7 +385,7 @@ func (s *Server) routes() []route {
 			Auth: true, Request: updateSwitchDoc{}, Response: updateAppliedDoc{}, Handler: s.handleUpdateSwitch},
 		{Method: "POST", Path: "/v1/update/rollback", Summary: "Put the earlier build back, lock and restart onto it.",
 			Auth: true, Response: updateAppliedDoc{}, Handler: s.handleUpdateRollback},
-		{Method: "POST", Path: "/v1/device/rekey", Summary: "A certificate for a key the phone made itself (spki + a signature proving it holds the key).",
+		{Method: "POST", Path: "/v1/device/rekey", Summary: "A certificate for a key the phone made itself (spki + a signature proving it holds the key): good for two weeks, asked for again at every unlock once a day old.",
 			Auth: true, Request: rekeyRequestDoc{}, Response: rekeyDoc{}, Handler: s.handleRekey},
 		{Method: "POST", Path: "/v1/device/rekey/confirm", Summary: "Over the new certificate: the one it replaced is retired (answered as if down from then on).",
 			Auth: true, Response: okDoc{}, Handler: s.handleRekeyConfirm},

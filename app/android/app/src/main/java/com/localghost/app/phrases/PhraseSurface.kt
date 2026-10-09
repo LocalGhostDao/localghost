@@ -406,13 +406,20 @@ object PhraseSurface {
         val awm = AppWidgetManager.getInstance(ctx)
         val ids = awm.getAppWidgetIds(ComponentName(ctx, PhraseWidget::class.java))
         if (ids.isEmpty()) return
-        val rv = buildWidget(ctx, snap, index, PhraseState.widgetLook(ctx))
-        for (id in ids) awm.updateAppWidget(id, rv)
+        val look = PhraseState.widgetLook(ctx)
+        // each widget by its own height: a tall one (three rows or more) gets the extra lines
+        for (id in ids) {
+            val minH = runCatching { awm.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) }.getOrDefault(0)
+            awm.updateAppWidget(id, buildWidget(ctx, snap, index, look, tall = minH >= TALL_DP))
+        }
     }
+
+    /** A widget this high (dp) or more shows the extra lines: about three launcher rows. */
+    const val TALL_DP = 180
 
     /** The widget's views for one moment and one look. Separate from the update so the
      *  configure screen can preview a look without placing anything. */
-    fun buildWidget(ctx: Context, snap: Snapshot, index: Int, look: PhraseState.WidgetLook): RemoteViews {
+    fun buildWidget(ctx: Context, snap: Snapshot, index: Int, look: PhraseState.WidgetLook, tall: Boolean = false): RemoteViews {
         val rv = RemoteViews(ctx.packageName, R.layout.widget_phrase)
         val card = snap.cards.getOrNull(index)
         if (snap.home) {
@@ -455,6 +462,20 @@ object PhraseSurface {
         rv.setTextViewText(R.id.w_foot, foot)
         rv.setViewVisibility(R.id.w_foot, if (foot.isEmpty() || !look.showHead) android.view.View.GONE else android.view.View.VISIBLE)
         rv.setTextColor(R.id.w_foot, look.accentDim)
+        // THE TALL WIDGET: the weather where the phone last was, then what comes next (the next
+        // two phrases abroad, the next two stories at home); a short widget shows none of it
+        val more = if (!tall || card == null) "" else {
+            val weather = HomeBrief.kept(ctx)?.weather.orEmpty()
+            val n = snap.cards.size
+            val nexts = if (n > 1) listOf(1, 2).filter { it < n }.map { k ->
+                val c = snap.cards[(index + k) % n]
+                (if (k == 1) "next   " else "then   ") + (if (snap.home) c.local else c.local + "  ·  " + c.en.lowercase())
+            } else emptyList()
+            HomeBriefText.more(weather, nexts)
+        }
+        rv.setTextViewText(R.id.w_more, more)
+        rv.setViewVisibility(R.id.w_more, if (more.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE)
+        rv.setTextColor(R.id.w_more, look.accentDim)
         // THE LOOK. Opacity is the background layer's image alpha (the one RemoteViews-settable
         // alpha there is); sizes in sp; lines shown or GONE (GONE so the ones left close up);
         // the tint on everything phosphor. The card text stays its own grey , the words are the
@@ -464,7 +485,7 @@ object PhraseSurface {
         rv.setTextViewTextSize(R.id.w_local, android.util.TypedValue.COMPLEX_UNIT_SP, sz[0].toFloat())
         rv.setTextViewTextSize(R.id.w_say, android.util.TypedValue.COMPLEX_UNIT_SP, sz[1].toFloat())
         rv.setTextViewTextSize(R.id.w_en, android.util.TypedValue.COMPLEX_UNIT_SP, sz[2].toFloat())
-        for (id in intArrayOf(R.id.w_head, R.id.w_foot, R.id.w_say_btn, R.id.w_next_btn, R.id.w_got_btn)) {
+        for (id in intArrayOf(R.id.w_head, R.id.w_foot, R.id.w_more, R.id.w_say_btn, R.id.w_next_btn, R.id.w_got_btn)) {
             rv.setTextViewTextSize(id, android.util.TypedValue.COMPLEX_UNIT_SP, sz[3].toFloat())
         }
         rv.setViewVisibility(R.id.w_head, if (look.showHead) android.view.View.VISIBLE else android.view.View.GONE)
@@ -556,6 +577,10 @@ object PhraseSurface {
 class PhraseWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         PhraseSurface.refresh(context)
+    }
+    // resized on the launcher: a widget made tall gets its extra lines, one made short loses them
+    override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: android.os.Bundle) {
+        PhraseSurface.updateWidgets(context)
     }
     override fun onEnabled(context: Context) { PhraseSurface.refresh(context) }
     override fun onDisabled(context: Context) { PhraseSurface.refresh(context) } // drops the alarm if nothing else needs it

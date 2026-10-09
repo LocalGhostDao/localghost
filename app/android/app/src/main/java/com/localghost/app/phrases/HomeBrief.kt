@@ -14,7 +14,7 @@ import org.json.JSONObject
 object HomeBrief {
     private const val PREFS = "lg_home_brief"
 
-    data class Kept(val at: Long, val cards: List<HomeBriefText.Card>, val prices: String, val chip: String)
+    data class Kept(val at: Long, val cards: List<HomeBriefText.Card>, val prices: String, val chip: String, val weather: String = "")
 
     fun kept(ctx: Context): Kept? = runCatching {
         val s = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("brief", null) ?: return null
@@ -23,14 +23,25 @@ object HomeBrief {
         Kept(o.optLong("at"), (0 until arr.length()).map { i ->
             val c = arr.getJSONObject(i)
             HomeBriefText.Card(c.optString("id"), c.optString("h"), c.optString("s"), c.optString("o"))
-        }, o.optString("prices"), o.optString("chip"))
+        }, o.optString("prices"), o.optString("chip"), o.optString("weather"))
     }.getOrNull()
 
     private fun keep(ctx: Context, k: Kept) {
         val arr = JSONArray()
         k.cards.forEach { c -> arr.put(JSONObject().put("id", c.id).put("h", c.headline).put("s", c.summary).put("o", c.outlets)) }
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("brief", JSONObject().put("at", k.at).put("cards", arr).put("prices", k.prices).put("chip", k.chip).toString()).apply()
+            .putString("brief", JSONObject().put("at", k.at).put("cards", arr).put("prices", k.prices).put("chip", k.chip).put("weather", k.weather).toString()).apply()
+    }
+
+    /** The weather where the phone last was, as one line for the widget: the box's own table,
+     *  asked with the phone's last fix (which goes to the box and nowhere else); "" without a fix
+     *  or a forecast. */
+    private suspend fun weatherLine(app: Context): String {
+        val fix = com.localghost.app.sync.LocationLog.last(app) ?: return ""
+        val w = BoxClient.weather(app, fix.lat, fix.lon) ?: return ""
+        if (!w.ok || w.tempC.isNaN()) return ""
+        val today = w.days.firstOrNull()
+        return HomeBriefText.weatherLine(w.place, w.tempC, w.code, today?.maxC ?: Double.NaN, today?.minC ?: Double.NaN, today?.code ?: -1, today?.rainPct ?: 0)
     }
 
     /** Ask the box for the stories and the prices, keep what came, redraw the card. A box out of
@@ -47,8 +58,9 @@ object HomeBrief {
                 HomeBriefText.Story(s.id, s.title, s.lead, s.outlets, s.lastSeen, s.sources)
             }, now) else old?.cards ?: emptyList()
             val prices = snap.prices.map { (sym, p) -> HomeBriefText.Price(sym, p.price, p.change24, p.at) }
+            val weather = weatherLine(app).ifEmpty { old?.weather ?: "" }
             keep(app, Kept(now, cards, if (prices.isNotEmpty()) HomeBriefText.prices(prices) else old?.prices ?: "",
-                if (prices.isNotEmpty()) HomeBriefText.chip(prices) else old?.chip ?: ""))
+                if (prices.isNotEmpty()) HomeBriefText.chip(prices) else old?.chip ?: "", weather))
             if (PhraseState.lockScreenOn(app)) PhraseSurface.refresh(app)
             return true
         }
@@ -61,7 +73,7 @@ object HomeBrief {
             }, now)
         } ?: old?.cards ?: emptyList()
         val prices = rates?.index?.map { HomeBriefText.Price(it.symbol, it.price, it.change24, it.at) }
-        keep(app, Kept(now, cards, prices?.let { HomeBriefText.prices(it) } ?: old?.prices ?: "", prices?.let { HomeBriefText.chip(it) } ?: old?.chip ?: ""))
+        keep(app, Kept(now, cards, prices?.let { HomeBriefText.prices(it) } ?: old?.prices ?: "", prices?.let { HomeBriefText.chip(it) } ?: old?.chip ?: "", old?.weather ?: ""))
         if (PhraseState.lockScreenOn(app)) PhraseSurface.refresh(app)
         return true
     }

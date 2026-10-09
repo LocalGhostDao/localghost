@@ -52,6 +52,14 @@ class HomeBriefTextTest {
         assertEquals("FT · 2 h ago\n\nnext   Three\nthen   One", HomeBriefText.expanded(cards, 1, "", ""))
     }
 
+    @Test fun theTallWidgetsLines() {
+        assertEquals("13° partly cloudy · Neu-Ulm · today 17/9 showers 40%", HomeBriefText.weatherLine("Neu-Ulm", 13.2, 2, 17.0, 9.4, 80, 40))
+        assertEquals("13° · Neu-Ulm", HomeBriefText.weatherLine("Neu-Ulm", 13.0, -1, Double.NaN, Double.NaN, -1, 0))
+        assertEquals("", HomeBriefText.weatherLine("Neu-Ulm", Double.NaN, 2, 17.0, 9.0, 2, 0))
+        assertEquals("13° clear\nnext   Danke  ·  thank you", HomeBriefText.more("13° clear", listOf("next   Danke  ·  thank you", "")))
+        assertEquals("", HomeBriefText.more("", emptyList()))
+    }
+
     @Test fun theWidgetsFootAbroad() {
         assertEquals("BTC 65,000 +1.2% · ETH 3,250 -0.4%\nnews · Ferries halted in a storm", HomeBriefText.foot("BTC 65,000 +1.2% · ETH 3,250 -0.4%", "Ferries halted in a storm"))
         assertEquals("BTC 65,000 +1.2%", HomeBriefText.foot("BTC 65,000 +1.2%", " "))

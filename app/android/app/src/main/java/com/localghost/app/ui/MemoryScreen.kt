@@ -86,7 +86,7 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                 }
                 if (row.body.isNotBlank()) {
                     Spacer(Modifier.height(14.dp))
-                    Text(row.body, color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                    Text(row.body, color = if (row.kind == "user" || row.edited) JournalInk else GhostText, style = MaterialTheme.typography.bodyMedium)
                 }
                 // what it was made from: an outing's or a day's facts, as synthd kept them
                 row.meta?.let { meta ->

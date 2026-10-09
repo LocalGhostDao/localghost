@@ -142,7 +142,7 @@ func (p PKI) IssueDeviceCert(name string) (certPEM, keyPEM string, err error) {
 		// mTLS, but keeping the CN generic avoids leaking the enrolment scheme if one is ever inspected.
 		Subject:      pkix.Name{CommonName: name},
 		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(10, 0, 0),
+		NotAfter:     time.Now().Add(QRCertLife),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
@@ -181,7 +181,7 @@ func (p PKI) IssueDeviceCertDER(name string) (certDER, keyDER []byte, err error)
 		// mTLS, but keeping the CN generic avoids leaking the enrolment scheme if one is ever inspected.
 		Subject:      pkix.Name{CommonName: name},
 		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(10, 0, 0),
+		NotAfter:     time.Now().Add(QRCertLife),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}

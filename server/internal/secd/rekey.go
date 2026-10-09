@@ -9,13 +9,22 @@ package secd
 // photographed QR is then worth nothing.
 //
 //   POST /v1/device/rekey          {"spki": base64 DER, "sig": base64 ECDSA-SHA256 over
-//                                   "localghost rekey v1\n" + the spki bytes}
+//                                   "localghost rekey v2\n" + hex SHA-256 of the presented
+//                                   certificate's DER + "\n" + the spki bytes; v1 signed the
+//                                   message and the spki alone and is still read}
 //                                  , a certificate for that key, same name as the one presented
 //   POST /v1/device/rekey/confirm  over the NEW certificate: the old one retired, the phone's data
 //                                  (its trail key, sync and notification positions) moved to the new
 //
 // The pending hand-over and the retired list live on the OS disk (<state>/devices), root's and 0600,
 // so a retired certificate is refused even while the box is locked. They hold fingerprints only.
+//
+// THE SAME DANCE EVERY DAY. A certificate is good for two weeks (debian.DeviceCertLife), and a
+// phone that unlocks asks for a new one once a day (its own new key each time): the rekey above,
+// again. A phone in use never sees the end of its certificate; a phone left two weeks does, and
+// nginx refuses its handshake, and the person scans a fresh QR. The retired list keeps each
+// retired certificate's expiry beside its id and forgets it once it has passed, so a year of
+// daily renewals leaves no trace but the one certificate in use.
 
 import (
 	"bufio"
@@ -37,14 +46,20 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/setup/debian"
 )
 
 const rekeyMessage = "localghost rekey v1\n"
+
+// rekeyMessageV2 binds the proof to the certificate the phone presents (its DER's SHA-256, hex,
+// then a newline, then the spki): a proof captured from one phone is no proof from another.
+const rekeyMessageV2 = "localghost rekey v2\n"
 
 // defaultCaDir is where setup keeps the box CA (box-ca.pem, box-ca-key.pem).
 const defaultCaDir = "/etc/ghost/ca"
@@ -86,25 +101,63 @@ type retiredCerts struct {
 	mu     sync.Mutex
 	path   string
 	loaded bool
-	ids    map[string]bool
+	ids    map[string]int64 // id → when the certificate expires (0: never forgotten, the operator's retirements)
 }
 
+// load reads the list: one id a line, with the certificate's expiry after a space where the
+// retirement came from a renewal. An entry whose certificate has expired is dropped (nginx
+// refuses the certificate itself by then) and the file written again without it.
 func (rc *retiredCerts) load() {
 	if rc.loaded {
 		return
 	}
 	rc.loaded = true
-	rc.ids = map[string]bool{}
+	rc.ids = map[string]int64{}
 	f, err := os.Open(rc.path)
 	if err != nil {
 		return
 	}
-	defer f.Close()
 	sc := bufio.NewScanner(f)
+	now := time.Now().Unix()
+	dropped := false
 	for sc.Scan() {
-		if id := strings.TrimSpace(sc.Text()); len(id) == 64 || len(id) == 16 {
-			rc.ids[id] = true
+		fields := strings.Fields(sc.Text())
+		if len(fields) == 0 {
+			continue
 		}
+		id := fields[0]
+		if len(id) != 64 && len(id) != 16 {
+			continue
+		}
+		var exp int64
+		if len(fields) > 1 {
+			exp, _ = strconv.ParseInt(fields[1], 10, 64)
+		}
+		if exp > 0 && exp < now {
+			dropped = true
+			continue
+		}
+		rc.ids[id] = exp
+	}
+	f.Close()
+	if dropped {
+		rc.rewrite()
+	}
+}
+
+// rewrite writes the list as it stands (after expired entries went).
+func (rc *retiredCerts) rewrite() {
+	var sb strings.Builder
+	for id, exp := range rc.ids {
+		sb.WriteString(id)
+		if exp > 0 {
+			sb.WriteString(" " + strconv.FormatInt(exp, 10))
+		}
+		sb.WriteString("\n")
+	}
+	tmp := rc.path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(sb.String()), 0o600); err == nil {
+		_ = os.Rename(tmp, rc.path)
 	}
 }
 
@@ -173,14 +226,21 @@ func (rc *retiredCerts) has(id string) bool {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	rc.load()
-	return rc.ids[id] || (len(id) > 16 && rc.ids[id[:16]])
+	_, ok := rc.ids[id]
+	if !ok && len(id) > 16 {
+		_, ok = rc.ids[id[:16]]
+	}
+	return ok
 }
 
-func (rc *retiredCerts) add(id string) error {
+// add retires an id for good; addUntil retires a certificate until it expires anyway.
+func (rc *retiredCerts) add(id string) error { return rc.addUntil(id, 0) }
+
+func (rc *retiredCerts) addUntil(id string, expires int64) error {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 	rc.load()
-	if rc.ids[id] {
+	if _, ok := rc.ids[id]; ok {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(rc.path), 0o700); err != nil {
@@ -190,7 +250,11 @@ func (rc *retiredCerts) add(id string) error {
 	if err != nil {
 		return err
 	}
-	_, werr := f.WriteString(id + "\n")
+	line := id
+	if expires > 0 {
+		line += " " + strconv.FormatInt(expires, 10)
+	}
+	_, werr := f.WriteString(line + "\n")
 	serr := f.Sync()
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
@@ -201,7 +265,7 @@ func (rc *retiredCerts) add(id string) error {
 	if serr != nil {
 		return serr
 	}
-	rc.ids[id] = true
+	rc.ids[id] = expires
 	return nil
 }
 
@@ -212,6 +276,7 @@ type rekeyPending struct {
 	OldID  string `json:"oldId"`  // certID of the certificate being replaced
 	OldDev string `json:"oldDev"` // its device key (where the phone's data is filed)
 	At     int64  `json:"at"`
+	OldExp int64  `json:"oldExp,omitempty"` // when the old certificate expires: the retired list forgets it then
 }
 
 func (s *Server) devicesDir() string { return filepath.Join(s.cfg.StateDir, "devices") }
@@ -266,15 +331,16 @@ func issueDeviceCert(ca *x509.Certificate, caKey crypto.Signer, name string, pub
 		SerialNumber: sn,
 		Subject:      pkix.Name{CommonName: name},
 		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().AddDate(10, 0, 0),
+		NotAfter:     time.Now().Add(debian.DeviceCertLife),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 	}
 	return x509.CreateCertificate(rand.Reader, tmpl, ca, pub, caKey)
 }
 
-// verifyRekeyProof: the phone signed the message with the key it asks a certificate for.
-func verifyRekeyProof(spkiB64, sigB64 string) (*ecdsa.PublicKey, error) {
+// verifyRekeyProof: the phone signed the message with the key it asks a certificate for, bound
+// to the certificate it presents (v2) or not (v1, read for the apps before 10 October 2026).
+func verifyRekeyProof(spkiB64, sigB64 string, presented []byte) (*ecdsa.PublicKey, error) {
 	spki, err1 := base64.StdEncoding.DecodeString(spkiB64)
 	sig, err2 := base64.StdEncoding.DecodeString(sigB64)
 	if err1 != nil || err2 != nil || len(spki) == 0 || len(sig) == 0 {
@@ -288,11 +354,15 @@ func verifyRekeyProof(spkiB64, sigB64 string) (*ecdsa.PublicKey, error) {
 	if !ok || pub.Curve != elliptic.P256() {
 		return nil, errors.New("a device key is ECDSA P-256")
 	}
-	h := sha256.Sum256(append([]byte(rekeyMessage), spki...))
-	if !ecdsa.VerifyASN1(pub, h[:], sig) {
-		return nil, errors.New("the proof does not verify")
+	v2 := sha256.Sum256(append([]byte(rekeyMessageV2+derID(presented)+"\n"), spki...))
+	if ecdsa.VerifyASN1(pub, v2[:], sig) {
+		return pub, nil
 	}
-	return pub, nil
+	v1 := sha256.Sum256(append([]byte(rekeyMessage), spki...))
+	if ecdsa.VerifyASN1(pub, v1[:], sig) {
+		return pub, nil
+	}
+	return nil, errors.New("the proof does not verify")
 }
 
 // handleRekey , POST /v1/device/rekey , see the top of this file.
@@ -314,7 +384,7 @@ func (s *Server) handleRekey(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
-	pub, err := verifyRekeyProof(req.SPKI, req.Sig)
+	pub, err := verifyRekeyProof(req.SPKI, req.Sig, old.Raw)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -333,7 +403,7 @@ func (s *Server) handleRekey(w http.ResponseWriter, r *http.Request) {
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	newID := derID(der)
-	p, _ := json.Marshal(rekeyPending{OldID: certID(r), OldDev: deviceKeyFromRequest(r), At: time.Now().Unix()})
+	p, _ := json.Marshal(rekeyPending{OldID: certID(r), OldDev: deviceKeyFromRequest(r), At: time.Now().Unix(), OldExp: old.NotAfter.Unix()})
 	dir := filepath.Join(s.devicesDir(), "pending")
 	if err := os.MkdirAll(dir, 0o700); err == nil {
 		err = os.WriteFile(filepath.Join(dir, newID+".json"), p, 0o600)
@@ -345,8 +415,8 @@ func (s *Server) handleRekey(w http.ResponseWriter, r *http.Request) {
 	}
 	prunePending(dir, 7*24*time.Hour)
 	secdLog.Info("device key rotated: new certificate issued, the old one retires when the phone confirms", "fn", "handleRekey",
-		"device", deviceKeyFromRequest(r))
-	writeJSON(w, map[string]any{"ok": true, "cert": string(certPEM)})
+		"device", deviceKeyFromRequest(r), "goodFor", debian.DeviceCertLife.String())
+	writeJSON(w, map[string]any{"ok": true, "cert": string(certPEM), "lifeDays": int(debian.DeviceCertLife.Hours() / 24), "renewAfterHours": int(debian.DeviceCertRenewAfter.Hours())})
 }
 
 // handleRekeyConfirm , POST /v1/device/rekey/confirm , over the new certificate.
@@ -376,7 +446,8 @@ func (s *Server) handleRekeyConfirm(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
-	if err := s.retired.add(p.OldID); err != nil {
+	// the old certificate is refused from now until it expires anyway, then forgotten
+	if err := s.retired.addUntil(p.OldID, p.OldExp); err != nil {
 		secdLog.Warn("device rekey: old certificate not retired", "fn", "handleRekeyConfirm", "err", err)
 		s.appearsDown(w)
 		return

@@ -20,6 +20,11 @@ class PollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         try { BoxClient.reportNet(applicationContext) } catch (_: Exception) {}
         // the lock-screen card's home brief: the news the box picked and the prices, every quarter hour
         try { com.localghost.app.phrases.HomeBrief.fetch(applicationContext) } catch (_: Exception) {}
+        // the phone's certificate, renewed from here too once it is a day old: a phone that only
+        // polls in the background keeps its door open as long as its session lasts
+        if (com.localghost.app.net.DeviceCert.renewDue(applicationContext)) {
+            try { com.localghost.app.net.DeviceCert.rotateIfNeeded(applicationContext) } catch (_: Exception) {}
+        }
         return try {
             Notifications.postBatch(applicationContext, BoxClient.pollPending(applicationContext))
             Result.success()

@@ -62,6 +62,12 @@ fun SettingsScreen(
                  color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(16.dp))
             Spacer(Modifier.height(8.dp))
+            // THIS PHONE'S KEY: made when, good until when, renewed at each unlock once a day old
+            com.localghost.app.net.DeviceCert.dates(ctx)?.let { d ->
+                Spacer(Modifier.height(8.dp))
+                Text(CertText.line(d.notBefore, d.notAfter, System.currentTimeMillis()), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(16.dp))
+            }
             GhostButton("VERIFY THIS APP ✓", onOpenVerify, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
             Text("Shows this app's commit, its signing certificate and the source manifest, to check " +

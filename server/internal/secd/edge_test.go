@@ -5,9 +5,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -197,8 +199,11 @@ func TestEdgeKeepsNamesAndRetirements(t *testing.T) {
 	}
 	seen = ""
 	get(t, e.client(e.phone), "https://"+addr+"/x", nil)
-	if seen != sha256Hex(odd) || dev != sha256Hex(odd)[:16] {
-		t.Fatalf("over TLS the phone is %s/%s, want the name nginx gave it %s", seen, dev, sha256Hex(odd))
+	// the certificate keeps the name nginx gave it; the device key is the public key's (devicekey.go)
+	pc, _ := x509.ParseCertificate(e.phoneDER)
+	spkiSum := sha256.Sum256(pc.RawSubjectPublicKeyInfo)
+	if seen != sha256Hex(odd) || dev != hex.EncodeToString(spkiSum[:8]) {
+		t.Fatalf("over TLS the phone is %s/%s, want the name nginx gave it %s and the key's device key", seen, dev, sha256Hex(odd))
 	}
 	// the names survive a restart
 	s2, _ := New(Config{StateDir: e.state, CaDir: e.caDir, EdgeFile: e.s.edgeFile()})

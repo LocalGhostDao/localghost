@@ -1328,6 +1328,12 @@ class MainActivity : ComponentActivity() {
 
     private fun passBiometric() {
         error = null
+        // a certificate two weeks past its last unlock: the box's door refuses it, so say it here
+        // rather than let the PIN fail against a closed door; the re-enrol row below is the way in
+        if (DeviceCert.expired(this)) {
+            error = "this phone's key ran out: it is renewed once a day while the phone talks to the box, and two weeks went by without that. Scan the box's QR to enrol it again"
+            return
+        }
         if (!AppLock.deviceAuthAvailable(this)) { screen = Screen.Pin; return }
         // RECENT DEVICE UNLOCK SKIPS THE PROMPT. The gate key carries a 10s auth window, and the
         // phone's own lockscreen unlock opens it , so "unlocked my phone onto the app" goes straight
