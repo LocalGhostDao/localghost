@@ -214,10 +214,6 @@ fun MainShell(
     val orientation = LocalConfiguration.current.orientation
     LaunchedEffect(orientation) { drawerState.close() }
 
-    BackHandler(enabled = drawerState.isOpen || dest != Dest.HOME) {
-        if (drawerState.isOpen) close() else goBack()
-    }
-
     // WHERE BACK GOES, one answer for the system key and the TopBar's ‹: a page opened from another
     // returns there (a coin to its list, a day or a memory or a notification to what opened it, a
     // page SOURCES opened to SOURCES), the rest to HOME
@@ -231,6 +227,10 @@ fun MainShell(
             Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.MAP -> { dest = if (fromSources) Dest.SOURCES else Dest.HOME; fromSources = false }
             else -> dest = Dest.HOME
         }
+    }
+
+    BackHandler(enabled = drawerState.isOpen || dest != Dest.HOME) {
+        if (drawerState.isOpen) close() else goBack()
     }
 
     ModalNavigationDrawer(

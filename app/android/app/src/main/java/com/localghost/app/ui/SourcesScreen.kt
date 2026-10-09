@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.localghost.app.net.BoxClient
+import com.localghost.app.ui.theme.*
 import kotlinx.coroutines.launch
 
 /**
@@ -86,9 +87,8 @@ fun SourcesScreen(onOpen: (String) -> Unit, onFeeds: () -> Unit) {
             d == null && failed -> ErrorLine("the box did not answer , is it unlocked?")
             d == null -> LoadingRow()
             else -> d.sources.forEach { src ->
-                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp).border(1.dp, GhostBorder, RectangleShape)
-                    .then(if (src.open.isNotEmpty()) Modifier.clickable { onOpen(src.open) } else Modifier)
-                    .padding(12.dp)) {
+                val frame = Modifier.fillMaxWidth().padding(vertical = 6.dp).border(1.dp, GhostBorder, RectangleShape)
+                Column((if (src.open.isNotEmpty()) frame.clickable { onOpen(src.open) } else frame).padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(SourcesText.mark(src.state), color = stateColour(src.state), style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(end = 10.dp))

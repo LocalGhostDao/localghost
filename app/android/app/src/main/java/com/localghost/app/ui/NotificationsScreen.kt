@@ -40,7 +40,7 @@ fun NotificationsScreen(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var history by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<Loadable<List<PendingNotification>>>(Loadable.Loading) }
-    var armed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") } // the notification whose ✕ was tapped once
+    var armed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableLongStateOf(0L) } // the notification whose ✕ was tapped once
     androidx.compose.runtime.LaunchedEffect(Unit) {
         val h = BoxClient.notificationHistory(ctx)
         history = if (h == null) Loadable.Failed("the box did not answer (locked, or the session expired)") else Loadable.Loaded(h)
@@ -95,7 +95,7 @@ fun NotificationsScreen(
                         Text(if (arm) "  [ delete? ]" else "  ✕", color = if (arm) Warning else TerminalDim, style = MaterialTheme.typography.labelMedium,
                             modifier = Modifier.clickable {
                                 if (!arm) { armed = n.id; return@clickable }
-                                armed = ""
+                                armed = 0L
                                 scope.launch {
                                     if (BoxClient.notificationDelete(ctx, n.id)) history = Loadable.Loaded(h.value.filter { it.id != n.id })
                                 }
