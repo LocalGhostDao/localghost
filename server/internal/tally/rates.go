@@ -594,16 +594,30 @@ func (r RatesResult) String() string {
 		parts = append(parts, fmt.Sprintf("ECB %d day(s) to %s", r.FXDays, r.FXDay))
 	}
 	if len(r.Index) > 0 {
-		var syms []string
-		for s := range r.Index {
-			syms = append(syms, s)
+		// a count and the three everyone looks for, not every coin: the whole list is the ctl's
+		// (ghost-cli ghost.tallyd rates) and the COIN pages'
+		lo, hi, thin := 0, 0, 0
+		for _, ix := range r.Index {
+			if lo == 0 || ix.N < lo {
+				lo = ix.N
+			}
+			if ix.N > hi {
+				hi = ix.N
+			}
+			if ix.N < 2 {
+				thin++
+			}
 		}
-		sort.Strings(syms)
-		var ix []string
-		for _, s := range syms {
-			ix = append(ix, fmt.Sprintf("%s %.2f/%d", s, r.Index[s].Price, r.Index[s].N))
+		line := fmt.Sprintf("%d coins blended from %d to %d venues each", len(r.Index), lo, hi)
+		if thin > 0 {
+			line += fmt.Sprintf(" (%d from one)", thin)
 		}
-		parts = append(parts, strings.Join(ix, " "))
+		for _, s := range []string{"BTC", "ETH", "SOL"} {
+			if ix, ok := r.Index[s]; ok {
+				line += " · " + s + " " + priceWord(ix.Price)
+			}
+		}
+		parts = append(parts, line)
 	}
 	if r.Candles > 0 {
 		parts = append(parts, fmt.Sprintf("%d candles, %d days indexed", r.Candles, r.DaysIndex))
@@ -618,4 +632,18 @@ func (r RatesResult) String() string {
 		return "nothing usable in the batch"
 	}
 	return strings.Join(parts, " · ")
+}
+
+// priceWord is a price as the status line says it: whole dollars with a thousands separator
+// above a hundred, two decimals below.
+func priceWord(p float64) string {
+	if p < 100 {
+		return fmt.Sprintf("%.2f", p)
+	}
+	n := int64(p + 0.5)
+	s := fmt.Sprintf("%d", n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }

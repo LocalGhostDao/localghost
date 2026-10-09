@@ -51,4 +51,10 @@ class HomeBriefTextTest {
             HomeBriefText.expanded(cards, 0, "BTC 65,000 +1.2%", "14:05"))
         assertEquals("FT · 2 h ago\n\nnext   Three\nthen   One", HomeBriefText.expanded(cards, 1, "", ""))
     }
+
+    @Test fun theWidgetsFootAbroad() {
+        assertEquals("BTC 65,000 +1.2% · ETH 3,250 -0.4%\nnews · Ferries halted in a storm", HomeBriefText.foot("BTC 65,000 +1.2% · ETH 3,250 -0.4%", "Ferries halted in a storm"))
+        assertEquals("BTC 65,000 +1.2%", HomeBriefText.foot("BTC 65,000 +1.2%", " "))
+        assertEquals("", HomeBriefText.foot("", ""))
+    }
 }

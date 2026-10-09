@@ -126,6 +126,12 @@ func wikiImportLoop(ctx context.Context, mount string, lg *slog.Logger) {
 				open.Close()
 				open = nil
 			}
+			// no file and no state, but the tables full: the state was lost after the import
+			// (wiki again=1 after it finished, or a settings row gone); it comes back from the tables
+			if st, did := s.Recover(dir); did {
+				indexed = false // seen to on the next tick, with the state done
+				lg.Info("the Wikipedia import's state was rebuilt from the tables", "fn", "wikiImportLoop", "edition", st.Edition, "articles", st.Articles, "redirects", st.Redirects)
+			}
 			continue
 		}
 		if open != nil && open.Path != path {
@@ -232,6 +238,10 @@ func wikiStatus() hw.SynthWiki {
 		return st
 	}
 	is := s.State()
+	if is.Total == 0 && !is.Done {
+		// a full Wikipedia behind a lost state is said as ready, not missing (and the state put back)
+		is, _ = s.Recover(wikiDirOf(wikiMount))
+	}
 	st.Name, st.File, st.Articles, st.Redirects, st.Next, st.Total, st.Error = is.Edition, is.File, is.Articles, is.Redirects, int64(is.Read()), int64(is.Total), is.Error
 	path, haveFile := wiki.Find(wikiDirOf(wikiMount))
 	switch {

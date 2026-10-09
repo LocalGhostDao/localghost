@@ -5397,3 +5397,17 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   NotificationScreen's day view still spin on a failed load; a sub-page reached from a
   notification returns HOME rather than NOTIFICATIONS in two cases; the enrol flow could hold
   the arrival until the box answers rather than moving on to Setup.
+
+## 9 October 2026, evening , widget foot, expanded order, wiki state recovery, tallyd line
+
+- PhraseSurface: the abroad head drops the prices; a w_foot TextView (widget_phrase.xml, under
+  the buttons, GONE when empty or the head is hidden) carries HomeBriefText.foot(prices, aside)
+  (tested). expanded(): prices and the story before next/then; the count line short and last.
+- wiki.Store.Recover(dir): with no state (Total 0, not Done), no file in dir and rows in the
+  tables, writes a Done+Removed state from Counts() and the .imported marker (file, edition);
+  tested in TestStorePGImportsInParallel. synthd: the import loop calls it when no file is found
+  (indexed reset so EnsureIndexes runs next tick); wikiStatus calls it before reading the state.
+  WikiText.state: "missing"/"" → "none on the box · SOURCES › Wikipedia …", any other state is
+  shown as said.
+- tally.RatesResult.String(): the index block is a count, the venue spread, the one-venue
+  count, and BTC/ETH/SOL (priceWord); the per-coin list is no longer in the health line.

@@ -51,6 +51,15 @@ object HomeBriefText {
     /** The prices one a line, for the widget's big line: "BTC 65,000 +1.2%" over "ETH 3,250 -0.4%". */
     fun stacked(prices: String): String = prices.replace(" · ", "\n")
 
+    /** The widget's foot abroad: the prices with their changes on one line, the top story on the
+     *  next; "" with neither. */
+    fun foot(prices: String, story: String): String {
+        val lines = ArrayList<String>(2)
+        if (prices.isNotBlank()) lines.add(prices.trim())
+        if (story.isNotBlank()) lines.add("news · " + story.trim())
+        return lines.joinToString("\n")
+    }
+
     /** The status-bar chip: "BTC 65.0k" (a live update's chip has room for a few characters). */
     fun chip(prices: List<Price>): String {
         val b = prices.firstOrNull { it.symbol == "BTC" && it.usd > 0 } ?: return ""

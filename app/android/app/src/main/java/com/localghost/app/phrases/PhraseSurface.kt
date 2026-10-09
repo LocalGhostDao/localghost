@@ -367,6 +367,14 @@ object PhraseSurface {
         if (card.roman.isNotEmpty()) sb.append("  ·  ").append(card.roman)
         sb.append('\n').append(card.en)
         if (card.note.isNotEmpty()) sb.append('\n').append("· ").append(card.note)
+        // the box's brief, a glance away from the word: the prices, the day's top story. Before
+        // the next cards and the count: the OS cuts a long big text at the bottom, and these are
+        // what a glance wants
+        if (snap.extra.isNotEmpty() || snap.aside.isNotEmpty()) {
+            sb.append('\n')
+            if (snap.extra.isNotEmpty()) sb.append('\n').append(snap.extra)
+            if (snap.aside.isNotEmpty()) sb.append('\n').append("news   ").append(snap.aside)
+        }
         val n = snap.cards.size
         if (n > 1) {
             sb.append('\n')
@@ -378,15 +386,10 @@ object PhraseSurface {
             }
         }
         if (snap.total > 0) {
-            sb.append('\n').append(snap.known).append(" of ").append(snap.total).append(" known")
-            sb.append(" · level ").append(snap.band).append(", ").append(Levels.name(snap.band))
-            sb.append(" · ").append(index + 1).append('/').append(n).append(' ').append(snap.headline.substringBefore(" ·").lowercase())
-        }
-        // the box's brief, a glance away from the word: the prices, the day's top story
-        if (snap.extra.isNotEmpty() || snap.aside.isNotEmpty()) {
-            sb.append('\n')
-            if (snap.extra.isNotEmpty()) sb.append('\n').append(snap.extra)
-            if (snap.aside.isNotEmpty()) sb.append('\n').append("news   ").append(snap.aside)
+            // one short line, last: it is the least of what a glance wants
+            sb.append('\n').append(snap.known).append('/').append(snap.total).append(" known")
+            sb.append(" · level ").append(snap.band).append(' ').append(Levels.name(snap.band))
+            sb.append(" · ").append(index + 1).append('/').append(n)
         }
         return sb.toString()
     }
@@ -441,12 +444,17 @@ object PhraseSurface {
             rv.setTextViewText(R.id.w_en, "tap to choose")
         } else {
             val progress = if (snap.total > 0) " · ${snap.known}/${snap.total}" else ""
-            val prices = if (snap.extra.isNotEmpty()) " · " + HomeBriefText.short(snap.extra) else ""
-            rv.setTextViewText(R.id.w_head, "› ${snap.headline.lowercase()} · ${snap.lang}$progress$prices")
+            rv.setTextViewText(R.id.w_head, "› ${snap.headline.lowercase()} · ${snap.lang}$progress")
             rv.setTextViewText(R.id.w_local, card.local)
             rv.setTextViewText(R.id.w_say, card.say + (if (card.roman.isNotEmpty()) "  ·  " + card.roman else ""))
             rv.setTextViewText(R.id.w_en, card.en)
         }
+        // THE FOOT, abroad: the box's brief under the buttons (the prices in short, the day's top
+        // story), where the head used to run out of room. At home the prices are the big line.
+        val foot = if (snap.home || card == null) "" else HomeBriefText.foot(snap.extra, snap.aside)
+        rv.setTextViewText(R.id.w_foot, foot)
+        rv.setViewVisibility(R.id.w_foot, if (foot.isEmpty() || !look.showHead) android.view.View.GONE else android.view.View.VISIBLE)
+        rv.setTextColor(R.id.w_foot, look.accentDim)
         // THE LOOK. Opacity is the background layer's image alpha (the one RemoteViews-settable
         // alpha there is); sizes in sp; lines shown or GONE (GONE so the ones left close up);
         // the tint on everything phosphor. The card text stays its own grey , the words are the
@@ -456,7 +464,7 @@ object PhraseSurface {
         rv.setTextViewTextSize(R.id.w_local, android.util.TypedValue.COMPLEX_UNIT_SP, sz[0].toFloat())
         rv.setTextViewTextSize(R.id.w_say, android.util.TypedValue.COMPLEX_UNIT_SP, sz[1].toFloat())
         rv.setTextViewTextSize(R.id.w_en, android.util.TypedValue.COMPLEX_UNIT_SP, sz[2].toFloat())
-        for (id in intArrayOf(R.id.w_head, R.id.w_say_btn, R.id.w_next_btn, R.id.w_got_btn)) {
+        for (id in intArrayOf(R.id.w_head, R.id.w_foot, R.id.w_say_btn, R.id.w_next_btn, R.id.w_got_btn)) {
             rv.setTextViewTextSize(id, android.util.TypedValue.COMPLEX_UNIT_SP, sz[3].toFloat())
         }
         rv.setViewVisibility(R.id.w_head, if (look.showHead) android.view.View.VISIBLE else android.view.View.GONE)

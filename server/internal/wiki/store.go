@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -144,6 +145,41 @@ func (s *Store) DropIndexes() error {
 func (s *Store) Ready() (ImportState, bool) {
 	st := s.State()
 	return st, st.Done && st.Articles > 0
+}
+
+// Recover rebuilds a lost import state from what the box holds: a state wiped (`wiki again=1`
+// after the import had finished, or a settings row gone) left a full Wikipedia reported as
+// missing and unread by the chat. With no state, no file in dir to import, and articles in the
+// tables, the state is written again as done, the file's name and the edition from the
+// .imported marker the import leaves beside where the file was. It says whether it did.
+func (s *Store) Recover(dir string) (ImportState, bool) {
+	st := s.State()
+	if st.Total > 0 || st.Done {
+		return st, false
+	}
+	if _, ok := Find(dir); ok {
+		return st, false // a file to import: the next slice starts it, nothing to recover
+	}
+	a, r := s.Counts()
+	if a == 0 {
+		return st, false
+	}
+	st = ImportState{Articles: a, Redirects: r, Done: true, Removed: true, DoneAt: time.Now().Unix()}
+	if b, err := os.ReadFile(filepath.Join(dir, ".imported")); err == nil {
+		if f := strings.Fields(string(b)); len(f) >= 1 {
+			st.File = f[0]
+			if len(f) >= 3 {
+				st.Edition = strings.Join(f[2:], " ")
+			}
+		}
+	}
+	if st.Edition == "" {
+		st.Edition = "Wikipedia"
+	}
+	if err := s.Save(st); err != nil {
+		return st, false
+	}
+	return st, true
 }
 
 // Current says whether the import's state is this file's (done or under way).

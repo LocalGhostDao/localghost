@@ -313,6 +313,32 @@ func TestStorePGImportsInParallel(t *testing.T) {
 	if !st.Done || len(st.Shards) != 1 || st.Shards[0].Next != st.Total || st.Articles >= 7 || st.Articles == 0 {
 		t.Fatalf("resumed %+v", st)
 	}
+	// a state wiped after a finished import, the file gone: the state comes back from the tables
+	// and the marker, so the box says ready and the chat reads it
+	if err := s.Save(ImportState{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Ready(); ok {
+		t.Fatal("ready with a wiped state")
+	}
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, ".imported"), []byte("wikipedia_en_all_nopic_2026-06.zim abc Wikipedia, 2026-06\n"), 0o640)
+	st, did := s.Recover(dir)
+	if !did || !st.Done || !st.Removed || st.Articles == 0 || st.Edition != "Wikipedia, 2026-06" || st.File != "wikipedia_en_all_nopic_2026-06.zim" {
+		t.Fatalf("recovered %+v %v", st, did)
+	}
+	if _, ok := s.Ready(); !ok {
+		t.Fatal("not ready after the recovery")
+	}
+	// nothing in the tables, or a state already there: nothing to recover
+	if _, did := s.Recover(dir); did {
+		t.Fatal("recovered over a state")
+	}
+	_ = db.Exec("DELETE FROM wiki_articles")
+	_ = s.Save(ImportState{})
+	if _, did := s.Recover(dir); did {
+		t.Fatal("recovered from empty tables")
+	}
 	if n := Shards(10, 4); len(n) != 4 || n[0].To != 2 || n[3].From != 6 || n[3].To != 10 {
 		t.Fatalf("%+v", n)
 	}
