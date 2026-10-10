@@ -94,6 +94,9 @@ type Model struct {
 	// pulled only while the phone's last fix is in its domain, since its only use is the
 	// forecast where the person is and the cells around them.
 	Regional bool
+	// Keyed marks a model behind a key the person adds (the Met Office's): pulled only when
+	// the box has one.
+	Keyed bool
 	// Terms is the data's licence line for the notice and the card.
 	Terms  string
 	layout layout

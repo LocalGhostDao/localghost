@@ -32,10 +32,17 @@ private val metricLabels = mapOf(
     "distance_km" to "distance", "active_calories" to "active kcal", "floors" to "floors",
     "hr_avg" to "heart rate (avg)", "hr_min" to "heart rate (min)", "hr_max" to "heart rate (max)",
     "weight_kg" to "weight",
+    "sleep_deep_minutes" to "deep sleep", "sleep_light_minutes" to "light sleep", "sleep_rem_minutes" to "REM sleep",
+    "sleep_awake_minutes" to "awake in bed", "resting_hr" to "resting heart rate", "hrv_ms" to "heart rate variability",
+    "spo2_pct" to "blood oxygen", "resp_rate" to "breathing rate", "vo2max" to "VO2 max", "body_fat_pct" to "body fat",
 )
 
 private fun fmtVal(metric: String, v: Double): String = when (metric) {
-    "sleep_minutes" -> "${(v / 60).toInt()}h${"%02d".format((v % 60).toInt())}m"
+    "sleep_minutes", "sleep_deep_minutes", "sleep_light_minutes", "sleep_rem_minutes", "sleep_awake_minutes" -> "${(v / 60).toInt()}h${"%02d".format((v % 60).toInt())}m"
+    "spo2_pct", "body_fat_pct" -> "%.0f%%".format(v)
+    "hrv_ms" -> "%.0f ms".format(v)
+    "resp_rate" -> "%.1f/min".format(v)
+    "vo2max" -> "%.1f".format(v)
     "distance_km" -> "%.1f km".format(v)
     "weight_kg" -> "%.1f kg".format(v)
     "exercise_minutes" -> "${v.toInt()}m"
@@ -74,8 +81,9 @@ fun HealthScreen() {
                     color = TerminalDim, style = MaterialTheme.typography.bodyMedium)
             }
             else -> {
-                val order = listOf("steps", "sleep_minutes", "exercise_minutes", "distance_km",
-                    "active_calories", "floors", "hr_avg", "hr_max", "hr_min", "weight_kg")
+                val order = listOf("steps", "sleep_minutes", "sleep_deep_minutes", "sleep_light_minutes", "sleep_rem_minutes", "sleep_awake_minutes",
+                    "exercise_minutes", "distance_km", "active_calories", "floors", "resting_hr", "hr_avg", "hr_max", "hr_min", "hrv_ms",
+                    "spo2_pct", "resp_rate", "vo2max", "weight_kg", "body_fat_pct")
                 // "calories" was Health Connect's resting estimate (a constant), not a measurement
                 val sorted = series!!.filter { it.values.isNotEmpty() && it.metric != "calories" }
                     .sortedBy { order.indexOf(it.metric).let { i -> if (i < 0) 99 else i } }

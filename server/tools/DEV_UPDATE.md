@@ -5743,3 +5743,39 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   for 10 GB, 130,000 calls a day on paid tiers); its API docs are behind the login, so the
   pull waits for a key holder's view of it (docs/WEATHER.md says how to get one).
 
+## 10 October 2026 , the Met Office key, the health diagnostics, honest health lines
+
+- nwp/metoffice.go: the DataHub atmospheric API as remembered (`MetOfficeBase`
+  `/orders/<order>/latest`, `/orders/<order>/latest/<fileId>/data`, header `apikey`), the
+  listing parsed whatever wraps it (objects with fileId and runDateTime; the newest run's
+  files), fields told by their GRIB numbers (0/0 temperature, 0/6 dew point, 1/8|52|49|65
+  accumulations, 1/7|59 rates as one-hour buckets, 2/2|2/3 u/v, 2/1+2/0 speed and direction
+  turned into components, 6/1 cloud as a fraction or percent, 3/5|3/6 the ground). Model
+  "ukv": Regional, Keyed, domain the UK, hourly to 48 h, weight 1.3. Tested against a
+  stand-in server. The real endpoints are the first pull's test; a 404 names the address.
+- tallyd: the key and the order in the settings table (`weather_metoffice_key`, `_order`),
+  set from the ctl's `metoffice` argument, read each pass; `hw.HomeGuess` (the trail's
+  nights at 01..05 by the sun's hour, the 0.02° cell with the most, 60 days, three nights
+  at least; PG test) for the order's region; `home` in the ctl answer. secd
+  `/v1/weather/metoffice` GET/POST. App: SETTINGS › YOUR BOX › MET OFFICE (key masked, order,
+  SAVE/FORGET, the state line and the home line; `MetOfficeState`, `SettingsText`, tested).
+- Health: `HealthDiag` (sync/HealthSync.kt) builds the account (sdk, granted, missing, the
+  probe's lines, lastRun, samsungHealth, the verdict from `HealthVerdict`, pure and tested),
+  posted to secd `/v1/health/diag` after every sync (the worker too) and from SETTINGS ›
+  HEALTH; secd keeps `<mount>/tallyd/health_diag.json` and logs it; `ghost-cli ghost.tallyd
+  health` shows it as `phone`. New metrics: sleep_deep/light/rem/awake_minutes (the session's
+  stages, under the day it ends), resting_hr, hrv_ms, spo2_pct, resp_rate (day means), vo2max,
+  body_fat_pct; six new read permissions; HealthScreen labels and order.
+- ghosthealth.Cached(service, every, detail): a reporter whose line is made once a minute.
+  synthd (memories live, last pass), cued (cues this week), noted (journal entries, this
+  week), shadowd (observations) use it; the stub lines are gone.
+
+## 10 October 2026 , one signing key for every build
+
+- app/build.gradle.kts reads ~/.config/localghost/release.env (LG_KEYSTORE, LG_KEY_ALIAS,
+  LG_KEYSTORE_PASS, LG_KEY_PASS; the environment overrides) and, when the keystore and the
+  password are there, signs the debug and release build types with it (signingConfig
+  "localghost"); otherwise the debug key stays and the build prints why. The cut's apksigner
+  re-signs with the same key, so nothing changes there. BUILDING.md has the paragraph. Not run
+  here (no Gradle); the Kotlin DSL is plain.
+

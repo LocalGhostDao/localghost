@@ -216,13 +216,6 @@ func main() {
 			"nothing (cued stays silent); the query pipeline is live and ready for the index", "fn", "main")
 	}
 
-	srv := ghosthealth.NewServer(service, ghosthealth.ReporterFunc(func() ghosthealth.Health {
-		d := ""
-		if !engine.Ready() {
-			d = "index empty (corpus not built)"
-		}
-		return ghosthealth.Health{Code: ghosthealth.OK, Name: service, Detail: d}
-	}))
 	runDir := os.Getenv("GHOST_RUN_DIR")
 	if runDir == "" {
 		if ld := os.Getenv("GHOST_LOG_DIR"); ld != "" {
@@ -232,6 +225,29 @@ func main() {
 	if runDir != "" {
 		wikiMount = filepath.Dir(runDir) // the volume: its Wikipedia folder and database (wikipedia.go)
 	}
+	// THE HEALTH LINE says what the daemon has done, from the last pass's own record: the
+	// memories it keeps live and when it last ran. Until 10 October 2026 it said "index empty
+	// (corpus not built)", the line of the first week's query engine over an empty index, long
+	// after the memories, the days, the news and Wikipedia were real.
+	srv := ghosthealth.NewServer(service, ghosthealth.Cached(service, time.Minute, func() string {
+		if wikiMount == "" {
+			return "memories, days, people, the news and Wikipedia: no volume yet"
+		}
+		db := chatStore(wikiMount)
+		if db == nil {
+			return "the volume's database is not up"
+		}
+		live := "?"
+		if rows, err := db.Query("SELECT count(*) FROM memories WHERE NOT tombstoned"); err == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
+			live = *rows.Vals[0][0]
+		}
+		st, ok := hw.LoadSynthStatus(db)
+		if !ok {
+			return "memories " + live + " · the first pass runs ten minutes after unlock"
+		}
+		ago := time.Since(time.Unix(st.At, 0)).Round(time.Minute)
+		return "memories " + live + " · last pass " + ago.String() + " ago"
+	}))
 
 	// Streaming chat , the SAME seam as the ctlsock chat command (context gathered and injected
 	// here, transparency first on the wire), token-by-token. Event protocol downstream:

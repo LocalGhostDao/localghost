@@ -66,20 +66,39 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	srv := ghosthealth.NewServer(service, ghosthealth.OKReporter{Service: service})
-	go func() {
-		if err := srv.Serve(*port); err != nil {
-			lg.Error("health server stopped", "fn", "main", "err", err)
-		}
-	}()
-	// Control socket: base commands (ping/status/reload/log-level/commands) so ghost-cli and watchd
-	// can talk to this daemon. A stub has no service-specific commands yet; real logic adds its own.
 	runDir := os.Getenv("GHOST_RUN_DIR")
 	if runDir == "" {
 		if ld := os.Getenv("GHOST_LOG_DIR"); ld != "" {
 			runDir = filepath.Join(filepath.Dir(ld), "run")
 		}
 	}
+	// THE HEALTH LINE: the journal entries kept, and this week's; "stub ok" was the first
+	// week's line, from before the notes, the check-ins and the voice notes were real.
+	srv := ghosthealth.NewServer(service, ghosthealth.Cached(service, time.Minute, func() string {
+		if runDir == "" {
+			return "the notes, the check-ins and the voice notes: no volume yet"
+		}
+		mount := filepath.Dir(runDir)
+		cfg, err := hw.LoadServicesConfig(mount)
+		if err != nil {
+			return "the journal: the volume's database is not up"
+		}
+		db := poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
+		one := func(q string, args ...any) string {
+			rows, err := db.Query(q, args...)
+			if err != nil || len(rows.Vals) != 1 || rows.Vals[0][0] == nil {
+				return "?"
+			}
+			return *rows.Vals[0][0]
+		}
+		return "journal entries " + one("SELECT count(*) FROM journal_entries") + " · this week " +
+			one("SELECT count(*) FROM journal_entries WHERE ts > $1", time.Now().Add(-7*24*time.Hour).Unix())
+	}))
+	go func() {
+		if err := srv.Serve(*port); err != nil {
+			lg.Error("health server stopped", "fn", "main", "err", err)
+		}
+	}()
 	if runDir != "" {
 		ctl := ctlsock.NewServer(service, runDir, lg)
 		svcconf.BindBase(ctl, service, lvl, func() (svcconf.Base, map[string]string, error) {

@@ -865,3 +865,47 @@ func mapsDoc(mount string) sourceDoc {
 	}
 	return d
 }
+
+// handleWeatherMetOffice , GET and POST /v1/weather/metoffice , the Met Office key and order
+// for the box's own forecast (kept by tallyd in the vault; the key is never read back, only
+// whether one is set), the model's last pull, and where the box thinks home is, for the
+// order's region. POST {"key": "...", "order": "..."} sets them; a key of "" forgets them.
+func (s *Server) handleWeatherMetOffice(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || (r.Method != http.MethodGet && r.Method != http.MethodPost) {
+		s.appearsDown(w)
+		return
+	}
+	mounted, ok := s.mountedSlot()
+	if !ok {
+		s.appearsDown(w)
+		return
+	}
+	runDir := fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)
+	args := map[string]any{"home": true}
+	if r.Method == http.MethodPost {
+		var in struct {
+			Key   string `json:"key"`
+			Order string `json:"order"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		if len(in.Key) > 200 || len(in.Order) > 120 {
+			writeJSON(w, map[string]any{"ok": false, "why": "the key or the order is longer than any the DataHub gives"})
+			return
+		}
+		if in.Key != "" && in.Order == "" {
+			writeJSON(w, map[string]any{"ok": false, "why": "the order's name is wanted with the key"})
+			return
+		}
+		args["metoffice"] = map[string]any{"key": in.Key, "order": in.Order}
+	}
+	m, ok := ctlJSON("ghost.tallyd", runDir, "weather", args, 8*time.Second)
+	if !ok {
+		writeJSON(w, map[string]any{"ok": false, "why": "the box did not answer"})
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "metoffice": m["metoffice"], "home": m["home"]})
+}
+

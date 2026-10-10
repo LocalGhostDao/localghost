@@ -251,8 +251,13 @@ there, written as the HereID row (geonameid -1) named after the nearest listed t
 `/v1/weather` at the phone's fix answers from it ("where you are, near Neu-Ulm · the box's
 own forecast from ICON-D2 09Z, …"); `GHOST_WEATHER_RUNS=2` for a metered line.
 
-Not yet: the Met Office key and its pull, the observations, the nowcast, the band drawn on
-the line, the API path's removal, verification feeding the weights.
+The third drop: the Met Office pull (`internal/nwp/metoffice.go`) behind the key and order
+the person puts in SETTINGS › YOUR BOX › MET OFFICE, the UK 2 km lat-lon model as the keyed,
+regional "ukv"; the box names where home is (the trail's nights) so the order's region can be
+drawn around it.
+
+Not yet: the observations, the nowcast, the band drawn on the line, the API path's removal,
+verification feeding the weights.
 
 ## Decided, open
 

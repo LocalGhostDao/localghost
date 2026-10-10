@@ -59,7 +59,7 @@ type Reporter interface {
 // if you need metrics too.
 type ReporterFunc func() Health
 
-func (f ReporterFunc) Health() Health          { return f() }
+func (f ReporterFunc) Health() Health           { return f() }
 func (f ReporterFunc) Metrics() json.RawMessage { return nil }
 
 // Server binds the loopback health/status endpoints for one daemon.
@@ -153,5 +153,23 @@ func writeJSON(w http.ResponseWriter, v any) {
 // implement their own Reporter reflecting actual state.
 type OKReporter struct{ Service string }
 
-func (r OKReporter) Health() Health          { return Health{Code: OK, Detail: "stub ok", Name: r.Service} }
+func (r OKReporter) Health() Health           { return Health{Code: OK, Detail: "stub ok", Name: r.Service} }
 func (r OKReporter) Metrics() json.RawMessage { return nil }
+
+// Cached is a reporter whose detail line costs something (a count from the database): the
+// line is made at most once in [every], and the health server, polled every few seconds by
+// watchd and the phone, serves the last one. The code is always OK: the daemon is up; what it
+// has done is the detail.
+func Cached(service string, every time.Duration, detail func() string) Reporter {
+	var mu sync.Mutex
+	var at time.Time
+	var last string
+	return ReporterFunc(func() Health {
+		mu.Lock()
+		defer mu.Unlock()
+		if last == "" || time.Since(at) >= every {
+			last, at = detail(), time.Now()
+		}
+		return Health{Code: OK, Name: service, Detail: last}
+	})
+}

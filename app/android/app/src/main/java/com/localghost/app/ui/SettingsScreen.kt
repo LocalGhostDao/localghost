@@ -54,6 +54,8 @@ fun SettingsScreen(
         Fold("YOUR BOX", "the build it runs, updates, lock, verify", openAtFirst = true) {
             ServerUpdateSection(onLock)
             Spacer(Modifier.height(16.dp))
+            MetOfficeSection()
+            Spacer(Modifier.height(16.dp))
             Spacer(Modifier.height(8.dp))
             GhostButton("LOCK BOX NOW", { askLock = true }, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(4.dp))
@@ -523,6 +525,17 @@ internal fun HealthSection() {
     probeLines.forEach { l -> Text("  $l", color = TerminalDim, style = MaterialTheme.typography.labelMedium) }
     if (probeLines.isNotEmpty()) Text("  a type with nothing in it is not shared with Health Connect: Samsung Health › Settings › Health Connect › allow it",
         color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+    var diagMsg by remember { mutableStateOf("") }
+    var diagBusy by remember { mutableStateOf(false) }
+    Text(if (diagBusy) "[ sending the diagnostics… ]" else "[ send the diagnostics to the box ]",
+        color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.clickable {
+            if (!diagBusy) {
+                diagBusy = true
+                scope.launch { diagMsg = com.localghost.app.sync.HealthDiag.send(hctx); diagBusy = false }
+            }
+        }.padding(vertical = 6.dp))
+    if (diagMsg.isNotEmpty()) Text("  $diagMsg", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
     if (healthMsg.isNotEmpty()) {
         Spacer(Modifier.height(6.dp))
         Text(healthMsg, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
@@ -714,3 +727,75 @@ private fun ServerUpdateSection(onLock: () -> Unit) {
             }
         }.padding(vertical = 6.dp))
 }
+
+/** THE MET OFFICE KEY. The box forecasts the weather from the models' own grids; the Met Office's
+ *  2 km model over the UK comes through its DataHub, with a key and an order the person makes on
+ *  the site. The key goes to the box and stays there (never read back, only "set"); the box says
+ *  where it thinks home is, so the order's region can be typed around it. */
+@Composable
+private fun MetOfficeSection() {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var st by remember { mutableStateOf<MetOfficeState?>(null) }
+    var key by remember { mutableStateOf("") }
+    var order by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        st = com.localghost.app.net.BoxClient.metOffice(ctx)
+        st?.let { if (order.isEmpty()) order = it.order }
+    }
+    Text("MET OFFICE", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    Text(SettingsText.metOfficeLine(st), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+    st?.let { s ->
+        if (s.homeKnown || s.homeNote.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(SettingsText.homeLine(s), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    val field: @Composable (String, String, Boolean, (String) -> Unit) -> Unit = { value, hint, secret, onChange ->
+        androidx.compose.foundation.text.BasicTextField(value, { onChange(it.trim()) }, singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(color = GhostText),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(TerminalGreen),
+            visualTransformation = if (secret && value.isNotEmpty()) androidx.compose.ui.text.input.PasswordVisualTransformation()
+                else androidx.compose.ui.text.input.VisualTransformation.None,
+            decorationBox = { inner -> Box(Modifier.fillMaxWidth()
+                .border(1.dp, GhostBorder, androidx.compose.ui.graphics.RectangleShape).padding(8.dp)) {
+                if (value.isEmpty()) Text(hint, color = TerminalDim, style = MaterialTheme.typography.bodySmall); inner() } },
+            modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(6.dp))
+    }
+    field(key, if (st?.hasKey == true) "a new key (the box keeps the one it has)" else "DataHub API key (datahub.metoffice.gov.uk › My Subscriptions)", true) { key = it }
+    field(order, "the order's name (lower case, hyphens for spaces)", false) { order = it }
+    Row {
+        GhostButton(if (busy) "SAVING…" else "SAVE", {
+            if (!busy && key.isNotEmpty() && order.isNotEmpty()) scope.launch {
+                busy = true
+                val (after, why) = com.localghost.app.net.BoxClient.metOfficeSet(ctx, key, order)
+                busy = false
+                if (after != null) { st = after; key = ""; result = "kept on the box; the first pull follows within the hour" } else result = why
+            }
+        }, modifier = Modifier.weight(1f))
+        if (st?.hasKey == true) {
+            Spacer(Modifier.width(8.dp))
+            GhostButton("FORGET", {
+                if (!busy) scope.launch {
+                    busy = true
+                    val (after, why) = com.localghost.app.net.BoxClient.metOfficeSet(ctx, "", "")
+                    busy = false
+                    if (after != null) { st = after; order = ""; result = "forgotten" } else result = why
+                }
+            }, modifier = Modifier.weight(1f))
+        }
+    }
+    if (result.isNotEmpty()) {
+        Spacer(Modifier.height(4.dp))
+        Text(result, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+    }
+    Spacer(Modifier.height(4.dp))
+    Text("the key goes to your box and nowhere else; make the order on the site (UK 2 km, latitude-longitude, a region around home, the six fields, hourly to 48 h) and the Free plan's gigabyte a month covers four runs a day",
+        color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+}
+

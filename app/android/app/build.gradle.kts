@@ -144,11 +144,50 @@ android {
             }
         }
     }
+    // ONE SIGNATURE FOR EVERY INSTALL. Android lets an APK replace an installed one only when
+    // both carry the same signing key; a different key means an uninstall first, and with it
+    // the app's data goes: the enrolment, the trail key, every permission granted, Health
+    // Connect's grants among them. The cut's APK is signed with the release keystore
+    // (tools/cut_release.sh, apksigner) and a build run from the editor with the editor's
+    // debug keystore, so each install over the other asked for everything again (10 Oct
+    // 2026). When ~/.config/localghost/release.env names the keystore and its password (as
+    // tools/app_keystore.sh --store-pass writes it), every build type here is signed with it,
+    // and an editor build installs over a cut and a cut over an editor build, as updates.
+    // Without the password Gradle cannot sign unattended: the debug key stays, with a note.
+    val releaseEnv = File(System.getProperty("user.home"), ".config/localghost/release.env")
+    val signEnv: Map<String, String> = (if (releaseEnv.isFile) releaseEnv.readLines() else emptyList())
+        .mapNotNull { line ->
+            val t = line.trim()
+            if (t.startsWith("#") || !t.contains("=")) null
+            else t.substringBefore("=").trim() to t.substringAfter("=").trim().trim('\'', '"')
+        }.toMap()
+    val signStore = (System.getenv("LG_KEYSTORE") ?: signEnv["LG_KEYSTORE"])?.let { File(it) }
+    val signPass = System.getenv("LG_KEYSTORE_PASS") ?: signEnv["LG_KEYSTORE_PASS"]
+    val signAlias = System.getenv("LG_KEY_ALIAS") ?: signEnv["LG_KEY_ALIAS"] ?: "localghost"
+    val signKeyPass = System.getenv("LG_KEY_PASS") ?: signEnv["LG_KEY_PASS"] ?: signPass
+    val signWithRelease = signStore != null && signStore.isFile && !signPass.isNullOrEmpty()
+    if (signWithRelease) {
+        signingConfigs {
+            create("localghost") {
+                storeFile = signStore
+                storePassword = signPass
+                keyAlias = signAlias
+                keyPassword = signKeyPass
+            }
+        }
+        println("signing every build with the release keystore ${signStore!!.name} (alias $signAlias): an editor build installs over a cut as an update")
+    } else if (signStore != null && signStore.isFile) {
+        println("release.env names the keystore but not LG_KEYSTORE_PASS: editor builds keep the debug key, and installing one over a cut asks for every permission again (tools/app_keystore.sh --store-pass keeps the password)")
+    }
     buildTypes {
+        if (signWithRelease) {
+            getByName("debug") { signingConfig = signingConfigs.getByName("localghost") }
+        }
         release {
             optimization {
                 enable = false
             }
+            if (signWithRelease) signingConfig = signingConfigs.getByName("localghost")
         }
     }
     compileOptions {

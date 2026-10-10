@@ -55,6 +55,15 @@ unless its SHA-256 matches the pin in `app/src/main/cpp/CMakeLists.txt`. Nothing
 The first build takes several minutes longer than the others: about 75 native files for llama.cpp.
 Later builds reuse them.
 
+**Keep the permissions between installs.** Android replaces an installed app only when the new
+APK carries the same signing key; a different key means an uninstall first, and the app's data
+goes with it: the enrolment, every permission granted, Health Connect's grants. A release cut
+is signed with the release keystore and an editor build with Android Studio's debug key, so
+installing one over the other asked for everything again. Put the keystore and its password in
+`~/.config/localghost/release.env` (`tools/app_keystore.sh --use <file.jks> --store-pass` in the
+server tree writes it, mode 600) and the build signs every variant with it; Gradle says so at
+the start of a build. Without the password it keeps the debug key and says that instead.
+
 ## Linux (Debian 13 or Ubuntu 24.04, command line)
 
 1. **Run the setup script once** from the repository root (it uses `sudo` for apt):

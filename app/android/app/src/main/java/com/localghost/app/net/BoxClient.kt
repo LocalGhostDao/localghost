@@ -1118,6 +1118,31 @@ object BoxClient {
         if (r.optBoolean("ok")) feedsOf(r) to "" else null to r.optString("why", "the box said no")
     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null to (e.message ?: "the box did not answer") }
 
+    /** The phone's account of Health Connect (sync/HealthSync.kt's HealthDiag), kept on the box. */
+    suspend fun healthDiag(ctx: Context, report: org.json.JSONObject): Boolean = try {
+        BoxHttp.postJson(ctx, "/v1/health/diag", report).optBoolean("ok")
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
+
+    // --- THE MET OFFICE key for the box's own forecast (SETTINGS › YOUR BOX) ---
+    private fun metOfficeOf(o: JSONObject): com.localghost.app.ui.MetOfficeState {
+        val m = o.optJSONObject("metoffice") ?: JSONObject()
+        val model = m.optJSONObject("model") ?: JSONObject()
+        val h = o.optJSONObject("home") ?: JSONObject()
+        return com.localghost.app.ui.MetOfficeState(m.optBoolean("set"), m.optString("order"), model.optString("run"), model.optString("skipped"), model.optString("error"),
+            h.optBoolean("known"), h.optString("near"), h.optString("region"), h.optInt("nights"), h.optString("note"))
+    }
+
+    suspend fun metOffice(ctx: Context): com.localghost.app.ui.MetOfficeState? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/weather/metoffice", readTimeoutMs = 15_000)
+        if (r.optBoolean("ok")) metOfficeOf(r) else null
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+
+    /** Set the key and the order (a key of "" forgets them); the state after, or null with why. */
+    suspend fun metOfficeSet(ctx: Context, key: String, order: String): Pair<com.localghost.app.ui.MetOfficeState?, String> = try {
+        val r = BoxHttp.postJson(ctx, "/v1/weather/metoffice", JSONObject().put("key", key).put("order", order))
+        if (r.optBoolean("ok")) metOfficeOf(r) to "" else null to r.optString("why", "the box said no")
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null to (e.message ?: "the box did not answer") }
+
     // --- THE WEATHER where the phone is, from the box's daily pull ---
     data class WeatherDay(val date: String, val code: Int, val maxC: Double, val minC: Double, val rainPct: Int)
     data class Weather(val ok: Boolean, val place: String, val country: String, val tempC: Double, val feelsC: Double, val code: Int,

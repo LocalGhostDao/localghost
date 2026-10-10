@@ -287,6 +287,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/news/brief", s.handleNewsBrief)              // the day's brief written now (home's button)
 	mux.HandleFunc("/v1/news/feeds", s.handleNewsFeeds)              // the feeds, listed and changed (add, remove, on/off)
 	mux.HandleFunc("/v1/weather", s.handleWeather)                   // the forecast nearest a position, from the box's daily pull
+	mux.HandleFunc("/v1/weather/metoffice", s.handleWeatherMetOffice) // the Met Office key and order for the box's own forecast
 	mux.HandleFunc("/v1/sources", s.handleSources)                   // what the box draws on, each with its state
 	mux.HandleFunc("/v1/sources/fetch", s.handleSourcesFetch)        // update.sh <step> from the mirror, started from the phone
 	mux.HandleFunc("/v1/rates", s.handleRates)                       // the ECB table, the index per symbol, the rank list
@@ -332,6 +333,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/checkins", s.handleCheckins)                 // past check-ins, newest first
 	mux.HandleFunc("/v1/day/summary", s.handleDaySummary)            // one day at a glance, check-in prefill
 	mux.HandleFunc("/v1/health/upload", s.handleHealthUpload)        // Health Connect readout -> tallyd inbox
+	mux.HandleFunc("/v1/health/diag", s.handleHealthDiag)            // what the phone could read of Health Connect, and why not
 	// NOTE: bare /v1/health was ALREADY the box health endpoint , registering the upload there
 	// too made mux panic at startup and secd die before binding. Route names are a namespace;
 	// grep before you claim one.

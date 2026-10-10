@@ -4,12 +4,18 @@ import android.content.Context
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
+import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.FloorsClimbedRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.HeartRateVariabilityRmssdRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
+import androidx.health.connect.client.records.RespiratoryRateRecord
+import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.Vo2MaxRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
@@ -43,6 +49,14 @@ object HealthSync {
         HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
         HealthPermission.getReadPermission(FloorsClimbedRecord::class),
         HealthPermission.getReadPermission(WeightRecord::class),
+        // what a watch measures at night and at rest (10 Oct 2026): the stages of sleep come
+        // with the sleep sessions; these are their own types
+        HealthPermission.getReadPermission(RestingHeartRateRecord::class),
+        HealthPermission.getReadPermission(HeartRateVariabilityRmssdRecord::class),
+        HealthPermission.getReadPermission(OxygenSaturationRecord::class),
+        HealthPermission.getReadPermission(RespiratoryRateRecord::class),
+        HealthPermission.getReadPermission(Vo2MaxRecord::class),
+        HealthPermission.getReadPermission(BodyFatRecord::class),
         // History gate , literal string (the constant arrived in a later client than ours):
         // without it, reads reach only 30 days before the grant, which is exactly the "one month
         // then nothing" the first full-history walk produced.
@@ -229,6 +243,24 @@ object HealthSync {
                 val m = bucket(Instant.ofEpochSecond(en))
                 m["sleep_minutes"] = (m["sleep_minutes"] ?: 0.0) + (en - st) / 60.0
             }
+            // THE STAGES, where the watch gives them: deep, light, REM and awake minutes, each
+            // night's under the day it ends (the day the person wakes), the way the total is
+            recs.forEach { r ->
+                if (r.stages.isEmpty()) return@forEach
+                val m = bucket(r.endTime)
+                r.stages.forEach { st ->
+                    val minutes = (st.endTime.epochSecond - st.startTime.epochSecond) / 60.0
+                    if (minutes <= 0) return@forEach
+                    val key = when (st.stage) {
+                        SleepSessionRecord.STAGE_TYPE_DEEP -> "sleep_deep_minutes"
+                        SleepSessionRecord.STAGE_TYPE_LIGHT -> "sleep_light_minutes"
+                        SleepSessionRecord.STAGE_TYPE_REM -> "sleep_rem_minutes"
+                        SleepSessionRecord.STAGE_TYPE_AWAKE, SleepSessionRecord.STAGE_TYPE_AWAKE_IN_BED -> "sleep_awake_minutes"
+                        else -> return@forEach
+                    }
+                    m[key] = (m[key] ?: 0.0) + minutes
+                }
+            }
         }
         if (!aggregated) tryRead("exercise", ExerciseSessionRecord::class) { recs ->
             recs.forEach { r ->
@@ -282,6 +314,35 @@ object HealthSync {
         }
         tryRead("weight", WeightRecord::class) { recs ->
             recs.forEach { r -> bucket(r.time)["weight_kg"] = r.weight.inKilograms }
+        }
+        // the night's and the rest's numbers: the day's mean of each (a watch writes several),
+        // the resting heart rate and the VO2 max as the day's last reading
+        val means = HashMap<String, HashMap<String, MutableList<Double>>>()
+        fun mean(metric: String, t: Instant, v: Double) {
+            if (v.isNaN() || v <= 0) return
+            val d = t.atZone(zone).toLocalDate().format(fmt)
+            means.getOrPut(metric) { HashMap() }.getOrPut(d) { ArrayList() }.add(v)
+        }
+        tryRead("resting heart rate", RestingHeartRateRecord::class) { recs ->
+            recs.forEach { r -> bucket(r.time)["resting_hr"] = r.beatsPerMinute.toDouble() }
+        }
+        tryRead("heart rate variability", HeartRateVariabilityRmssdRecord::class) { recs ->
+            recs.forEach { r -> mean("hrv_ms", r.time, r.heartRateVariabilityMillis) }
+        }
+        tryRead("oxygen saturation", OxygenSaturationRecord::class) { recs ->
+            recs.forEach { r -> mean("spo2_pct", r.time, r.percentage.value) }
+        }
+        tryRead("respiratory rate", RespiratoryRateRecord::class) { recs ->
+            recs.forEach { r -> mean("resp_rate", r.time, r.rate) }
+        }
+        tryRead("vo2 max", Vo2MaxRecord::class) { recs ->
+            recs.forEach { r -> bucket(r.time)["vo2max"] = r.vo2MillilitersPerMinuteKilogram }
+        }
+        tryRead("body fat", BodyFatRecord::class) { recs ->
+            recs.forEach { r -> bucket(r.time)["body_fat_pct"] = r.percentage.value }
+        }
+        means.forEach { (metric, byDay) ->
+            byDay.forEach { (d, vals) -> days.getOrPut(d) { HashMap() }[metric] = vals.average() }
         }
         // A CONSTANT IS NOT A MEASUREMENT. Health Connect's TOTAL calories is a resting estimate
         // for any day asked (1,564 kcal, every day since 2006, data or no data), so it is not read
@@ -392,6 +453,48 @@ object HealthSync {
     }
 }
 
+/**
+ * THE DIAGNOSTICS, sent to the box. A box with no health data cannot say why from its side;
+ * the phone can: whether Health Connect is there, which permissions are granted, what each
+ * record type holds (the probe), how the last sync went, whether Samsung Health is installed.
+ * Posted after every sync and on request from SETTINGS; the box keeps the last and writes it
+ * to its log, so the reason is a line of text wherever the person looks. No measurement is in
+ * it, only counts and dates.
+ */
+object HealthDiag {
+    suspend fun build(ctx: Context): org.json.JSONObject {
+        val o = org.json.JSONObject().put("at", System.currentTimeMillis() / 1000)
+        val sdk = try { HealthConnectClient.getSdkStatus(ctx) } catch (_: Exception) { -1 }
+        o.put("sdk", when (sdk) {
+            HealthConnectClient.SDK_AVAILABLE -> "available"
+            HealthConnectClient.SDK_UNAVAILABLE -> "unavailable"
+            HealthConnectClient.SDK_UNAVAILABLE_PROVIDER_UPDATE_REQUIRED -> "provider update required"
+            else -> "unknown ($sdk)"
+        })
+        val granted = try { HealthConnectClient.getOrCreate(ctx).permissionController.getGrantedPermissions() } catch (_: Exception) { emptySet() }
+        val short = { p: String -> p.removePrefix("android.permission.health.").lowercase() }
+        o.put("granted", org.json.JSONArray(HealthSync.PERMISSIONS.filter { it in granted }.map(short)))
+        o.put("missing", org.json.JSONArray(HealthSync.PERMISSIONS.filter { it !in granted }.map(short)))
+        o.put("samsungHealth", try { ctx.packageManager.getPackageInfo(HealthSync.SAMSUNG_HEALTH, 0); true } catch (_: Exception) { false })
+        val lines = if (sdk == HealthConnectClient.SDK_AVAILABLE) HealthSync.probe(ctx) else emptyList()
+        o.put("lines", org.json.JSONArray(lines))
+        HealthSync.lastRun(ctx)?.let { r ->
+            o.put("lastRun", "${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.UK).format(java.util.Date(r.at * 1000))} · ${r.days} day(s)" +
+                (if (r.newestDay.isNotEmpty()) " · newest ${r.newestDay}" else "") + (if (r.error.isNotEmpty()) " · ${r.error}" else "") +
+                (if (r.skipped.isNotEmpty()) " · skipped ${r.skipped}" else ""))
+        }
+        o.put("verdict", HealthVerdict.of(sdk == HealthConnectClient.SDK_AVAILABLE, HealthSync.PERMISSIONS.count { it !in granted }, lines, o.optBoolean("samsungHealth")))
+        return o
+    }
+
+    /** Build and send; the verdict, or why it could not be sent. */
+    suspend fun send(ctx: Context): String {
+        val o = build(ctx)
+        val ok = BoxClient.healthDiag(ctx, o)
+        return (if (ok) "sent to the box · " else "the box did not take it · ") + o.optString("verdict")
+    }
+}
+
 /** The background health sync: the last seven days, when Health Connect is here and allowed. */
 class HealthWorker(ctx: Context, params: androidx.work.WorkerParameters) : androidx.work.CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
@@ -399,6 +502,9 @@ class HealthWorker(ctx: Context, params: androidx.work.WorkerParameters) : andro
         if (!HealthSync.available(ctx) || !com.localghost.app.security.BoxConfig.isConfigured(ctx)) return Result.success()
         if (HealthSync.grantedCount(ctx) == 0) return Result.success()
         HealthSync.sync(ctx)
+        // the account of what was readable goes with every run, so the box can say why a day
+        // is missing without the person opening SETTINGS
+        runCatching { HealthDiag.send(ctx) }
         return Result.success()
     }
 }

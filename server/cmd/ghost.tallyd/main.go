@@ -117,6 +117,10 @@ func main() {
 		ctl.Handle("health", func(json.RawMessage) (ctlsock.Response, error) {
 			mount := filepath.Dir(runDir)
 			out := map[string]any{"ingest": ing.snapshot(), "inbox": inboxDepth(filepath.Join(mount, "tallyd", "inbox"))}
+			// the phone's own account of Health Connect (secd's /v1/health/diag), when it sent one
+			if b, err := os.ReadFile(filepath.Join(mount, "tallyd", "health_diag.json")); err == nil {
+				out["phone"] = json.RawMessage(b)
+			}
 			if cfg, cerr := hw.LoadServicesConfig(mount); cerr == nil {
 				db := poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 				if st, qerr := tally.Query(db); qerr == nil {

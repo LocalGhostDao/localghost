@@ -151,6 +151,12 @@ func weatherCtl(mount string, ws *weatherState, ns *nwpState, force chan<- struc
 		Place string  `json:"place"`
 		Fetch bool    `json:"fetch"`
 		NWP   bool    `json:"nwp"`
+		// the Met Office key and order from SETTINGS; a key of "" forgets them
+		MetOffice *struct {
+			Key   string `json:"key"`
+			Order string `json:"order"`
+		} `json:"metoffice"`
+		Home bool `json:"home"` // say where the box thinks home is
 	}
 	if len(args) > 0 {
 		_ = json.Unmarshal(args, &a)
@@ -170,6 +176,21 @@ func weatherCtl(mount string, ws *weatherState, ns *nwpState, force chan<- struc
 	}
 	db := poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 	out["table"] = weather.Load(db)
+	if a.MetOffice != nil {
+		if err := setMetOffice(db, a.MetOffice.Key, a.MetOffice.Order); err != nil {
+			return nil, err
+		}
+		if a.MetOffice.Key != "" {
+			select {
+			case forceNWP <- struct{}{}:
+			default:
+			}
+		}
+	}
+	out["metoffice"] = metOfficeState(db, ns)
+	if a.Home || a.MetOffice != nil {
+		out["home"] = homeHint(db)
+	}
 	if a.Fetch {
 		select {
 		case force <- struct{}{}:

@@ -10,9 +10,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -173,6 +176,16 @@ func nwpLoop(ctx context.Context, mount string, st *nwpState, lg *slog.Logger, f
 				return
 			}
 			ms := st.model(m.ID)
+			if m.Keyed {
+				fetcher.MetOffice = metOfficeSettings(db)
+				if fetcher.MetOffice == nil {
+					st.mu.Lock()
+					ms.Error = ""
+					ms.Skipped = "no Met Office key and order in SETTINGS"
+					st.mu.Unlock()
+					continue
+				}
+			}
 			if m.Regional && (fix == nil || !m.Domain.Has(fix.Lat, fix.Lon)) {
 				st.mu.Lock()
 				ms.Error = ""
@@ -358,4 +371,86 @@ func nwpCompute(mount string, db *poltergres.ReadWrite, st *nwpState, places []w
 	st.computed, st.places, st.runs, st.tookS, st.err, st.here = t0.Unix(), listed, names, int(time.Since(t0).Seconds()), "", here
 	st.mu.Unlock()
 	lg.Info("weather index computed", "fn", "nwpCompute", "places", listed, "runs", names, "here", here, "heights", heights != nil, "zones", zones != nil, "took", time.Since(t0).Round(time.Second))
+}
+
+// The Met Office key and order live in the settings table, put there from SETTINGS › SERVER
+// on the phone (secd's /v1/weather/metoffice, the ctl's metoffice argument). The key is read
+// back only as "set"; it never goes out again.
+const (
+	metOfficeKeySetting   = "weather_metoffice_key"
+	metOfficeOrderSetting = "weather_metoffice_order"
+)
+
+func metOfficeSettings(db *poltergres.ReadWrite) *nwp.MetOffice {
+	rows, err := db.Query("SELECT key, value FROM settings WHERE key IN ($1, $2)", metOfficeKeySetting, metOfficeOrderSetting)
+	if err != nil {
+		return nil
+	}
+	var mo nwp.MetOffice
+	for _, v := range rows.Vals {
+		if len(v) < 2 || v[0] == nil || v[1] == nil {
+			continue
+		}
+		switch *v[0] {
+		case metOfficeKeySetting:
+			mo.Key = *v[1]
+		case metOfficeOrderSetting:
+			mo.Order = *v[1]
+		}
+	}
+	if mo.Key == "" || mo.Order == "" {
+		return nil
+	}
+	return &mo
+}
+
+// setMetOffice keeps a key and an order (an empty key forgets both). The order's name is
+// taken as the API wants it: lower case, spaces as hyphens.
+func setMetOffice(db *poltergres.ReadWrite, key, order string) error {
+	key = strings.TrimSpace(key)
+	order = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(order)), "-"))
+	if key == "" {
+		if err := db.Exec("DELETE FROM settings WHERE key IN ($1, $2)", metOfficeKeySetting, metOfficeOrderSetting); err != nil {
+			return err
+		}
+		return nil
+	}
+	for k, v := range map[string]string{metOfficeKeySetting: key, metOfficeOrderSetting: order} {
+		if err := db.Exec("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// metOfficeState is what the phone sees: whether a key is set, the order, and the model's
+// last pull; never the key.
+func metOfficeState(db *poltergres.ReadWrite, ns *nwpState) map[string]any {
+	out := map[string]any{"set": false}
+	if mo := metOfficeSettings(db); mo != nil {
+		out["set"] = true
+		out["order"] = mo.Order
+	}
+	ns.mu.Lock()
+	if m := ns.models["ukv"]; m != nil {
+		out["model"] = *m
+	}
+	ns.mu.Unlock()
+	return out
+}
+
+// homeHint is where the box thinks home is, for the Met Office order's region: the trail's
+// nights, the nearest listed town, and a region a degree either side.
+func homeHint(db *poltergres.ReadWrite) map[string]any {
+	lat, lon, nights, ok := hw.HomeGuess(db, time.Now())
+	if !ok {
+		return map[string]any{"known": false, "nights": nights, "note": "the box needs a few nights of the trail to say where home is"}
+	}
+	out := map[string]any{"known": true, "lat": math.Round(lat*100) / 100, "lon": math.Round(lon*100) / 100, "nights": nights,
+		"region": fmt.Sprintf("%.1f to %.1f N, %.1f to %.1f E", lat-1, lat+1, lon-1, lon+1)}
+	if near, km, ok := weather.NearestListed(db, lat, lon); ok {
+		out["near"] = near.Place.Name
+		out["nearKm"] = math.Round(km)
+	}
+	return out
 }

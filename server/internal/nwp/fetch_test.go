@@ -265,3 +265,77 @@ func TestGFSIndexLengths(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+// The Met Office's layout against a stand-in DataHub: the listing's files, each a GRIB2 of one
+// field named by its parameter numbers, the wind as speed and direction turned into components.
+func TestMetOfficePullsTheOrdersLatestRun(t *testing.T) {
+	run := time.Date(2026, 10, 10, 6, 0, 0, 0, time.UTC)
+	t2 := fixture(t, "simple.grib2")
+	requests := 0
+	keys := map[string]bool{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		keys[r.Header.Get("apikey")] = true
+		p := r.URL.Path
+		switch {
+		case p == "/orders/my-order/latest":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"orderDetails":{"files":[
+				{"fileId":"agl_temperature_1.5_+01","runDateTime":"2026-10-10T06:00Z","timeSteps":"+01"},
+				{"fileId":"agl_temperature_1.5_+02","runDateTime":"2026-10-10T06:00Z","timeSteps":"+02"},
+				{"fileId":"agl_temperature_1.5_+01","runDateTime":"2026-10-10T00:00Z","timeSteps":"+01"}]}}`)
+		case strings.HasPrefix(p, "/orders/my-order/latest/") && strings.HasSuffix(p, "/data"):
+			http.ServeContent(w, r, "f", time.Time{}, bytes.NewReader(t2))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	old := MetOfficeBase
+	MetOfficeBase = srv.URL
+	t.Cleanup(func() { MetOfficeBase = old })
+	m, _ := ModelByID("ukv")
+	m.Steps = []int{0, 1, 2}
+	m.Domain = nil
+	f := NewFetcher()
+	f.pause = 0
+	ctx := context.Background()
+	cells := []Cell{{ID: 1, Lat: 46.1, Lon: -5.3}}
+	// without a key: nothing
+	if f.Complete(ctx, m, run) {
+		t.Fatal("complete without a key")
+	}
+	f.MetOffice = &MetOffice{Key: "k", Order: "my-order"}
+	l := m.layout.(*ukvLayout)
+	l.listed = time.Time{}
+	if !f.Complete(ctx, m, run) || f.Complete(ctx, m, run.Add(6*time.Hour)) {
+		t.Fatal("the listing's newest run is the complete one")
+	}
+	r, p, err := f.Pull(ctx, m, run, cells, nil)
+	if err != nil || p.Fields != 2 || p.Missing != 0 || !keys["k"] {
+		t.Fatalf("%v %+v keys %v", err, p, keys)
+	}
+	want, _ := sampleFixture(t, "simple.grib2", 46.1, -5.3)
+	if v, ok := r.Value(0, 1, Temp2m); !ok || math.Abs(v-(want-273.15)) > 0.011 {
+		t.Fatalf("%v %v", v, ok)
+	}
+	if _, ok := r.Value(0, 0, Temp2m); ok {
+		t.Fatal("step 0 was not in the order")
+	}
+	// the listing, whatever wraps it
+	files, newest, err := parseUKVListing([]byte(`[{"fileId":"a","runDateTime":"2026-10-10T12:00:00Z","timeStep":"PT3H"},{"fileId":"b","runDateTime":"2026-10-10T06:00:00Z"}]`))
+	if err != nil || len(files) != 1 || files[0].ID != "a" || files[0].Step != 3 || newest.Hour() != 12 {
+		t.Fatalf("%v %+v %v", err, files, newest)
+	}
+	if _, _, err := parseUKVListing([]byte(`{"orders":[]}`)); err == nil {
+		t.Fatal("an empty listing")
+	}
+	if parseStep("+00") != 0 || parseStep("PT12H") != 12 || parseStep("+48:00") != 48 || parseStep("x") != -1 {
+		t.Fatal("steps")
+	}
+	// a 10 m/s wind from the north blows south: v = -10; from the west: u = +10
+	u, v := windComponents([]float32{10, 10}, []float32{0, 270})
+	if math.Abs(float64(u[0])) > 1e-5 || math.Abs(float64(v[0])+10) > 1e-5 || math.Abs(float64(u[1])-10) > 1e-5 || math.Abs(float64(v[1])) > 1e-5 {
+		t.Fatalf("%v %v", u, v)
+	}
+}

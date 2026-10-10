@@ -217,14 +217,20 @@ func main() {
 		}
 	}()
 
-	// Health: OK , the daemon is up and doing its job (which is mostly staying silent). Detail notes
-	// retrieval is offline so /v1/status can show "cueing online, retrieval offline".
-	rep := ghosthealth.ReporterFunc(func() ghosthealth.Health {
-		d := ""
-		if !sc.Ready() {
-			d = "retrieval offline (synthd not built)"
+	// Health: OK , the daemon is up and doing its job (which is mostly staying silent). The
+	// detail counts what it said this week (the cues it raised: something nearby, the evening
+	// check-in, a question), from the notifications it produced; "retrieval offline (synthd not
+	// built)" was the first week's line, from before the memories were real.
+	rep := ghosthealth.Cached(service, time.Minute, func() string {
+		db, err := store.DB(cfg.Slot)
+		if err != nil {
+			return "cues from the memories: the volume's database is not up"
 		}
-		return ghosthealth.Health{Code: ghosthealth.OK, Name: service, Detail: d}
+		n := "0"
+		if rows, qerr := db.Query("SELECT count(*) FROM notifications WHERE service = 'ghost.cued' AND created > now() - interval '7 days'"); qerr == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
+			n = *rows.Vals[0][0]
+		}
+		return "cues raised this week " + n + " (something nearby, the evening check-in, a question)"
 	})
 	hsrv := ghosthealth.NewServer(service, rep)
 	go func() {

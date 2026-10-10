@@ -74,20 +74,38 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	srv := ghosthealth.NewServer(service, ghosthealth.OKReporter{Service: service})
-	go func() {
-		if err := srv.Serve(*port); err != nil {
-			lg.Error("health server stopped", "fn", "main", "err", err)
-		}
-	}()
-	// Control socket: base commands (ping/status/reload/log-level/commands) so ghost-cli and watchd
-	// can talk to this daemon. A stub has no service-specific commands yet; real logic adds its own.
 	runDir := os.Getenv("GHOST_RUN_DIR")
 	if runDir == "" {
 		if ld := os.Getenv("GHOST_LOG_DIR"); ld != "" {
 			runDir = filepath.Join(filepath.Dir(ld), "run")
 		}
 	}
+	// THE HEALTH LINE: what the detector watches and the observations it has made; "stub ok"
+	// was the first week's line.
+	srv := ghosthealth.NewServer(service, ghosthealth.Cached(service, time.Minute, func() string {
+		mount := ""
+		if runDir != "" {
+			mount = findMount(filepath.Dir(runDir))
+		}
+		if mount == "" {
+			return "watches how much you talk to the ghost, week against week: no volume yet"
+		}
+		sc, err := hw.LoadServicesConfig(mount)
+		if err != nil {
+			return "the volume's database is not up"
+		}
+		db := poltergres.NewReadWrite(hw.SocketForMount(mount), sc.Postgres.Port, sc.Postgres.RWUser, sc.Postgres.RWPass, sc.Postgres.Name)
+		n := "0"
+		if rows, qerr := db.Query("SELECT count(*) FROM notifications WHERE service = 'ghost.shadowd'"); qerr == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
+			n = *rows.Vals[0][0]
+		}
+		return "watches how much you talk to the ghost, week against week · observations made " + n
+	}))
+	go func() {
+		if err := srv.Serve(*port); err != nil {
+			lg.Error("health server stopped", "fn", "main", "err", err)
+		}
+	}()
 	if runDir != "" {
 		ctl := ctlsock.NewServer(service, runDir, lg)
 		svcconf.BindBase(ctl, service, lvl, func() (svcconf.Base, map[string]string, error) {

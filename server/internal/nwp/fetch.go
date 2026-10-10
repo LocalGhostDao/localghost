@@ -59,6 +59,9 @@ var Models = []Model{
 	{ID: "gfs", Name: "GFS", Centre: "NOAA", Runs: []int{0, 6, 12, 18}, Steps: threeHourly,
 		Delay: 5 * time.Hour, Weight: 0.5,
 		Terms: "NOAA/NCEP GFS, public domain", layout: gfsLayout{}},
+	{ID: "ukv", Name: "UKV", Centre: "Met Office", Runs: []int{0, 6, 12, 18}, Steps: hourlyTwoDays,
+		Delay: 2 * time.Hour, Domain: ukvDomain, Weight: 1.3, MaxLead: 48, Regional: true, Keyed: true,
+		Terms: "Met Office Weather DataHub, under the key holder's plan", layout: &ukvLayout{}},
 }
 
 // ModelByID finds a model in the catalogue.
@@ -100,6 +103,8 @@ func Candidates(m Model, now time.Time) []time.Time {
 type Fetcher struct {
 	hc    *http.Client
 	pause time.Duration // between requests to the same centre: a courtesy, and NOMADS's limit
+	// MetOffice is the box's DataHub key and order, for the keyed model; nil without.
+	MetOffice *MetOffice
 }
 
 func NewFetcher() *Fetcher {

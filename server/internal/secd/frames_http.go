@@ -1256,6 +1256,68 @@ func (s *Server) handleHealthUpload(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "days": len(batch.Days), "samples": len(batch.Samples)})
 }
 
+// handleHealthDiag , POST /v1/health/diag , the phone's account of what Health Connect holds
+// and what it could read (the SDK's state, the permissions granted and missing, each record
+// type's count, span and sources, the last sync), kept as <mount>/tallyd/health_diag.json
+// and written to secd's log in one line, so a box with no health data can say why: the
+// watch's app not sharing with Health Connect, a permission not granted, a type empty.
+// GET returns the last one. Nothing in it is a measurement.
+func (s *Server) handleHealthDiag(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || (r.Method != http.MethodPost && r.Method != http.MethodGet) {
+		s.appearsDown(w)
+		return
+	}
+	mounted, ok := s.mountedSlot()
+	if !ok {
+		s.appearsDown(w)
+		return
+	}
+	path := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "tallyd", "health_diag.json")
+	if r.Method == http.MethodGet {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": true, "diag": nil})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"diag":`))
+		_, _ = w.Write(b)
+		_, _ = w.Write([]byte(`}`))
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
+	if err != nil || len(body) == 0 || !json.Valid(body) {
+		http.Error(w, "a JSON report", http.StatusBadRequest)
+		return
+	}
+	var d struct {
+		At      int64    `json:"at"`
+		Sdk     string   `json:"sdk"`
+		Granted []string `json:"granted"`
+		Missing []string `json:"missing"`
+		Lines   []string `json:"lines"`
+		LastRun string   `json:"lastRun"`
+		Samsung bool     `json:"samsungHealth"`
+		Verdict string   `json:"verdict"`
+	}
+	_ = json.Unmarshal(body, &d)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		s.appearsDown(w)
+		return
+	}
+	if err := os.WriteFile(path+".part", body, 0o640); err != nil || os.Rename(path+".part", path) != nil {
+		_ = os.Remove(path + ".part")
+		s.appearsDown(w)
+		return
+	}
+	secdLog.Info("health diagnostics from the phone", "fn", "handleHealthDiag", "sdk", d.Sdk, "granted", len(d.Granted), "missing", len(d.Missing),
+		"samsungHealth", d.Samsung, "lastRun", d.LastRun, "verdict", d.Verdict)
+	for _, l := range d.Lines {
+		secdLog.Info("health diagnostics: "+l, "fn", "handleHealthDiag")
+	}
+	writeJSON(w, map[string]any{"ok": true})
+}
+
 // handleHealthStats , GET /v1/health/stats?days=N , daily series per metric for the HEALTH screen.
 func (s *Server) handleHealthStats(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
