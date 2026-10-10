@@ -1,6 +1,5 @@
 package com.localghost.app.ui
 
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -37,6 +36,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -854,12 +854,20 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         // otherwise only what a person needs: nothing while it has photos to show, the one line
         // that says why when it has none.
         val debug = remember { com.localghost.app.settings.AppSettings.debugMode(ctx) }
-        // YOU ARE HERE breathes: a slow pulse on the halo, so the eye finds it on a busy map
-        val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "you").animateFloat(
-            initialValue = 0f, targetValue = 1f, label = "pulse",
-            animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.LinearEasing),
-                androidx.compose.animation.core.RepeatMode.Restart))
+        // YOU ARE HERE breathes: a slow pulse on the halo, so the eye finds it on a busy map. A
+        // few breaths when the map opens or the fix moves, then still: an animation that never
+        // ends keeps the window rendering at the display's rate for as long as the map is open,
+        // and the land, the roads and the trails under the overlay were re-rendered with it (the
+        // phone got hot, the drawer stuttered).
+        val pulseAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(lastFix?.ts) {
+            if (lastFix == null) return@LaunchedEffect
+            repeat(4) {
+                pulseAnim.snapTo(0f)
+                pulseAnim.animateTo(1f, androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.LinearEasing))
+            }
+            pulseAnim.snapTo(0f)
+        }
         val mapNote = if (debug) loadNote + (if (worldNote.isNotEmpty()) " · " + worldNote else "") + coastNote
             else if (cells.isEmpty()) loadNote else ""
         if (mapNote.isNotEmpty()) Text(mapNote,
@@ -874,7 +882,13 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             // clipToBounds: Compose does not clip a Canvas to its own box, and a filled continent
             // at street zoom is a rectangle the size of the screen , it painted over the title, the
             // note and the trail panel. Strokes never showed it; fills did.
+            // The map is drawn into its own composited layer (a hardware layer: a texture kept
+            // between frames), so the YOU overlay's breathing, the drawer sliding over the map
+            // and a label changing under it replay a texture rather than re-render the world's
+            // paths, the tiles and the roads; only the camera, a landed tile or the data redraw
+            // them.
             Canvas(Modifier.fillMaxSize().clipToBounds()
+                .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
                 .onSizeChanged { viewW = it.width.toFloat(); viewH = it.height.toFloat() }
                 .pointerInput(Unit) {
                     detectTransformGestures { centroid, pan, gz, _ ->
@@ -1284,7 +1298,9 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                             }
                         }
                         val d = density
-                        drawCircle(tone.copy(alpha = 0.45f * (1f - pulse)), radius = (10f + 16f * pulse) * d, center = Offset(x, y))
+                        val pulse = pulseAnim.value
+                        if (pulse > 0f) drawCircle(tone.copy(alpha = 0.45f * (1f - pulse)), radius = (10f + 16f * pulse) * d, center = Offset(x, y))
+                        else drawCircle(tone.copy(alpha = 0.18f), radius = 14f * d, center = Offset(x, y))
                         drawCircle(MapWater, radius = 9f * d, center = Offset(x, y))
                         drawCircle(GhostText, radius = 8f * d, center = Offset(x, y), style = Stroke(width = 2.5f * d))
                         drawCircle(tone, radius = 5f * d, center = Offset(x, y))

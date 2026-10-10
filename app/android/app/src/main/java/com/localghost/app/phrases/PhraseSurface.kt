@@ -410,9 +410,11 @@ object PhraseSurface {
         // each widget by its own height: a tall one (three rows or more) gets the extra lines,
         // and the words grow to fill the cell it was placed in (WidgetFit)
         for (id in ids) {
-            val minH = runCatching { awm.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) }.getOrDefault(0)
+            val opts = runCatching { awm.getAppWidgetOptions(id) }.getOrNull()
+            val minH = opts?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) ?: 0
+            val minW = opts?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH) ?: 0
             val tall = minH >= TALL_DP
-            awm.updateAppWidget(id, buildWidget(ctx, snap, index, look, tall = tall, scale = WidgetFit.scale(minH, tall)))
+            awm.updateAppWidget(id, buildWidget(ctx, snap, index, look, tall = tall, scale = WidgetFit.scale(minH, minW, tall)))
         }
     }
 

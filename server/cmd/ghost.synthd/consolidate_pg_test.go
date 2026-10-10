@@ -170,7 +170,7 @@ func TestConsolidatePGTripsFoldTheirParts(t *testing.T) {
 	outing("outing:2026-09-12", day("2026-09-12")+40000, day("2026-09-14")+70000, true, "Canada", "Toronto", 80)
 	outing("outing:2026-09-16", day("2026-09-16")+30000, day("2026-09-18")+60000, true, "Canada", "Montreal", 60)
 	outing("outing:2026-09-25", day("2026-09-25")+30000, day("2026-09-25")+60000, false, "United Kingdom", "Greenwich", 10)
-	outing("outing:2026-10-02", day("2026-10-02")+30000, day("2026-10-03")+50000, true, "France", "Paris", 15) // alone, a night away
+	outing("outing:2026-10-02", day("2026-10-02")+30000, day("2026-10-03")+50000, true, "France", "Paris", 15) // alone, a night away: a trip of one outing
 	for _, d := range []string{"2026-09-11", "2026-09-12", "2026-09-13", "2026-09-15", "2026-09-18", "2026-09-25", "2026-10-02", "2026-10-03"} {
 		must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, meta, created_at, updated_at) VALUES ($1,'a day','day',$2,'{}'::jsonb,$3,$3)", d, "day:"+d, now))
 	}
@@ -179,12 +179,15 @@ func TestConsolidatePGTripsFoldTheirParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if written != 1 {
+	if written != 2 {
 		t.Fatalf("trips written %d", written)
 	}
-	tr := memRows(t, db, "kind = 'trip'")
+	tr := memRows(t, db, "kind = 'trip' AND source_ref = 'trip:2026-09-12'")
 	if len(tr) != 1 || tr[0][1] != "Canada, 12 to 18 September 2026" || tr[0][2] != "trip:2026-09-12" {
 		t.Fatalf("trip %v", tr)
+	}
+	if paris := memRows(t, db, "kind = 'trip' AND source_ref = 'trip:2026-10-02'"); len(paris) != 1 || paris[0][1] != "France, 2 to 3 October 2026" {
+		t.Fatalf("the lone outing's trip %v", paris)
 	}
 	var tm tripMeta
 	_ = json.Unmarshal([]byte(tr[0][4]), &tm)
@@ -199,9 +202,9 @@ func TestConsolidatePGTripsFoldTheirParts(t *testing.T) {
 		return *rows.Vals[0][0]
 	}
 	for ref, want := range map[string]string{
-		"outing:2026-09-12": "trip:2026-09-12", "outing:2026-09-16": "trip:2026-09-12", "outing:2026-09-25": "", "outing:2026-10-02": "",
+		"outing:2026-09-12": "trip:2026-09-12", "outing:2026-09-16": "trip:2026-09-12", "outing:2026-09-25": "", "outing:2026-10-02": "trip:2026-10-02",
 		"day:2026-09-11": "", "day:2026-09-12": "trip:2026-09-12", "day:2026-09-15": "trip:2026-09-12", "day:2026-09-18": "trip:2026-09-12",
-		"day:2026-09-25": "", "day:2026-10-02": "outing:2026-10-02", "day:2026-10-03": "outing:2026-10-02",
+		"day:2026-09-25": "", "day:2026-10-02": "trip:2026-10-02", "day:2026-10-03": "trip:2026-10-02",
 	} {
 		if got := partOf(ref); got != want {
 			t.Fatalf("%s part_of %q, want %q", ref, got, want)
@@ -220,21 +223,32 @@ func TestConsolidatePGTripsFoldTheirParts(t *testing.T) {
 	if tr = memRows(t, db, "kind = 'trip'"); tr[0][3] != "our Canada trip, as I tell it" {
 		t.Fatalf("the edit was written over: %q", tr[0][3])
 	}
-	// the trip dissolves (Montreal re-clustered away from home): the trip goes, the parts unfold
+	// Montreal re-clustered away: the trip is Toronto alone now (two nights, still a trip), its
+	// facts changed, so the template is written again and the edit... was turned off above
 	must(db.Exec("UPDATE memories SET user_edited = FALSE WHERE kind = 'trip'"))
 	must(db.Exec("DELETE FROM memories WHERE source_ref = 'outing:2026-09-16'"))
 	if _, err = tripPass(db, quietLog()); err != nil {
 		t.Fatal(err)
 	}
-	if len(memRows(t, db, "kind = 'trip'")) != 0 {
-		t.Fatal("a dissolved trip stays")
+	if tr = memRows(t, db, "kind = 'trip' AND source_ref = 'trip:2026-09-12'"); len(tr) != 1 || tr[0][1] != "Canada, 12 to 14 September 2026" {
+		t.Fatalf("the trip after Montreal went: %v", tr)
 	}
-	// Toronto alone, two nights: its days fold under the outing itself now
-	if got := partOf("day:2026-09-13"); got != "outing:2026-09-12" {
-		t.Fatalf("day after the trip dissolved: %q", got)
+	if got := partOf("day:2026-09-13"); got != "trip:2026-09-12" {
+		t.Fatalf("day after Montreal went: %q", got)
+	}
+	// Toronto re-clustered as a day out (no night): the trip dissolves, the parts unfold
+	must(db.Exec("UPDATE memories SET meta = meta || jsonb_build_object('end', $1::bigint) WHERE source_ref = 'outing:2026-09-12'", day("2026-09-12")+70000))
+	if _, err = tripPass(db, quietLog()); err != nil {
+		t.Fatal(err)
+	}
+	if len(memRows(t, db, "kind = 'trip' AND source_ref = 'trip:2026-09-12'")) != 0 {
+		t.Fatal("a dissolved trip stays")
 	}
 	if got := partOf("outing:2026-09-12"); got != "" {
 		t.Fatalf("outing still part of something: %q", got)
+	}
+	if got := partOf("day:2026-09-13"); got != "" {
+		t.Fatalf("day still part of something: %q", got)
 	}
 	// the trip's sheet for the model names its outings and its days
 	facts := tripFacts(db, "Canada, 12 to 18 September 2026", map[string]any{"start": float64(day("2026-09-12") + 40000), "end": float64(day("2026-09-18") + 60000), "days": float64(7), "photos": float64(140), "countries": []any{"Canada"}, "outings": []any{"outing:2026-09-12"}})

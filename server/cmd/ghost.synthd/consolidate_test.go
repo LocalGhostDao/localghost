@@ -109,9 +109,12 @@ func TestChainTripsAndTheTripItMakes(t *testing.T) {
 	}
 	groups := chainTrips(outs)
 	// Canada: three outings within three days of each other; Brighton and Hove: one day, a day out,
-	// not a trip; Paris: one outing alone, not a chain (its days fold under the outing itself)
-	if len(groups) != 1 || len(groups[0]) != 3 || groups[0][0] != 1 || groups[0][2] != 3 {
+	// not a trip; Paris: one outing alone, a night away, a trip of one outing
+	if len(groups) != 2 || len(groups[0]) != 3 || groups[0][0] != 1 || groups[0][2] != 3 || len(groups[1]) != 1 || groups[1][0] != 6 {
 		t.Fatalf("groups %v", groups)
+	}
+	if got := tripTitle(tripOf(outs, groups[1])); got != "France, 2 to 3 October 2026" {
+		t.Fatalf("the lone outing's trip: %q", got)
 	}
 	tr := tripOf(outs, groups[0])
 	if tr.Start != outs[1].start || tr.End != outs[3].end || tr.Days != 8 || tr.Photos != 160 || len(tr.Outings) != 3 {
@@ -135,7 +138,7 @@ func TestChainTripsAndTheTripItMakes(t *testing.T) {
 	// a gap of four days breaks the chain
 	outs[2].start, outs[2].end = day("2026-09-19")+30000, day("2026-09-20")+60000
 	outs[3].start, outs[3].end = day("2026-09-21")+30000, day("2026-09-21")+60000
-	if g := chainTrips(outs); len(g) != 1 || len(g[0]) != 2 || g[0][0] != 2 {
+	if g := chainTrips(outs); len(g) != 3 || len(g[0]) != 1 || g[0][0] != 1 || len(g[1]) != 2 || g[1][0] != 2 {
 		t.Fatalf("after the gap %v", g)
 	}
 	// titles without a country, with two, with many
@@ -150,5 +153,21 @@ func TestChainTripsAndTheTripItMakes(t *testing.T) {
 	}
 	if got := tripBody(tripMeta{Days: 7, Countries: []string{"Italy"}, Photos: 1, Outings: []string{"x"}}); got != "A week away in Italy. 1 photo over 1 outing." {
 		t.Fatalf("body %q", got)
+	}
+}
+
+func TestTripOutingsFate(t *testing.T) {
+	outs := []tripOuting{
+		{ref: "outing:2026-09-12", away: true},
+		{ref: "outing:2026-09-16", away: false},
+		{ref: "outing:2026-09-19", away: true},
+	}
+	partOf := map[string]string{"outing:2026-09-19": "trip:2026-09-19"}
+	got := tripOutingsFate(outs, `["outing:2026-09-12","outing:2026-09-14","outing:2026-09-16","outing:2026-09-19"]`, partOf)
+	if got != "outing:2026-09-12 alone; outing:2026-09-14 gone; outing:2026-09-16 home; outing:2026-09-19 in trip:2026-09-19" {
+		t.Fatalf("fate %q", got)
+	}
+	if got := tripOutingsFate(outs, "", partOf); got != "none listed" {
+		t.Fatalf("no list: %q", got)
 	}
 }

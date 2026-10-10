@@ -40,7 +40,7 @@ import (
 
 const (
 	tripGapS       = 3 * 86400 // outings this close in time, both away from home, are one trip
-	tripMinSpanS   = 86400     // a trip is at least a night away; two outings on one day are a day out
+	tripMinSpanS   = 86400     // a trip is at least a night away; outings on one day are a day out
 	consolidateKey = "synthd_consolidated_day"
 	personProseMax = 3 // tries at writing a person before the facts stand as they are
 )
@@ -698,8 +698,10 @@ type tripOuting struct {
 }
 
 // chainTrips groups the outings away from home into trips: time order, a new trip when the next
-// outing starts more than tripGapS after the last ended; a chain of two or more outings is a trip
-// when it spans a night at least. Returns the groups as indexes into outs.
+// outing starts more than tripGapS after the last ended; a chain is a trip when it spans a night
+// at least, a lone outing included (a week in one town is one outing and still a trip; until
+// 10 October 2026 it took two outings, and a trip spent in one place never showed as one).
+// Returns the groups as indexes into outs.
 func chainTrips(outs []tripOuting) [][]int {
 	idx := make([]int, 0, len(outs))
 	for i, o := range outs {
@@ -712,7 +714,7 @@ func chainTrips(outs []tripOuting) [][]int {
 	var cur []int
 	var curEnd int64
 	flush := func() {
-		if len(cur) >= 2 && outs[cur[len(cur)-1]].end-outs[cur[0]].start >= tripMinSpanS {
+		if len(cur) >= 1 && outs[cur[len(cur)-1]].end-outs[cur[0]].start >= tripMinSpanS {
 			groups = append(groups, cur)
 		}
 		cur = nil
@@ -1016,19 +1018,23 @@ func tripPass(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 		written++
 		lg.Info("a trip from its outings", "fn", "tripPass", "trip", title, "outings", len(group))
 	}
-	// trips that dissolved go, unless the person touched them
-	if len(keep) > 0 {
-		if err := db.Exec("DELETE FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned AND NOT (source_ref = ANY($1))", "{"+strings.Join(keep, ",")+"}"); err != nil {
-			return written, err
-		}
-	} else if err := db.Exec("DELETE FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned"); err != nil {
-		return written, err
+	// trips that dissolved go, unless the person touched them. Each one is logged with what
+	// became of its outings (gone, no longer away, or still there and chained elsewhere), so a
+	// trip that vanishes from MEMORIES can be traced in the log rather than guessed at.
+	arr := "{" + strings.Join(keep, ",") + "}"
+	if len(keep) == 0 {
+		arr = "{}"
 	}
-	// a lone outing away for a night or more folds its days under itself
-	for _, o := range outs {
-		if o.away && partOf[o.ref] == "" && o.end-o.start >= tripMinSpanS {
-			daySpans = append(daySpans, span{o.ref, o.start, o.end})
+	if gone, qerr := db.Query("SELECT title, source_ref, coalesce(meta->>'outings','[]') FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned AND NOT (source_ref = ANY($1))", arr); qerr == nil {
+		for _, v := range gone.Vals {
+			if len(v) < 3 || v[0] == nil || v[1] == nil || v[2] == nil {
+				continue
+			}
+			lg.Warn("a trip dissolved", "fn", "tripPass", "trip", *v[0], "ref", *v[1], "outings", tripOutingsFate(outs, *v[2], partOf))
 		}
+	}
+	if err := db.Exec("DELETE FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned AND NOT (source_ref = ANY($1))", arr); err != nil {
+		return written, err
 	}
 	// FOLDING: part_of on the outings and the days, set where it belongs and cleared where it no
 	// longer does (a trip that dissolved, an outing that moved)
@@ -1048,6 +1054,35 @@ func tripPass(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 		}
 	}
 	return written, nil
+}
+
+// tripOutingsFate says, for a trip that dissolved, what became of each outing it was made of:
+// "outing:2026-09-12 gone", "… home" (no longer away), "… in trip:2026-09-16" (chained into
+// another trip), "… alone" (there, away, but not in any chain: a day out now).
+func tripOutingsFate(outs []tripOuting, outingsJSON string, partOf map[string]string) string {
+	var refs []string
+	if json.Unmarshal([]byte(outingsJSON), &refs) != nil || len(refs) == 0 {
+		return "none listed"
+	}
+	byRef := map[string]tripOuting{}
+	for _, o := range outs {
+		byRef[o.ref] = o
+	}
+	fates := make([]string, 0, len(refs))
+	for _, r := range refs {
+		o, ok := byRef[r]
+		switch {
+		case !ok:
+			fates = append(fates, r+" gone")
+		case !o.away:
+			fates = append(fates, r+" home")
+		case partOf[r] != "":
+			fates = append(fates, r+" in "+partOf[r])
+		default:
+			fates = append(fates, r+" alone")
+		}
+	}
+	return strings.Join(fates, "; ")
 }
 
 // tripFacts is the sheet the model writes a trip from: the trip's own numbers and places, each

@@ -5545,3 +5545,13 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 - DayScreen: ErrorLine when dayStory or dayFrames come back null (framesFailed). Dates:
   ChatsScreen, GalleryScreen, MapScreen, MemoriesScreen, PinManagementScreen to Locale.UK
   "d MMM yyyy"; "day(s)"/"frame(s)" spelt out.
+- Second pass the same night (Vlad's screenshots: the widget "huge", the Canada trip gone, the
+  map heating the phone). WidgetFit.scale(heightDp, widthDp, tall) = min(height / need, width /
+  280) in [1, 1.6]; smallScale = 1 + (scale − 1) / 4, at most 1.15, for the head, foot, more and
+  the buttons (sizes[3]); updateWidgets reads OPTION_APPWIDGET_MIN_WIDTH too. MapScreen: the
+  main Canvas gets graphicsLayer { compositingStrategy = Offscreen } (a hardware layer, cached
+  between invalidations); the YOU pulse is an Animatable run four times on open or a fix change
+  (LaunchedEffect(lastFix?.ts)), then a still halo; rememberInfiniteTransition gone. synthd
+  chainTrips: a chain of one outing is a trip when it spans a night (the lone-outing day fold is
+  subsumed); tripPass logs "a trip dissolved" with tripOutingsFate (gone / home / in trip:X /
+  alone) before the DELETE. Tests updated (consolidate_test, consolidate_pg_test).
