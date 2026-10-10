@@ -5555,3 +5555,50 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   chainTrips: a chain of one outing is a trip when it spans a night (the lone-outing day fold is
   subsumed); tripPass logs "a trip dissolved" with tripOutingsFate (gone / home / in trip:X /
   alone) before the DELETE. Tests updated (consolidate_test, consolidate_pg_test).
+- The Canada trip was on the box all along (`consolidate` lists "Canada, 6 June to 18 July
+  2026", 19 parts): /v1/memories returned the newest 200 rows by created_at and the trip fell
+  past them. hw.MemoriesList orders by (part_of present), created_at DESC, default 600, max
+  2000; MemoriesPartsOf(slot, ref) for ?part_of=<ref> (oldest first, 400); memoryRows shared;
+  a trip: ref is given to the app now (it was day:/outing: only, so a trip's page could not
+  find its parts). App: memoriesList(ctx, limit = 600), memoriesParts(ctx, ref); MemoryScreen
+  takes the parts from the box. TestMemoriesListWholeFirstAndPartsByRef (pg). MemoriesScreen
+  top: a FlowRow of MemChip (add, jot, about me, what you photograph, near you, on this day),
+  the opened one's card as an item below; the check-in line and onOpenCheckin gone; AboutCard
+  no longer draws its own toggle.
+
+## 10 October 2026 , the recorder, one check-in a day, the stock take
+
+- VoiceCapture: pauseFlag, State.paused, pause()/resume() (the mic is read and dropped while
+  paused, the clock stands); Gist (recording, paused, elapsedS, take, error) + `gist` flow
+  (distinctUntilChanged) for the forms around the recorder (CheckinForm, VoiceAskButton), the
+  recorder itself keeps the 10 Hz state. VoiceRecorder: BigVoiceButton row (stop + pause/resume;
+  listen / again / drop; record), the clock in titleMedium, the level bar full width.
+- Feelings.oneADay(feelingsNewestFirst) picks the row with a feeling else the newest; the
+  screen groups history by day with it; shortDay uses Locale.ENGLISH ("Sep", the UK CLDR gave
+  "Sept"); the day column 96 dp. FeelingsTest.
+- Stock take, server: poltergres sentError (a read error after the statement went out) never
+  retried, the connection dropped (Conn.drop); readWait per connection, ReadTimeout 30 s,
+  LongTimeout 4 h via runLong/ReadWrite.ExecLong, used by wiki makeIndexes;
+  TestTimedOutStatementIsNotResent (pg). search/store.go, synthd/prose.go, framed/store.go:
+  `sha256 BETWEEN decode($1||repeat('00',16)) AND decode($1||repeat('ff',16))` in place of
+  substring(sha256 …) = …. schemadef: memories_kind_ref (kind, source_ref). days.go:
+  to_char(to_timestamp(min(ts))). outings.go signature: max(ts) of location_points older than
+  two days, not count(*). secd: MaxBytesReader on /v1/unlock (4 KB), frame kinds/tag (4 KB),
+  hashes (256 KB), the notification POSTs (64 KB); serveByHash for thumbs and previews
+  (Cache-Control private immutable, ETag "<hash>", 304, Content-Length); mapsDocCached (60 s).
+- Stock take, app: PhraseWidget/PhraseReceiver run refresh/next/gotIt/accept/decline on
+  `phraseWork` (one named thread) under goAsync (offMain); ForegroundPoller 30 s and only while
+  `screen == Shell`; SyncWorker setForegroundAsync throttled with publish (500 ms); MapScreen
+  pulse keyed on the fix's 1e-4° cell; Pull.kt clock at 80 ms when steady; UnlockProgress
+  tickers stop at done/failed; MemoriesScreen remember(rows, memKind, memQuery) for the filter
+  and remember(rows) for the counts; HarnessScreen items keyed by id; PollWorker needs
+  NetworkType.CONNECTED and fetches HomeBrief only when PhraseSurface.anythingShowing.
+- Not done, recorded in the project doc (the two audits, 25 findings each): a connection pool
+  for poltergres, the N+1s in news.go and framed DeleteRoutes/InsertPoints chunking, the
+  monitor report cached in tallyd, /v1/geo/tracks ETag, aboutPass/distillPass backoff, the
+  tripPass daily marker, foryou's to_char scan; on the phone the LocationLog ring decrypt on
+  Main, HomeCache on Main, gallery thumbs decode on Main and the LRU, ThumbStrip caching,
+  per-token chat re-parse, VaultRings' clock, HOME's polling without ETags.
+- The heights: documented in update.sh's header, tools/README.md and releases/0.0.7.md (the
+  world is 69 packs, about 90 GB, `GHOST_GEO_ELEVATION=all`); framed's `elevation` ctl says
+  how to fetch them when the box has none.

@@ -103,7 +103,9 @@ var heavyIndexes = []struct{ name, create string }{
 
 func (s *Store) makeIndexes(list []struct{ name, create string }) error {
 	for _, ix := range list {
-		if err := s.DB.Exec(ix.create); err != nil {
+		// an index over seven million rows is minutes to an hour: waited for, not given up on
+		// at the ordinary thirty seconds (which dropped the connection and started it again)
+		if err := s.DB.ExecLong(ix.create); err != nil {
 			if strings.Contains(ix.name, "trgm") {
 				continue
 			}

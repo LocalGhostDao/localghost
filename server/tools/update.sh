@@ -25,8 +25,13 @@
 #             the volume's wiki/: the chat's "what is …" and the coin pages read it on the box, and a
 #             question it answers never goes to the web. Fetched with the rest when the volume has
 #             60 GB free (GHOST_WIKI=0 leaves it out), kept current after that.
-#   (maps also takes the heights: sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps, or a box
-#             of latitudes and longitudes like "34:72,-25:45"; the tiles already here kept current)
+#   (maps also takes the heights, the Copernicus DEM at 90 m in packs of a 30-degree block:
+#             sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps        the world, 69 packs, about 90 GB
+#             sudo GHOST_GEO_ELEVATION="34:72,-25:45" ./tools/update.sh maps   a box of latitudes and
+#             longitudes (Europe here), the packs whose block touches it; several boxes space-separated.
+#             Not asked, the packs already here are kept current. ghost.framed indexes new packs
+#             within ten minutes and draws every day again with its climb and heights; `ghost-cli
+#             ghost.framed elevation lat= lon=` reads a height back.)
 #   speech    whisper.cpp from the mirror's pinned tarball (set whisper, built CPU-only) and a ggml
 #             speech model (set speech), straight onto the volume (tools/setup_whisper.sh). ghost.voiced
 #             looks for them on every pass, so the voice notes waiting are transcribed within a minute.

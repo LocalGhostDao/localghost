@@ -100,6 +100,8 @@ no network; this ships data):
     sudo ./tools/update.sh maps embedder    # only these
     sudo GHOST_WIKI=0 ./tools/update.sh     # everything but Wikipedia (about 50 GB)
     sudo GHOST_GEO_ROADS=europe-latest.osm.pbf ./tools/update.sh maps   # add a continent's streets
+    sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps                  # the world's heights (69 packs, about 90 GB)
+    sudo GHOST_GEO_ELEVATION="34:72,-25:45" ./tools/update.sh maps       # Europe's heights (a box of lat:lat,lon:lon)
 
 The phone runs the same script: a fetch started on the app's SOURCES page is `POST
 /v1/sources/fetch {step}` to ghost.secd, which runs `/opt/localghost/tools/update.sh <step>` as root

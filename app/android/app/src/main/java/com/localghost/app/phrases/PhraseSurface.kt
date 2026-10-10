@@ -231,13 +231,17 @@ object PhraseSurface {
         postCard(ctx, snap, i)
     }
 
+    /** Whether anything shows the card: a widget on a launcher, or the lock-screen card on. The
+     *  refresh alarm and the brief's fetch are for these; with neither there is nothing to keep
+     *  fresh. */
+    fun anythingShowing(ctx: Context): Boolean =
+        PhraseState.lockScreenOn(ctx) || runCatching { AppWidgetManager.getInstance(ctx).getAppWidgetIds(ComponentName(ctx, PhraseWidget::class.java)).isNotEmpty() }.getOrDefault(false)
+
     private fun schedule(ctx: Context, late: Boolean) {
-        val hasWidgets = AppWidgetManager.getInstance(ctx)
-            .getAppWidgetIds(ComponentName(ctx, PhraseWidget::class.java)).isNotEmpty()
         val am = ctx.getSystemService(AlarmManager::class.java)
         val pi = broadcast(ctx, ACTION_REFRESH, 0)
         am.cancel(pi)
-        if (!hasWidgets && !PhraseState.lockScreenOn(ctx)) return // nothing to keep fresh
+        if (!anythingShowing(ctx)) return // nothing to keep fresh
         val delay = PhraseNow.nextRefreshDelayMs(late)
         // Inexact and allowed while idle: a phrase changing a minute late is fine, a phone woken
         // to the second for it is not.
@@ -577,17 +581,33 @@ object PhraseSurface {
     }
 }
 
-/** The widget provider: every system callback just redraws from the current moment. */
+/** The one thread the packs are parsed on, off the main thread, one redraw at a time: a receiver
+ *  or a widget callback hands the work here and keeps the process alive (goAsync) until it is
+ *  done. Two redraws asked for together run one after the other; before this they parsed the
+ *  packs on the main thread (an ANR at boot, a stutter at every alarm) and raced each other. */
+internal val phraseWork: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "phrases") }
+
+/** Runs [work] on the phrase thread with the receiver kept alive until it ends (ten seconds at
+ *  most, the OS's own limit for a receiver's goAsync). */
+private fun BroadcastReceiver.offMain(work: () -> Unit) {
+    val pr = goAsync()
+    phraseWork.execute {
+        try { work() } catch (e: Exception) { android.util.Log.w("LocalGhost", "phrases: ${e.message}") } finally { pr.finish() }
+    }
+}
+
+/** The widget provider: every system callback redraws from the current moment, off the main
+ *  thread (the packs are parsed; the widget host gives a provider ten seconds). */
 class PhraseWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
-        PhraseSurface.refresh(context)
+        offMain { PhraseSurface.refresh(context) }
     }
     // resized on the launcher: a widget made tall gets its extra lines, one made short loses them
     override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: android.os.Bundle) {
-        PhraseSurface.updateWidgets(context)
+        offMain { PhraseSurface.updateWidgets(context) }
     }
-    override fun onEnabled(context: Context) { PhraseSurface.refresh(context) }
-    override fun onDisabled(context: Context) { PhraseSurface.refresh(context) } // drops the alarm if nothing else needs it
+    override fun onEnabled(context: Context) { offMain { PhraseSurface.refresh(context) } }
+    override fun onDisabled(context: Context) { offMain { PhraseSurface.refresh(context) } } // drops the alarm if nothing else needs it
 }
 
 /** SAY / NEXT from the lock screen and the widget, the refresh alarm, and the system events that
@@ -595,10 +615,10 @@ class PhraseWidget : AppWidgetProvider() {
 class PhraseReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            PhraseSurface.ACTION_NEXT -> PhraseSurface.next(context)
-            PhraseSurface.ACTION_GOT_IT -> PhraseSurface.gotIt(context)
-            PhraseOffer.ACTION_ACCEPT -> PhraseOffer.accept(context)
-            PhraseOffer.ACTION_DECLINE -> PhraseOffer.decline(context)
+            PhraseSurface.ACTION_NEXT -> offMain { PhraseSurface.next(context) }
+            PhraseSurface.ACTION_GOT_IT -> offMain { PhraseSurface.gotIt(context) }
+            PhraseOffer.ACTION_ACCEPT -> offMain { PhraseOffer.accept(context) }
+            PhraseOffer.ACTION_DECLINE -> offMain { PhraseOffer.decline(context) }
             PhraseSurface.ACTION_SAY -> {
                 // The engine binds asynchronously; a receiver that returns at once can have its
                 // process reaped before the first syllable. goAsync keeps us alive long enough to
@@ -613,16 +633,14 @@ class PhraseReceiver : BroadcastReceiver() {
                 // Both are moments the trail's service is dead and the OS lets us start one from
                 // the background; the phrases redraw too.
                 com.localghost.app.sync.LocationLog.scheduleIfActive(context)
-                PhraseSurface.refresh(context)
-                PhraseOffer.check(context)
+                offMain { PhraseSurface.refresh(context); PhraseOffer.check(context) }
             }
             Intent.ACTION_TIMEZONE_CHANGED -> {
                 // A new time zone is the cheapest "you have landed" there is.
-                PhraseSurface.refresh(context)
-                PhraseOffer.check(context)
+                offMain { PhraseSurface.refresh(context); PhraseOffer.check(context) }
             }
             PhraseSurface.ACTION_REFRESH,
-            Intent.ACTION_TIME_CHANGED -> PhraseSurface.refresh(context)
+            Intent.ACTION_TIME_CHANGED -> offMain { PhraseSurface.refresh(context) }
         }
     }
 }

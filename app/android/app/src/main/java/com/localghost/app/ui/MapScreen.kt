@@ -860,8 +860,11 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         // and the land, the roads and the trails under the overlay were re-rendered with it (the
         // phone got hot, the drawer stuttered).
         val pulseAnim = remember { androidx.compose.animation.core.Animatable(0f) }
-        LaunchedEffect(lastFix?.ts) {
-            if (lastFix == null) return@LaunchedEffect
+        // keyed on the fix's cell of about 30 m, not its time: a fix comes every few seconds while
+        // the map is open, and a pulse restarted on each never ended
+        val pulseKey = lastFix?.let { "%.4f,%.4f".format(java.util.Locale.US, it.lat, it.lon) }
+        LaunchedEffect(pulseKey) {
+            if (pulseKey == null) return@LaunchedEffect
             repeat(4) {
                 pulseAnim.snapTo(0f)
                 pulseAnim.animateTo(1f, androidx.compose.animation.core.tween(1600, easing = androidx.compose.animation.core.LinearEasing))

@@ -335,7 +335,7 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	}
 	out = append(out, d)
 
-	out = append(out, mapsDoc(mount))
+	out = append(out, mapsDocCached(mount))
 
 	// SPEECH, from voiced's state file
 	d = sourceDoc{ID: "speech", Name: "Speech", Action: "speech", Label: "fetch the speech engine and model", From: []sourceFrom{
@@ -713,6 +713,26 @@ func (s *Server) handleWeather(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// mapsDocCached is mapsDoc at most once a minute: the card counts the tiles with a directory
+// read each (a million road tiles on a box with the world's streets), too much for every poll
+// of the page; a fetch that lands shows within the minute.
+var mapsCache struct {
+	mu    sync.Mutex
+	mount string
+	at    time.Time
+	doc   sourceDoc
+}
+
+func mapsDocCached(mount string) sourceDoc {
+	mapsCache.mu.Lock()
+	defer mapsCache.mu.Unlock()
+	if mapsCache.mount == mount && time.Since(mapsCache.at) < time.Minute {
+		return mapsCache.doc
+	}
+	mapsCache.mount, mapsCache.at, mapsCache.doc = mount, time.Now(), mapsDoc(mount)
+	return mapsCache.doc
 }
 
 // mapsDoc is the INTEGRATIONS card for the maps and the heights, read off the volume.

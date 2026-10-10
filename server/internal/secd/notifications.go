@@ -161,7 +161,7 @@ func (s *Server) handleMute(w http.ResponseWriter, r *http.Request) {
 		Days    int    `json:"days"`
 		Clear   bool   `json:"clear"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad body")
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Server) handleNotificationAnswer(w http.ResponseWriter, r *http.Request
 		ID     int64  `json:"id"`
 		Answer string `json:"answer"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID <= 0 || req.Answer == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil || req.ID <= 0 || req.Answer == "" {
 		writeErr(w, http.StatusBadRequest, "bad id or answer")
 		return
 	}
@@ -336,7 +336,7 @@ func decodeID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	var req struct {
 		ID int64 `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID <= 0 {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil || req.ID <= 0 {
 		writeErr(w, http.StatusBadRequest, "bad id")
 		return 0, false
 	}

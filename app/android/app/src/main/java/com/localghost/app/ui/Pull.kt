@@ -30,11 +30,16 @@ import kotlin.math.sin
  */
 @Composable
 fun PullCanvas(fromStates: List<String>, steady: Boolean, modifier: Modifier = Modifier) {
-    // a free clock in seconds, one frame at a time
+    // a free clock in seconds: every frame while the packets stream, a few times a second once
+    // the picture is only breathing (a page left open is not a reason to render at the display's
+    // rate)
     var clock by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
-        val t0 = withFrameNanos { it }
-        while (true) withFrameNanos { now -> clock = (now - t0) / 1_000_000_000f }
+    LaunchedEffect(steady) {
+        val t0 = System.nanoTime() - (clock * 1_000_000_000f).toLong()
+        while (true) {
+            if (steady) { kotlinx.coroutines.delay(80); clock = (System.nanoTime() - t0) / 1_000_000_000f }
+            else withFrameNanos { now -> clock = (now - t0) / 1_000_000_000f }
+        }
     }
     val n = fromStates.size.coerceAtMost(8)
     Canvas(modifier.fillMaxWidth().height((72 + 18 * n.coerceAtLeast(1)).dp)) {

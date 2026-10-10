@@ -62,7 +62,9 @@ fun rememberPaced(real: UnlockSnapshot): UnlockSnapshot {
     val pacer = remember(locking) { UnlockPacer() }
     // a fast tick so the held steps advance between the box's once-a-second polls
     var frame by remember(locking) { mutableStateOf(0) }
-    LaunchedEffect(locking) {
+    // and it stops once the unlock is over (done or failed): nothing is held after that
+    LaunchedEffect(locking, real.done, real.failed) {
+        if (real.done || real.failed != null) return@LaunchedEffect
         while (true) { kotlinx.coroutines.delay(90); frame++ }
     }
     pacer.observe(real)
@@ -77,8 +79,9 @@ fun UnlockProgress(snapshot: UnlockSnapshot, modifier: Modifier = Modifier) {
     val clock = remember(kind) { UnlockClock(UnlockClockStore.load(ctx)) }
     val seed = remember(kind) { (System.nanoTime() % 1000).toInt() }
     // a quarter-second clock for the live times; the tip turns every 6 s
-    val tick: Long by produceState(0L) {
-        while (true) { kotlinx.coroutines.delay(250); value += 1 }
+    val over = snapshot.done || snapshot.failed != null
+    val tick: Long by produceState(0L, over) {
+        while (!over) { kotlinx.coroutines.delay(250); value += 1 }
     }
     val est: UnlockEstimate = remember(snapshot, tick) { clock.observe(snapshot); clock.estimate() }
     LaunchedEffect(snapshot.done) {

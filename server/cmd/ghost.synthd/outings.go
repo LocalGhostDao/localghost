@@ -35,9 +35,12 @@ func outingPass(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 	if time.Since(lastOutingPass) < outingMinInterval {
 		return 0, nil
 	}
-	// The signature of the archive: a pass only when something changed since the last one.
+	// The signature of the archive: a pass only when something changed since the last one. The
+	// trail counts by its newest point older than two days: a point every quarter hour made the
+	// count change every pass, and every pass re-read every frame and tag and rewrote every
+	// outing; the distances of the last two days settle at the next change after that.
 	sig := ""
-	if rows, err := db.Query("SELECT count(*)::text || ':' || coalesce(max(taken_at),0)::text || ':' || (SELECT count(*) FROM frame_tags)::text || ':' || (SELECT count(*) FROM location_points)::text FROM frames WHERE kind = 'photo'"); err == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
+	if rows, err := db.Query("SELECT count(*)::text || ':' || coalesce(max(taken_at),0)::text || ':' || (SELECT count(*) FROM frame_tags)::text || ':' || (SELECT coalesce(max(ts),0) FROM location_points WHERE ts < $1)::text FROM frames WHERE kind = 'photo'", time.Now().Unix()-2*86400); err == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
 		sig = *rows.Vals[0][0]
 	}
 	if rows, err := db.Query("SELECT value FROM settings WHERE key = 'synthd_outings_sig'"); err == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil && *rows.Vals[0][0] == sig && sig != "" {

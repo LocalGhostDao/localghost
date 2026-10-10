@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 )
@@ -40,7 +41,7 @@ func (c *Conn) query(sql string, args []any) (*Rows, error) {
 	for {
 		typ, payload, err := c.readMsg()
 		if err != nil {
-			return nil, err
+			return nil, &sentError{err} // sent, unanswered: never resent
 		}
 		switch typ {
 		case '1', '2', 'n', 't': // ParseComplete, BindComplete, NoData, ParameterDescription , skip
@@ -188,7 +189,12 @@ func parseDataRow(p []byte) []*string {
 	return vals
 }
 
-// run is the connection-managing wrapper: connect if needed, retry once on a transport error.
+// run is the connection-managing wrapper: connect if needed, retry once on a transport error
+// that struck before the statement went out (a stale socket from a server restart). A statement
+// that went out and was not answered (sentError: a timeout, the socket dropped mid-answer) is
+// not sent again: the connection is dropped and the error returned, since the server may still
+// be running it or may have applied it. Until 10 October 2026 a timeout was retried like a stale
+// socket, so a statement over thirty seconds ran twice.
 func (c *Conn) run(sql string, args []any) (*Rows, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -199,12 +205,30 @@ func (c *Conn) run(sql string, args []any) (*Rows, error) {
 	}
 	rows, err := c.query(sql, args)
 	if err != nil && isNetErr(err) {
+		var se *sentError
+		if errors.As(err, &se) {
+			c.drop()
+			return nil, err
+		}
 		if cerr := c.connect(); cerr != nil {
 			return nil, cerr
 		}
 		return c.query(sql, args)
 	}
 	return rows, err
+}
+
+// runLong is run with LongTimeout for the answer: DDL that builds an index over millions of rows.
+func (c *Conn) runLong(sql string, args []any) (*Rows, error) {
+	c.mu.Lock()
+	c.readWait = LongTimeout
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.readWait = 0
+		c.mu.Unlock()
+	}()
+	return c.run(sql, args)
 }
 
 // --- role-typed clients ---
@@ -260,6 +284,11 @@ func (r *ReadOnly) QuerySimple(sql string) (*Rows, error) {
 	}
 	rows, err := r.c.querySimpleLocked(sql)
 	if err != nil && isNetErr(err) {
+		var se *sentError
+		if errors.As(err, &se) {
+			r.c.drop()
+			return nil, err
+		}
 		if cerr := r.c.connect(); cerr != nil {
 			return nil, cerr
 		}
@@ -276,7 +305,7 @@ func (c *Conn) querySimpleLocked(sql string) (*Rows, error) {
 	for {
 		typ, payload, err := c.readMsg()
 		if err != nil {
-			return nil, err
+			return nil, &sentError{err}
 		}
 		switch typ {
 		case 'T':
@@ -297,6 +326,13 @@ func (c *Conn) querySimpleLocked(sql string) (*Rows, error) {
 // Exec runs a writing statement (INSERT/UPDATE/DELETE/DDL) with parameters. Write client only.
 func (w *ReadWrite) Exec(sql string, args ...any) error {
 	_, err := w.rw.run(sql, args)
+	return err
+}
+
+// ExecLong is Exec for a statement that may take hours (an index over millions of rows): the
+// answer is waited for up to LongTimeout. The connection is held for the whole of it.
+func (w *ReadWrite) ExecLong(sql string, args ...any) error {
+	_, err := w.rw.runLong(sql, args)
 	return err
 }
 

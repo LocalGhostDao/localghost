@@ -179,7 +179,7 @@ func (s *Server) handleSyncCursor(w http.ResponseWriter, r *http.Request) {
 		TS   int64  `json:"ts"`
 		ID   int64  `json:"id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || (req.Kind != "photo" && req.Kind != "video") {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil || (req.Kind != "photo" && req.Kind != "video") {
 		s.appearsDown(w)
 		return
 	}
@@ -255,7 +255,7 @@ func (s *Server) handleFrameTag(w http.ResponseWriter, r *http.Request) {
 		Tag    string `json:"tag"`
 		Action string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
 		s.appearsDown(w)
 		return
 	}
@@ -312,7 +312,7 @@ func (s *Server) handleFramesExists(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Hashes []string `json:"hashes"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&req); err != nil {
 		s.appearsDown(w)
 		return
 	}
@@ -447,10 +447,25 @@ func (s *Server) handleFrameThumb(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
+	serveByHash(w, r, path, hash, "handleFrameThumb")
+}
+
+// serveByHash sends a thumbnail or a preview, which is named by the frame's hash and never
+// changes: a year's Cache-Control with immutable, an ETag of the hash, 304 on If-None-Match,
+// and the length, so the phone's HTTP cache answers the next scroll without a request. The
+// headers are private: the box's caches alone.
+func serveByHash(w http.ResponseWriter, r *http.Request, path, hash, fn string) {
+	etag := "\"" + hash + "\""
+	if r.Header.Get("If-None-Match") == etag {
+		w.Header().Set("ETag", etag)
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
 	f, err := os.Open(path)
 	if err != nil {
-		secdLog.Warn("thumb open failed", "fn", "handleFrameThumb", "path", path, "err", err)
-		s.appearsDown(w)
+		secdLog.Warn("open failed", "fn", fn, "path", path, "err", err)
+		w.WriteHeader(http.StatusServiceUnavailable)
 		return
 	}
 	defer f.Close()
@@ -458,6 +473,11 @@ func (s *Server) handleFrameThumb(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/webp")
 	} else {
 		w.Header().Set("Content-Type", "image/jpeg")
+	}
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	if st, serr := f.Stat(); serr == nil {
+		w.Header().Set("Content-Length", strconv.FormatInt(st.Size(), 10))
 	}
 	_, _ = io.Copy(w, f)
 }
@@ -494,19 +514,7 @@ func (s *Server) handleFramePreview(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		secdLog.Warn("preview open failed", "fn", "handleFramePreview", "path", path, "err", err)
-		s.appearsDown(w)
-		return
-	}
-	defer f.Close()
-	if strings.HasSuffix(path, ".webp") {
-		w.Header().Set("Content-Type", "image/webp")
-	} else {
-		w.Header().Set("Content-Type", "image/jpeg")
-	}
-	_, _ = io.Copy(w, f)
+	serveByHash(w, r, path, hash, "handleFramePreview")
 }
 
 // handleLocations accepts a JSON batch of location points ({"source":..,"points":[{ts,lat,lon}..]})

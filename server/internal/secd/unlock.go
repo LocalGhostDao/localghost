@@ -154,7 +154,8 @@ func (s *Server) handleUnlockStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req unlockRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// pre-auth: the body is a PIN and nothing else; a body past a few KB is not a PIN
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "bad request")
 		return
 	}

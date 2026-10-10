@@ -312,8 +312,7 @@ fun MainShell(
                             onDeleteBoxChat = onDeleteBoxChat)
                         Dest.MEMORIES -> MemoriesScreen(lifeContext, open = memFocus, onOpened = { memFocus = "" },
                             onOpenDay = { d -> openDay(d) },
-                            onOpenMemory = { id -> openMemory(id) },
-                            onOpenCheckin = { dest = Dest.CHECKIN })
+                            onOpenMemory = { id -> openMemory(id) })
                         Dest.MEMORY -> MemoryScreen(memOpen,
                             onOpenDay = { d -> openDay(d) },
                             onOpenMemory = { id -> openMemory(id) },

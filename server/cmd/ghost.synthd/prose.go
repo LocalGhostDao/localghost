@@ -317,7 +317,7 @@ func captionsFor(db *poltergres.ReadWrite, hashes []string, max int) []string {
 		if len(h) != 32 {
 			continue
 		}
-		rows, err := db.Query(`SELECT meta->>'caption' FROM search.originals WHERE source = 'image' AND substring(sha256 from 1 for 16) = decode($1, 'hex') LIMIT 1`, h)
+		rows, err := db.Query(`SELECT meta->>'caption' FROM search.originals WHERE source = 'image' AND sha256 BETWEEN decode($1 || repeat('00', 16), 'hex') AND decode($1 || repeat('ff', 16), 'hex') LIMIT 1`, h)
 		if err != nil {
 			captionsUnavailable = true
 			slog.Info("captions not readable from synthd; memories are written without them", "fn", "captionsFor", "err", err)

@@ -1210,8 +1210,15 @@ object BoxClient {
         }
     }
 
-    suspend fun memoriesList(ctx: Context): List<MemRow>? = try {
-        val r = BoxHttp.getJson(ctx, "/v1/memories")
+    /** The memories feed: whole memories first (every trip, person and fact), then the parts folded
+     *  under a trip, newest first within each, [limit] rows. */
+    suspend fun memoriesList(ctx: Context, limit: Int = 600): List<MemRow>? = memoriesAt(ctx, "/v1/memories?limit=$limit")
+
+    /** The parts folded under one whole (a trip's outings and days), oldest first, for its page. */
+    suspend fun memoriesParts(ctx: Context, ref: String): List<MemRow>? = memoriesAt(ctx, "/v1/memories?part_of=" + java.net.URLEncoder.encode(ref, "UTF-8"))
+
+    private suspend fun memoriesAt(ctx: Context, path: String): List<MemRow>? = try {
+        val r = BoxHttp.getJson(ctx, path)
         val a = r.optJSONArray("memories") ?: return emptyList()
         (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null

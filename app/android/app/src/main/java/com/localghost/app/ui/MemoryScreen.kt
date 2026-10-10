@@ -47,7 +47,9 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
             val found = list?.firstOrNull { it.id == id }
             if (found != null) {
                 m = found
-                parts = if (found.ref.isEmpty()) emptyList() else list.filter { it.partOf == found.ref }.sortedBy { it.createdAt }
+                // the parts come from the box by ref: the feed is cut at a limit and an old
+                // trip's days are the first rows past it
+                parts = if (found.ref.isEmpty()) emptyList() else (BoxClient.memoriesParts(ctx, found.ref) ?: list.filter { it.partOf == found.ref }.sortedBy { it.createdAt })
                 whole = found.partOf.takeIf { it.isNotEmpty() }?.let { ref -> list.firstOrNull { it.ref == ref } }
                 failed = false
             } else { missing = list != null; failed = list == null && m == null }

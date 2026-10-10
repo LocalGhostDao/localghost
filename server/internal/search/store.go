@@ -319,8 +319,11 @@ func (s *Store) OriginalIDByFrameHash(frameHash string) (int64, error) {
 	if len(frameHash) != 32 {
 		return 0, nil
 	}
+	// the frame's hash is the first sixteen bytes of the original's: a range on the (source,
+	// sha256) index, where substring(sha256 …) = … was a scan of every image (the stock-take
+	// asked it once per frame, so a big archive's stock-take grew with the square of its size)
 	rows, err := s.db.Query(
-		`SELECT id FROM search.originals WHERE source = 'image' AND substring(sha256 from 1 for 16) = decode($1, 'hex')`, frameHash)
+		`SELECT id FROM search.originals WHERE source = 'image' AND sha256 BETWEEN decode($1 || repeat('00', 16), 'hex') AND decode($1 || repeat('ff', 16), 'hex')`, frameHash)
 	if err != nil || len(rows.Vals) == 0 || rows.Vals[0][0] == nil {
 		return 0, err
 	}

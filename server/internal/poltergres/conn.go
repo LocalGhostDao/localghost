@@ -36,6 +36,34 @@ type Conn struct {
 	db      string
 	c       net.Conn
 	r       *bufio.Reader
+	// readWait is how long one message is waited for (ReadTimeout when zero): a statement that
+	// takes longer is given up on, the connection dropped, and the statement NOT sent again
+	// (sentError), since the server may still be running it, or may have applied it.
+	readWait time.Duration
+}
+
+// ReadTimeout is the wait for the server's next message on an ordinary statement; LongTimeout is
+// the wait a Long call gives DDL that builds an index over millions of rows.
+const (
+	ReadTimeout = 30 * time.Second
+	LongTimeout = 4 * time.Hour
+)
+
+// sentError marks an error that came after the statement had gone to the server: the answer
+// never came (a timeout, a dropped socket). Such a statement must not be sent again by the
+// reconnect path, a non-idempotent write might be applied twice and a slow DDL started twice.
+type sentError struct{ err error }
+
+func (e *sentError) Error() string { return e.err.Error() }
+func (e *sentError) Unwrap() error { return e.err }
+
+// drop closes the connection so the next call connects afresh; for a connection whose last
+// statement never answered (the server may still be busy with it on that socket).
+func (c *Conn) drop() {
+	if c.c != nil {
+		_ = c.c.Close()
+		c.c = nil
+	}
 }
 
 func newConn(network, addr, user, pass, db string) *Conn {
@@ -217,7 +245,11 @@ func (c *Conn) writeMsg(typ byte, payload []byte) error {
 
 // readMsg returns the next message's type and payload.
 func (c *Conn) readMsg() (byte, []byte, error) {
-	_ = c.c.SetDeadline(time.Now().Add(30 * time.Second))
+	wait := c.readWait
+	if wait <= 0 {
+		wait = ReadTimeout
+	}
+	_ = c.c.SetDeadline(time.Now().Add(wait))
 	typ, err := c.r.ReadByte()
 	if err != nil {
 		return 0, nil, err

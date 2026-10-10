@@ -238,7 +238,7 @@ func dayBackfillSlice(db *poltergres.ReadWrite, now time.Time, skip, n int) []st
 			earliest = time.Unix(ts, 0).UTC().Format("2006-01-02")
 		}
 	}
-	if rows, err := db.Query("SELECT min(to_char(to_timestamp(ts), 'YYYY-MM-DD')) FROM location_points"); err == nil && len(rows.Vals) == 1 && len(rows.Vals[0]) > 0 && rows.Vals[0][0] != nil {
+	if rows, err := db.Query("SELECT to_char(to_timestamp(min(ts)), 'YYYY-MM-DD') FROM location_points"); err == nil && len(rows.Vals) == 1 && len(rows.Vals[0]) > 0 && rows.Vals[0][0] != nil {
 		if d := *rows.Vals[0][0]; d != "" && (earliest == "" || d < earliest) {
 			earliest = d
 		}

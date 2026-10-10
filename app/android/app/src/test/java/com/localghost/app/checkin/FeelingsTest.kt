@@ -106,4 +106,11 @@ class FeelingsTest {
         assertEquals("how were you feeling yesterday, and why · kept on your box", Feelings.subtitle("yesterday"))
         assertEquals("how were you feeling that day, and why · kept on your box", Feelings.subtitle("5 days ago"))
     }
+
+    @Test fun oneCheckinADayPrefersTheOneWithAFeeling() {
+        assertEquals(1, Feelings.oneADay(listOf("(unspecified)", "inspired, loved", "calm")))
+        assertEquals(0, Feelings.oneADay(listOf("calm", "tired")))
+        assertEquals(0, Feelings.oneADay(listOf("(unspecified)", "")))
+        assertEquals("Wed 30 Sep", Feelings.shortDay("2026-09-30"))
+    }
 }

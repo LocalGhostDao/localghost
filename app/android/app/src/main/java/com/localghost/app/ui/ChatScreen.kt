@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.localghost.app.chat.Attachment
 import com.localghost.app.chat.Message
 import com.localghost.app.ui.theme.*
+import com.localghost.app.voice.gist
 
 @Composable
 fun ChatScreen(
@@ -215,7 +216,7 @@ fun ChatScreen(
 @Composable
 internal fun VoiceAskButton(onWords: (String) -> Unit, onNote: (String) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val rec by com.localghost.app.voice.VoiceCapture.state.collectAsState()
+    val rec by com.localghost.app.voice.VoiceCapture.gist.collectAsState(initial = com.localghost.app.voice.VoiceCapture.state.value.gist())
     var askId by remember { mutableStateOf("") }
     var hearing by remember { mutableStateOf(false) }
     val view = androidx.compose.ui.platform.LocalView.current
@@ -250,7 +251,7 @@ internal fun VoiceAskButton(onWords: (String) -> Unit, onNote: (String) -> Unit)
         }
     }
     if (rec.recording && mine) {
-        LaunchedEffect(rec.elapsedMs / 1000) { onNote("● " + com.localghost.app.checkin.Feelings.clock(rec.elapsedMs) + " listening · tap ■ when you have asked") }
+        LaunchedEffect(rec.elapsedS) { onNote("● " + com.localghost.app.checkin.Feelings.clock(rec.elapsedS * 1000) + " listening · tap ■ when you have asked") }
     }
     val busy = rec.recording && !mine // the check-in's recorder has the microphone
     Box(

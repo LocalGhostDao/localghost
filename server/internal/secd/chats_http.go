@@ -152,7 +152,9 @@ func (s *Server) handleChatDelete(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 }
 
-// handleMemories , GET /v1/memories , the distilled corpus, live rows only, for the MEMORIES screen.
+// handleMemories , GET /v1/memories[?limit=N] , the distilled corpus, live rows only, whole
+// memories first, for the MEMORIES screen; ?part_of=<ref> is one whole's parts (a trip's
+// outings and days), for its page.
 func (s *Server) handleMemories(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
 		s.appearsDown(w)
@@ -166,7 +168,13 @@ func (s *Server) handleMemories(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	rowsOut, err := s.notif.MemoriesList(mounted, limit)
+	var rowsOut []hw.MemoryRow
+	var err error
+	if ref := strings.TrimSpace(r.URL.Query().Get("part_of")); ref != "" {
+		rowsOut, err = s.notif.MemoriesPartsOf(mounted, ref) // a whole's parts, for its page
+	} else {
+		rowsOut, err = s.notif.MemoriesList(mounted, limit)
+	}
 	if err != nil {
 		secdLog.Warn("memories list failed", "fn", "handleMemories", "err", err)
 		s.appearsDown(w)

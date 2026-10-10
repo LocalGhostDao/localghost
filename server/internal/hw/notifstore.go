@@ -1341,20 +1341,47 @@ func (s *NotifStore) DaysList(slot int, before string, limit int) ([]DayRow, err
 	return out, nil
 }
 
-// MemoriesList returns live (non-tombstoned) memories, newest first.
+// memoryCols is what the memory rows are read with, in memoryRows' order.
+const memoryCols = "SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text, COALESCE(source_ref,''), user_edited FROM memories WHERE NOT tombstoned "
+
+// MemoriesList returns live (non-tombstoned) memories, newest first, the whole ones (a trip,
+// a lone outing, a person, a distilled fact) before the parts (an outing or a day folded under
+// a trip, meta.part_of), so a feed cut at the limit keeps every trip and loses old parts first.
+// Until 10 October 2026 the order was the clock alone and the limit 200, and a trip from June
+// fell off the feed once two hundred newer days and outings had been written: it "disappeared".
+// MemoriesPartsOf is the parts of one whole, for its page.
 func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 	c, err := s.pg(slot)
 	if err != nil {
 		return nil, err
 	}
-	if limit <= 0 || limit > 500 {
-		limit = 200
+	if limit <= 0 || limit > 2000 {
+		limit = 600
 	}
-	rows, err := c.Query(
-		"SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text, COALESCE(source_ref,''), user_edited FROM memories WHERE NOT tombstoned ORDER BY created_at DESC LIMIT " + strconv.Itoa(limit))
+	rows, err := c.Query(memoryCols + "ORDER BY (meta IS NOT NULL AND jsonb_exists(meta, 'part_of')), created_at DESC LIMIT " + strconv.Itoa(limit))
 	if err != nil {
 		return nil, err
 	}
+	return memoryRows(rows), nil
+}
+
+// MemoriesPartsOf is the memories folded under one whole (meta.part_of = ref: a trip's outings
+// and days), oldest first, for the whole's page.
+func (s *NotifStore) MemoriesPartsOf(slot int, ref string) ([]MemoryRow, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.Query(memoryCols+"AND meta IS NOT NULL AND meta->>'part_of' = $1 ORDER BY created_at ASC LIMIT 400", ref)
+	if err != nil {
+		return nil, err
+	}
+	return memoryRows(rows), nil
+}
+
+// memoryRows reads memoryCols' rows. The ref is given for the kinds the app files by it (a day,
+// an outing, a trip); a chat's ref stays the box's own.
+func memoryRows(rows *poltergres.Rows) []MemoryRow {
 	out := make([]MemoryRow, 0, len(rows.Vals))
 	for _, v := range rows.Vals {
 		if len(v) < 6 || v[0] == nil {
@@ -1380,7 +1407,7 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		if v[5] != nil {
 			m.CreatedAt, _ = strconv.ParseInt(*v[5], 10, 64)
 		}
-		if len(v) > 7 && v[7] != nil && (strings.HasPrefix(*v[7], "day:") || strings.HasPrefix(*v[7], "outing:")) {
+		if len(v) > 7 && v[7] != nil && (strings.HasPrefix(*v[7], "day:") || strings.HasPrefix(*v[7], "outing:") || strings.HasPrefix(*v[7], "trip:")) {
 			m.Ref = *v[7]
 		}
 		if len(v) > 8 && v[8] != nil {
@@ -1388,7 +1415,7 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 		}
 		out = append(out, m)
 	}
-	return out, nil
+	return out
 }
 
 // TasteJSON is what synthd last wrote about what the person likes to photograph (settings

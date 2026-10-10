@@ -100,7 +100,7 @@ fun HarnessScreen(daemons: Loadable<List<DaemonStatus>>, onRefresh: () -> Unit =
             is Loadable.Loading -> item { LoadingRow("polling daemons…") }
             is Loadable.Failed -> item { ErrorLine(daemons.reason) }
             is Loadable.Loaded -> {
-                items(daemons.value) { d ->
+                items(daemons.value, key = { it.id }) { d ->
                     DaemonRow(d, onClick = {
                         statsFor = when (d.id) {
                             "cpu" -> "host.cpu"; "memory" -> "host.mem"; "gpu" -> "host.gpu"

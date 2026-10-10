@@ -120,8 +120,12 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
                 // Byte callbacks fire per chunk; publishing each one churns WorkManager's progress DB
                 // for nothing a human can perceive. Two a second is plenty for a smooth meter.
                 val now = System.currentTimeMillis()
-                if (now - lastBytesPub >= 500) { lastBytesPub = now; publish() }
-                try { setForegroundAsync(foregroundInfo(doneCount, totalCount, runBytesSent)) } catch (_: Exception) {}
+                if (now - lastBytesPub >= 500) {
+                    lastBytesPub = now; publish()
+                    // the foreground notification at the same pace: one per chunk was a hundred
+                    // a second on Wi-Fi, each rebuilding the notification, and the OS shed them
+                    try { setForegroundAsync(foregroundInfo(doneCount, totalCount, runBytesSent)) } catch (_: Exception) {}
+                }
             }
             override fun onItemDone(kind: MediaKind, sent: Int, total: Int) {
                 doneCount = sent; totalCount = total

@@ -32,9 +32,10 @@ import kotlinx.coroutines.launch
  * kind=user and untouchable from birth. The daily check-in and the voice notes have a page of
  * their own (CHECK-IN); a memory's title opens its own page (MemoryScreen).
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Unit = {}, onOpenDay: (String) -> Unit = {},
-                   onOpenMemory: (Long) -> Unit = {}, onOpenCheckin: () -> Unit = {}) {
+                   onOpenMemory: (Long) -> Unit = {}) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var rows by remember { mutableStateOf<List<BoxClient.MemRow>?>(null) }
@@ -51,6 +52,7 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
     var loadFailed by remember { mutableStateOf(false) }
     // WHAT YOU PHOTOGRAPH and NEAR YOU , the taste synthd distils from the photos' tags, and the
     // places around the phone's last fix that fit it. Both load on tap, from the box, never the net.
+    var aboutOpen by remember { mutableStateOf(false) }
     var tasteOpen by remember { mutableStateOf(false) }
     var taste by remember { mutableStateOf<BoxClient.Taste?>(null) }
     var tasteLoading by remember { mutableStateOf(false) }
@@ -108,46 +110,50 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                 Text("indexed on the box · never leaves it", color = GhostTextDim,
                     style = MaterialTheme.typography.labelMedium)
             }
-            Spacer(Modifier.height(4.dp))
-            Row {
-                Text(if (adding) "[ − cancel ]" else "[ + add a memory ]", color = TerminalGreen,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable { adding = !adding; jotting = false })
-                Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.height(8.dp))
+            // THE TOP, in one place: two things to write and four things to open, as chips that
+            // wrap (the lit one is open). The check-in and the voice notes have their own page
+            // (CHECK-IN, in the menu); the explainer (ⓘ) says what each chip holds.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                MemChip(if (adding) "− cancel" else "+ add a memory", adding) { adding = !adding; jotting = false }
                 // A JOT goes to the JOURNAL, not straight to memories: noted ingests it, synthd
                 // decides at distillation whether it is durable , same path as a shared email.
-                Text(if (jotting) "[ − cancel ]" else "[ + jot a note ]", color = TerminalGreen,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable { jotting = !jotting; adding = false })
-            }
-            if (jotSent) Text("sent to the journal , distilled within minutes", color = TerminalDim,
-                style = MaterialTheme.typography.labelMedium)
-            if (memNote.isNotEmpty()) Text(memNote, color = Warning, style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.height(4.dp))
-            // the check-in and the voice notes moved to their own page
-            Text("the daily check-in and your voice notes: CHECK-IN ›", color = TerminalDim,
-                style = MaterialTheme.typography.labelMedium, modifier = Modifier.clickable { onOpenCheckin() })
-        }
-        item {
-            // ABOUT ME AND MY PEOPLE: a note the box makes memories from (one per person, and facts
-            // about me), and the chat starts every question from
-            AboutCard(onSaved = { reload() })
-        }
-        item {
-            // WHAT YOU PHOTOGRAPH , the taste. Tags ranked by the share of photo days they appear on,
-            // so a burst of five hundred beach photos on one day counts as one day; then the interests
-            // (beaches, harbours, peaks ...) those tags add up to. Assembled on the box from the tags,
-            // no model call, refreshed as the pipeline tags more.
-            Text(if (tasteOpen) "[ − what you photograph ]" else "[ + what you photograph , what the archive says you like ]",
-                color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.clickable {
+                MemChip(if (jotting) "− cancel" else "+ jot a note", jotting) { jotting = !jotting; adding = false }
+                MemChip("about me", aboutOpen) { aboutOpen = !aboutOpen }
+                MemChip("what you photograph", tasteOpen) {
                     tasteOpen = !tasteOpen
                     if (tasteOpen && taste == null && !tasteLoading) {
                         tasteLoading = true
                         scope.launch { taste = BoxClient.taste(ctx); tasteLoading = false }
                     }
-                })
-            if (tasteOpen) {
+                }
+                MemChip("near you", nearOpen) {
+                    nearOpen = !nearOpen
+                    if (nearOpen && near == null && !nearLoading) loadNear()
+                }
+                MemChip("on this day", otdOpen) {
+                    otdOpen = !otdOpen
+                    if (otdOpen && otd == null && !otdLoading) {
+                        otdLoading = true
+                        scope.launch { otd = BoxClient.onThisDay(ctx); otdLoading = false }
+                    }
+                }
+            }
+            if (jotSent) Text("sent to the journal , distilled within minutes", color = TerminalDim,
+                style = MaterialTheme.typography.labelMedium)
+            if (memNote.isNotEmpty()) Text(memNote, color = Warning, style = MaterialTheme.typography.labelMedium)
+        }
+        if (aboutOpen) item {
+            // ABOUT ME AND MY PEOPLE: a note the box makes memories from (one per person, and facts
+            // about me), and the chat starts every question from
+            AboutCard(onSaved = { reload() })
+        }
+        if (tasteOpen) item {
+            // WHAT YOU PHOTOGRAPH , the taste. Tags ranked by the share of photo days they appear on,
+            // so a burst of five hundred beach photos on one day counts as one day; then the interests
+            // (beaches, harbours, peaks ...) those tags add up to. Assembled on the box from the tags,
+            // no model call, refreshed as the pipeline tags more.
+            run {
                 val t = taste
                 when {
                     tasteLoading -> Text("reading the tags…", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
@@ -160,17 +166,11 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                 }
             }
         }
-        item {
+        if (nearOpen) item {
             // NEAR YOU , the taste laid over the box's own map data around the phone's last fix:
             // "a beach 2 km north-east you have never photographed". The position goes to the box,
             // which answers from its own tables; nothing leaves it.
-            Text(if (nearOpen) "[ − near you ]" else "[ + near you , places that fit, from your own map data ]",
-                color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.clickable {
-                    nearOpen = !nearOpen
-                    if (nearOpen && near == null && !nearLoading) loadNear()
-                })
-            if (nearOpen) {
+            run {
                 val n = near
                 val fix = nearFix
                 when {
@@ -189,19 +189,10 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                 }
             }
         }
-        item {
+        if (otdOpen) item {
             // ON THIS DAY , synthd's retrospective. Loaded on TAP, not on entry: the first build
             // of a day narrates through the model and can take a minute; cached days are instant.
-            Text(if (otdOpen) "[ − on this day ]" else "[ + on this day , what were you doing? ]",
-                color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.clickable {
-                    otdOpen = !otdOpen
-                    if (otdOpen && otd == null && !otdLoading) {
-                        otdLoading = true
-                        scope.launch { otd = BoxClient.onThisDay(ctx); otdLoading = false }
-                    }
-                })
-            if (otdOpen) {
+            run {
                 when {
                     otdLoading -> Text("composing from your history… (first time today takes a minute)",
                         color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
@@ -260,7 +251,7 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                         color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(6.dp))
                     // the kinds, as chips: one picked shows only its memories
-                    val counts = MemoryKinds.counts(rows!!.map { it.kind })
+                    val counts = remember(rows) { MemoryKinds.counts(rows!!.map { it.kind }) }
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
                         MemoryKinds.all.forEach { k ->
                             val n = counts[k.id] ?: 0
@@ -274,9 +265,13 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                         }
                     }
                 }
-                items(rows!!.filter { MemoryKinds.shown(memKind, it.kind, it.partOf) && (memQuery.isBlank() ||
-                        it.title.contains(memQuery, true) || it.body.contains(memQuery, true)) },
-                    key = { "mem-${it.id}" }) { m ->
+                // filtered once per change of rows, chip or query, not on every recomposition of
+                // the list (a keystroke, a chip, a loading flag each ran it over six hundred rows)
+                val shownRows = remember(rows, memKind, memQuery) {
+                    rows!!.filter { MemoryKinds.shown(memKind, it.kind, it.partOf) && (memQuery.isBlank() ||
+                        it.title.contains(memQuery, true) || it.body.contains(memQuery, true)) }
+                }
+                items(shownRows, key = { "mem-${it.id}" }) { m ->
                 MemoryRowCard(m,
                     onOpen = { onOpenMemory(m.id) },
                     onEdit = { t, b -> scope.launch { changed(BoxClient.memoryEdit(ctx, m.id, t, b), "keep the edit") } },
@@ -465,27 +460,31 @@ private fun NearbyCard(n: BoxClient.Nearby, km: Int, onKm: (Int) -> Unit) {
 }
 
 
+/** One of the chips at the top: lit while what it opens is shown. */
+@Composable
+private fun MemChip(label: String, on: Boolean, onTap: () -> Unit) {
+    Text(label, color = if (on) Void else TerminalGreen, style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.border(1.dp, if (on) TerminalGreen else GhostBorder, RectangleShape)
+            .background(if (on) TerminalGreen else Void).clickable { onTap() }.padding(horizontal = 10.dp, vertical = 5.dp))
+}
+
 /** The note about me and my people: written here, kept on the box, made into memories there. */
 @Composable
 private fun AboutCard(onSaved: () -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
-    var open by remember { mutableStateOf(false) }
     var about by remember { mutableStateOf<BoxClient.About?>(null) }
     var text by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) } // the note could not be read: saving is held, so a blank never overwrites it
     var saveNote by remember { mutableStateOf("") }
-    LaunchedEffect(open) {
-        if (open && about == null) {
+    LaunchedEffect(Unit) {
+        if (about == null) {
             val a = BoxClient.about(ctx)
             if (a != null) { about = a; text = a.text; failed = false } else failed = true
         }
     }
-    Text(if (open) "[ − about me and my people ]" else "[ + about me and my people ]", color = TerminalGreen,
-        style = MaterialTheme.typography.labelMedium, modifier = Modifier.clickable { open = !open })
-    if (!open) return
-    Column(Modifier.fillMaxWidth().padding(top = 6.dp).border(1.dp, GhostBorder, RectangleShape).background(Void).padding(12.dp)) {
+    Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(Void).padding(12.dp)) {
         Text("who I am, and the people in my life: names, who they are to me, what matters. The box makes memories from it, one per person, and every chat starts from it.",
             color = GhostTextDim, style = MaterialTheme.typography.labelSmall)
         Spacer(Modifier.height(8.dp))

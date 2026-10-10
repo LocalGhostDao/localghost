@@ -347,7 +347,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { LocalModel.stateFlow.collect { phoneModelState = it } }
 
         lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) { ForegroundPoller.run(this@MainActivity) }
+            repeatOnLifecycle(Lifecycle.State.STARTED) { ForegroundPoller.run(this@MainActivity) { screen == Screen.Shell } }
         }
 
         captureShare(intent)

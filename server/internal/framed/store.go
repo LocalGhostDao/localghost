@@ -106,7 +106,7 @@ func (s *Store) InsertFrame(f Frame) error {
 // ForgetFrame removes every row the box keeps for a frame: searchd's original (its chunks go with
 // it) and the jobs queued for it, its tags, its journal line, the frame. The file is the caller's.
 func (s *Store) ForgetFrame(hash string) error {
-	return s.db.Exec(`WITH o AS (SELECT id FROM search.originals WHERE source = 'image' AND substring(sha256 from 1 for 16) = decode($1, 'hex')),
+	return s.db.Exec(`WITH o AS (SELECT id FROM search.originals WHERE source = 'image' AND sha256 BETWEEN decode($1 || repeat('00', 16), 'hex') AND decode($1 || repeat('ff', 16), 'hex')),
 		j AS (DELETE FROM search.jobs WHERE kind IN ('caption','tag') AND (payload->>'origId') IN (SELECT id::text FROM o)),
 		c AS (DELETE FROM search.citations WHERE orig_source = 'image' AND orig_id IN (SELECT id FROM o)),
 		x AS (DELETE FROM search.originals WHERE id IN (SELECT id FROM o)),

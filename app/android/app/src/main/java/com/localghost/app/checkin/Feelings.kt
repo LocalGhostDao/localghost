@@ -146,7 +146,16 @@ object Feelings {
     /** "Fri 3 Oct" for a past check-in's row. */
     fun shortDay(day: String): String {
         val c = calendarOf(day) ?: return day
-        return java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.UK).format(c.time)
+        // Locale.ENGLISH: "Sep", where the UK locale's CLDR gives "Sept" and the column overflows
+        return java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.ENGLISH).format(c.time)
+    }
+
+    /** One check-in a day for the lists: of the rows for a day (newest first) the first with a
+     *  feeling picked, else the newest; a day checked in twice (a save that looked lost, a blank
+     *  one by mistake) shows once. Returns the index to keep. */
+    fun oneADay(feelingsNewestFirst: List<String>): Int {
+        val i = feelingsNewestFirst.indexOfFirst { picks(it).isNotEmpty() }
+        return if (i < 0) 0 else i
     }
 
     /** What recurred in the check-ins given (a month's, say): "calm ×6 · tired ×4 · focused ×3",

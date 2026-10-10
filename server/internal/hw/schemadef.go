@@ -216,6 +216,9 @@ var schemaRegistry = []SchemaTable{
 		{"meta", "JSONB", false, ""},
 	}, Indexes: []string{
 		"CREATE INDEX IF NOT EXISTS memories_source ON memories (source_chat)",
+		// every pass looks a memory up by its kind and ref (an outing, a trip, a day, a place),
+		// once per row: without this each lookup read the whole table
+		"CREATE INDEX IF NOT EXISTS memories_kind_ref ON memories (kind, source_ref)",
 	}},
 	{Name: "journal_entries", PK: "id", Unique: []string{"source, ref"}, Cols: []SchemaCol{
 		{"id", "BIGSERIAL", true, ""},

@@ -30,6 +30,7 @@ import com.localghost.app.net.BoxClient
 import com.localghost.app.settings.AppSettings
 import com.localghost.app.ui.theme.*
 import com.localghost.app.voice.VoiceCapture
+import com.localghost.app.voice.gist
 import com.localghost.app.voice.VoiceNotes
 import com.localghost.app.voice.VoicePlayback
 import kotlinx.coroutines.launch
@@ -89,7 +90,11 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
         reload()
     }
 
-    val rows = history ?: emptyList()
+    // one row a day: a day checked in twice shows its row with a feeling, else its newest
+    val rows = remember(history) {
+        (history ?: emptyList()).groupBy { it.day }.values.map { same -> same[Feelings.oneADay(same.map { it.feelings })] }
+            .sortedByDescending { it.day }
+    }
     val byDay = remember(rows) { rows.associateBy { it.day } }
     val onPhone = voiceLocal.map { it.id }.toSet()
     LaunchedEffect(history) {
@@ -190,7 +195,7 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
                 val picks = Feelings.picks(r.feelings)
                 Row(Modifier.fillMaxWidth().clickable { past = r.day }.padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(Feelings.mark(tone), color = toneColour(tone, true), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(22.dp))
-                    Text(Feelings.shortDay(r.day), color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(84.dp))
+                    Text(Feelings.shortDay(r.day), color = GhostTextDim, style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(96.dp))
                     Text(if (picks.isEmpty()) "(no feeling picked)" else picks.joinToString(", "), color = GhostText,
                         style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), maxLines = 1)
                     if (r.voices.isNotEmpty()) Text(if (r.voices.size > 1) "◍${r.voices.size}" else "◍", color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(end = 6.dp))
@@ -275,7 +280,9 @@ private fun CheckinForm(day: String, today: String, dayWord: String, history: Li
     var saving by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     val usual = remember(history) { Feelings.usual(history.take(30).map { it.feelings }).take(6).toSet() }
-    val rec by VoiceCapture.state.collectAsState()
+    // the gist, not the level: the form holds the chips and the why, and recomposing them ten
+    // times a second while a note records made the page stutter
+    val rec by VoiceCapture.gist.collectAsState(initial = VoiceCapture.state.value.gist())
 
     // the prefill: the box's guesses (the first two ticked, unless the person already chose) and a
     // why from the day's numbers; asked once
@@ -613,31 +620,37 @@ internal fun VoiceRecorder(hint: String, saveLabel: String?, onSave: (VoiceCaptu
         }
     }
     val take = rec.take
+    // THE BUTTONS are big: a voice note is said with the phone held away from the eye, so the
+    // record, pause and stop are the size of a thumb, and the clock and the level read from arm's
+    // length. One row: the main button, then the second (pause / resume while recording).
     Column(Modifier.fillMaxWidth()) {
         when {
-            rec.recording -> Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("● " + Feelings.clock(rec.elapsedMs), color = Warning, style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.width(8.dp))
-                Box(Modifier.width(72.dp).height(6.dp).background(GhostBorder)) {
-                    Box(Modifier.fillMaxHeight().fillMaxWidth(rec.level.coerceIn(0.02f, 1f)).background(TerminalGreen))
+            rec.recording -> {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BigVoiceButton("■", "stop", Warning, Modifier.weight(1f)) { VoiceCapture.stop() }
+                    if (rec.paused) BigVoiceButton("●", "resume", TerminalGreen, Modifier.weight(1f)) { VoiceCapture.resume() }
+                    else BigVoiceButton("‖", "pause", GhostText, Modifier.weight(1f)) { VoiceCapture.pause() }
                 }
-                Spacer(Modifier.width(10.dp))
-                Text("[ ■ stop ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable { VoiceCapture.stop() })
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text((if (rec.paused) "‖ " else "● ") + Feelings.clock(rec.elapsedMs) + (if (rec.paused) " · paused" else ""),
+                        color = if (rec.paused) GhostTextDim else Warning, style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.width(12.dp))
+                    Box(Modifier.weight(1f).height(8.dp).background(GhostBorder)) {
+                        Box(Modifier.fillMaxHeight().fillMaxWidth(rec.level.coerceIn(0.02f, 1f)).background(TerminalGreen))
+                    }
+                }
             }
             take != null -> {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("◍ voice note ${Feelings.clock(take.durationMs)}", color = GhostText, style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.width(10.dp))
-                    Text(if (playing == take.id) "[ ■ ]" else "[ ▶ ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.clickable { scope.launch { VoicePlayback.toggle(ctx, take.id) } })
-                    Spacer(Modifier.width(10.dp))
-                    Text("[ ● again ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.clickable { record() })
-                    Spacer(Modifier.width(10.dp))
-                    Text("[ ✕ ]", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.clickable { VoicePlayback.stop(); VoiceCapture.discard() })
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    BigVoiceButton(if (playing == take.id) "■" else "▶", if (playing == take.id) "stop" else "listen", TerminalGreen, Modifier.weight(1f)) {
+                        scope.launch { VoicePlayback.toggle(ctx, take.id) }
+                    }
+                    BigVoiceButton("●", "again", GhostText, Modifier.weight(1f)) { record() }
+                    BigVoiceButton("✕", "drop", GhostTextDim, Modifier.weight(1f)) { VoicePlayback.stop(); VoiceCapture.discard() }
                 }
+                Spacer(Modifier.height(6.dp))
+                Text("◍ voice note · ${Feelings.clock(take.durationMs)}", color = GhostText, style = MaterialTheme.typography.labelMedium)
                 if (saveLabel != null) {
                     Text(saveLabel, color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.padding(top = 4.dp).clickable { VoicePlayback.stop(); onSave(take) })
@@ -646,14 +659,25 @@ internal fun VoiceRecorder(hint: String, saveLabel: String?, onSave: (VoiceCaptu
                 }
             }
             else -> {
-                Text("[ ● record a voice note ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.clickable { record() })
+                BigVoiceButton("●", "record a voice note", TerminalGreen, Modifier.fillMaxWidth()) { record() }
+                Spacer(Modifier.height(4.dp))
                 Text(hint, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
             }
         }
         if (rec.error.isNotEmpty()) Text("! " + rec.error, color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         if (denied) Text("! no microphone permission · allow it for LocalGhost in the phone's settings to record",
             color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/** A recorder button the size of a thumb: the glyph large, the word under it, the colour its
+ *  meaning (record green, stop amber, pause plain). */
+@Composable
+private fun BigVoiceButton(glyph: String, word: String, colour: androidx.compose.ui.graphics.Color, modifier: Modifier = Modifier, onTap: () -> Unit) {
+    Column(modifier.heightIn(min = 64.dp).border(1.dp, colour, RectangleShape).background(VoidLighter).clickable { onTap() }.padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text(glyph, color = colour, style = glow(MaterialTheme.typography.titleLarge))
+        Text(word, color = colour, style = MaterialTheme.typography.labelMedium)
     }
 }
 

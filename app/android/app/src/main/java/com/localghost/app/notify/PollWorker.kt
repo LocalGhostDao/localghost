@@ -18,8 +18,11 @@ class PollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         // the box hears what network this phone is on: on Wi-Fi the phone fetches the feeds and
         // the tickers for it, on mobile data or in silence the box fetches for itself
         try { BoxClient.reportNet(applicationContext) } catch (_: Exception) {}
-        // the lock-screen card's home brief: the news the box picked and the prices, every quarter hour
-        try { com.localghost.app.phrases.HomeBrief.fetch(applicationContext) } catch (_: Exception) {}
+        // the lock-screen card's home brief: the news the box picked and the prices, every quarter
+        // hour, while something shows it (the card, a widget); nothing fetched for nothing
+        if (com.localghost.app.phrases.PhraseSurface.anythingShowing(applicationContext)) {
+            try { com.localghost.app.phrases.HomeBrief.fetch(applicationContext) } catch (_: Exception) {}
+        }
         // the phone's certificate, renewed from here too once it is a day old: a phone that only
         // polls in the background keeps its door open as long as its session lasts
         if (com.localghost.app.net.DeviceCert.renewDue(applicationContext)) {
@@ -35,7 +38,9 @@ class PollWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         fun schedule(ctx: Context) {
             WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
                 NAME, ExistingPeriodicWorkPolicy.KEEP,
-                PeriodicWorkRequestBuilder<PollWorker>(15, TimeUnit.MINUTES).build())
+                PeriodicWorkRequestBuilder<PollWorker>(15, TimeUnit.MINUTES)
+                    .setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build())
+                    .build())
         }
     }
 }
