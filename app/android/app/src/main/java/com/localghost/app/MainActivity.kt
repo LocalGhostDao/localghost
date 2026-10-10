@@ -1117,6 +1117,7 @@ class MainActivity : ComponentActivity() {
         LocalModel.pin(false) // locked: the weights go after the idle minutes
         com.localghost.app.security.CacheSweep.sweep(cacheDir) // captures, video and voice fetched to play
         com.localghost.app.ui.clearMapMemory() // the map's last view of the box's data
+        com.localghost.app.ui.SourcesMemory.last = null
         messages.clear()
         pendingAttachments = emptyList()
         lifeContext = null

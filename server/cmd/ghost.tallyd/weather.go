@@ -4,7 +4,7 @@ package main
 // same list whoever and wherever the person is (internal/weather says why: the forecast where
 // they are is then looked up on the box, and no weather service learns where that is), a
 // hundred places every two minutes, the longest unpulled first, each pulled again once its row
-// is a day old. `ghost-cli ghost.tallyd weather fetch=1` pulls the next batch now, `weather lat=
+// is sixteen hours old. `ghost-cli ghost.tallyd weather fetch=1` pulls the next batch now, `weather lat=
 // lon=` or `weather place=` reads the table the way the chat does.
 
 import (
@@ -65,7 +65,7 @@ func weatherLoop(ctx context.Context, mount string, ws *weatherState, lg *slog.L
 			db = poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 		}
 		now := time.Now()
-		// the hundred longest unpulled; pulled when the oldest is a day old (or never pulled),
+		// the hundred longest unpulled; pulled when the oldest is Every old (or never pulled),
 		// or on fetch=1
 		batch, due, err := weather.NextBatch(db, now)
 		if err != nil {

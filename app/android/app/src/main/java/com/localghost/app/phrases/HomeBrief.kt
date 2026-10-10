@@ -41,7 +41,8 @@ object HomeBrief {
         val w = BoxClient.weather(app, fix.lat, fix.lon) ?: return ""
         if (!w.ok || w.tempC.isNaN()) return ""
         val today = w.days.firstOrNull()
-        return HomeBriefText.weatherLine(w.place, w.tempC, w.code, today?.maxC ?: Double.NaN, today?.minC ?: Double.NaN, today?.code ?: -1, today?.rainPct ?: 0)
+        val nowS = System.currentTimeMillis() / 1000
+        return HomeBriefText.weatherLine(w.place, w.tempNow(nowS), w.codeNow(nowS), today?.maxC ?: Double.NaN, today?.minC ?: Double.NaN, today?.code ?: -1, today?.rainPct ?: 0)
     }
 
     /** Ask the box for the stories and the prices, keep what came, redraw the card. A box out of

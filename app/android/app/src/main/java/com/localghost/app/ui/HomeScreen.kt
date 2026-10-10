@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -223,10 +224,21 @@ private fun WeatherCard(w: BoxClient.Weather?, nowS: Long) {
         when {
             w == null -> Text("no position yet, or the box has not answered", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             w.noGeo -> Text("nothing pulled: the box's place list is missing · INTEGRATIONS › Weather", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
-            w.place.isEmpty() -> Text(w.text.ifBlank { "no forecast on the box yet (pulled once a day)" }, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+            w.place.isEmpty() -> Text(w.text.ifBlank { "no forecast on the box yet (a hundred places every two minutes once the box has its place list)" }, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             else -> {
                 Spacer(Modifier.height(4.dp))
-                Text(HomeText.weatherNow(w.tempC, w.feelsC, w.code, w.windKmh), color = GhostText, style = MaterialTheme.typography.titleMedium)
+                // the sky now: the pull's own block while it is fresh, else the hour of the
+                // forecast the clock is in (the pull is once in sixteen hours)
+                val cur = w.current(nowS)
+                if (cur != null) Text(HomeText.weatherNow(cur.tempC, Double.NaN, cur.code, cur.windKmh), color = GhostText, style = MaterialTheme.typography.titleMedium)
+                else Text(HomeText.weatherNow(w.tempC, w.feelsC, w.code, w.windKmh), color = GhostText, style = MaterialTheme.typography.titleMedium)
+                // THE NEXT DAY as a line: the temperature hour by hour, rain's chance as bars
+                // under it, the hour every six
+                val next = WeatherHours.next(w.hours, nowS, w.utcOffset, 24)
+                if (next.size >= 6) {
+                    Spacer(Modifier.height(8.dp))
+                    WeatherLine(next)
+                }
                 if (w.days.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Text(w.days.take(3).joinToString("   ") { HomeText.weatherDay(it.date, it.maxC, it.minC, it.code, it.rainPct) },
@@ -236,6 +248,45 @@ private fun WeatherCard(w: BoxClient.Weather?, nowS: Long) {
                 Text(HomeText.weatherSource(w.place, w.country, w.fetchedAt, w.places, nowS), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
             }
         }
+    }
+}
+
+/** The next day's weather as a line: temperature across the hours, the chance of rain as bars
+ *  along the bottom (darker the likelier), the hour under every sixth, the warmest and the
+ *  coldest written at their points. Drawn, not charted: one glance says when it turns. */
+@Composable
+private fun WeatherLine(hs: List<WeatherHour>) {
+    val lo = hs.minOf { it.tempC }; val hi = hs.maxOf { it.tempC }
+    val iLo = hs.indexOfFirst { it.tempC == lo }; val iHi = hs.indexOfFirst { it.tempC == hi }
+    val labels = remember(hs) { WeatherHours.labelled(hs) }
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(64.dp)) {
+        val w = size.width; val h = size.height
+        val top = 12f * density; val bottom = h - 16f * density // room for the labels under
+        val barH = 6f * density
+        val plotBottom = bottom - barH - 2f * density
+        val step = if (hs.size > 1) w / (hs.size - 1) else w
+        fun x(i: Int) = i * step
+        fun y(t: Double) = top + WeatherHours.y(t, lo, hi) * (plotBottom - top)
+        // the rain bars
+        hs.forEachIndexed { i, hr ->
+            if (hr.rainPct > 0) drawRect(TerminalGreen.copy(alpha = 0.15f + 0.6f * (hr.rainPct / 100f)),
+                topLeft = androidx.compose.ui.geometry.Offset(x(i) - step / 2f + 1f, plotBottom + 2f * density),
+                size = androidx.compose.ui.geometry.Size((step - 2f).coerceAtLeast(1f), barH))
+        }
+        // the line
+        val path = androidx.compose.ui.graphics.Path()
+        hs.forEachIndexed { i, hr -> if (i == 0) path.moveTo(x(i), y(hr.tempC)) else path.lineTo(x(i), y(hr.tempC)) }
+        drawPath(path, TerminalGreen, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f * density))
+        val paint = android.graphics.Paint().apply {
+            color = android.graphics.Color.argb(255, 0x7a, 0x8a, 0x7a); textSize = 10f * density
+            typeface = android.graphics.Typeface.MONOSPACE; textAlign = android.graphics.Paint.Align.CENTER
+        }
+        val nc = drawContext.canvas.nativeCanvas
+        labels.forEach { i -> nc.drawText(WeatherHours.hourOf(hs[i].at), x(i).coerceIn(8f * density, w - 8f * density), h - 3f * density, paint) }
+        // the warmest and the coldest, at their points
+        val bright = android.graphics.Paint(paint).apply { color = android.graphics.Color.argb(255, 0xd0, 0xd0, 0xd0) }
+        nc.drawText("%.0f°".format(java.util.Locale.UK, hi), x(iHi).coerceIn(12f * density, w - 12f * density), (y(hi) - 5f * density).coerceAtLeast(9f * density), bright)
+        if (iLo != iHi) nc.drawText("%.0f°".format(java.util.Locale.UK, lo), x(iLo).coerceIn(12f * density, w - 12f * density), (y(lo) + 12f * density).coerceAtMost(plotBottom), bright)
     }
 }
 

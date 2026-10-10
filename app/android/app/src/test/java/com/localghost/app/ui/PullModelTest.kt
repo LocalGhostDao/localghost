@@ -45,4 +45,35 @@ class PullModelTest {
             assertTrue(p >= 0f && p < 1f)
         }
     }
+
+    @Test fun eachIntegrationDrawsInItsOwnManner() {
+        assertEquals(PullModel.Style.PAGES, PullModel.styleOf("wikipedia"))
+        assertEquals(PullModel.Style.BURST, PullModel.styleOf("news"))
+        assertEquals(PullModel.Style.TICKER, PullModel.styleOf("crypto"))
+        assertEquals(PullModel.Style.DROPS, PullModel.styleOf("weather"))
+        assertEquals(PullModel.Style.TILES, PullModel.styleOf("maps"))
+        assertEquals(PullModel.Style.WAVE, PullModel.styleOf("speech"))
+        assertEquals(PullModel.Style.PLAIN, PullModel.styleOf("something"))
+        val from = PullModel.Node(14f, 40f)
+        val to = PullModel.Node(86f, 40f)
+        // a drop sags below the thread on its way, and still arrives
+        val plain = PullModel.packet(from, to, 0.6f)
+        val drop = PullModel.packet(from, to, 0.6f, PullModel.Style.DROPS)
+        assertTrue(drop.y > plain.y + 1f)
+        assertEquals(to.y, PullModel.packet(from, to, 1f, PullModel.Style.DROPS).y, 0.01f)
+        // a tick jogs, the same way every time for the same packet, within bounds
+        val t1 = PullModel.packet(from, to, 0.5f, PullModel.Style.TICKER, 1, 0)
+        val t2 = PullModel.packet(from, to, 0.5f, PullModel.Style.TICKER, 1, 0)
+        assertEquals(t1.y, t2.y, 0.0001f)
+        assertTrue(Math.abs(t1.y - plain.y) <= 72f * 0.04f + 0.01f)
+        for (e in listOf(0f, 0.3f, 0.7f, 1f)) assertTrue(Math.abs(PullModel.tick(2, 3, e)) <= 1f)
+        // bursts: the news sends three close together, the rest one
+        assertEquals(3, PullModel.burst(PullModel.Style.BURST).size)
+        assertEquals(listOf(0f), PullModel.burst(PullModel.Style.PAGES))
+        // the page never vanishes while turning; the tiles go round nine cells; the wave is small
+        for (c in listOf(0f, 0.3f, 1.57f, 4f)) assertTrue(PullModel.pageFlip(c) in 0.15f..1f)
+        assertEquals(0, PullModel.tileSlot(0f)); assertEquals(8, PullModel.tileSlot(8.9f)); assertEquals(0, PullModel.tileSlot(9.2f))
+        for (u in listOf(0f, 0.5f, 1f)) assertTrue(Math.abs(PullModel.wave(u, 1.3f)) <= 0.035f)
+        assertEquals(0f, PullModel.wave(0f, 2f), 0.0001f)
+    }
 }

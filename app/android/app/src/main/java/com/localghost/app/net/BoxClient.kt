@@ -1122,7 +1122,15 @@ object BoxClient {
     data class WeatherDay(val date: String, val code: Int, val maxC: Double, val minC: Double, val rainPct: Int)
     data class Weather(val ok: Boolean, val place: String, val country: String, val tempC: Double, val feelsC: Double, val code: Int,
                        val windKmh: Double, val humidity: Int, val days: List<WeatherDay>, val fetchedAt: Long, val places: Long,
-                       val text: String, val noGeo: Boolean, val distanceKm: Double)
+                       val text: String, val noGeo: Boolean, val distanceKm: Double,
+                       val hours: List<com.localghost.app.ui.WeatherHour> = emptyList(), val utcOffset: Int = 0) {
+        /** The conditions now: the pull's own when it is fresh, else the hour of the forecast the
+         *  clock is in at the place (the pull is once in sixteen hours; its "now" is its own). */
+        fun current(nowS: Long): com.localghost.app.ui.WeatherHour? = com.localghost.app.ui.WeatherHours.current(hours, fetchedAt, nowS, utcOffset)
+        /** The temperature to show now: from the hour when the pull is old, else the pull's. */
+        fun tempNow(nowS: Long): Double = current(nowS)?.tempC ?: tempC
+        fun codeNow(nowS: Long): Int = current(nowS)?.code ?: code
+    }
 
     suspend fun weather(ctx: Context, lat: Double, lon: Double): Weather? = try {
         val r = BoxHttp.getJson(ctx, "/v1/weather?lat=$lat&lon=$lon", readTimeoutMs = 15_000)
@@ -1132,10 +1140,12 @@ object BoxClient {
         val place = f?.optJSONObject("place")
         val days = f?.optJSONArray("days")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { d ->
             WeatherDay(d.optString("date"), d.optInt("code"), d.optDouble("maxC"), d.optDouble("minC"), d.optInt("rainPct")) } } } ?: emptyList()
+        val hours = f?.optJSONArray("hours")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { h ->
+            com.localghost.app.ui.WeatherHour(h.optString("at"), h.optDouble("tempC"), h.optInt("rainPct", -1), h.optDouble("precipMm"), h.optInt("code"), h.optDouble("windKmh")) } } } ?: emptyList()
         Weather(r.optBoolean("ok"), place?.optString("name") ?: "", place?.optString("country") ?: "",
             now?.optDouble("tempC") ?: Double.NaN, now?.optDouble("feelsC") ?: Double.NaN, now?.optInt("code") ?: -1,
-            now?.optDouble("windKmh") ?: 0.0, now?.optInt("humidity") ?: 0, days, t?.optLong("fetchedAt") ?: 0L,
-            t?.optLong("places") ?: 0L, r.optString("text"), r.optBoolean("noGeo"), 0.0)
+            now?.optDouble("windKmh") ?: 0.0, now?.optInt("humidity") ?: 0, days, f?.optLong("fetchedAt") ?: (t?.optLong("fetchedAt") ?: 0L),
+            t?.optLong("places") ?: 0L, r.optString("text"), r.optBoolean("noGeo"), 0.0, hours, f?.optInt("utcOffset") ?: 0)
     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
 
     suspend fun wiki(ctx: Context, q: String = "", idx: Long = 0, n: Int = 8): Wiki? = try {

@@ -100,6 +100,14 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
         onOpened()
     }
 
+    // the list filtered once per change of rows, chip or query, not on every recomposition of
+    // the list (a keystroke, a chip, a loading flag each ran it over six hundred rows); computed
+    // here, in the composable, since the list's own scope is not one
+    val shownRows = remember(rows, memKind, memQuery) {
+        (rows ?: emptyList()).filter { MemoryKinds.shown(memKind, it.kind, it.partOf) && (memQuery.isBlank() ||
+            it.title.contains(memQuery, true) || it.body.contains(memQuery, true)) }
+    }
+    val kindCounts = remember(rows) { MemoryKinds.counts((rows ?: emptyList()).map { it.kind }) }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -251,7 +259,7 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                         color = TerminalDim, style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(6.dp))
                     // the kinds, as chips: one picked shows only its memories
-                    val counts = remember(rows) { MemoryKinds.counts(rows!!.map { it.kind }) }
+                    val counts = kindCounts
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
                         MemoryKinds.all.forEach { k ->
                             val n = counts[k.id] ?: 0
@@ -264,12 +272,6 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
                                     .padding(horizontal = 10.dp, vertical = 4.dp))
                         }
                     }
-                }
-                // filtered once per change of rows, chip or query, not on every recomposition of
-                // the list (a keystroke, a chip, a loading flag each ran it over six hundred rows)
-                val shownRows = remember(rows, memKind, memQuery) {
-                    rows!!.filter { MemoryKinds.shown(memKind, it.kind, it.partOf) && (memQuery.isBlank() ||
-                        it.title.contains(memQuery, true) || it.body.contains(memQuery, true)) }
                 }
                 items(shownRows, key = { "mem-${it.id}" }) { m ->
                 MemoryRowCard(m,

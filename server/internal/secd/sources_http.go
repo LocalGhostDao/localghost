@@ -149,8 +149,26 @@ func sub(m map[string]any, k string) map[string]any {
 func (s *Server) sources(mount, runDir string) []sourceDoc {
 	var out []sourceDoc
 
+	// the four daemon asks at once: each is a control-socket round trip of up to five seconds,
+	// and in a row they were the page's twenty-second worst case (the feeds one builds a whole
+	// monitor report); together the page waits for the slowest alone
+	type asked struct {
+		m  map[string]any
+		ok bool
+	}
+	ask := func(daemon, cmd string) <-chan asked {
+		ch := make(chan asked, 1)
+		go func() {
+			m, ok := ctlJSON(daemon, runDir, cmd, nil, 5*time.Second)
+			ch <- asked{m, ok}
+		}()
+		return ch
+	}
+	wikiCh, newsCh, feedsCh, weatherCh := ask("ghost.synthd", "wiki"), ask("ghost.synthd", "news"), ask("ghost.tallyd", "feeds"), ask("ghost.tallyd", "weather")
+
 	// WIKIPEDIA, from synthd
-	wk, ok := ctlJSON("ghost.synthd", runDir, "wiki", nil, 5*time.Second)
+	wikiA := <-wikiCh
+	wk, ok := wikiA.m, wikiA.ok
 	d := sourceDoc{ID: "wikipedia", Name: "Wikipedia", Open: "wikipedia", Action: "wiki", Label: "fetch from the mirror (about 50 GB)"}
 	switch {
 	case !ok:
@@ -197,7 +215,8 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	out = append(out, d)
 
 	// NEWS, from synthd
-	nw, ok := ctlJSON("ghost.synthd", runDir, "news", nil, 5*time.Second)
+	newsA := <-newsCh
+	nw, ok := newsA.m, newsA.ok
 	d = sourceDoc{ID: "news", Name: "News", Open: "news"}
 	if !ok {
 		d.State, d.Line = "unknown", "the box did not say"
@@ -248,7 +267,8 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	out = append(out, d)
 
 	// THE MARKET NUMBERS, from tallyd's monitor
-	fm, ok := ctlJSON("ghost.tallyd", runDir, "feeds", nil, 5*time.Second)
+	feedsA := <-feedsCh
+	fm, ok := feedsA.m, feedsA.ok
 	d = sourceDoc{ID: "crypto", Name: "Crypto", Open: "crypto"}
 	if !ok {
 		d.State, d.Line = "unknown", "the box did not say"
@@ -294,9 +314,10 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	out = append(out, d)
 
 	// THE WEATHER, from tallyd
-	ws, ok := ctlJSON("ghost.tallyd", runDir, "weather", nil, 5*time.Second)
+	weatherA := <-weatherCh
+	ws, ok := weatherA.m, weatherA.ok
 	d = sourceDoc{ID: "weather", Name: "Weather", From: []sourceFrom{
-		{Name: "Open-Meteo", Role: "the forecasts, a hundred places every two minutes, each again after a day"},
+		{Name: "Open-Meteo", Role: "the forecasts with their hours, a hundred places every two minutes, each again after sixteen hours"},
 		{Name: "GeoNames", Role: "the place list, from the box's own geo set"},
 	}}
 	if !ok {
@@ -318,7 +339,7 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 			if failed > 0 && lastErr != "" {
 				d.Line += fmt.Sprintf(" · %d of %d batches failed since the start, the last: %s", failed, batches, lastErr)
 			}
-			d.Detail = "Open-Meteo, the same list every day whoever and wherever you are (the largest town of every 55 km cell of the world, six thousand cells), a hundred every two minutes; where you are is looked up on the box"
+			d.Detail = "Open-Meteo, the same list whoever and wherever you are (the largest town of every 55 km cell of the world, six thousand cells), a hundred every two minutes, each place again after sixteen hours with three days of hours; where you are is looked up on the box, the sky now from the hour the clock is in"
 		case readErr != "":
 			// the place list's query fails on this box: say the error, so the log need not be read
 			d.State, d.Line = "missing", readErr
@@ -679,7 +700,7 @@ func clipRunes(s string, n int) string {
 }
 
 // handleWeather , GET /v1/weather?lat=&lon= , the forecast nearest the phone's last fix, from the
-// box's daily pull (HOME's weather card). The position goes to the box and nowhere else: the
+// box's pull (HOME's weather card; the hours carry it between pulls). The position goes to the box and nowhere else: the
 // table was pulled for the world's larger places without it.
 func (s *Server) handleWeather(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {

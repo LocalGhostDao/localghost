@@ -1024,7 +1024,7 @@ func news(db *poltergres.ReadWrite, now time.Time) Section {
 
 // --- weather -------------------------------------------------------------------------------
 
-// forecasts is the daily pull of the world's larger places (internal/weather). The box asks for
+// forecasts is the pull of the world's larger places (each again after sixteen hours) (internal/weather). The box asks for
 // the same places whoever and wherever the person is, so the section counts places and the
 // pull's age, never a position.
 func forecasts(db *poltergres.ReadWrite, now time.Time) Section {

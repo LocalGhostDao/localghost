@@ -18,11 +18,19 @@
 // THE PACE. Open-Meteo (open-meteo.com) answers without an account or a key and takes many
 // places in one request; the free tier is for non-commercial use under ten thousand calls a
 // day, five thousand an hour, six hundred a minute, a request of more than ten weather variables
-// counted as more than one call (the thirteen asked here: 1.3). Counting every place in a
+// counted as more than one call (the eighteen asked here: 1.8). Counting every place in a
 // request as a call, the sternest reading, the list is pulled a hundred places at a time, one
 // batch every two minutes, the hundred longest unpulled first: a place is pulled again once its
-// row is a day old, so a day's pull is MaxPlaces × 1.3 calls spread over the hours, under every
-// limit. Which batch goes first is the row's age and nothing else, never where the person is.
+// row is Every old, so a day's pull is MaxPlaces × 1.8 × (24 h / Every) calls spread over the
+// hours, under every limit. Which batch goes first is the row's age and nothing else, never
+// where the person is.
+//
+// THE HOURS. Since 10 October 2026 a pull carries the hourly forecast of the next three days
+// as well as the current conditions and the days: a row sixteen hours old still says what the
+// sky is doing now, from its hour, where the current block alone said what it did at the pull
+// (the person saw "the weather of eight hours ago"), and the phone can draw the next day as a
+// line. Pulling every place more often would put the list past the service's day; the hours
+// give the freshness without.
 package weather
 
 import (
@@ -51,10 +59,12 @@ const (
 	// batches, which keeps a day's pull under the service's hourly and minute limits.
 	Batch      = 100
 	BatchEvery = 2 * time.Minute
-	// Days is the forecast length kept: today and the three after.
-	Days = 4
+	// Days is the forecast length kept: today and the three after; HourDays is how many of those
+	// days' hours are kept (from the pull's midnight: a row Every old still has a day ahead).
+	Days     = 4
+	HourDays = 3
 	// Every is how often a place is pulled again; Stale is when a row is too old to answer with.
-	Every = 24 * time.Hour
+	Every = 16 * time.Hour
 	Stale = 36 * time.Hour
 	// NearKm is how far a place may be from the point asked about and still be its weather:
 	// the forecast grid is tens of kilometres, a city a hundred kilometres away is another sky.
@@ -101,13 +111,74 @@ type Day struct {
 	Sunset   string  `json:"sunset,omitempty"`
 }
 
+// Hour is one hour of the forecast.
+type Hour struct {
+	At       string  `json:"at"` // the place's local time, "2026-10-10T14:00"
+	TempC    float64 `json:"tempC"`
+	RainPct  int     `json:"rainPct"` // -1 when the service gave none
+	PrecipMM float64 `json:"precipMm"`
+	Code     int     `json:"code"`
+	WindKmh  float64 `json:"windKmh"`
+}
+
 // Forecast is what is kept for a place.
 type Forecast struct {
 	Place     Place  `json:"place"`
 	Timezone  string `json:"timezone"`
 	Now       Now    `json:"now"`
 	Days      []Day  `json:"days"`
+	Hours     []Hour `json:"hours,omitempty"` // HourDays × 24 from the pull day's midnight, local
 	FetchedAt int64  `json:"fetchedAt"`
+	UTCOffset int    `json:"utcOffset,omitempty"` // seconds east of UTC at the place, from the service
+}
+
+// Current is the conditions now: the current block when the pull is under ninety minutes old,
+// else the hour of the forecast the clock is in (the pull's own "now" is the pull's, not the
+// person's). ok is false when the row has nothing for this hour.
+func (f Forecast) Current(now time.Time) (Now, bool) {
+	if f.FetchedAt > 0 && now.Unix()-f.FetchedAt < 90*60 {
+		return f.Now, true
+	}
+	h, ok := f.HourAt(now)
+	if !ok {
+		return f.Now, f.FetchedAt > 0
+	}
+	return Now{At: h.At, TempC: h.TempC, FeelsC: h.TempC, Humidity: 0, PrecipMM: h.PrecipMM, Code: h.Code, WindKmh: h.WindKmh}, true
+}
+
+// HourAt is the forecast hour the clock is in, at the place (its UTC offset), from the hours
+// kept.
+func (f Forecast) HourAt(now time.Time) (Hour, bool) {
+	if len(f.Hours) == 0 {
+		return Hour{}, false
+	}
+	local := now.UTC().Add(time.Duration(f.UTCOffset) * time.Second)
+	want := local.Format("2006-01-02T15") + ":00"
+	for _, h := range f.Hours {
+		if h.At == want {
+			return h, true
+		}
+	}
+	return Hour{}, false
+}
+
+// HoursFrom is the next n hours from the hour the clock is in, for a line of the day ahead.
+func (f Forecast) HoursFrom(now time.Time, n int) []Hour {
+	if len(f.Hours) == 0 || n <= 0 {
+		return nil
+	}
+	local := now.UTC().Add(time.Duration(f.UTCOffset) * time.Second)
+	want := local.Format("2006-01-02T15") + ":00"
+	for i, h := range f.Hours {
+		if h.At == want {
+			end := i + n
+			if end > len(f.Hours) {
+				end = len(f.Hours)
+			}
+			return f.Hours[i:end]
+		}
+	}
+	return nil
 }
 
 // Querier is the slice of a connection the lookups need.
@@ -135,7 +206,7 @@ func Places(db Querier) ([]Place, error) {
 }
 
 // NextBatch is the Batch places longest unpulled (never pulled first, then the oldest rows), and
-// whether they are due: the oldest of them a day old or never pulled. Nothing when the geo set
+// whether they are due: the oldest of them Every old or never pulled. Nothing when the geo set
 // is not on the box. The age of a row is the only order: never where the person is.
 func NextBatch(db Querier, now time.Time) (batch []Place, due bool, err error) {
 	rows, err := db.Query(`SELECT g.geonameid, g.name, g.country, g.lat, g.lon, g.population, coalesce(w.fetched_at, 0)
@@ -181,6 +252,7 @@ func URL(batch []Place) string {
 	}
 	return BaseURL + "?latitude=" + strings.Join(lats, ",") + "&longitude=" + strings.Join(lons, ",") +
 		"&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m" +
+		"&hourly=temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m" +
 		"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset" +
 		"&forecast_days=" + strconv.Itoa(Days) + "&timezone=auto"
 }
@@ -190,7 +262,16 @@ type answer struct {
 	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
 	Timezone  string  `json:"timezone"`
-	Current   struct {
+	UTCOffset int     `json:"utc_offset_seconds"`
+	Hourly    struct {
+		Time    []string   `json:"time"`
+		Temp    []float64  `json:"temperature_2m"`
+		RainPct []*float64 `json:"precipitation_probability"`
+		Precip  []float64  `json:"precipitation"`
+		Code    []int      `json:"weather_code"`
+		Wind    []float64  `json:"wind_speed_10m"`
+	} `json:"hourly"`
+	Current struct {
 		Time     string  `json:"time"`
 		Temp     float64 `json:"temperature_2m"`
 		Feels    float64 `json:"apparent_temperature"`
@@ -233,7 +314,29 @@ func Parse(body []byte, batch []Place, fetchedAt int64) ([]Forecast, error) {
 	}
 	out := make([]Forecast, 0, len(batch))
 	for i, a := range answers {
-		f := Forecast{Place: batch[i], Timezone: a.Timezone, FetchedAt: fetchedAt}
+		f := Forecast{Place: batch[i], Timezone: a.Timezone, FetchedAt: fetchedAt, UTCOffset: a.UTCOffset}
+		for j, at := range a.Hourly.Time {
+			if j >= HourDays*24 {
+				break
+			}
+			h := Hour{At: at, RainPct: -1}
+			if j < len(a.Hourly.Temp) {
+				h.TempC = a.Hourly.Temp[j]
+			}
+			if j < len(a.Hourly.RainPct) && a.Hourly.RainPct[j] != nil {
+				h.RainPct = int(math.Round(*a.Hourly.RainPct[j]))
+			}
+			if j < len(a.Hourly.Precip) {
+				h.PrecipMM = a.Hourly.Precip[j]
+			}
+			if j < len(a.Hourly.Code) {
+				h.Code = a.Hourly.Code[j]
+			}
+			if j < len(a.Hourly.Wind) {
+				h.WindKmh = a.Hourly.Wind[j]
+			}
+			f.Hours = append(f.Hours, h)
+		}
 		f.Now = Now{At: a.Current.Time, TempC: a.Current.Temp, FeelsC: a.Current.Feels, Humidity: int(math.Round(a.Current.Humidity)),
 			PrecipMM: a.Current.Precip, Code: a.Current.Code, WindKmh: a.Current.Wind}
 		for j, date := range a.Daily.Time {
@@ -316,7 +419,7 @@ func Load(db Querier) State {
 }
 
 // Due says whether the next batch is wanted, from the table's oldest row: nothing in the table
-// or a row a day old. NextBatch says it for the list proper (a place not yet in the table is a
+// or a row Every old. NextBatch says it for the list proper (a place not yet in the table is a
 // row of age nothing); this is the glance for the status pages.
 func Due(st State, now time.Time) bool {
 	return st.OldestAt == 0 || now.Unix()-st.OldestAt >= int64(Every/time.Second)
@@ -391,11 +494,16 @@ func Describe(f Forecast, km float64, now time.Time) string {
 		sb.WriteString(fmt.Sprintf(" (%.0f km away, the nearest place the box has)", km))
 	}
 	if f.FetchedAt > 0 {
-		sb.WriteString(", from the box's daily pull " + ago(now.Unix()-f.FetchedAt) + " ago")
+		sb.WriteString(", from the box's pull " + ago(now.Unix()-f.FetchedAt) + " ago")
 	}
 	sb.WriteString(". ")
-	n := f.Now
-	sb.WriteString("Now: " + CodeWords(n.Code) + ", " + num(n.TempC) + "°C")
+	n, _ := f.Current(now)
+	if _, fromHour := f.HourAt(now); fromHour && now.Unix()-f.FetchedAt >= 90*60 {
+		sb.WriteString("Now (this hour of the forecast): ")
+	} else {
+		sb.WriteString("Now: ")
+	}
+	sb.WriteString(CodeWords(n.Code) + ", " + num(n.TempC) + "°C")
 	if n.FeelsC != 0 && math.Abs(n.FeelsC-n.TempC) >= 1 {
 		sb.WriteString(" (feels " + num(n.FeelsC) + "°C)")
 	}
@@ -526,7 +634,7 @@ func Pass(ctx context.Context, db *poltergres.ReadWrite, get Fetcher, places []P
 		}
 		batch := places[start:end]
 		r.Batches++
-		f, err := get.GetCapped(ctx, Source, URL(batch), 2<<20)
+		f, err := get.GetCapped(ctx, Source, URL(batch), 6<<20) // a hundred places with their hours is a few megabytes
 		if err != nil {
 			break // the context ended
 		}

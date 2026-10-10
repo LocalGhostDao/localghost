@@ -5609,3 +5609,30 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   representative's section-less "caption" ("Please provide the image…") onto its siblings at
   every stock-take, discarded it at the next, copied it again, and queued a tag pass that
   found nothing each time; the copy now takes a caption only when NormalizeCaption accepts it.
+
+## 10 October 2026 , the weather by the hour, INTEGRATIONS quicker and each in its manner
+
+- internal/weather: `Hour` (at, tempC, rainPct, precipMm, code, windKmh), `Forecast.Hours`
+  (HourDays = 3 × 24 from the pull day's midnight, local) and `UTCOffset` (utc_offset_seconds);
+  URL adds `hourly=temperature_2m,precipitation_probability,precipitation,weather_code,
+  wind_speed_10m` (18 variables: weight 1.8); `Every` 24 h → 16 h; the batch body cap 6 MB.
+  `Forecast.Current(now)` (the current block under 90 min, else `HourAt`), `HoursFrom(now, n)`;
+  Describe says "Now (this hour of the forecast)" when it speaks from the hour. Tests extended
+  (the London fixture carries 25 hours). Copy: "each again after sixteen hours" across secd's
+  sources doc, synthd/tallyd/monitor comments, the app's explainer, README.
+- secd sources(): the four ctl asks (synthd wiki, news; tallyd feeds, weather) run at once
+  (goroutines + channels), the page waits for the slowest.
+- App: `ui/WeatherHours.kt` (pure: `WeatherHour`, keyAt/indexNow/current/next/labelled/y),
+  BoxClient.Weather gains `hours`, `utcOffset`, `current(nowS)`, `tempNow`, `codeNow`;
+  fetchedAt from the forecast's own row; HomeScreen WeatherCard uses the hour and draws
+  `WeatherLine` (a Canvas: the temperature line, rain bars, hour labels, the warmest and the
+  coldest written); HomeBrief.weatherLine takes tempNow/codeNow. WeatherHoursTest.
+- PullModel.Style (PAGES, BURST, TICKER, DROPS, TILES, WAVE, PLAIN) by integration id;
+  packet(from, to, t, style, i, k) sags for DROPS and jogs (`tick`) for TICKER; `burst`,
+  `pageFlip`, `tileSlot`, `wave`; PullCanvas draws each; IntegrationScreen passes
+  `PullModel.styleOf(id)`. `SourcesMemory.last` shows the last answer at once (cleared on
+  lock). PullModelTest extended.
+- MemoriesScreen: the `remember` for the filtered rows had landed inside the LazyListScope
+  (Vlad's Gradle: "@Composable invocations can only happen from the context of a @Composable
+  function"); `shownRows` and `kindCounts` are computed in the composable above the list now.
+  The whole-tree kotlinc check cannot see @Composable scope rules (no Compose plugin).

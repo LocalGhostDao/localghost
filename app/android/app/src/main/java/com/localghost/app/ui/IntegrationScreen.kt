@@ -30,7 +30,8 @@ import kotlinx.coroutines.launch
 fun IntegrationScreen(id: String, onOpen: (String) -> Unit, onFeeds: () -> Unit, onBack: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var data by remember { mutableStateOf<BoxClient.Sources?>(null) }
+    // the last answer shown at once (the page opened a moment ago; the box is asked again behind it)
+    var data by remember { mutableStateOf(SourcesMemory.last) }
     var failed by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
@@ -39,7 +40,7 @@ fun IntegrationScreen(id: String, onOpen: (String) -> Unit, onFeeds: () -> Unit,
     LaunchedEffect(tick) {
         while (true) {
             val d = BoxClient.sources(ctx)
-            if (d != null) { data = d; failed = false } else failed = data == null
+            if (d != null) { data = d; SourcesMemory.last = d; failed = false } else failed = data == null
             kotlinx.coroutines.delay(if (d?.job?.running == true) 5_000 else 60_000)
         }
     }
@@ -74,7 +75,7 @@ fun IntegrationScreen(id: String, onOpen: (String) -> Unit, onFeeds: () -> Unit,
         }
         // THE PULL: streaming until the box has answered, breathing after
         val states = src?.from?.map { it.state } ?: listOf("", "")
-        PullCanvas(fromStates = states, steady = src != null)
+        PullCanvas(fromStates = states, steady = src != null, style = PullModel.styleOf(id))
         when {
             src == null && failed -> ErrorLine("the box did not answer , is it unlocked?")
             src == null && d != null -> ErrorLine("the box has no integration called $id")

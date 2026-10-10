@@ -1,6 +1,6 @@
 package main
 
-// THE WEATHER, FROM THE BOX. tallyd pulls the forecast of the world's larger places, each once a day,
+// THE WEATHER, FROM THE BOX. tallyd pulls the forecast of the world's larger places, each once in sixteen hours with three days of hours,
 // (internal/weather), the same list whoever and wherever the person is, so no weather service
 // learns where they are. A weather question is answered from that table: the place the question
 // names (the box's GeoNames finds it, then the nearest pulled place), else the phone's own fix

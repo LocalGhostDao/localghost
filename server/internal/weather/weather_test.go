@@ -20,7 +20,7 @@ import (
 // forecast needs, in each place's own time zone.
 func TestURL(t *testing.T) {
 	u := URL([]Place{{Lat: 51.5074, Lon: -0.1278}, {Lat: 44.4268, Lon: 26.1025}})
-	for _, want := range []string{"latitude=51.51,44.43", "longitude=-0.13,26.10", "forecast_days=4", "timezone=auto", "current=temperature_2m", "daily=weather_code"} {
+	for _, want := range []string{"latitude=51.51,44.43", "longitude=-0.13,26.10", "forecast_days=4", "timezone=auto", "current=temperature_2m", "hourly=temperature_2m,precipitation_probability", "daily=weather_code"} {
 		if !strings.Contains(u, want) {
 			t.Fatalf("%s missing from %s", want, u)
 		}
@@ -30,7 +30,13 @@ func TestURL(t *testing.T) {
 	}
 }
 
-const london = `{"latitude":51.5,"longitude":-0.12,"timezone":"Europe/London",
+const london = `{"latitude":51.5,"longitude":-0.12,"timezone":"Europe/London","utc_offset_seconds":3600,
+"hourly":{"time":["2026-10-03T00:00","2026-10-03T01:00","2026-10-03T02:00","2026-10-03T03:00","2026-10-03T04:00","2026-10-03T05:00","2026-10-03T06:00","2026-10-03T07:00","2026-10-03T08:00","2026-10-03T09:00","2026-10-03T10:00","2026-10-03T11:00","2026-10-03T12:00","2026-10-03T13:00","2026-10-03T14:00","2026-10-03T15:00","2026-10-03T16:00","2026-10-03T17:00","2026-10-03T18:00","2026-10-03T19:00","2026-10-03T20:00","2026-10-03T21:00","2026-10-03T22:00","2026-10-03T23:00","2026-10-04T00:00"],
+"temperature_2m":[10,9.8,9.6,9.5,9.4,9.6,10.2,11,12.4,14.3,15.1,15.8,16.2,16.1,15.9,15.4,14.6,13.5,12.2,11.4,11,10.8,10.5,10.3,10.2],
+"precipitation_probability":[0,0,0,0,0,0,5,5,10,10,10,8,5,5,5,10,20,35,50,60,60,55,40,30,25],
+"precipitation":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0.1,0.4,0.8,0.6,0.3,0.1,0,0],
+"weather_code":[2,2,2,2,2,2,3,3,3,3,2,2,1,1,1,2,3,3,61,61,61,61,3,3,2],
+"wind_speed_10m":[12,12,11,11,11,12,13,15,17,18.4,19,20,20,19,18,17,16,15,14,14,13,12,12,11,11]},
 "current":{"time":"2026-10-03T09:15","temperature_2m":14.3,"apparent_temperature":12.1,"relative_humidity_2m":77,"precipitation":0,"weather_code":3,"wind_speed_10m":18.4},
 "daily":{"time":["2026-10-03","2026-10-04","2026-10-05","2026-10-06"],"weather_code":[3,61,2,0],"temperature_2m_max":[16.2,14.8,15.1,17],"temperature_2m_min":[9.4,10.2,8.1,7.7],
 "precipitation_probability_max":[10,80,null,0],"precipitation_sum":[0,6.4,0.2,0],"sunrise":["2026-10-03T07:05","2026-10-04T07:07","2026-10-05T07:08","2026-10-06T07:10"],"sunset":["2026-10-03T18:35","2026-10-04T18:33","2026-10-05T18:31","2026-10-06T18:28"]}}`
@@ -53,6 +59,26 @@ func TestParse(t *testing.T) {
 	if len(f.Days) != 4 || f.Days[1].Code != 61 || f.Days[1].RainPct != 80 || f.Days[1].PrecipMM != 6.4 || f.Days[2].RainPct != -1 || f.Days[0].Sunrise != "07:05" || f.Days[0].Sunset != "18:35" {
 		t.Fatalf("%+v", f.Days)
 	}
+	// the hours, from the pull day's midnight, and the current conditions from the hour the
+	// clock is in once the pull is old (the place's own clock: UTC+1 here)
+	if len(f.Hours) != 25 || f.Hours[9].At != "2026-10-03T09:00" || f.Hours[9].TempC != 14.3 || f.Hours[18].Code != 61 || f.Hours[18].RainPct != 50 || f.Hours[18].PrecipMM != 0.4 || f.UTCOffset != 3600 {
+		t.Fatalf("hours %d %+v", len(f.Hours), f.Hours[:3])
+	}
+	fresh := time.Date(2026, 10, 3, 8, 30, 0, 0, time.UTC) // 09:30 in London, the pull a moment ago
+	f.FetchedAt = fresh.Unix() - 600
+	if n, ok := f.Current(fresh); !ok || n.TempC != 14.3 || n.Humidity != 77 {
+		t.Fatalf("fresh: %+v %v", n, ok)
+	}
+	later := time.Date(2026, 10, 3, 17, 20, 0, 0, time.UTC) // 18:20 in London, the pull nine hours old
+	if n, ok := f.Current(later); !ok || n.TempC != 12.2 || n.Code != 61 || n.Humidity != 0 {
+		t.Fatalf("from the hour: %+v %v", n, ok)
+	}
+	if hs := f.HoursFrom(later, 24); len(hs) != 7 || hs[0].At != "2026-10-03T18:00" || hs[6].At != "2026-10-04T00:00" {
+		t.Fatalf("hours from: %d %+v", len(hs), hs)
+	}
+	if _, ok := f.HourAt(time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)); ok {
+		t.Fatal("an hour past the kept ones")
+	}
 	two := []Place{places[0], {ID: 683506, Name: "Bucharest", Country: "RO", Lat: 44.43, Lon: 26.1}}
 	fs, err = Parse([]byte("["+london+","+london+"]"), two, 5)
 	if err != nil || len(fs) != 2 || fs[1].Place.Name != "Bucharest" {
@@ -71,7 +97,8 @@ func TestDescribe(t *testing.T) {
 	fs, _ := Parse([]byte(london), []Place{{ID: 1, Name: "London", Country: "GB", Lat: 51.5074, Lon: -0.1278}}, 1_000_000)
 	now := time.Unix(1_000_000+3*3600, 0)
 	d := Describe(fs[0], 0, now)
-	for _, want := range []string{"Weather for London, GB, from the box's daily pull 3 h ago.", "Now: overcast, 14.3°C (feels 12.1°C), humidity 77%, wind 18.4 km/h.",
+	// 1970: no hour of the forecast is this hour, so the pull's own current block speaks
+	for _, want := range []string{"Weather for London, GB, from the box's pull 3 h ago.", "Now: overcast, 14.3°C (feels 12.1°C), humidity 77%, wind 18.4 km/h.",
 		"Today: overcast, 9.4–16.2°C, rain 10%, sun 07:05–18:35.", "Tomorrow: light rain, 10.2–14.8°C, rain 80% (6.4 mm).", "Monday: partly cloudy, 8.1–15.1°C (0.2 mm).", "Tuesday: clear, 7.7–17°C, rain 0%.", "Local time zone Europe/London."} {
 		if !strings.Contains(d, want) {
 			t.Fatalf("%q missing from\n%s", want, d)
@@ -79,6 +106,12 @@ func TestDescribe(t *testing.T) {
 	}
 	if far := Describe(fs[0], 38.4, now); !strings.Contains(far, "London, GB (38 km away, the nearest place the box has)") {
 		t.Fatal(far)
+	}
+	// a pull from the morning, asked in the evening: the hour of the forecast the clock is in
+	f := fs[0]
+	f.FetchedAt = time.Date(2026, 10, 3, 8, 15, 0, 0, time.UTC).Unix()
+	if old := Describe(f, 0, time.Date(2026, 10, 3, 17, 20, 0, 0, time.UTC)); !strings.Contains(old, "from the box's pull 9 h ago. Now (this hour of the forecast): light rain, 12.2°C, wind 14 km/h.") {
+		t.Fatal(old)
 	}
 }
 

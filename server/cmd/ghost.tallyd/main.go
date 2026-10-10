@@ -233,7 +233,7 @@ func main() {
 			data, _ := json.Marshal(monitor.Make(db, time.Now()))
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
-		// weather: the daily pull of the world's larger places and the forecast where the trail
+		// weather: the pull of the world's larger places (each again after sixteen hours) and the forecast where the trail
 		// says the phone is. `ghost-cli ghost.tallyd weather [lat= lon= | place=] [fetch=1]`.
 		ctl.Handle("weather", func(args json.RawMessage) (ctlsock.Response, error) {
 			out, err := weatherCtl(filepath.Dir(runDir), ws, forceWeather, args)

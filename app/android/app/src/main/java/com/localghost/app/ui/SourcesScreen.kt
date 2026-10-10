@@ -26,15 +26,22 @@ import com.localghost.app.ui.theme.*
  * integration's page (IntegrationScreen): the pull drawn, the places listed, the actions. The
  * fetch running, if any, sits above the cards and is followed every five seconds.
  */
+/** What INTEGRATIONS last showed, for the next open to draw at once; goes with the session's
+ *  memory on lock (clearMapMemory's companions). */
+object SourcesMemory {
+    @Volatile var last: BoxClient.Sources? = null
+}
+
 @Composable
 fun SourcesScreen(onOpenIntegration: (String) -> Unit) {
     val ctx = LocalContext.current
-    var data by remember { mutableStateOf<BoxClient.Sources?>(null) }
+    // the last answer shown at once (the page opened a moment ago; the box is asked again behind it)
+    var data by remember { mutableStateOf(SourcesMemory.last) }
     var failed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         while (true) {
             val d = BoxClient.sources(ctx)
-            if (d != null) { data = d; failed = false } else failed = data == null
+            if (d != null) { data = d; SourcesMemory.last = d; failed = false } else failed = data == null
             kotlinx.coroutines.delay(if (d?.job?.running == true) 5_000 else 60_000)
         }
     }
