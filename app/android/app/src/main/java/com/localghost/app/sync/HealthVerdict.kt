@@ -13,7 +13,15 @@ object HealthVerdict {
                 "Health Connect is empty: Samsung Health is installed but not sharing; Samsung Health › Settings › Health Connect › allow every data type"
             lines.isNotEmpty() && empty == lines.size -> "Health Connect is empty: no app writes to it on this phone"
             unreadable > 0 -> "$unreadable type(s) not readable: a permission missing (SETTINGS › HEALTH › CONNECT HEALTH)"
-            empty > 0 -> "$empty type(s) empty in Health Connect (Samsung Health › Settings › Health Connect shares them one by one); the rest read"
+            empty > 0 -> {
+                // the empty kinds by name: the person switches them on one by one in Samsung
+                // Health's Health Connect page, so the line says which
+                val names = lines.filter { it.contains("nothing in Health Connect") }.map { it.substringBefore(':') }
+                val read = lines.size - empty
+                "nothing in Health Connect for ${names.joinToString(", ")}" +
+                    (if (samsung) " (Samsung Health › ⋮ › Settings › Health Connect › allow each)" else " (no app writes them)") +
+                    "; $read kind(s) read"
+            }
             missing > 0 -> "$missing permission(s) not granted; the rest read"
             else -> "Health Connect reads; if the box has nothing, the sync did not reach it (SETTINGS › HEALTH says the last run)"
         }

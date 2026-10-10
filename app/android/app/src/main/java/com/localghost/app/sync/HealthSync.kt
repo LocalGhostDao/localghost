@@ -405,8 +405,12 @@ object HealthSync {
         val start = end.minus(90, ChronoUnit.DAYS)
         val range = TimeRangeFilter.between(start, end)
         val out = ArrayList<String>()
+        // a type the person did not allow is not probed: the verdict counts those as permissions
+        // not granted, not as types unreadable
+        val granted = try { client.permissionController.getGrantedPermissions() } catch (_: Exception) { emptySet() }
         suspend fun <T> one(label: String, cls: kotlin.reflect.KClass<T>, stamp: (T) -> Instant)
             where T : Any, T : androidx.health.connect.client.records.Record {
+            if (HealthPermission.getReadPermission(cls) !in granted) return
             try {
                 var token: String? = null
                 var n = 0
@@ -449,6 +453,13 @@ object HealthSync {
         one("exercise", ExerciseSessionRecord::class) { it.startTime }
         one("active calories", ActiveCaloriesBurnedRecord::class) { it.startTime }
         one("distance", DistanceRecord::class) { it.startTime }
+        one("floors", FloorsClimbedRecord::class) { it.startTime }
+        one("resting heart rate", RestingHeartRateRecord::class) { it.time }
+        one("heart rate variability", HeartRateVariabilityRmssdRecord::class) { it.time }
+        one("oxygen saturation", OxygenSaturationRecord::class) { it.time }
+        one("respiratory rate", RespiratoryRateRecord::class) { it.time }
+        one("vo2 max", Vo2MaxRecord::class) { it.time }
+        one("body fat", BodyFatRecord::class) { it.time }
         return out
     }
 }

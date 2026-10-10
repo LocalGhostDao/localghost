@@ -5782,3 +5782,28 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   BUILDING.md has the Linux and Windows steps. Not run here (no Gradle); the Kotlin DSL is
   plain.
 
+## 10 October 2026 , the manifest, the probe, the handover
+
+- The six new Health Connect read permissions (`READ_RESTING_HEART_RATE`,
+  `READ_HEART_RATE_VARIABILITY`, `READ_OXYGEN_SATURATION`, `READ_RESPIRATORY_RATE`,
+  `READ_VO2_MAX`, `READ_BODY_FAT`) were requested in `HealthSync.PERMISSIONS` and absent from
+  `AndroidManifest.xml`; Health Connect's sheet lists only declared kinds, hence "9 of 15" with
+  the six skipped and no way to allow them. Declared.
+- `HealthSync.probe` reads the granted set first and skips an unallowed kind (the verdict's
+  `missing` count covers those); it probes floors and the six new kinds too. `HealthVerdict`
+  names the empty kinds and the Samsung Health path (`⋮ › Settings › Health Connect`) instead
+  of counting them; test updated (251 JVM tests).
+- secd `handleHealthDiag` wrote `<mount>/tallyd/health_diag.json` as root at 0640; tallyd runs
+  as the run user and could not read it, so `ghost-cli ghost.tallyd health` had no `phone`
+  key even after the phone said "sent to the box". Chowned to the run user before the rename,
+  as the inbox files are. secd tests pass.
+- Vlad's readout: `ingest.last` 5 days, 5 day-metric rows, `stored.metrics` only `steps`.
+  Metrics are day×kind rows, so five rows over five days is one kind: the watch's app shares
+  only steps with Health Connect, which is what the phone's verdict ("6 type(s) empty … the
+  rest read") said from its side. Nothing to fix on the box; Samsung Health has to share each
+  kind.
+- The permission loss on a Windows-only editor workflow: `.idea/workspace.xml` had
+  `CLEAR_APP_STORAGE=true` (Run › Edit Configurations › app › Installation Options › "Clear app
+  storage before deployment"), a `pm clear` on every Run. Written up in BUILDING.md and the
+  release notes; the signing-key change stays, for the cut-over-editor case.
+

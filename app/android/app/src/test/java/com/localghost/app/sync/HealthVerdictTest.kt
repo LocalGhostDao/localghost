@@ -12,7 +12,9 @@ class HealthVerdictTest {
         assertTrue(HealthVerdict.of(true, 0, empty, true).contains("Samsung Health is installed but not sharing"))
         assertTrue(HealthVerdict.of(true, 0, empty, false).contains("no app writes"))
         assertTrue(HealthVerdict.of(true, 0, listOf("steps: 300 record(s)", "sleep: not readable (x)"), true).startsWith("1 type(s) not readable"))
-        assertTrue(HealthVerdict.of(true, 0, listOf("steps: 300 record(s)", "sleep: nothing in Health Connect"), true).startsWith("1 type(s) empty"))
+        assertEquals("nothing in Health Connect for sleep, heart rate (Samsung Health › ⋮ › Settings › Health Connect › allow each); 1 kind(s) read",
+            HealthVerdict.of(true, 0, listOf("steps: 300 record(s)", "sleep: nothing in Health Connect", "heart rate: nothing in Health Connect"), true))
+        assertTrue(HealthVerdict.of(true, 0, listOf("steps: 300 record(s)", "sleep: nothing in Health Connect"), false).contains("(no app writes them)"))
         assertTrue(HealthVerdict.of(true, 2, listOf("steps: 300 record(s)"), true).startsWith("2 permission(s)"))
         assertTrue(HealthVerdict.of(true, 0, listOf("steps: 300 record(s)"), true).startsWith("Health Connect reads"))
     }

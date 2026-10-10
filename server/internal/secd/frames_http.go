@@ -1305,7 +1305,21 @@ func (s *Server) handleHealthDiag(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
-	if err := os.WriteFile(path+".part", body, 0o640); err != nil || os.Rename(path+".part", path) != nil {
+	if err := os.WriteFile(path+".part", body, 0o640); err != nil {
+		s.appearsDown(w)
+		return
+	}
+	// secd runs as root; tallyd runs as the run user and reads this for `ghost-cli ghost.tallyd
+	// health`, so the file is handed over like the inbox is (the first drop forgot, and the
+	// phone's account never showed in the readout)
+	if s.cfg.RunUser != "" {
+		if u, uerr := user.Lookup(s.cfg.RunUser); uerr == nil {
+			uid, _ := strconv.Atoi(u.Uid)
+			gid, _ := strconv.Atoi(u.Gid)
+			_ = os.Chown(path+".part", uid, gid)
+		}
+	}
+	if err := os.Rename(path+".part", path); err != nil {
 		_ = os.Remove(path + ".part")
 		s.appearsDown(w)
 		return

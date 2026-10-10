@@ -82,6 +82,13 @@ same keystore and its password, and the build signs every variant with it (Gradl
 The first install after the change is still an uninstall (the phone holds a debug-signed
 build); from then on every install, from either machine or from a cut, is an update.
 
+**The editor's own wipe.** Android Studio's run configuration has an option that empties the
+app's storage before every Run (`pm clear`): Run › Edit Configurations › app › Installation
+Options › "Clear app storage before deployment". On it, every Run from the editor loses the
+enrolment and the runtime permissions whatever key signed the build, and Health Connect's grants
+with them. Untick it. The repository's `.idea/workspace.xml` carried it on for a while, which
+is where the daily re-asking came from on a machine that only ever installed from the editor.
+
 ## Linux (Debian 13 or Ubuntu 24.04, command line)
 
 1. **Run the setup script once** from the repository root (it uses `sudo` for apt):
