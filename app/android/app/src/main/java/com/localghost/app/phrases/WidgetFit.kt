@@ -7,15 +7,15 @@ package com.localghost.app.phrases
  * are the size at the widget's own two rows; a taller widget scales the phrase, its sound and
  * its meaning by how much higher it is than the lines it shows need, held back by the width
  * (a line that grows past the cell is cut, not read), never past [MAX]. The small lines (the
- * head, the prices, what comes next, the buttons) grow by a quarter of that at most: they are
+ * head, the prices and the story, the weather, the buttons) grow by a quarter of that at most: they are
  * the dim lines under the phrase, and the long ones run out of width first. Pure, so the
  * tests can read it.
  */
 object WidgetFit {
-    /** The height (dp) the widget's lines take at scale one: the short widget's five lines, the
-     *  tall widget's lines with the foot and the weather and what comes next under them. */
-    const val SHORT_NEED_DP = 110
-    const val TALL_NEED_DP = 200
+    /** The height (dp) the widget's lines take at scale one: the short widget's head, brief,
+     *  word, sound, meaning and buttons; the tall widget's with the weather line too. */
+    const val SHORT_NEED_DP = 125
+    const val TALL_NEED_DP = 145
 
     /** The width (dp) the widget's longest lines are laid out for at scale one. */
     const val WIDTH_NEED_DP = 280

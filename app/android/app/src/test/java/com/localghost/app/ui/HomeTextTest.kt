@@ -84,6 +84,6 @@ class HomeTextTest {
         assertEquals("", HomeText.weatherNow(Double.NaN, 1.0, 0, 0.0))
         assertEquals("Thu 28/19 rain 60%", HomeText.weatherDay("2026-10-08", 28.0, 19.0, 61, 60))
         assertEquals("Fri 20/12", HomeText.weatherDay("2026-10-09", 20.0, 12.0, 1000, 10))
-        assertEquals("Kassiopi, GR · nearest of 3,000 places the box pulls daily · pulled 3 h ago", HomeText.weatherSource("Kassiopi", "GR", 1000, 3000, 1000 + 3 * 3600))
+        assertEquals("Kassiopi, GR · nearest of 3,000 places the box pulls every sixteen hours · pulled 3 h ago", HomeText.weatherSource("Kassiopi", "GR", 1000, 3000, 1000 + 3 * 3600))
     }
 }

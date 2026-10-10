@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- ghost.phrased widget: the phrase you need now, glanceable. Same void-and-phosphor as the app.
+<!-- ghost.phrased widget: the box's brief (the prices, the story of the moment, the weather on a
+     tall one) then the phrase you need now, glanceable. Same void-and-phosphor as the app.
      RemoteViews-safe views only (FrameLayout, LinearLayout, ImageView, TextView); the buttons are
      TextViews with click intents, which is what a lock-screen host can drive without unlocking.
      The background is an ImageView UNDER the words rather than a background drawable, because an
@@ -38,10 +39,35 @@
             android:text="› morning · somewhere" />
 
         <TextView
-            android:id="@+id/w_local"
+            android:id="@+id/w_foot"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/phrase_dim"
+            android:textSize="11sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:visibility="gone"
+            android:text="BTC 65,000 +1.2% · ETH 3,250 -0.4%" />
+
+        <TextView
+            android:id="@+id/w_more"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/phrase_dim"
+            android:textSize="11sp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:visibility="gone"
+            android:text="13° partly cloudy · Neu-Ulm · today 17/9 showers 40%" />
+        <TextView
+            android:id="@+id/w_local"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             android:textColor="@color/phrase_text"
             android:textSize="22sp"
             android:maxLines="2"
@@ -118,30 +144,5 @@
                 android:text="[ got it ]" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/w_foot"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:fontFamily="monospace"
-            android:textColor="@color/phrase_dim"
-            android:textSize="11sp"
-            android:maxLines="2"
-            android:ellipsize="end"
-            android:visibility="gone"
-            android:text="BTC 65,000 +1.2% · ETH 3,250 -0.4%" />
-
-        <TextView
-            android:id="@+id/w_more"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:fontFamily="monospace"
-            android:textColor="@color/phrase_dim"
-            android:textSize="11sp"
-            android:maxLines="4"
-            android:ellipsize="end"
-            android:visibility="gone"
-            android:text="13° partly cloudy · Neu-Ulm · today 17/9 showers 40%" />
     </LinearLayout>
 </FrameLayout>

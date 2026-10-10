@@ -532,8 +532,8 @@ func digestDue(db *poltergres.ReadWrite, now time.Time) (kind, day string, due b
 	return "", "", false
 }
 
-// digestBody is the digest's text: the stories since the last digest (twelve hours when there
-// was none), the most-told first, a line each. Pure over the rows.
+// digestStory is one row of a digest: the stories since the last digest (twelve hours when there
+// was none), the most-told first.
 type digestStory struct {
 	ID      int64
 	Title   string
@@ -541,6 +541,10 @@ type digestStory struct {
 	Summary string
 }
 
+// digestBody is the digest as the phone shows it: one story a line, each a point ("• " first,
+// what the phone's notification page and the OS's expanded notification both read as a list),
+// the lead sentence and how many outlets told it after a dot. Without the bullets the lines ran
+// together into one block of text on the phone.
 func digestBody(stories []digestStory) string {
 	if len(stories) == 0 {
 		return ""
@@ -555,8 +559,9 @@ func digestBody(stories []digestStory) string {
 			line = newsLead(s.Summary) // the lead; the points wait on the phone's NEWS
 		}
 		if s.Sources > 1 {
-			line += fmt.Sprintf(" (%d outlets)", s.Sources)
+			line += fmt.Sprintf(" · %d outlets", s.Sources)
 		}
+		b.WriteString("• ")
 		b.WriteString(line)
 	}
 	return b.String()

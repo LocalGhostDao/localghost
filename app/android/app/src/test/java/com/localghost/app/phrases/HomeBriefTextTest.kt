@@ -56,8 +56,20 @@ class HomeBriefTextTest {
         assertEquals("13° partly cloudy · Neu-Ulm · today 17/9 showers 40%", HomeBriefText.weatherLine("Neu-Ulm", 13.2, 2, 17.0, 9.4, 80, 40))
         assertEquals("13° · Neu-Ulm", HomeBriefText.weatherLine("Neu-Ulm", 13.0, -1, Double.NaN, Double.NaN, -1, 0))
         assertEquals("", HomeBriefText.weatherLine("Neu-Ulm", Double.NaN, 2, 17.0, 9.0, 2, 0))
-        assertEquals("13° clear\nnext   Danke  ·  thank you", HomeBriefText.more("13° clear", listOf("next   Danke  ·  thank you", "")))
-        assertEquals("", HomeBriefText.more("", emptyList()))
+    }
+
+    @Test fun theStoriesTurnWithThePhrases() {
+        val cards = listOf(HomeBriefText.Card("news:1", "One", "", ""), HomeBriefText.Card("news:2", " Two ", "", ""),
+            HomeBriefText.Card("news:3", "", "", ""), HomeBriefText.Card("news:4", "Four", "", ""))
+        val a = HomeBriefText.asides(cards)
+        assertEquals("One\nTwo\nFour", a)
+        assertEquals("One", HomeBriefText.story(a, 0))
+        assertEquals("Two", HomeBriefText.story(a, 1))
+        assertEquals("Four", HomeBriefText.story(a, 2))
+        assertEquals("One", HomeBriefText.story(a, 3))          // round again
+        assertEquals("Four", HomeBriefText.story(a, -1))
+        assertEquals("", HomeBriefText.story("", 2))
+        assertEquals("Two", HomeBriefText.asides(cards, 2).let { HomeBriefText.story(it, 3) })
     }
 
     @Test fun theWidgetsFootAbroad() {

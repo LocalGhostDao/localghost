@@ -146,6 +146,6 @@ object HomeText {
             age < 48 * 3600 -> "pulled ${age / 3600} h ago"
             else -> "pulled ${age / 86400} days ago"
         }
-        return "$where · nearest of ${"%,d".format(places)} places the box pulls daily · $fresh"
+        return "$where · nearest of ${"%,d".format(places)} places the box pulls every sixteen hours · $fresh"
     }
 }

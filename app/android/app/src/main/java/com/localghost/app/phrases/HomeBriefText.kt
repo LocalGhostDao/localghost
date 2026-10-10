@@ -66,13 +66,21 @@ object HomeBriefText {
         return sb.toString()
     }
 
-    /** The tall widget's extra lines: the weather, then what comes next (abroad: the next two
-     *  phrases; at home: the next two stories). Each a line; "" with nothing. */
-    fun more(weather: String, nexts: List<String>): String =
-        (listOf(weather) + nexts).filter { it.isNotBlank() }.joinToString("\n")
+    /** The stories kept for the widget abroad, as one string (a headline a line) so the snapshot
+     *  carries them in its one aside field; [story] picks one. */
+    fun asides(cards: List<Card>, n: Int = 6): String = cards.take(n).map { it.headline.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
 
-    /** The widget's foot abroad: the prices with their changes on one line, the top story on the
-     *  next; "" with neither. */
+    /** The story the widget shows at phrase [index]: the stories turn with the phrases (every
+     *  rotation and every NEXT shows the next one), so the news on the widget is never one story
+     *  stuck for the day. "" without a story. */
+    fun story(asides: String, index: Int): String {
+        val lines = asides.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.isEmpty()) return ""
+        return lines[((index % lines.size) + lines.size) % lines.size]
+    }
+
+    /** The widget's brief lines, abroad: the prices with their changes on one line, the story of
+     *  the moment on the next; "" with neither. */
     fun foot(prices: String, story: String): String {
         val lines = ArrayList<String>(2)
         if (prices.isNotBlank()) lines.add(prices.trim())

@@ -5636,3 +5636,27 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (Vlad's Gradle: "@Composable invocations can only happen from the context of a @Composable
   function"); `shownRows` and `kindCounts` are computed in the composable above the list now.
   The whole-tree kotlinc check cannot see @Composable scope rules (no Compose plugin).
+
+## 10 October 2026 , the widget leads with the brief, the digest as a list, German for the day
+
+- Widget (abroad): `res/layout/widget_phrase.xml` order is head, `w_foot` (the prices, the
+  story), `w_more` (the weather, tall only), then `w_local`/`w_say`/`w_en`/`w_buttons`; the
+  next/then lines are gone. `Snapshot.withBrief` keeps the day's stories in `aside` a headline
+  a line (`HomeBriefText.asides`, six at most) and `HomeBriefText.story(aside, index)` picks the
+  one for the phrase index, so the story turns with the rotation and with NEXT (the lock
+  card's expanded text uses the same). `HomeBriefText.more` is gone. `WidgetFit` needs: short
+  125 dp, tall 145 dp (the tall widget lost two lines). HomeBriefTextTest, WidgetFitTest.
+- synthd `digestBody`: "• " first on each line, " · N outlets" after the lead (was
+  " (N outlets)"); rates_test and news_pg_test follow. The chat context's "(N outlets)"
+  snippet (news.go ctxItem) is untouched.
+- App: `NotifPage.points(kind, body)` (a news body always a point a line; another kind's
+  only when every line starts with "• " or "- "), `preview` (the list: first point, "… and N
+  more"), `firstLine` (the OS notification's collapsed line); NotificationScreen draws the
+  points as HOME's brief does. NotifLinkTest extended.
+- `HomeText.weatherSource`: "the box pulls every sixteen hours" (was "daily"); the hours
+  themselves need the redeploy and each place's next pull (rows 16 h old are due at once).
+- `assets/phrases/de.json`: 54 phrases, all level 1 (numbers, time, SHOP, CAFE/RESTAURANT,
+  TRANSPORT, HOTEL); "Excuse me" weight 2, "Do you speak English?" weight 2 level 3; the
+  POLITE weights trimmed; 93 phrases, ids unique, slots and situations within the enums. The
+  other packs can take the same set later.
+

@@ -113,13 +113,14 @@ object PhraseSurface {
         fun without(id: String): Snapshot = Snapshot(slotKey, late, headline, lang, langCode, tts,
             cards.filter { it.id != id }, why, known + 1, total, band, mode, extra, chip, asOf, aside)
 
-        /** The phrases' snapshot with the box's brief beside it: BTC and ETH on the widget's top
-         *  line and the card's expanded text, the top story under them. Abroad the word comes
-         *  first; the prices and the news stay a glance away. */
+        /** The phrases' snapshot with the box's brief beside it: BTC and ETH and the story of the
+         *  moment lead the widget and the card's expanded text; the word comes under them. The
+         *  aside carries the day's stories a line each (HomeBriefText.asides), and the one shown
+         *  turns with the phrase (HomeBriefText.story). */
         fun withBrief(kept: HomeBrief.Kept?): Snapshot {
             if (kept == null) return this
             return Snapshot(slotKey, late, headline, lang, langCode, tts, cards, why, known, total, band, mode,
-                kept.prices, chip, asOf, kept.cards.firstOrNull()?.headline.orEmpty())
+                kept.prices, chip, asOf, HomeBriefText.asides(kept.cards))
         }
 
         fun toJson(): String {
@@ -377,7 +378,7 @@ object PhraseSurface {
         if (snap.extra.isNotEmpty() || snap.aside.isNotEmpty()) {
             sb.append('\n')
             if (snap.extra.isNotEmpty()) sb.append('\n').append(snap.extra)
-            if (snap.aside.isNotEmpty()) sb.append('\n').append("news   ").append(snap.aside)
+            if (snap.aside.isNotEmpty()) sb.append('\n').append("news   ").append(HomeBriefText.story(snap.aside, index))
         }
         val n = snap.cards.size
         if (n > 1) {
@@ -464,23 +465,17 @@ object PhraseSurface {
             rv.setTextViewText(R.id.w_say, card.say + (if (card.roman.isNotEmpty()) "  ·  " + card.roman else ""))
             rv.setTextViewText(R.id.w_en, card.en)
         }
-        // THE FOOT, abroad: the box's brief under the buttons (the prices in short, the day's top
-        // story), where the head used to run out of room. At home the prices are the big line.
-        val foot = if (snap.home || card == null) "" else HomeBriefText.foot(snap.extra, snap.aside)
+        // THE BRIEF, abroad, under the head and over the word: the prices with their changes, and
+        // the story of the moment (it turns with the phrase, so the widget's news is never one
+        // story stuck for the day). At home the prices are the big line and the stories the cards.
+        val foot = if (snap.home || card == null) "" else HomeBriefText.foot(snap.extra, HomeBriefText.story(snap.aside, index))
         rv.setTextViewText(R.id.w_foot, foot)
         rv.setViewVisibility(R.id.w_foot, if (foot.isEmpty() || !look.showHead) android.view.View.GONE else android.view.View.VISIBLE)
         rv.setTextColor(R.id.w_foot, look.accentDim)
-        // THE TALL WIDGET: the weather where the phone last was, then what comes next (the next
-        // two phrases abroad, the next two stories at home); a short widget shows none of it
-        val more = if (!tall || card == null) "" else {
-            val weather = HomeBrief.kept(ctx)?.weather.orEmpty()
-            val n = snap.cards.size
-            val nexts = if (n > 1) listOf(1, 2).filter { it < n }.map { k ->
-                val c = snap.cards[(index + k) % n]
-                (if (k == 1) "next   " else "then   ") + (if (snap.home) c.local else c.local + "  ·  " + c.en.lowercase())
-            } else emptyList()
-            HomeBriefText.more(weather, nexts)
-        }
+        // THE TALL WIDGET: the weather where the phone last was, one line under the brief; a short
+        // widget has no room for it. The phrase shown is the one phrase: what comes next is NEXT's
+        // to show, not a list under it.
+        val more = if (!tall || card == null) "" else HomeBrief.kept(ctx)?.weather.orEmpty()
         rv.setTextViewText(R.id.w_more, more)
         rv.setViewVisibility(R.id.w_more, if (more.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE)
         rv.setTextColor(R.id.w_more, look.accentDim)

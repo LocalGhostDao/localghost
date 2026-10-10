@@ -211,7 +211,7 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
 
 /**
  * THE WEATHER where the phone is: the conditions now, three days, and under them where it came
- * from (the nearest of the places the box pulls daily, and how fresh). Nothing when the phone has
+ * from (the nearest of the places the box pulls every sixteen hours, and how fresh). Nothing when the phone has
  * no position yet or the box has no pull; a line says which.
  */
 @Composable

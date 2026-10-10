@@ -58,6 +58,23 @@ class NotifLinkTest {
         assertEquals("the memory ›", NotifPage.goes(NotifLink.Target("memories", "42")))
         assertEquals("checkin", NotifPage.shows(NotifLink.Target("checkin")))
         assertEquals("CHECK-IN ›", NotifPage.goes(NotifLink.Target("checkin")))
+    }
+
+    @Test fun theDigestIsPoints() {
+        // the box's digest since 0.0.7: a bullet a story
+        assertEquals(listOf("Rates held at 4%. · 3 outlets", "A lone story"),
+            NotifPage.points("news", "• Rates held at 4%. · 3 outlets\n• A lone story"))
+        // an older digest, bare lines: still one story a line
+        assertEquals(listOf("Rates held at 4%. (3 outlets)", "A lone story"),
+            NotifPage.points("news", "Rates held at 4%. (3 outlets)\nA lone story"))
+        assertEquals(listOf("one story"), NotifPage.points("news", "one story"))
+        // another kind's body stays prose unless every line is marked
+        assertEquals(emptyList<String>(), NotifPage.points("reflection", "A year ago today.\nYou were by the sea."))
+        assertEquals(listOf("a", "b"), NotifPage.points("observation", "- a\n- b"))
+        assertEquals("Rates held at 4%. · 3 outlets", NotifPage.firstLine("• Rates held at 4%. · 3 outlets\n• A lone story"))
+        assertEquals("plain", NotifPage.firstLine("plain"))
+        assertEquals("Rates held at 4%. · 3 outlets … and 1 more", NotifPage.preview("news", "• Rates held at 4%. · 3 outlets\n• A lone story"))
+        assertEquals("A year ago today.\nYou were by the sea.", NotifPage.preview("reflection", "A year ago today.\nYou were by the sea."))
         assertEquals("you answered: yes", NotifPage.askLine(listOf("yes", "no"), "yes"))
         assertEquals("waiting for your answer", NotifPage.askLine(listOf("yes", "no"), ""))
         assertEquals("", NotifPage.askLine(emptyList(), ""))

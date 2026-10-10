@@ -104,7 +104,8 @@ fun NotificationsScreen(
                     Spacer(Modifier.height(4.dp))
                     Text(n.title, color = if (n.seen) GhostTextDim else GhostText, style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(2.dp))
-                    Text(n.body, color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
+                    // a digest in the list: its first story and how many more, the whole on its page
+                    Text(NotifPage.preview(n.kind, n.body), color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
                     val target = NotifLink.resolve(n.link, n.daemonId, n.kind)
                     if (target.dest.isNotEmpty() && target.dest != "notifications") {
                         Spacer(Modifier.height(6.dp))

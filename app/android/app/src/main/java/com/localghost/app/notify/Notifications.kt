@@ -87,7 +87,7 @@ object Notifications {
                 .setColor(d.color)
                 .setSubText(d.label)
                 .setContentTitle(item.title)
-                .setContentText(item.body)
+                .setContentText(com.localghost.app.ui.NotifPage.firstLine(item.body))
                 .setStyle(NotificationCompat.BigTextStyle().bigText(item.body))
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
                 .setPublicVersion(publicVersion(ctx, d.icon))

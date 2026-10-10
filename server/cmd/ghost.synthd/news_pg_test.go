@@ -92,7 +92,7 @@ func TestNewsIngestStoriesAndDigest(t *testing.T) {
 	var posted []hw.Notification
 	produce := func(n hw.Notification) error { posted = append(posted, n); return nil }
 	n, err := postDigest(db, now, kind, day, produce, lg)
-	if err != nil || n != 1 || len(posted) != 1 || posted[0].Kind != "news" || !strings.Contains(posted[0].Body, "Minister resigns") || !strings.Contains(posted[0].Body, "(2 outlets)") {
+	if err != nil || n != 1 || len(posted) != 1 || posted[0].Kind != "news" || !strings.Contains(posted[0].Body, "Minister resigns") || !strings.Contains(posted[0].Body, "• Minister resigns") || !strings.Contains(posted[0].Body, " · 2 outlets") {
 		t.Fatalf("digest: %d %v %+v", n, err, posted)
 	}
 	if _, _, due := digestDue(db, time.Date(2026, 10, 1, 4, 20, 0, 0, time.UTC)); due {

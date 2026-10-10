@@ -140,7 +140,7 @@
    "local": "Danke",
    "say": "DAN-keh",
    "slots": [],
-   "weight": 9,
+   "weight": 6,
    "situation": "POLITE"
   },
   {
@@ -161,7 +161,7 @@
    "local": "Entschuldigung",
    "say": "ent-SHOOL-di-goong",
    "slots": [],
-   "weight": 7,
+   "weight": 2,
    "situation": "POLITE"
   },
   {
@@ -400,8 +400,9 @@
    "local": "Sprechen Sie Englisch?",
    "say": "SHPRESH-en zee ENG-lish",
    "slots": [],
-   "weight": 7,
-   "situation": "HELP"
+   "weight": 2,
+   "situation": "HELP",
+   "level": 3
   },
   {
    "id": "dont_understand",
@@ -409,7 +410,7 @@
    "local": "Ich verstehe nicht",
    "say": "ish fer-SHTAY-eh nisht",
    "slots": [],
-   "weight": 5,
+   "weight": 4,
    "situation": "HELP"
   },
   {
@@ -460,6 +461,665 @@
    "slots": [],
    "weight": 9,
    "situation": "EMERGENCY"
+  },
+  {
+   "id": "one_to_three",
+   "en": "One, two, three",
+   "local": "Eins, zwei, drei",
+   "say": "EYNS, TSVY, DRY",
+   "slots": [],
+   "weight": 9,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "four_to_six",
+   "en": "Four, five, six",
+   "local": "Vier, fünf, sechs",
+   "say": "FEER, FUENF, ZEKS",
+   "slots": [],
+   "weight": 9,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "seven_to_ten",
+   "en": "Seven, eight, nine, ten",
+   "local": "Sieben, acht, neun, zehn",
+   "say": "ZEE-ben, AHKT, NOYN, TSAYN",
+   "slots": [],
+   "weight": 9,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "twenty_fifty_hundred",
+   "en": "Twenty, fifty, a hundred",
+   "local": "Zwanzig, fünfzig, hundert",
+   "say": "TSVAN-tsikh, FUENF-tsikh, HOON-dert",
+   "slots": [],
+   "weight": 9,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "what_time",
+   "en": "What time is it?",
+   "local": "Wie spät ist es?",
+   "say": "vee SHPAYT ist es",
+   "slots": [],
+   "weight": 8,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "at_eight",
+   "en": "At eight o'clock",
+   "local": "Um acht Uhr",
+   "say": "oom AHKT oor",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "half_past",
+   "en": "Half past nine (nine thirty)",
+   "local": "Halb zehn",
+   "say": "HALP TSAYN",
+   "slots": [
+    "MORNING",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "today_tomorrow",
+   "en": "Today, tomorrow",
+   "local": "Heute, morgen",
+   "say": "HOY-teh, MOR-gen",
+   "slots": [],
+   "weight": 5,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "yesterday",
+   "en": "Yesterday",
+   "local": "Gestern",
+   "say": "GES-tern",
+   "slots": [],
+   "weight": 3,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "half_hour",
+   "en": "In half an hour",
+   "local": "In einer halben Stunde",
+   "say": "in EYE-ner HAL-ben SHTOON-deh",
+   "slots": [],
+   "weight": 5,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "how_long_take",
+   "en": "How long does it take?",
+   "local": "Wie lange dauert es?",
+   "say": "vee LAHNG-eh DOW-ert es",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "days",
+   "en": "Monday, Saturday, Sunday",
+   "local": "Montag, Samstag, Sonntag",
+   "say": "MOHN-tahk, ZAMS-tahk, ZON-tahk",
+   "slots": [],
+   "weight": 3,
+   "situation": "NUMBERS",
+   "level": 1
+  },
+  {
+   "id": "i_would_like",
+   "en": "I'd like…",
+   "local": "Ich hätte gern…",
+   "say": "ikh HET-teh gern",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "do_you_have",
+   "en": "Do you have…?",
+   "local": "Haben Sie…?",
+   "say": "HAH-ben zee",
+   "slots": [],
+   "weight": 6,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "thats_all",
+   "en": "That's all, thanks",
+   "local": "Das ist alles, danke",
+   "say": "das ist AL-les, DAHN-keh",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "cash_or_card",
+   "en": "Cash or card?",
+   "local": "Bar oder mit Karte?",
+   "say": "BAR OH-der mit KAR-teh",
+   "slots": [],
+   "weight": 5,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "receipt",
+   "en": "A receipt, please",
+   "local": "Den Bon, bitte",
+   "say": "dayn BONG, BIT-teh",
+   "slots": [],
+   "weight": 4,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "a_bag",
+   "en": "A bag, please",
+   "local": "Eine Tüte, bitte",
+   "say": "EYE-neh TUE-teh, BIT-teh",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "too_expensive",
+   "en": "That's too expensive",
+   "local": "Das ist zu teuer",
+   "say": "das ist tsoo TOY-er",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 4,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "just_looking",
+   "en": "I'm just looking",
+   "local": "Ich schaue nur",
+   "say": "ikh SHOW-eh noor",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "ill_take_it",
+   "en": "I'll take it",
+   "local": "Ich nehme es",
+   "say": "ikh NAY-meh es",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "bigger_smaller",
+   "en": "Bigger, smaller",
+   "local": "Größer, kleiner",
+   "say": "GRUR-ser, KLY-ner",
+   "slots": [
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "open_sunday",
+   "en": "Are you open on Sunday?",
+   "local": "Haben Sie sonntags geöffnet?",
+   "say": "HAH-ben zee ZON-tahks geh-UFF-net",
+   "slots": [
+    "AFTERNOON"
+   ],
+   "weight": 3,
+   "situation": "SHOP",
+   "level": 1
+  },
+  {
+   "id": "takeaway",
+   "en": "To take away",
+   "local": "Zum Mitnehmen",
+   "say": "tsoom MIT-nay-men",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 5,
+   "situation": "CAFE",
+   "level": 1
+  },
+  {
+   "id": "eat_here",
+   "en": "To eat here",
+   "local": "Zum Hieressen",
+   "say": "tsoom HEER-es-sen",
+   "slots": [
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "CAFE",
+   "level": 1
+  },
+  {
+   "id": "still_sparkling",
+   "en": "Still or sparkling?",
+   "local": "Still oder mit Kohlensäure?",
+   "say": "SHTIL OH-der mit KOH-len-zoy-reh",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "tap_water",
+   "en": "Tap water, please",
+   "local": "Leitungswasser, bitte",
+   "say": "LY-toongs-vas-ser, BIT-teh",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "what_recommend",
+   "en": "What do you recommend?",
+   "local": "Was empfehlen Sie?",
+   "say": "vas em-PFAY-len zee",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 6,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "vegetarian",
+   "en": "I'm vegetarian",
+   "local": "Ich bin Vegetarier",
+   "say": "ikh bin veh-geh-TAH-ree-er",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "allergic_nuts",
+   "en": "I'm allergic to nuts",
+   "local": "Ich bin allergisch gegen Nüsse",
+   "say": "ikh bin a-LER-gish GAY-gen NUES-seh",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "same_again",
+   "en": "The same again, please",
+   "local": "Das Gleiche noch mal, bitte",
+   "say": "das GLY-kheh nokh MAHL, BIT-teh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "nothing_else",
+   "en": "Nothing else, thank you",
+   "local": "Sonst nichts, danke",
+   "say": "zonst NIKHTS, DAHN-keh",
+   "slots": [
+    "MIDDAY",
+    "EVENING"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "pay_separately",
+   "en": "Can we pay separately?",
+   "local": "Können wir getrennt zahlen?",
+   "say": "KUR-nen veer geh-TRENT TSAH-len",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 4,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "keep_change",
+   "en": "Keep the change",
+   "local": "Stimmt so",
+   "say": "SHTIMT zoh",
+   "slots": [
+    "MIDDAY",
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "RESTAURANT",
+   "level": 1
+  },
+  {
+   "id": "left_right_straight",
+   "en": "Left, right, straight on",
+   "local": "Links, rechts, geradeaus",
+   "say": "LINKS, REKHTS, geh-RAH-deh-ows",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 7,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "is_it_far",
+   "en": "Is it far?",
+   "local": "Ist es weit?",
+   "say": "ist es VYT",
+   "slots": [],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "to_the_station",
+   "en": "To the station, please",
+   "local": "Zum Bahnhof, bitte",
+   "say": "tsoom BAHN-hohf, BIT-teh",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "to_the_airport",
+   "en": "To the airport, please",
+   "local": "Zum Flughafen, bitte",
+   "say": "tsoom FLOOK-hah-fen, BIT-teh",
+   "slots": [
+    "MORNING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "to_this_address",
+   "en": "To this address, please",
+   "local": "Zu dieser Adresse, bitte",
+   "say": "tsoo DEE-zer a-DRES-seh, BIT-teh",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "how_much_to_centre",
+   "en": "How much to the centre?",
+   "local": "Was kostet es bis ins Zentrum?",
+   "say": "vas KOS-tet es bis ins TSEN-troom",
+   "slots": [],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "stop_here",
+   "en": "Stop here, please",
+   "local": "Halten Sie hier, bitte",
+   "say": "HAL-ten zee HEER, BIT-teh",
+   "slots": [],
+   "weight": 8,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "which_bus",
+   "en": "Which bus goes to the centre?",
+   "local": "Welcher Bus fährt ins Zentrum?",
+   "say": "VEL-kher BOOS fairt ins TSEN-troom",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "does_this_go",
+   "en": "Does this go to…?",
+   "local": "Fährt der hier nach…?",
+   "say": "FAIRT dair heer nahkh",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "ticket_to",
+   "en": "A ticket to…, please",
+   "local": "Eine Fahrkarte nach…, bitte",
+   "say": "EYE-neh FAHR-kar-teh nahkh, BIT-teh",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "single_return",
+   "en": "Single or return?",
+   "local": "Einfach oder hin und zurück?",
+   "say": "EYN-fakh OH-der HIN oont tsoo-RUEK",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "which_platform",
+   "en": "Which platform?",
+   "local": "Welches Gleis?",
+   "say": "VEL-khes GLYS",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 8,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "next_train",
+   "en": "When does the next train leave?",
+   "local": "Wann fährt der nächste Zug?",
+   "say": "VAN fairt dair NAYKH-steh TSOOK",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 8,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "next_stop",
+   "en": "Next stop, please",
+   "local": "Nächster Halt, bitte",
+   "say": "NAYKH-ster HALT, BIT-teh",
+   "slots": [],
+   "weight": 4,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "where_get_off",
+   "en": "Where do I get off?",
+   "local": "Wo muss ich aussteigen?",
+   "say": "voh moos ikh OWS-shty-gen",
+   "slots": [
+    "MORNING",
+    "MIDDAY",
+    "AFTERNOON"
+   ],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "seat_free",
+   "en": "Is this seat free?",
+   "local": "Ist der Platz frei?",
+   "say": "ist dair PLATS FRY",
+   "slots": [],
+   "weight": 5,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "show_on_map",
+   "en": "Can you show me on the map?",
+   "local": "Können Sie es mir auf der Karte zeigen?",
+   "say": "KUR-nen zee es meer owf dair KAR-teh TSY-gen",
+   "slots": [],
+   "weight": 4,
+   "situation": "TRANSPORT",
+   "level": 1
+  },
+  {
+   "id": "wifi_password",
+   "en": "What's the Wi-Fi password?",
+   "local": "Wie ist das WLAN-Passwort?",
+   "say": "vee ist das VAY-lahn PAS-vort",
+   "slots": [
+    "AFTERNOON",
+    "EVENING"
+   ],
+   "weight": 5,
+   "situation": "HOTEL",
+   "level": 1
+  },
+  {
+   "id": "leave_luggage",
+   "en": "Can I leave my bags here?",
+   "local": "Kann ich mein Gepäck hier lassen?",
+   "say": "kan ikh myn geh-PEK heer LAS-sen",
+   "slots": [
+    "MORNING",
+    "MIDDAY"
+   ],
+   "weight": 4,
+   "situation": "HOTEL",
+   "level": 1
+  },
+  {
+   "id": "checkout_time",
+   "en": "What time is check-out?",
+   "local": "Wann ist Check-out?",
+   "say": "VAN ist CHECK-out",
+   "slots": [
+    "EVENING",
+    "NIGHT"
+   ],
+   "weight": 3,
+   "situation": "HOTEL",
+   "level": 1
   }
  ]
 }

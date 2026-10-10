@@ -64,7 +64,14 @@ fun NotificationScreen(id: Long, onOpenTarget: (NotifLink.Target) -> Unit, onDay
                 Spacer(Modifier.height(8.dp))
                 Text(nn.title, color = GhostText, style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(6.dp))
-                Text(nn.body, color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                val points = NotifPage.points(nn.kind, nn.body)
+                if (points.isEmpty()) Text(nn.body, color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                else points.forEach { p ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                        Text("•", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(16.dp))
+                        Text(p, color = GhostText, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
                 if (nn.created > 0) {
                     Text(java.text.SimpleDateFormat("EEEE d MMMM · HH:mm", java.util.Locale.UK).format(java.util.Date(nn.created * 1000)),
                         color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))

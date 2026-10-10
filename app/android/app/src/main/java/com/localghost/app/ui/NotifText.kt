@@ -55,6 +55,28 @@ object NotifPage {
         else -> ""
     }
 
+    /** The body as points, when it is a list: the news digest is one story a line (the box
+     *  writes "• " first on each since 0.0.7; older digests have the bare lines), and any body
+     *  whose lines all start with a bullet or a dash. Empty for a body to show as it is. */
+    fun points(kind: String, body: String): List<String> {
+        val lines = body.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.size < 2 && kind != "news") return emptyList()
+        val marked = lines.all { it.startsWith("• ") || it.startsWith("- ") }
+        if (kind != "news" && !marked) return emptyList()
+        return lines.map { it.removePrefix("• ").removePrefix("- ").trim() }
+    }
+
+    /** The list's preview of a body of points: the first point and how many more ("… and 7
+     *  more"); the body itself when it is prose. */
+    fun preview(kind: String, body: String): String {
+        val p = points(kind, body)
+        if (p.size < 2) return body
+        return p[0] + " … and ${p.size - 1} more"
+    }
+
+    /** The collapsed notification's one line for a body of points: the first point, bare. */
+    fun firstLine(body: String): String = body.lineSequence().firstOrNull()?.trim()?.removePrefix("• ")?.trim() ?: body
+
     /** An ask's state line: "you answered: yes", "waiting for your answer". */
     fun askLine(options: List<String>, answer: String): String = when {
         options.isEmpty() -> ""

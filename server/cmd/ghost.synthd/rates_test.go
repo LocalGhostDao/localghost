@@ -111,14 +111,14 @@ func TestGroundedNews(t *testing.T) {
 	if lead, pts := splitStory("A paragraph from before the points.\nIts second line."); lead != "A paragraph from before the points. Its second line." || len(pts) != 0 {
 		t.Fatalf("%q %v", lead, pts)
 	}
-	if body := digestBody([]digestStory{{1, "Rates held", 3, "The Bank kept its rate at 4%.\n- Inflation cooled."}}); body != "The Bank kept its rate at 4%. (3 outlets)" {
+	if body := digestBody([]digestStory{{1, "Rates held", 3, "The Bank kept its rate at 4%.\n- Inflation cooled."}}); body != "• The Bank kept its rate at 4%. · 3 outlets" {
 		t.Fatalf("the digest tells the lead: %q", body)
 	}
 }
 
 func TestDigestBody(t *testing.T) {
 	body := digestBody([]digestStory{{1, "Rates held at 4%", 3, "The Bank kept its rate at 4%."}, {2, "A lone story", 1, ""}})
-	if body != "The Bank kept its rate at 4%. (3 outlets)\nA lone story" {
+	if body != "• The Bank kept its rate at 4%. · 3 outlets\n• A lone story" {
 		t.Fatalf("%q", body)
 	}
 	if digestBody(nil) != "" {
