@@ -154,17 +154,32 @@ android {
     // tools/app_keystore.sh --store-pass writes it), every build type here is signed with it,
     // and an editor build installs over a cut and a cut over an editor build, as updates.
     // Without the password Gradle cannot sign unattended: the debug key stays, with a note.
-    val releaseEnv = File(System.getProperty("user.home"), ".config/localghost/release.env")
+    // The keystore and its password, first found: the environment (LG_KEYSTORE, LG_KEY_ALIAS,
+    // LG_KEYSTORE_PASS, LG_KEY_PASS), then ~/.config/localghost/release.env (the server tree's
+    // tools/app_keystore.sh writes it; the cut reads it), then local.properties in app/android
+    // (per machine, never committed: localghost.keystore, localghost.keystorePass,
+    // localghost.keyAlias, localghost.keyPass), then the keystore where the cut looks for it
+    // (~/localghost-release.jks or ~/.config/localghost/localghost-release.jks) with a
+    // password from any of the above. The same lines work on Windows (user.home is the
+    // profile folder; forward slashes in the path).
+    val home = File(System.getProperty("user.home"))
+    val releaseEnv = File(home, ".config/localghost/release.env")
     val signEnv: Map<String, String> = (if (releaseEnv.isFile) releaseEnv.readLines() else emptyList())
         .mapNotNull { line ->
             val t = line.trim()
             if (t.startsWith("#") || !t.contains("=")) null
             else t.substringBefore("=").trim() to t.substringAfter("=").trim().trim('\'', '"')
         }.toMap()
-    val signStore = (System.getenv("LG_KEYSTORE") ?: signEnv["LG_KEYSTORE"])?.let { File(it) }
-    val signPass = System.getenv("LG_KEYSTORE_PASS") ?: signEnv["LG_KEYSTORE_PASS"]
-    val signAlias = System.getenv("LG_KEY_ALIAS") ?: signEnv["LG_KEY_ALIAS"] ?: "localghost"
-    val signKeyPass = System.getenv("LG_KEY_PASS") ?: signEnv["LG_KEY_PASS"] ?: signPass
+    val localSign = Properties().apply {
+        rootProject.file("local.properties").takeIf { it.isFile }?.let { f -> f.inputStream().use { load(it) } }
+    }
+    fun signSetting(env: String, local: String): String? =
+        System.getenv(env)?.takeIf { it.isNotBlank() } ?: signEnv[env]?.takeIf { it.isNotBlank() } ?: localSign.getProperty(local)?.trim()?.takeIf { it.isNotBlank() }
+    val signStore: File? = signSetting("LG_KEYSTORE", "localghost.keystore")?.let { File(it) }
+        ?: listOf(File(home, "localghost-release.jks"), File(home, ".config/localghost/localghost-release.jks")).firstOrNull { it.isFile }
+    val signPass = signSetting("LG_KEYSTORE_PASS", "localghost.keystorePass")
+    val signAlias = signSetting("LG_KEY_ALIAS", "localghost.keyAlias") ?: "localghost"
+    val signKeyPass = signSetting("LG_KEY_PASS", "localghost.keyPass") ?: signPass
     val signWithRelease = signStore != null && signStore.isFile && !signPass.isNullOrEmpty()
     if (signWithRelease) {
         signingConfigs {
@@ -177,7 +192,9 @@ android {
         }
         println("signing every build with the release keystore ${signStore!!.name} (alias $signAlias): an editor build installs over a cut as an update")
     } else if (signStore != null && signStore.isFile) {
-        println("release.env names the keystore but not LG_KEYSTORE_PASS: editor builds keep the debug key, and installing one over a cut asks for every permission again (tools/app_keystore.sh --store-pass keeps the password)")
+        println("the release keystore ${signStore.name} is here but no password for it (LG_KEYSTORE_PASS in ~/.config/localghost/release.env, or localghost.keystorePass in local.properties): this build keeps the debug key, and installing it over a cut asks for every permission again")
+    } else {
+        println("no release keystore on this machine: this build is signed with the debug key, and installing it over a cut (or a cut over it) asks for every permission again; BUILDING.md says where to put the keystore")
     }
     buildTypes {
         if (signWithRelease) {

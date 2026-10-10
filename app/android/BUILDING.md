@@ -59,10 +59,28 @@ Later builds reuse them.
 APK carries the same signing key; a different key means an uninstall first, and the app's data
 goes with it: the enrolment, every permission granted, Health Connect's grants. A release cut
 is signed with the release keystore and an editor build with Android Studio's debug key, so
-installing one over the other asked for everything again. Put the keystore and its password in
-`~/.config/localghost/release.env` (`tools/app_keystore.sh --use <file.jks> --store-pass` in the
-server tree writes it, mode 600) and the build signs every variant with it; Gradle says so at
-the start of a build. Without the password it keeps the debug key and says that instead.
+installing one over the other asked for everything again. Give every machine you build on the
+same keystore and its password, and the build signs every variant with it (Gradle says
+"signing every build with the release keystore …" at the start of a build, or why not):
+
+- On Linux, where the cuts are made: the keystore is already where the cut looks
+  (`~/localghost-release.jks` or `~/.config/localghost/localghost-release.jks`); add the
+  password with `./tools/app_keystore.sh --use <file.jks> --store-pass` from the server tree,
+  which writes `~/.config/localghost/release.env` at mode 600. Build as the same user.
+- On Windows: copy the same `.jks` from the Linux machine (it is the one file that must be the
+  same everywhere; keep it out of the repository) to, say, `C:\Users\<you>\localghost-release.jks`,
+  and add to `app\android\local.properties` (per machine, never committed), forward slashes:
+  ```
+  localghost.keystore=C:/Users/<you>/localghost-release.jks
+  localghost.keystorePass=<the keystore's password>
+  localghost.keyAlias=localghost
+  ```
+  (`localghost.keyPass` too when the key's password differs from the store's.) The alias is the
+  one `tools/app_keystore.sh` made the key under, `localghost` unless you chose another;
+  `keytool -list -keystore <file.jks>` prints it.
+
+The first install after the change is still an uninstall (the phone holds a debug-signed
+build); from then on every install, from either machine or from a cut, is an update.
 
 ## Linux (Debian 13 or Ubuntu 24.04, command line)
 

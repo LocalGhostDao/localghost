@@ -5772,10 +5772,13 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 
 ## 10 October 2026 , one signing key for every build
 
-- app/build.gradle.kts reads ~/.config/localghost/release.env (LG_KEYSTORE, LG_KEY_ALIAS,
-  LG_KEYSTORE_PASS, LG_KEY_PASS; the environment overrides) and, when the keystore and the
-  password are there, signs the debug and release build types with it (signingConfig
-  "localghost"); otherwise the debug key stays and the build prints why. The cut's apksigner
-  re-signs with the same key, so nothing changes there. BUILDING.md has the paragraph. Not run
-  here (no Gradle); the Kotlin DSL is plain.
+- app/build.gradle.kts finds the keystore and its password in this order: the environment
+  (LG_KEYSTORE, LG_KEY_ALIAS, LG_KEYSTORE_PASS, LG_KEY_PASS), ~/.config/localghost/release.env,
+  local.properties (localghost.keystore, .keystorePass, .keyAlias, .keyPass: the Windows way,
+  per machine, gitignored), then the cut's default paths (~/localghost-release.jks,
+  ~/.config/localghost/localghost-release.jks). With both, the debug and release build types
+  are signed with it (signingConfig "localghost"); otherwise the debug key stays and the build
+  prints why. The cut's apksigner re-signs with the same key, so nothing changes there.
+  BUILDING.md has the Linux and Windows steps. Not run here (no Gradle); the Kotlin DSL is
+  plain.
 
