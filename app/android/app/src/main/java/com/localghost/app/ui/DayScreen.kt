@@ -41,7 +41,8 @@ fun DayScreen(day: String, onDay: (String) -> Unit, onOpenMap: (String) -> Unit,
         story = BoxClient.dayStory(ctx, day)
         storyRead = true
     }
-    LaunchedEffect(day) { frames = BoxClient.dayFrames(ctx, bounds.first, bounds.second) ?: emptyList() }
+    var framesFailed by remember(day) { mutableStateOf(false) } // the box did not list them: said, not shown as none
+    LaunchedEffect(day) { val f = BoxClient.dayFrames(ctx, bounds.first, bounds.second); framesFailed = f == null; frames = f ?: emptyList() }
     LaunchedEffect(day) { summary = BoxClient.daySummary(ctx, bounds) }
     LaunchedEffect(day) {
         outings = BoxClient.memoriesList(ctx)?.filter { m ->
@@ -72,6 +73,7 @@ fun DayScreen(day: String, onDay: (String) -> Unit, onOpenMap: (String) -> Unit,
         Spacer(Modifier.height(6.dp))
         when {
             !storyRead -> LoadingRow()
+            st == null && !writing -> ErrorLine("the box did not answer , is it unlocked?")
             st != null && st.summary.isNotBlank() -> {
                 if (st.title.isNotBlank()) Text(st.title, color = TerminalGreen, style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.height(4.dp))
@@ -99,6 +101,7 @@ fun DayScreen(day: String, onDay: (String) -> Unit, onOpenMap: (String) -> Unit,
         Spacer(Modifier.height(6.dp))
         when {
             fs == null -> LoadingRow()
+            framesFailed -> ErrorLine("the box did not answer , is it unlocked?")
             fs.isEmpty() -> Text("none from this day", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             else -> {
                 Text(DayText.media(fs.count { it.kind != "video" }, fs.count { it.kind == "video" }) +

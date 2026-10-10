@@ -85,7 +85,7 @@ private fun DeviceRow(d: DeviceInfo) {
         Text("id ${d.id.take(8)} , from its certificate, not a serial number",
             color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(4.dp))
-        Text("${d.frames} frame(s) archived from this phone · last sync ${ago(d.lastSyncTs)}",
+        Text("${d.frames} ${if (d.frames == 1L) "frame" else "frames"} archived from this phone · last sync ${ago(d.lastSyncTs)}",
             color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -125,6 +125,6 @@ private fun ago(ts: Long): String {
 /** A cursor position is the taken_at of the newest item that device has offered. */
 private fun stamp(ts: Long): String {
     if (ts <= 0) return "none yet"
-    val f = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.UK)
+    val f = java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale.UK)
     return f.format(java.util.Date(ts * 1000))
 }

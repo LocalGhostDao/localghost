@@ -366,7 +366,7 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
             }
             Spacer(Modifier.height(4.dp))
             Text(MemoryText.origin(m.kind, m.summaryLine, m.meta?.optString("line") ?: "") + " · " +
-                java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
+                java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.UK)
                     .format(java.util.Date(m.createdAt)),
                 color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }

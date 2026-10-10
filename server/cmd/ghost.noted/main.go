@@ -207,6 +207,7 @@ func ingestOne(db *poltergres.ReadWrite, path, archive string, lg *slog.Logger) 
 	if ts == 0 && fi != nil {
 		ts = fi.ModTime().Unix()
 	}
+	ts = checkinDayTs(title, ts)
 	// Ref policy, split by kind: emails keep the PURE content hash (re-dropping the same .eml
 	// must stay a no-op), but plain text folds in the file mtime , jotting "gym" twice on purpose
 	// is two diary entries, not one silently swallowed. The canonical archive stays
@@ -228,6 +229,30 @@ func ingestOne(db *poltergres.ReadWrite, path, archive string, lg *slog.Logger) 
 	}
 	lg.Info("ingested", "fn", "ingestOne", "ref", ref[:12], "title", title)
 	return nil
+}
+
+// checkinPrefix opens a daily check-in's title: "Daily check-in 2026-10-09".
+const checkinPrefix = "Daily check-in "
+
+// checkinDayTs files a check-in under the day it names. A check-in written at one in the morning
+// for the day before (the app lets you pick the day) would otherwise land in the journal at the
+// time it was written, and the day's story, which reads the journal by the clock, would file the
+// feeling under the wrong day. When the title names a day other than the one the clock says, the
+// entry is stamped at that day's noon (UTC, the day story's bounds); a check-in for the day it
+// is written on keeps its real time, so the day's order of events holds. Any other title is left
+// alone.
+func checkinDayTs(title string, ts int64) int64 {
+	if !strings.HasPrefix(title, checkinPrefix) {
+		return ts
+	}
+	day, err := time.Parse("2006-01-02", strings.TrimSpace(strings.TrimPrefix(title, checkinPrefix)))
+	if err != nil {
+		return ts
+	}
+	if time.Unix(ts, 0).UTC().Format("2006-01-02") == day.Format("2006-01-02") {
+		return ts
+	}
+	return day.Unix() + 12*3600
 }
 
 // looksLikeEmail mirrors parseText's detection , a parseable message with a Subject header.

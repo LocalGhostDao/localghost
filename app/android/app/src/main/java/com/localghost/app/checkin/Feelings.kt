@@ -198,4 +198,26 @@ object Feelings {
         if (!voiceId.isNullOrBlank()) b.append("\nVoice: ").append(voiceId).append(' ').append(clock(voiceMs))
         return b.toString()
     }
+
+    /** Before this hour the page opens on yesterday when yesterday is still empty: at one in the
+     *  morning the day being told is the one just ended, not the one the clock has started. */
+    const val SMALL_HOURS = 5
+
+    /** The day the check-in page opens on: [yesterday] in the small hours while neither it nor
+     *  today is checked in, [today] otherwise. The person can still pick any empty day. */
+    fun defaultDay(today: String, yesterday: String, hour: Int, checked: Set<String>): String =
+        if (hour < SMALL_HOURS && yesterday !in checked && today !in checked) yesterday else today
+
+    /** The day as a word for the page's lines: "today", "yesterday", else "that day" (the heading
+     *  carries the date). [ago] is DayText.ago(day, today). */
+    fun dayWord(ago: String): String = when (ago) {
+        "today", "yesterday" -> ago
+        else -> "that day"
+    }
+
+    /** The page's subtitle: present tense for today, past for a day gone. */
+    fun subtitle(ago: String): String = when (ago) {
+        "today" -> "how are you feeling today, and why · kept on your box"
+        else -> "how were you feeling ${dayWord(ago)}, and why · kept on your box"
+    }
 }

@@ -105,8 +105,10 @@ fun WelcomeScreen(
     }
 }
 
+/** One grant as a row: the glyph in the state's colour, the title, the why, the state as a chip.
+ *  Shared by the welcome and the PERMISSIONS page. */
 @Composable
-private fun GrantRow(g: Grant) {
+internal fun GrantRow(g: Grant) {
     val (chip, colour) = when (g.state) {
         PermState.GRANTED -> "[ ON ]" to TerminalGreen
         PermState.DENIED -> "[ OFF ]" to GhostTextDim

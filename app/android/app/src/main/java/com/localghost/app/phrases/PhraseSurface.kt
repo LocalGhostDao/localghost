@@ -407,10 +407,12 @@ object PhraseSurface {
         val ids = awm.getAppWidgetIds(ComponentName(ctx, PhraseWidget::class.java))
         if (ids.isEmpty()) return
         val look = PhraseState.widgetLook(ctx)
-        // each widget by its own height: a tall one (three rows or more) gets the extra lines
+        // each widget by its own height: a tall one (three rows or more) gets the extra lines,
+        // and the words grow to fill the cell it was placed in (WidgetFit)
         for (id in ids) {
             val minH = runCatching { awm.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT) }.getOrDefault(0)
-            awm.updateAppWidget(id, buildWidget(ctx, snap, index, look, tall = minH >= TALL_DP))
+            val tall = minH >= TALL_DP
+            awm.updateAppWidget(id, buildWidget(ctx, snap, index, look, tall = tall, scale = WidgetFit.scale(minH, tall)))
         }
     }
 
@@ -419,7 +421,7 @@ object PhraseSurface {
 
     /** The widget's views for one moment and one look. Separate from the update so the
      *  configure screen can preview a look without placing anything. */
-    fun buildWidget(ctx: Context, snap: Snapshot, index: Int, look: PhraseState.WidgetLook, tall: Boolean = false): RemoteViews {
+    fun buildWidget(ctx: Context, snap: Snapshot, index: Int, look: PhraseState.WidgetLook, tall: Boolean = false, scale: Float = 1f): RemoteViews {
         val rv = RemoteViews(ctx.packageName, R.layout.widget_phrase)
         val card = snap.cards.getOrNull(index)
         if (snap.home) {
@@ -477,11 +479,11 @@ object PhraseSurface {
         rv.setViewVisibility(R.id.w_more, if (more.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE)
         rv.setTextColor(R.id.w_more, look.accentDim)
         // THE LOOK. Opacity is the background layer's image alpha (the one RemoteViews-settable
-        // alpha there is); sizes in sp; lines shown or GONE (GONE so the ones left close up);
+        // alpha there is); sizes in sp, grown with the widget's height; lines shown or GONE (GONE so the ones left close up);
         // the tint on everything phosphor. The card text stays its own grey , the words are the
         // point, the tint is the frame.
         rv.setInt(R.id.w_bg, "setImageAlpha", look.alpha255)
-        val sz = look.sizes
+        val sz = WidgetFit.sizes(look.sizes, scale)
         rv.setTextViewTextSize(R.id.w_local, android.util.TypedValue.COMPLEX_UNIT_SP, sz[0].toFloat())
         rv.setTextViewTextSize(R.id.w_say, android.util.TypedValue.COMPLEX_UNIT_SP, sz[1].toFloat())
         rv.setTextViewTextSize(R.id.w_en, android.util.TypedValue.COMPLEX_UNIT_SP, sz[2].toFloat())

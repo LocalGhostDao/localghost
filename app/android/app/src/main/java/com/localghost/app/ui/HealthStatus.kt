@@ -10,7 +10,7 @@ object HealthStatus {
             at <= 0 -> "this phone has not shipped yet"
             error.isNotEmpty() -> "last try ${TrailStatus.ago(now - at)}: $error"
             days == 0 -> "last run ${TrailStatus.ago(now - at)}: nothing found in Health Connect for the last week$skip"
-            else -> "last run ${TrailStatus.ago(now - at)}: shipped $days day(s), newest $newestDay$skip"
+            else -> "last run ${TrailStatus.ago(now - at)}: shipped $days ${if (days == 1) "day" else "days"}, newest $newestDay$skip"
         }
         return "$box · $phone"
     }

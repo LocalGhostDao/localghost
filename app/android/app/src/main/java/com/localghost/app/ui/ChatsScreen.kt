@@ -169,7 +169,7 @@ private fun BoxChatRow(c: BoxClient.BoxChat, active: Boolean = false, onOpen: ()
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Spacer(Modifier.height(2.dp))
-            Text(java.text.SimpleDateFormat("MMM d, HH:mm", java.util.Locale.US)
+            Text(java.text.SimpleDateFormat("d MMM, HH:mm", java.util.Locale.UK)
                     .format(java.util.Date(c.updatedAt)) + " · ${c.messages} msgs",
                 color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
         }

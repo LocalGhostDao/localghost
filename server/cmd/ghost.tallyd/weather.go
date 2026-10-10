@@ -26,7 +26,8 @@ type weatherState struct {
 	mu      sync.Mutex
 	at      time.Time
 	last    weather.Result
-	noGeo   bool // the geo set is not on the box: nothing to pull
+	noGeo   bool   // the geo set is not on the box: nothing to pull
+	readErr string // the place list could not be read (the last error, cleared by a read that worked)
 	running bool
 	batches int // since start
 	places  int // pulled since start
@@ -44,6 +45,9 @@ func (w *weatherState) snapshot() map[string]any {
 	}
 	if w.noGeo {
 		out["note"] = "no places: the geo set (GeoNames) is not on the box; tools/fetch_geo.sh brings it, then the pull runs"
+	}
+	if w.readErr != "" {
+		out["error"] = "the place list could not be read: " + w.readErr
 	}
 	return out
 }
@@ -66,10 +70,14 @@ func weatherLoop(ctx context.Context, mount string, ws *weatherState, lg *slog.L
 		batch, due, err := weather.NextBatch(db, now)
 		if err != nil {
 			lg.Warn("weather: the places could not be read", "fn", "weatherLoop", "err", err)
+			ws.mu.Lock()
+			ws.readErr = err.Error()
+			ws.mu.Unlock()
 			return
 		}
 		ws.mu.Lock()
 		ws.noGeo = len(batch) == 0
+		ws.readErr = ""
 		ws.mu.Unlock()
 		if len(batch) == 0 {
 			if forced {

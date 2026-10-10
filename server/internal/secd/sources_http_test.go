@@ -3,6 +3,7 @@ package secd
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -79,5 +80,38 @@ func TestCtlBody(t *testing.T) {
 	}
 	if got := string(ctlBody(ctlsock.Response{OK: true})); got != "" {
 		t.Fatalf("nothing: %q", got)
+	}
+}
+
+// The maps card counts the tiles where the map is served from (<mount>/landtiles,
+// <mount>/roadtiles/{0,1}), not a geo/ folder that never held them: a box with the maps on it
+// says so.
+func TestMapsDocReadsTheTilesWhereTheyAre(t *testing.T) {
+	mount := t.TempDir()
+	if d := mapsDoc(mount); d.State != "missing" {
+		t.Fatalf("empty volume: state %q", d.State)
+	}
+	for _, p := range []string{"landtiles/010_020.lgt", "landtiles/011_020.lgt", "roadtiles/0/0100_0200.lgr", "roadtiles/1/010_020.lgr",
+		"geo/elevation/GLO-90_N30_E000.heights", "geo/tz/grid.bin"} {
+		full := filepath.Join(mount, p)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d := mapsDoc(mount)
+	if d.State != "ready" {
+		t.Fatalf("the maps on the box: state %q, line %q", d.State, d.Line)
+	}
+	if !strings.Contains(d.Line, "coastline 2 tiles") || !strings.Contains(d.Line, "roads 2 tiles") || !strings.Contains(d.Line, "heights 1 packs") {
+		t.Fatalf("line %q", d.Line)
+	}
+	if err := os.Remove(filepath.Join(mount, "geo/tz/grid.bin")); err != nil {
+		t.Fatal(err)
+	}
+	if d := mapsDoc(mount); d.State != "partial" || !strings.Contains(d.Detail, "the time zones") {
+		t.Fatalf("without the zones: state %q detail %q", d.State, d.Detail)
 	}
 }

@@ -40,7 +40,10 @@ import kotlinx.coroutines.launch
  *
  * Top to bottom: the day; the last two weeks as a strip, one cell a day, each marked by the
  * quadrant the day was told by (▲ bright, ● easy, ◆ tense, ▼ heavy, ◇ mind, · nothing), a tap on a
- * cell opens that day's check-in; then today's: the feelings laid out as the mood meter's four
+ * told cell opens that day's check-in and a tap on an empty one makes it the day the form fills
+ * in (yesterday and today are switches under the heading; in the small hours the page opens on
+ * yesterday while it is still empty, since the day you want to tell at one in the morning is the
+ * one just ended); then the day's: the feelings laid out as the mood meter's four
  * quadrants with the mind row under them, the box's guesses already ticked and marked, a why
  * prefilled from the day, a voice note, and the save. Once saved the page is what was said, the
  * day as the box tells it, and a recorder for more. Under that the past check-ins as rows (a tap
@@ -55,6 +58,13 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val today = remember { DayText.of(System.currentTimeMillis() / 1000) }
+    val yesterday = remember(today) { DayText.shift(today, -1) }
+    // THE DAY BEING TOLD: today as a rule, yesterday in the small hours while it is still empty
+    // (at one in the morning the day you want to tell is the one just ended), or any empty day of
+    // the strip, tapped. Chosen once the history is in, so the small-hours rule sees what is told.
+    var forDay by rememberSaveable { mutableStateOf("") }
+    // the days saved on this visit (the box's rows show them a minute later, after noted's tick)
+    var savedDays by remember { mutableStateOf(setOf<String>()) }
     var history by remember { mutableStateOf<List<BoxClient.CheckinRow>?>(null) }
     var voiceLocal by remember { mutableStateOf<List<VoiceNotes.Pending>>(emptyList()) }
     // a past check-in's page, by its day ("" for today's page)
@@ -81,8 +91,16 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
 
     val rows = history ?: emptyList()
     val byDay = remember(rows) { rows.associateBy { it.day } }
-    val todayRow = byDay[today]
     val onPhone = voiceLocal.map { it.id }.toSet()
+    LaunchedEffect(history) {
+        if (forDay.isEmpty() && history != null) {
+            val told = byDay.keys + savedDays + (if (AppSettings.lastCheckinDay(ctx) == today) setOf(today) else emptySet())
+            forDay = Feelings.defaultDay(today, yesterday, java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY), told)
+        }
+    }
+    val day = forDay.ifEmpty { today }
+    val dayRow = byDay[day]
+    val ago = DayText.ago(day, today)
 
     // ONE PAST CHECK-IN (the system back key returns to today's page first)
     androidx.activity.compose.BackHandler(enabled = past.isNotEmpty()) { past = "" }
@@ -95,40 +113,51 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(DayText.heading(today), color = GhostText, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            Text(DayText.heading(day), color = GhostText, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
             InfoButton("checkin")
         }
-        Text("how are you feeling today, and why · kept on your box", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+        Text(Feelings.subtitle(ago), color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+        Spacer(Modifier.height(8.dp))
+        // WHICH DAY: yesterday and today as two switches; a further day, tapped on the strip, shows
+        // as a third. The day just ended is a tap away at any hour.
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            DaySwitch("yesterday", day == yesterday) { forDay = yesterday }
+            DaySwitch("today", day == today) { forDay = today }
+            if (day != today && day != yesterday) DaySwitch(ago, true) {}
+        }
         Spacer(Modifier.height(14.dp))
 
-        // THE STRIP, the last two weeks
+        // THE STRIP, the last two weeks: a told day opens its check-in, an empty one is the day
+        // the form fills in
         val tones = remember(rows) { rows.associate { it.day to Feelings.tone(it.feelings, it.preselected) } }
         val cells = remember(tones, today) { Feelings.strip(today, tones, 14) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             cells.forEach { c ->
                 val isToday = c.day == today
+                val chosen = c.day == day
+                val told = c.checked || c.day in savedDays
                 Column(Modifier.weight(1f)
-                    .border(1.dp, if (isToday) TerminalGreen else if (c.checked) GhostBorder else VoidLighter, RectangleShape)
-                    .background(if (c.checked) VoidLighter else Void)
-                    .clickable(enabled = c.checked && !isToday) { past = c.day }
+                    .border(1.dp, if (chosen) TerminalGreen else if (isToday) TerminalDim else if (told) GhostBorder else VoidLighter, RectangleShape)
+                    .background(if (told) VoidLighter else Void)
+                    .clickable { if (told && !isToday) past = c.day else forDay = c.day }
                     .padding(vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(Feelings.mark(c.tone), color = toneColour(c.tone, c.checked), style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-                    Text(Feelings.dayNumber(c.day), color = if (isToday) TerminalGreen else TerminalDim, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
-                    Text(Feelings.weekdayInitial(c.day), color = if (isToday) TerminalGreen else GhostBorder, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                    Text(Feelings.dayNumber(c.day), color = if (chosen) TerminalGreen else TerminalDim, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                    Text(Feelings.weekdayInitial(c.day), color = if (chosen) TerminalGreen else GhostBorder, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
                 }
             }
         }
         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("▲ bright  ● easy  ◆ tense  ▼ heavy  ◇ mind", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
-            Text("tap a day", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+            Text("tap a day · an empty one to fill it in", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
         }
         Spacer(Modifier.height(16.dp))
 
-        // TODAY
-        val done = todayRow != null || AppSettings.lastCheckinDay(ctx) == today
+        // THE DAY BEING TOLD
+        val done = dayRow != null || day in savedDays || (day == today && AppSettings.lastCheckinDay(ctx) == today)
         if (!done && history != null) {
-            rows.firstOrNull { it.day != today }?.let { y ->
+            rows.firstOrNull { it.day < day }?.let { y ->
                 val picks = Feelings.picks(y.feelings)
                 if (picks.isNotEmpty()) {
                     Text("${DayText.ago(y.day, today)} you felt ${picks.joinToString(", ")}", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
@@ -137,10 +166,12 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
             }
         }
         if (done) {
-            CheckedIn(today, todayRow, onPhone, voiceLocal.filter { it.kind == "checkin" && it.day == today },
-                justSaved = justSaved, onSaved = { reload() })
+            CheckedIn(day, Feelings.dayWord(ago), dayRow, onPhone, voiceLocal.filter { it.kind == "checkin" && it.day == day },
+                justSaved = justSaved && day in savedDays, onSaved = { reload() })
         } else {
-            CheckinForm(today, rows, onSaved = { justSaved = true; reload() })
+            key(day) {
+                CheckinForm(day, today, Feelings.dayWord(ago), rows, onSaved = { justSaved = true; savedDays = savedDays + day; reload() })
+            }
         }
 
         // THE PAST
@@ -166,7 +197,7 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
                     Text("›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
                 }
             }
-        } else if (history != null && todayRow == null) {
+        } else if (history != null && dayRow == null) {
             Spacer(Modifier.height(24.dp))
             Text("no check-ins yet · the first one starts the strip", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }
@@ -208,6 +239,14 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
     }
 }
 
+/** One of the day switches under the heading: the chosen day filled, the other outlined. */
+@Composable
+private fun DaySwitch(label: String, on: Boolean, onTap: () -> Unit) {
+    Text(label, color = if (on) Void else GhostTextDim, style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.border(1.dp, if (on) TerminalGreen else GhostBorder, RectangleShape)
+            .background(if (on) TerminalGreen else Void).clickable { onTap() }.padding(horizontal = 10.dp, vertical = 4.dp))
+}
+
 /** The colour a quadrant's mark takes: the pleasant ones green, tense amber, heavy and mind dim. */
 private fun toneColour(tone: String, checked: Boolean) = when {
     !checked -> GhostBorder
@@ -219,12 +258,12 @@ private fun toneColour(tone: String, checked: Boolean) = when {
     else -> GhostTextDim
 }
 
-/** TODAY'S FORM: the feelings as the four quadrants and the mind row, the box's guesses ticked
- *  before you look and marked "·" (one tap unticks), the why prefilled from the day, a voice note,
- *  the save. The check-in text records the guesses left standing ("Preselected: tired"), so a
+/** THE FORM for [day] (today as a rule, or an empty day picked): the feelings as the four quadrants
+ *  and the mind row, the box's guesses ticked before you look and marked "·" (one tap unticks), the
+ *  why prefilled from that day, a voice note, the save. The check-in text records the guesses left standing ("Preselected: tired"), so a
  *  later look can tell a guess from a feeling picked. */
 @Composable
-private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSaved: () -> Unit) {
+private fun CheckinForm(day: String, today: String, dayWord: String, history: List<BoxClient.CheckinRow>, onSaved: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var why by rememberSaveable { mutableStateOf("") }
@@ -243,7 +282,7 @@ private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSa
     LaunchedEffect(Unit) {
         if (prefilled) return@LaunchedEffect
         prefilled = true
-        val d = BoxClient.daySummary(ctx) ?: return@LaunchedEffect
+        val d = BoxClient.daySummary(ctx, if (day == today) null else DayText.bounds(day)) ?: return@LaunchedEffect
         suggested = d.suggested.filter { it in Feelings.all }
         if (!touched) {
             preselected = Feelings.preselect(suggested)
@@ -260,7 +299,7 @@ private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSa
             if (d.places.isNotEmpty()) bits.add("was at " +
                 d.places.take(3).joinToString("; ") { it.substringAfterLast(" / ") })
             d.notes.filterNot { it.startsWith("Voice note") }.take(2).forEach { bits.add(it) }
-            why = if (bits.isEmpty()) "" else "Today: " + bits.joinToString(". ") + "."
+            why = if (bits.isEmpty()) "" else dayWord.replaceFirstChar { it.uppercase() } + ": " + bits.joinToString(". ") + "."
         }
     }
 
@@ -325,7 +364,7 @@ private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSa
         Text(when {
             rec.recording -> "stop the recording to save"
             summary.isEmpty() -> "pick a feeling, write or say why"
-            else -> "today: " + summary.joinToString(" · ")
+            else -> "$dayWord: " + summary.joinToString(" · ")
         }, color = if (summary.isEmpty() || rec.recording) TerminalDim else GhostTextDim, style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(6.dp))
         GhostButton(if (saving) "SAVING…" else "SAVE CHECK-IN", {
@@ -333,14 +372,14 @@ private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSa
                 saving = true
                 note = ""
                 scope.launch {
-                    val text = Feelings.checkinText(today, picked, preselected, why, take?.id, take?.durationMs ?: 0L)
+                    val text = Feelings.checkinText(day, picked, preselected, why, take?.id, take?.durationMs ?: 0L)
                     if (BoxClient.noteAdd(ctx, text)) {
                         if (take != null) {
                             VoicePlayback.stop()
-                            VoiceNotes.enqueue(ctx, take, "checkin", today)
+                            VoiceNotes.enqueue(ctx, take, "checkin", day)
                             VoiceCapture.taken()
                         }
-                        AppSettings.setLastCheckinDay(ctx, today)
+                        if (day == today) AppSettings.setLastCheckinDay(ctx, today)
                         if (take != null) VoiceNotes.uploadPending(ctx)
                         onSaved()
                     } else {
@@ -375,13 +414,13 @@ private fun FeelingChips(words: List<String>, picked: List<String>, guessed: Lis
     }
 }
 
-/** TODAY, CHECKED IN: what was said (the feelings, the why, every voice note said to the check-in
+/** THE DAY, CHECKED IN: what was said (the feelings, the why, every voice note said to the check-in
  *  as the box has it, and the ones still on the phone), the day as the box tells it, and a
  *  recorder that adds to the check-in until the day ends: a note said here is a check-in note (kind
- *  checkin, today), listed with the first and journaled "said at the daily check-in". [row] is null
+ *  checkin, that day), listed with the first and journaled "said at the daily check-in". [row] is null
  *  while the check-in is still on its way into the journal (noted ingests on its next tick). */
 @Composable
-private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<String>, waiting: List<VoiceNotes.Pending>,
+private fun CheckedIn(day: String, dayWord: String, row: BoxClient.CheckinRow?, onPhone: Set<String>, waiting: List<VoiceNotes.Pending>,
                       justSaved: Boolean, onSaved: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -420,11 +459,11 @@ private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<St
         // health sync, the voice notes and what you said into one telling of the day (synthd
         // days.go). Written on request right after the check-in (a minute or two: it waits for the
         // check-in to land, then the model writes); read back after.
-        DayStoryCard(today, justSaved = justSaved)
+        DayStoryCard(day, justSaved = justSaved)
         Spacer(Modifier.height(10.dp))
-        VoiceRecorder(hint = "more to say about today · added to the check-in until the day ends, transcribed on your box",
-            saveLabel = "[ add to today's check-in ]", onSave = { take ->
-                VoiceNotes.enqueue(ctx, take, "checkin", today)
+        VoiceRecorder(hint = "more to say about $dayWord · added to the check-in, transcribed on your box",
+            saveLabel = "[ add to $dayWord's check-in ]", onSave = { take ->
+                VoiceNotes.enqueue(ctx, take, "checkin", day)
                 VoiceCapture.taken()
                 scope.launch { VoiceNotes.uploadPending(ctx); onSaved() }
             })

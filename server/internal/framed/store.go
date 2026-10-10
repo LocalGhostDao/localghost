@@ -745,6 +745,18 @@ func (s *Store) GeoReady() bool {
 	return err == nil && len(rows.Vals) > 0
 }
 
+// GeoWithoutPopulations reports a geo set imported before the box kept populations (the column
+// came on 4 October 2026; an older import has every row at 0): rows, but none with a population.
+// Such a set names places but gives the weather nothing to pull from and the map's labels no
+// order; importing the same files again fills the column.
+func (s *Store) GeoWithoutPopulations() bool {
+	rows, err := s.db.Query("SELECT (SELECT 1 FROM geo_points LIMIT 1) IS NOT NULL AND (SELECT 1 FROM geo_points WHERE population > 0 LIMIT 1) IS NULL")
+	if err != nil || len(rows.Vals) == 0 || len(rows.Vals[0]) == 0 || rows.Vals[0][0] == nil {
+		return false
+	}
+	return *rows.Vals[0][0] == "t" || *rows.Vals[0][0] == "true"
+}
+
 // ResolvePlace is the DB-backed reverse geocode: expanding-bbox nearest lookups per kind, exact
 // haversine over the candidate set in Go. Radii are HONESTY CAPS, not precision , precision is the
 // distance to the nearest row, and with allCountries loaded that is typically a suburb or village

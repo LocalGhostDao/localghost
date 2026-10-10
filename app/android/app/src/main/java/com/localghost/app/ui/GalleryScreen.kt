@@ -221,7 +221,7 @@ private fun FrameDetailDialog(
                 if (frame.name.isNotBlank()) frame.name else "(unnamed , tags pending)",
                 color = GhostText, style = MaterialTheme.typography.bodyLarge)
             Text(
-                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
+                java.text.SimpleDateFormat("d MMM yyyy, HH:mm", java.util.Locale.UK)
                     .format(java.util.Date(frame.takenAt * 1000)) + " · ${frame.kind}",
                 color = GhostTextDim, style = MaterialTheme.typography.bodySmall)
             if (frame.description.isNotBlank()) {

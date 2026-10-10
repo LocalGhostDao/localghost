@@ -58,6 +58,7 @@ enum class Dest(val label: String, val glyph: String) {
     HEALTH("HEALTH", "♥"),
     CODES("CODES", "⚿"),
     SETTINGS("SETTINGS", "⚙"),
+    PERMISSIONS("PERMISSIONS", "⊡"),
     GLOSSARY("GLOSSARY", "≣"),
     CONNECTORS("CONNECTORS", "⊹"),
     MODELS("MODELS", "▢"),
@@ -104,6 +105,10 @@ fun MainShell(
     onDisconnect: (String) -> Unit,
     permState: PermState,
     onPermAction: () -> Unit,
+    grants: List<Grant> = emptyList(),
+    permAsking: Boolean = false,
+    onGrantAll: () -> Unit = {},
+    onAppSettings: () -> Unit = {},
     pending: Loadable<List<PendingNotification>>,
     lifeContext: LifeContext?,
     memories: Loadable<List<MemoryEntry>>,
@@ -362,6 +367,7 @@ fun MainShell(
                             onLock = onLock,
                             onWipe = { showWipe = true },
                         )
+                        Dest.PERMISSIONS -> PermissionsScreen(grants, permAsking, onGrantAll, onAppSettings)
                         Dest.GLOSSARY -> GlossaryScreen()
                         Dest.CONNECTORS -> ConnectorsScreen(connectors, onConnect, onDisconnect)
                         Dest.MODELS -> ModelsScreen(catalogModels, modelRowState,
@@ -370,7 +376,7 @@ fun MainShell(
                         Dest.VERIFY -> VerifyScreen()
                     }
                     // THE GLASS, now and then (Crt.kt, CrtMood): on a page change the shell rolls
-                    // for one small effect, a wash, a sweep or the heading typing in, never two
+                    // for one small effect, a wash, a stray line or the heading typing in, never two
                     // inside a minute and a half; drawing only, no touch taken; off in SETTINGS › SCREEN
                     val crtOn = com.localghost.app.settings.AppSettings.crt(androidx.compose.ui.platform.LocalContext.current)
                     var crtLast by rememberSaveable { mutableLongStateOf(0L) }
@@ -386,7 +392,7 @@ fun MainShell(
                     }
                     if (crtOn) {
                         CrtWash(playing = CrtState.effect == CrtMood.Effect.WASH, modifier = Modifier.matchParentSize())
-                        CrtSweep(playing = CrtState.effect == CrtMood.Effect.SWEEP, modifier = Modifier.matchParentSize())
+                        CrtLine(playing = CrtState.effect == CrtMood.Effect.LINE, modifier = Modifier.matchParentSize())
                     }
                 }
 
@@ -597,16 +603,11 @@ private fun DrawerPanel(
                 .forEach { DrawerRow(it, it == current) { onSelect(it) } }
 
             Spacer(Modifier.height(20.dp))
-            // INTEGRATIONS: what the box draws on beyond the archive (Wikipedia, the news and its
-            // feeds, the market numbers, the weather, the maps, speech), a card each with its state
-            // and a page each with the pull drawn; the three pages that had rows here open from it,
-            // and from HOME
-            SectionLabel("INTEGRATIONS")
-            DrawerRow(Dest.SOURCES, current == Dest.SOURCES || current == Dest.FEEDS || current == Dest.INTEGRATION) { onSelect(Dest.SOURCES) }
-            listOf(Dest.NEWS, Dest.CRYPTO, Dest.WIKIPEDIA).forEach { DrawerRowSub(it, it == current) { onSelect(it) } }
-
-            Spacer(Modifier.height(20.dp))
+            // THE BOX: INTEGRATIONS first (what the box draws on beyond the archive: Wikipedia,
+            // the news, the market numbers, the weather, the maps, speech; one row, the pages
+            // open from its cards and from HOME), then the machine itself
             SectionLabel("THE BOX")
+            DrawerRow(Dest.SOURCES, current in setOf(Dest.SOURCES, Dest.FEEDS, Dest.INTEGRATION, Dest.NEWS, Dest.CRYPTO, Dest.WIKIPEDIA)) { onSelect(Dest.SOURCES) }
             listOf(Dest.HARNESS, Dest.MODELS, Dest.NOTIFICATIONS, Dest.CONNECTORS, Dest.CODES).forEach {
                 DrawerRow(it, it == current) { onSelect(it) }
             }
@@ -615,7 +616,8 @@ private fun DrawerPanel(
             HorizontalDivider(color = GhostBorder)
             Spacer(Modifier.height(16.dp))
 
-            listOf(Dest.SETTINGS, Dest.GLOSSARY, Dest.ABOUT).forEach {
+            // the app itself: its settings, the phone's permissions in one place, the words, about
+            listOf(Dest.SETTINGS, Dest.PERMISSIONS, Dest.GLOSSARY, Dest.ABOUT).forEach {
                 DrawerRow(it, it == current) { onSelect(it) }
             }
             DrawerRowRaw(glyph = "⏻", label = "LOCK", selected = false, onClick = onLock)
@@ -627,12 +629,6 @@ private fun DrawerPanel(
 private fun SectionLabel(text: String) {
     Text(text, color = TerminalDim, style = MaterialTheme.typography.labelMedium,
         modifier = Modifier.padding(bottom = 6.dp))
-}
-
-/** A row under its group's row, indented, for the pages SOURCES holds. */
-@Composable
-private fun DrawerRowSub(dest: Dest, selected: Boolean, onClick: () -> Unit) {
-    Box(Modifier.padding(start = 22.dp)) { DrawerRow(dest, selected, onClick) }
 }
 
 @Composable

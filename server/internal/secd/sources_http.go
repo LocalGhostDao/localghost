@@ -303,72 +303,39 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 		d.State, d.Line = "unknown", "the box did not say"
 	} else {
 		table := sub(ws, "table")
+		pull := sub(ws, "pull")
 		places := int64(num(table, "places"))
 		fetched := int64(num(table, "fetchedAt"))
-		noGeo, _ := ws["noGeo"].(bool)
+		noGeo, _ := pull["noGeo"].(bool)
+		failed := int64(num(pull, "failedSinceStart"))
+		batches := int64(num(pull, "batchesSinceStart"))
+		readErr := str(pull, "error")
+		lastErr := str(sub(pull, "last"), "lastErr")
 		switch {
 		case places > 0:
 			d.State = "ready"
 			d.Line = fmt.Sprintf("the forecast of %s places, the newest pulled %s ago", humanCount(places), agoWords(time.Now().Unix()-fetched))
+			if failed > 0 && lastErr != "" {
+				d.Line += fmt.Sprintf(" · %d of %d batches failed since the start, the last: %s", failed, batches, lastErr)
+			}
 			d.Detail = "Open-Meteo, the same list every day whoever and wherever you are (the largest town of every 55 km cell of the world, six thousand cells), a hundred every two minutes; where you are is looked up on the box"
+		case readErr != "":
+			// the place list's query fails on this box: say the error, so the log need not be read
+			d.State, d.Line = "missing", readErr
 		case noGeo:
-			d.State, d.Line = "missing", "nothing to pull: the box's place list has no populations (the geo set is missing or from before the populations)"
-			d.Detail = "fetching the maps again brings the places with their populations; the weather pulls within the hour after"
+			d.State, d.Line = "missing", "nothing to pull: the box's place list has no populations (the geo set is missing, or from before the populations)"
+			d.Detail = "a set from before the populations is imported again by ghost.framed at its next start (a redeploy does it); fetching the maps again does the same; the weather pulls within minutes after"
 			d.Action, d.Label = "maps", "fetch the maps from the mirror"
+		case failed > 0:
+			d.State, d.Line = "missing", fmt.Sprintf("the pull fails: %s (%d of %d batches since the start)", lastErr, failed, batches)
+			d.Detail = "the box asks api.open-meteo.com itself; the fetch log under BOX STATUS › FEEDS has every try"
 		default:
-			d.State, d.Line = "missing", "not pulled yet (the box pulls a hundred places every two minutes from a few minutes after it starts)"
+			d.State, d.Line = "missing", "not pulled yet (the first hundred places come a minute and a half after ghost.tallyd starts, then a hundred every two minutes)"
 		}
 	}
 	out = append(out, d)
 
-	// THE MAPS AND THE HEIGHTS, from the volume
-	geo := filepath.Join(mount, "geo")
-	coast := countFiles(filepath.Join(geo, "landtiles"), ".bin")
-	roads := countFiles(filepath.Join(geo, "roadtiles"), "")
-	packs := countFiles(filepath.Join(geo, "elevation"), ".heights")
-	tiles := countFiles(filepath.Join(geo, "elevation"), ".tif")
-	_, tz := os.Stat(filepath.Join(geo, "tz", "grid.bin"))
-	d = sourceDoc{ID: "maps", Name: "Maps and heights", Open: "map", Action: "maps", Label: "fetch the maps from the mirror", From: []sourceFrom{
-		{Name: "OpenStreetMap", Role: "the coastline, from the land polygons"},
-		{Name: "Geofabrik", Role: "the roads, from extracts cut into tiles on the box"},
-		{Name: "GeoNames", Role: "the places, with their populations"},
-		{Name: "Copernicus DEM", Role: "the ground's height at 90 m, in packs of a 30-degree block"},
-		{Name: "LocalGhost mirror", Role: "all of it, signed, at setup or when you ask here"},
-	}}
-	var parts []string
-	if coast > 0 {
-		parts = append(parts, fmt.Sprintf("coastline %s tiles", humanCount(int64(coast))))
-	}
-	if roads > 0 {
-		parts = append(parts, fmt.Sprintf("roads %s tiles", humanCount(int64(roads))))
-	}
-	switch {
-	case packs > 0:
-		parts = append(parts, fmt.Sprintf("heights %d packs", packs))
-	case tiles > 0:
-		parts = append(parts, fmt.Sprintf("heights %s tiles", humanCount(int64(tiles))))
-	}
-	if tz == nil {
-		parts = append(parts, "time zones")
-	}
-	switch {
-	case len(parts) == 0:
-		d.State, d.Line = "missing", "no map data on the box"
-	case packs == 0 && tiles == 0 || tz != nil:
-		d.State, d.Line = "partial", strings.Join(parts, " · ")
-		var missing []string
-		if packs == 0 && tiles == 0 {
-			missing = append(missing, "the heights")
-		}
-		if tz != nil {
-			missing = append(missing, "the time zones")
-		}
-		d.Detail = "missing: " + strings.Join(missing, " and ") + " · the heights are asked for by region (yours by default)"
-	default:
-		d.State, d.Line = "ready", strings.Join(parts, " · ")
-		d.Label = "refresh from the mirror"
-	}
-	out = append(out, d)
+	out = append(out, mapsDoc(mount))
 
 	// SPEECH, from voiced's state file
 	d = sourceDoc{ID: "speech", Name: "Speech", Action: "speech", Label: "fetch the speech engine and model", From: []sourceFrom{
@@ -746,4 +713,58 @@ func (s *Server) handleWeather(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// mapsDoc is the INTEGRATIONS card for the maps and the heights, read off the volume.
+func mapsDoc(mount string) sourceDoc {
+	// THE MAPS AND THE HEIGHTS, from the volume: the coast and the roads are the tiles framed
+	// cut (<mount>/landtiles/*.lgt, <mount>/roadtiles/{0,1}/*.lgr, the paths the map is served
+	// from); the heights and the time zones sit under <mount>/geo as the mirror's sets
+	geo := filepath.Join(mount, "geo")
+	coast := countFiles(filepath.Join(mount, "landtiles"), ".lgt")
+	roads := countFiles(filepath.Join(mount, "roadtiles", "0"), ".lgr") + countFiles(filepath.Join(mount, "roadtiles", "1"), ".lgr")
+	packs := countFiles(filepath.Join(geo, "elevation"), ".heights")
+	tiles := countFiles(filepath.Join(geo, "elevation"), ".tif")
+	_, tz := os.Stat(filepath.Join(geo, "tz", "grid.bin"))
+	d := sourceDoc{ID: "maps", Name: "Maps and heights", Open: "map", Action: "maps", Label: "fetch the maps from the mirror", From: []sourceFrom{
+		{Name: "OpenStreetMap", Role: "the coastline, from the land polygons"},
+		{Name: "Geofabrik", Role: "the roads, from extracts cut into tiles on the box"},
+		{Name: "GeoNames", Role: "the places, with their populations"},
+		{Name: "Copernicus DEM", Role: "the ground's height at 90 m, in packs of a 30-degree block"},
+		{Name: "LocalGhost mirror", Role: "all of it, signed, at setup or when you ask here"},
+	}}
+	var parts []string
+	if coast > 0 {
+		parts = append(parts, fmt.Sprintf("coastline %s tiles", humanCount(int64(coast))))
+	}
+	if roads > 0 {
+		parts = append(parts, fmt.Sprintf("roads %s tiles", humanCount(int64(roads))))
+	}
+	switch {
+	case packs > 0:
+		parts = append(parts, fmt.Sprintf("heights %d packs", packs))
+	case tiles > 0:
+		parts = append(parts, fmt.Sprintf("heights %s tiles", humanCount(int64(tiles))))
+	}
+	if tz == nil {
+		parts = append(parts, "time zones")
+	}
+	switch {
+	case len(parts) == 0:
+		d.State, d.Line = "missing", "no map data on the box"
+	case packs == 0 && tiles == 0 || tz != nil:
+		d.State, d.Line = "partial", strings.Join(parts, " · ")
+		var missing []string
+		if packs == 0 && tiles == 0 {
+			missing = append(missing, "the heights")
+		}
+		if tz != nil {
+			missing = append(missing, "the time zones")
+		}
+		d.Detail = "missing: " + strings.Join(missing, " and ") + " · the heights are asked for by region (yours by default)"
+	default:
+		d.State, d.Line = "ready", strings.Join(parts, " · ")
+		d.Label = "refresh from the mirror"
+	}
+	return d
 }

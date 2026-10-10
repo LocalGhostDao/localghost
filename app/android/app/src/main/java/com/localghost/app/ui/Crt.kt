@@ -24,9 +24,9 @@ import com.localghost.app.ui.theme.Void
  * and the journal and the assistant are one thing, so the look is one voice. The glass shows
  * itself the way the unlock's rings and the scanner's aperture do: now and then, for a moment,
  * not all the time (CrtMood says when). Three small things, each drawing only, none taking a
- * touch: a wash of scanlines with a vignette that fades in and out; a bright line that sweeps
- * down the page, revealing the new page beneath it the way a tube redraws; a heading that
- * types itself in. SETTINGS › SCREEN turns the lot off.
+ * touch: a wash of scanlines with a vignette that fades in and out; a stray scanline that shows for a
+ * blink somewhere on the glass, once or twice, like interference caught; a heading that types
+ * itself in. SETTINGS › SCREEN turns the lot off.
  */
 object CrtState {
     /** The effect under way, set by the shell on a page change; NONE between. */
@@ -62,26 +62,35 @@ fun CrtWash(playing: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-/** The sweep: plays once when [playing] turns true. */
+/** The line: a stray scanline that shows for a blink somewhere on the glass, once or twice,
+ *  the way a tube catches interference, then is gone. Where it falls is random; it never sweeps
+ *  the page and never sits at an edge. Plays once when [playing] turns true. */
 @Composable
-fun CrtSweep(playing: Boolean, modifier: Modifier = Modifier) {
-    val progress = remember { Animatable(1f) }
+fun CrtLine(playing: Boolean, modifier: Modifier = Modifier) {
+    // the line's height as a fraction of the glass; below zero is no line
+    var at by remember { androidx.compose.runtime.mutableFloatStateOf(-1f) }
     LaunchedEffect(playing) {
-        if (!playing) return@LaunchedEffect
-        progress.snapTo(0f)
-        progress.animateTo(1f, tween(durationMillis = 320, easing = LinearEasing))
+        if (!playing) { at = -1f; return@LaunchedEffect }
+        val r = kotlin.random.Random
+        for ((y, onMs, offMs) in CrtMood.lineBlinks(r.nextFloat(), r.nextFloat())) {
+            at = y
+            kotlinx.coroutines.delay(onMs)
+            at = -1f
+            kotlinx.coroutines.delay(offMs)
+        }
     }
-    val p = progress.value
-    if (p >= 1f) return
+    val y = at
+    if (y < 0f) return
     Canvas(modifier) {
-        val y = size.height * p
-        val tail = 24f * density
-        // below the line the old picture is still fading: dark glass
-        drawRect(Void.copy(alpha = 0.85f * (1f - p * 0.3f)), topLeft = Offset(0f, y), size = Size(size.width, size.height - y))
-        // the line, with a soft green tail above it
-        if (y > 1f) drawRect(Brush.verticalGradient(0f to Color.Transparent, 1f to TerminalGreen.copy(alpha = 0.35f), startY = y - tail, endY = y),
-            topLeft = Offset(0f, maxOf(0f, y - tail)), size = Size(size.width, minOf(tail, y)))
-        drawRect(TerminalGreen.copy(alpha = 0.9f), topLeft = Offset(0f, y), size = Size(size.width, 1.5f * density))
+        val py = size.height * y
+        val halo = 6f * density
+        // a soft band, the line itself, and a brighter stub at a random run of the width
+        drawRect(Brush.verticalGradient(0f to Color.Transparent, 0.5f to TerminalGreen.copy(alpha = 0.18f), 1f to Color.Transparent, startY = py - halo, endY = py + halo),
+            topLeft = Offset(0f, py - halo), size = Size(size.width, halo * 2f))
+        drawRect(TerminalGreen.copy(alpha = 0.7f), topLeft = Offset(0f, py), size = Size(size.width, 1.5f * density))
+        val stub = size.width * 0.18f
+        val x0 = (size.width - stub) * ((y * 7.31f) % 1f)
+        drawRect(TerminalGreen, topLeft = Offset(x0, py - 0.5f * density), size = Size(stub, 2.5f * density))
     }
 }
 

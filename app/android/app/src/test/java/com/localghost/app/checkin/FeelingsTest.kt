@@ -88,4 +88,22 @@ class FeelingsTest {
         assertEquals(7, rows.sumOf { it.size })
         assertEquals(listOf("disappointed", "overwhelmed"), rows[0])
     }
+
+    @Test fun atOneInTheMorningThePageOpensOnYesterday() {
+        val t = "2026-10-10"; val y = "2026-10-09"
+        assertEquals(y, Feelings.defaultDay(t, y, 1, emptySet()))
+        assertEquals("yesterday already told", t, Feelings.defaultDay(t, y, 1, setOf(y)))
+        assertEquals("today already told", t, Feelings.defaultDay(t, y, 1, setOf(t)))
+        assertEquals("the morning proper", t, Feelings.defaultDay(t, y, 9, emptySet()))
+        assertEquals("the evening", t, Feelings.defaultDay(t, y, 22, emptySet()))
+    }
+
+    @Test fun theDayAsAWord() {
+        assertEquals("today", Feelings.dayWord("today"))
+        assertEquals("yesterday", Feelings.dayWord("yesterday"))
+        assertEquals("that day", Feelings.dayWord("3 days ago"))
+        assertEquals("how are you feeling today, and why · kept on your box", Feelings.subtitle("today"))
+        assertEquals("how were you feeling yesterday, and why · kept on your box", Feelings.subtitle("yesterday"))
+        assertEquals("how were you feeling that day, and why · kept on your box", Feelings.subtitle("5 days ago"))
+    }
 }

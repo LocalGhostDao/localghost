@@ -5508,3 +5508,40 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   files, 36,000 of Kotlin, and the status paragraph naming the weather, Wikipedia, the
   integrations and the renewing certificates. release.names and the app were at 0.0.6 since
   the 5th. 0.0.7 opens in the drop after the tag.
+
+## 10 October 2026 , wisp 0.0.7 opened: a check-in for any day, the widget fits, the cards tell the truth
+
+- 0.0.7 opened after the v0.0.6 tag: release.names "0.0.7 wisp", the app 0.0.7 / 7,
+  releases/0.0.7.md "In progress". CITATION, RELEASES.md and the README stay at 0.0.6 until the cut.
+- Check-in for another day. ghost.noted: checkinDayTs(title, ts) stamps a "Daily check-in
+  YYYY-MM-DD" whose day differs from the clock's (UTC) at that day's noon UTC (the day story's
+  bounds), so days.go and CheckinHistory agree; a check-in for the day it is written on keeps
+  its time. Test cmd/ghost.noted/checkin_test.go. App: Feelings.defaultDay(today, yesterday,
+  hour, told) (yesterday before SMALL_HOURS = 5 while neither day is told), dayWord(ago),
+  subtitle(ago); CheckinScreen forDay (rememberSaveable, chosen once the history is in),
+  savedDays (told on this visit before noted's tick), yesterday/today DaySwitch chips, an empty
+  strip day tapped → forDay, a told one → past; CheckinForm(day, today, dayWord, …) prefills
+  from daySummary(ctx, DayText.bounds(day)) and saves checkinText(day, …), the voice note under
+  that day, lastCheckinDay only for today; CheckedIn(day, dayWord, …). FeelingsTest.
+- Widget: WidgetFit.scale(heightDp, tall) = height / (tall ? 200 : 110) in [1, 2], sizes(base,
+  scale); updateWidgets passes it per widget id; buildWidget(…, scale). WidgetFitTest.
+- The screen: CrtSweep → CrtLine (a stray scanline at a random height, CrtMood.lineBlinks(r1,
+  r2): two blinks, a third on the second draw, within holdMs(LINE) = 600); Effect.SWEEP →
+  LINE; SETTINGS › SCREEN copy. CrtMoodTest.
+- INTEGRATIONS cards: mapsDoc(mount) counts <mount>/landtiles/*.lgt and
+  <mount>/roadtiles/{0,1}/*.lgr (the paths the map is served from; geo/elevation and
+  geo/tz/grid.bin as before), TestMapsDocReadsTheTilesWhereTheyAre. The weather card reads
+  pull.noGeo (it read ws["noGeo"] at the top level, always false), pull.failedSinceStart with
+  last.lastErr, and pull.error (tallyd's weatherState.readErr, set when NextBatch fails, cleared
+  by a read that works). framed: Store.GeoWithoutPopulations() (rows, none with population >
+  0) → ImportGeo again in the background at start; TestGeoWithoutPopulations (pg).
+- Menu: INTEGRATIONS one row under THE BOX (selected for SOURCES, INTEGRATION, FEEDS, NEWS,
+  CRYPTO, WIKIPEDIA); DrawerRowSub gone; PERMISSIONS after SETTINGS. Dest.PERMISSIONS →
+  PermissionsScreen(grants, asking, onGrantAll, onAppSettings): the welcome's Grant rows
+  (GrantRow internal) and chain (startWelcomeGrants), HealthSection (internal, from Settings),
+  BatteryRow (PowerManager.isIgnoringBatteryOptimizations, opens
+  ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS; no new manifest permission). MainShell takes
+  grants/permAsking/onGrantAll/onAppSettings from MainActivity. Explain topic "permissions".
+- DayScreen: ErrorLine when dayStory or dayFrames come back null (framesFailed). Dates:
+  ChatsScreen, GalleryScreen, MapScreen, MemoriesScreen, PinManagementScreen to Locale.UK
+  "d MMM yyyy"; "day(s)"/"frame(s)" spelt out.

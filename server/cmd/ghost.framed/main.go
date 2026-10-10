@@ -122,6 +122,20 @@ func main() {
 	if store.GeoReady() {
 		pipe.WithPlaceResolver(store.ResolvePlace)
 		lg.Info("reverse geocoder wired (geo_points populated)", "fn", "main")
+		// a set imported before the populations (every row at 0) is imported again from the
+		// same files, once, in the background: the weather's place list and the map's label
+		// order need the column filled
+		if store.GeoWithoutPopulations() {
+			lg.Info("geo set without populations: importing the GeoNames files again to fill them", "fn", "main")
+			go func() {
+				pts, names, err := store.ImportGeo(filepath.Join(*mount, "geo"), lg)
+				if err != nil {
+					lg.Error("geo import failed", "fn", "main", "points", pts, "err", err)
+					return
+				}
+				lg.Info("geo import done", "fn", "main", "points", pts, "names", names)
+			}()
+		}
 	} else {
 		lg.Info("geo_points empty , frames get empty place strings (drop GeoNames TSVs in <mount>/geo, run geo-import)", "fn", "main")
 	}

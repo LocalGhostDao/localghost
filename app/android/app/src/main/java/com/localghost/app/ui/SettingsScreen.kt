@@ -377,7 +377,7 @@ fun SettingsScreen(
         Fold("SCREEN", if (crt) "the odd flicker" else "no flicker", openAtFirst = false) {
             toggleRow(
                 label = "the odd flicker",
-                sub = if (crt) "on: now and then, on a page change, the screen shows its glass for a moment (a wash of scanlines, a sweep, a heading typing itself in), then is plain again"
+                sub = if (crt) "on: now and then, on a page change, the screen shows its glass for a moment (a wash of scanlines, a stray line blinking somewhere, a heading typing itself in), then is plain again"
                       else "off: never",
                 checked = crt, onChange = { on -> crt = on; com.localghost.app.settings.AppSettings.setCrt(ctx, on) },
             )
@@ -439,7 +439,7 @@ private fun Fold(label: String, closedLine: String, openAtFirst: Boolean, body: 
  * that says what Health Connect holds and which app put it there.
  */
 @Composable
-private fun HealthSection() {
+internal fun HealthSection() {
     val hctx = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var tick by remember { mutableIntStateOf(0) }
@@ -489,7 +489,7 @@ private fun HealthSection() {
                     val skip = if (res.skipped.isEmpty()) "" else " (skipped: ${res.skipped.joinToString(", ")})"
                     healthMsg = when {
                         res.error != null -> "! ${res.error}$skip"
-                        res.days > 0 -> "shipped ${res.days} day(s) to your box$skip"
+                        res.days > 0 -> "shipped ${res.days} ${if (res.days == 1) "day" else "days"} to your box$skip"
                         else -> "no health data found for the last 7 days$skip , tap [ what is in Health Connect? ]"
                     }
                     tick++
@@ -503,7 +503,7 @@ private fun HealthSection() {
                     val skip = if (res.skipped.isEmpty()) "" else " (skipped: ${res.skipped.joinToString(", ")})"
                     healthMsg = when {
                         res.error != null -> "! ${res.error}$skip"
-                        res.days > 0 -> "done , ${res.days} day(s) of history on your box$skip"
+                        res.days > 0 -> "done · ${res.days} ${if (res.days == 1) "day" else "days"} of history on your box$skip"
                         else -> "no health history found$skip"
                     }
                     tick++

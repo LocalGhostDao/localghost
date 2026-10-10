@@ -272,7 +272,7 @@ private fun dayLabel(day: String, todayKey: String, yesterdayKey: String): Strin
     todayKey -> "today"
     yesterdayKey -> "yesterday"
     else -> runCatching {
-        java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.US).format(dayKeyFmt.parse(day)!!)
+        java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.UK).format(dayKeyFmt.parse(day)!!)
     }.getOrDefault(day)
 }
 
@@ -1435,7 +1435,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(
                     (if (p.n > 1) "${p.n} photos here" else "%.5f, %.5f".format(p.lat, p.lon)) +
-                        (if (p.takenAt > 0) "  ·  " + java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
+                        (if (p.takenAt > 0) "  ·  " + java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.UK)
                             .format(java.util.Date(p.takenAt * 1000)) else ""),
                     color = GhostText, style = MaterialTheme.typography.labelMedium)
                 if (p.n == 1 && p.hash.isNotEmpty()) {
