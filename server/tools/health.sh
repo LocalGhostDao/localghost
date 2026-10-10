@@ -188,9 +188,13 @@ for svc in $CHECK; do
                 else
                     printf '  time zones: none (tools/fetch_geo.sh <mount>/geo fetches the tz set) , days are the box clock'"'"'s days\n'
                 fi
-                # The heights: the elevation tiles the days are drawn over (ghost-cli ghost.framed elevation).
+                # The heights: the elevation packs (or loose tiles) the days are drawn over
+                # (ghost-cli ghost.framed elevation says the tiles inside the packs).
+                npacks=$(ls "$MOUNT"/geo/elevation/*.heights 2>/dev/null | wc -l)
                 ntiles=$(ls "$MOUNT"/geo/elevation/*.tif 2>/dev/null | wc -l)
-                if [ "$ntiles" -gt 0 ]; then
+                if [ "$npacks" -gt 0 ]; then
+                    printf '  heights: %s packs (%s), each day drawn with its climb\n' "$npacks" "$(du -sh "$MOUNT/geo/elevation" 2>/dev/null | cut -f1)"
+                elif [ "$ntiles" -gt 0 ]; then
                     printf '  heights: %s elevation tiles (%s), each day drawn with its climb\n' "$ntiles" "$(du -sh "$MOUNT/geo/elevation" 2>/dev/null | cut -f1)"
                 else
                     printf '  heights: none (sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps fetches them)\n'

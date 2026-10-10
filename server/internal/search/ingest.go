@@ -209,10 +209,18 @@ func (in *Ingester) ensureCaptioned(id int64, render string) error {
 	if st.Caption == "" && st.DupOf != 0 {
 		rep, rerr := in.Store.CaptionStateOf(st.DupOf)
 		if rerr == nil && rep.Caption != "" {
-			if err := in.Store.SetCaption(id, rep.Caption); err != nil {
-				return err
+			// only a caption that is one: a representative still holding a section-less
+			// "caption" (a refusal, "please provide the image") was copied here at every
+			// stock-take, discarded at the next, and copied again, a loop that described
+			// nothing and queued a tag pass with nothing to read each time
+			if fixed, ok := NormalizeCaption(rep.Caption); ok {
+				if err := in.Store.SetCaption(id, fixed); err != nil {
+					return err
+				}
+				st.Caption = fixed
+			} else {
+				in.Log.Info("burst representative's caption has no sections; not copied, this frame captioned on its own", "fn", "ensureCaptioned", "orig", id, "rep", st.DupOf)
 			}
-			st.Caption = rep.Caption
 		}
 	}
 	if st.Caption != "" {

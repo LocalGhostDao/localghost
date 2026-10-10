@@ -26,7 +26,7 @@
 #             question it answers never goes to the web. Fetched with the rest when the volume has
 #             60 GB free (GHOST_WIKI=0 leaves it out), kept current after that.
 #   (maps also takes the heights, the Copernicus DEM at 90 m in packs of a 30-degree block:
-#             sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps        the world, 69 packs, about 90 GB
+#             sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps        the world, 69 packs, 67 GB (twenty minutes on a fast line)
 #             sudo GHOST_GEO_ELEVATION="34:72,-25:45" ./tools/update.sh maps   a box of latitudes and
 #             longitudes (Europe here), the packs whose block touches it; several boxes space-separated.
 #             Not asked, the packs already here are kept current. ghost.framed indexes new packs

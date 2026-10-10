@@ -5600,5 +5600,12 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   Main, HomeCache on Main, gallery thumbs decode on Main and the LRU, ThumbStrip caching,
   per-token chat re-parse, VaultRings' clock, HOME's polling without ETags.
 - The heights: documented in update.sh's header, tools/README.md and releases/0.0.7.md (the
-  world is 69 packs, about 90 GB, `GHOST_GEO_ELEVATION=all`); framed's `elevation` ctl says
+  world is 69 packs, 67 GB, `GHOST_GEO_ELEVATION=all`; xyntai took it in 1,221 s); framed's `elevation` ctl says
   how to fetch them when the box has none.
+- xyntai's first health.sh after the heights: framed "days drawn again with the ground's height"
+  days=169 tiles=26475, `elevation lat=48.39 lon=10.01` → 474.9 m, packs 69. health.sh counted
+  `.tif` only and said "heights: none": it counts `.heights` packs first now. searchd's loop
+  (the 5 October readout's "60 frames the model never sees"): ensureCaptioned copied a burst
+  representative's section-less "caption" ("Please provide the image…") onto its siblings at
+  every stock-take, discarded it at the next, copied it again, and queued a tag pass that
+  found nothing each time; the copy now takes a caption only when NormalizeCaption accepts it.

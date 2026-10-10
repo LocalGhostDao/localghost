@@ -490,7 +490,7 @@ func main() {
 		set := elevation()
 		out := map[string]any{"dir": elevDir, "tiles": set.Tiles(), "packs": set.Packs()}
 		if set.Tiles() == 0 && set.Packs() == 0 {
-			out["note"] = "no heights on the box: sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps (the world, about 90 GB in 69 packs), or a box like \"34:72,-25:45\" (Europe); indexed within ten minutes of landing"
+			out["note"] = "no heights on the box: sudo GHOST_GEO_ELEVATION=all ./tools/update.sh maps (the world, 69 packs, 67 GB), or a box like \"34:72,-25:45\" (Europe); indexed within ten minutes of landing"
 		}
 		if a.Lat != nil && a.Lon != nil {
 			if h, ok := set.Height(*a.Lat, *a.Lon); ok {
