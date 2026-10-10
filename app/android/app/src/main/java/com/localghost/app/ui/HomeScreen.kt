@@ -245,7 +245,7 @@ private fun WeatherCard(w: BoxClient.Weather?, nowS: Long) {
                         color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 }
                 Spacer(Modifier.height(4.dp))
-                Text(HomeText.weatherSource(w.place, w.country, w.fetchedAt, w.places, nowS), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                Text(HomeText.weatherSource(w.place, w.country, w.fetchedAt, w.places, nowS, w.source, w.here), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
             }
         }
     }

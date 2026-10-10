@@ -85,5 +85,10 @@ class HomeTextTest {
         assertEquals("Thu 28/19 rain 60%", HomeText.weatherDay("2026-10-08", 28.0, 19.0, 61, 60))
         assertEquals("Fri 20/12", HomeText.weatherDay("2026-10-09", 20.0, 12.0, 1000, 10))
         assertEquals("Kassiopi, GR · nearest of 3,000 places the box pulls every sixteen hours · pulled 3 h ago", HomeText.weatherSource("Kassiopi", "GR", 1000, 3000, 1000 + 3 * 3600))
+        assertEquals("Neu-Ulm, DE · the box's own forecast from ICON-EU 09Z, IFS 06Z, GFS 06Z · computed 12 min ago",
+            HomeText.weatherSource("Neu-Ulm", "DE", 1000, 6000, 1000 + 12 * 60, "icon-eu 2026-10-10 09Z · ifs 2026-10-10 06Z · gfs 2026-10-10 06Z"))
+        assertEquals("IFS 06Z", HomeText.runsShort("ifs 2026-10-10 06Z"))
+        assertEquals("where you are, near Neu-Ulm · the box's own forecast from ICON-D2 09Z, IFS 06Z · computed 3 min ago",
+            HomeText.weatherSource("Neu-Ulm", "DE", 1000, 6000, 1000 + 180, "icon-d2 2026-10-10 09Z · ifs 2026-10-10 06Z", true))
     }
 }

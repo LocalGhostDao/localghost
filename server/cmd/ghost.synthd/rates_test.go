@@ -83,6 +83,24 @@ func TestRatesItems(t *testing.T) {
 	}
 }
 
+func TestLookBackBringsTheDailyCloses(t *testing.T) {
+	for _, q := range []string{"how is the btc price now compared to a few days ago?", "btc last week", "what's the eth trend"} {
+		if !lookBack.MatchString(q) {
+			t.Fatalf("not a look back: %q", q)
+		}
+	}
+	if lookBack.MatchString("btc price") || lookBack.MatchString("how much is ETH") {
+		t.Fatal("a plain price question looks back")
+	}
+	it, ok := historyItem("BTC", []hw.DayPrice{{Day: "2026-10-09", Close: 121500}, {Day: "2026-10-08", Close: 119000}, {Day: "2026-10-07", Close: 0}, {Day: "2026-10-06", Close: 123400}})
+	if !ok || it.Snippet != "BTC daily closes (USD, the box's index): 2026-10-06 123,400 · 2026-10-08 119,000 · 2026-10-09 121,500" || it.When != "2026-10-09" {
+		t.Fatalf("%+v", it)
+	}
+	if _, ok := historyItem("BTC", []hw.DayPrice{{Day: "2026-10-09", Close: 121500}}); ok {
+		t.Fatal("one close is no history")
+	}
+}
+
 func TestGroundedNews(t *testing.T) {
 	facts := []string{"BBC: Rates held at 4% as inflation cools , The Bank kept its rate at 4% on Thursday.", "FT: Bank holds at 4%"}
 	if s, ok := groundedNews("The Bank of England kept its rate at 4% on Thursday, saying inflation is cooling.", facts); !ok || !strings.HasPrefix(s, "The Bank") {

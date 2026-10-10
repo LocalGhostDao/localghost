@@ -5660,3 +5660,86 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   POLITE weights trimmed; 93 phrases, ids unique, slots and situations within the enums. The
   other packs can take the same set later.
 
+## 10 October 2026 , CI's one failing test, the box's numbers kept in the chat
+
+- CI (the server job, push #42): `TestFetchJob` in internal/secd wrote its job log under
+  `update.BoxPaths().State` (`/var/lib/ghost/update/jobs`), which works as root and is refused on
+  the runner (`mkdir /var/lib/ghost/update: permission denied`). Reproduced here by running the
+  suite as a non-root user; `fetchState.dir` names the jobs directory now, the test sets a temp
+  dir, the box's path stays the default. The whole Go suite passes as non-root. The workflow
+  tees the test output, and on failure names each `--- FAIL` as a run annotation and uploads
+  `server/test.log`, so the failing test is at the top of the run rather than scrolled past.
+  The app's JVM tests already run only on pull requests and by hand (the push run is the
+  server alone).
+- synthd gatherContext: `factSources` (ratesSource, newsSource) run first into a reserved slot
+  (maxFacts 4) outside the six the memories, photos and archive share, and lead the prompt;
+  rates.go `lookBack` + `historyItem` (hw.RatesHistory, 8 days of crypto_daily_index) for a
+  comparison question. TestLookBackBringsTheDailyCloses.
+
+## 10 October 2026 , two specifications: the mirror's daemon, the weather forecast by the box
+
+- `docs/MIRROR.md`: ghost.mirrord on a server of its own, the sets and their cadence, the
+  hourly pass (fetch, pack, lay a build of hard links, sign, verify as mirror_fetch.sh would,
+  switch, prune), signing by a subkey of the site key (mirror_fetch.sh already accepts the
+  primary's fingerprint in VALIDSIG) with the passphrase question answered two ways (a
+  passphrase-less subkey on the server, or a locked mirror unlocked once per boot), the
+  status page, failure modes, the move from publish.sh. The box contract is untouched.
+- `docs/WEATHER.md`: the box pulls IFS, ICON-EU and GFS grids itself (no mirror in the path,
+  Vlad's call: first-party data, the address is fine), decodes GRIB2 with its own decoder
+  (simple, complex with spatial differencing, CCSDS), reduces each run to the fixed cells,
+  keeps the reduced run on the volume, and blends the models into its own index with the
+  spread kept, the height corrected by the Copernicus packs, the code derived; the phone's
+  shapes unchanged. Google's layers (forecast, observations, nowcast, reports, climate, air,
+  pollen) mapped to open sources with phases; METAR first for verification; the nowcast where
+  radar is open (DWD, NOAA MRMS, the Met Office with a key).
+
+## 10 October 2026 , the weather forecast by the box: internal/grib2, internal/nwp, tallyd's nwp.go
+
+- `internal/grib2`: Reader/Next/Values; Grid (template 3.0, scanning flags, Sample bilinear
+  with the seam), Param (4.0, 4.8 with StepFrom/Interval), packings 5.0, 5.2/5.3 (groups,
+  spatial differencing orders 1 and 2, missing management 0 and 1), 5.42 (ccsds.go: the AEC
+  decoder, ids, zero blocks with ROS, second extension, split samples, the reference sample
+  per interval, the unmapping). Fixtures from ecCodes (`pip install eccodes` worked through
+  the proxy; `testdata/gen.py` and `expected.json`); 19 files, every value within 1e-3 of
+  ecCodes'. One bug found by the zero-heavy fixture: the reference sample's bookkeeping
+  leaked from a split block into a later zero block.
+- `internal/nwp`: nwp.go (fields, Model, Run, the .wx file gob+gzip, Available/Prune,
+  Cumulative over GFS's buckets), fetch.go (Bases, Models, Candidates, Fetcher with Range and
+  a pause, the three layouts, Enough), index.go (Compute, readAt, blend, Humidity, FeelsLike,
+  Code, assemble), sun.go (NOAA's equations). Tests: the file, the candidates, readAt, the
+  blend, the words, the sun (London, Neu-Ulm, Longyearbyen), Compute end to end over six
+  synthetic runs, the three layouts over an httptest server serving the grib2 fixtures.
+- `cmd/ghost.tallyd/nwp.go`: nwpLoop (a look every 30 min; pull when Complete; Save when
+  Enough; compute after a new run or hourly; Prune to 2), nwpCompute (tzgrid + dem opened per
+  compute), the marker index.json, nwpActive stands the API pull down (GHOST_WEATHER_API=1
+  keeps it); `weather nwp=1`; `index` in the ctl answer; `_ "time/tzdata"`.
+- weather.Forecast gains Source, Hour gains SpreadC; Describe names the runs. secd's weather
+  card reads `index` (ready line with the runs, the From list the centres; errors inline).
+  health.sh prints the index line. READMEs, the explainer, HomeText.weatherSource (+runsShort)
+  and BoxClient.Weather.source updated.
+- Sizes to confirm on the box: a run's bytes and time per model are in tallyd's log ("run
+  kept", mb/requests/took) and in `ghost-cli ghost.tallyd weather` under index.models.
+
+## 10 October 2026 , the forecast where the phone is, ICON-D2, ICON-EU hourly
+
+- nwp: `Model.Regional` (ICON-D2: 43.2..58 N, -3.9..20.3 E, hourly to 48 h, weight 1.3,
+  Delay 2 h, file names `..._single-level_<run>_<step>_2d_<param>.grib2.bz2` and the ground
+  `..._time-invariant_<run>_000_0_hsurf.grib2.bz2`, from memory: to confirm on the box);
+  ICON-EU Steps hourly to 48 then 3-hourly to 120, Runs 00/06/12/18; `RunsADay` (env
+  GHOST_WEATHER_RUNS=2 in tallyd). `Run.Win` (Window: the model's grid WinDeg=0.6° either
+  side of the fix, int16 per step/field, the ground), filled in Pull alongside the cells
+  (`Fix` argument); `reading` interface (cellReading, windowReading); `ComputeAt` for the
+  fix; `forecastAt` shared. Tests: the window's sampling and its file, the D2 layout on the
+  stand-in server, ComputeAt against Compute at the same point (identical hours).
+- tallyd nwp.go: `hereFix` (TrailNewest under 48 h), regional models skipped outside their
+  domain (`skipped` in the state), the HereID row (geonameid -1) computed from the windows
+  and named after `weather.NearestListed`, deleted when there is no fix or window; `here` in
+  the index snapshot and the INTEGRATIONS line.
+- weather: `Forecast.Here`, `HereID`, `NearestListed`, Load counts geonameid > 0, Describe
+  "where the phone is (near …)". App: `Weather.here`, HomeText.weatherSource(here).
+- Sizes now: ICON-EU ~ (49+24)×6 fields a run; ICON-D2 ~ 49×6; four runs a day each; IFS and
+  GFS 3-hourly. The log's "run kept" line has the real numbers; GHOST_WEATHER_RUNS=2 halves.
+- The Met Office: the DataHub's atmospheric plans read on 10 Oct (Free 1 GB/month, £15/month
+  for 10 GB, 130,000 calls a day on paid tiers); its API docs are behind the login, so the
+  pull waits for a key holder's view of it (docs/WEATHER.md says how to get one).
+

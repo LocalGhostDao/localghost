@@ -1116,8 +1116,6 @@ var contextSources = []contextSource{
 	photoDigestSource, // the matched photo SET, summarised by category , one item, always fits
 	wikiSource,        // "what is X": the article's lead from the box's own Wikipedia (wikipedia.go)
 	searchdSource,
-	newsSource,  // then the news the phone fetched (news.go); the web, the phone's, comes with the question
-	ratesSource, // and the box's own market numbers for a money question (rates.go)
 	// PLACEHOLDER recentChatsSource: last N turns of this conversation (needs chat storage first ,
 	//   see docs/context-injection-design.md phase 3).
 	// PLACEHOLDER locationDaySource: "where was I on <date>" prompts answered from framed's day
@@ -1125,10 +1123,28 @@ var contextSources = []contextSource{
 	// PLACEHOLDER calendarish sources as noted/voiced start producing text.
 }
 
+// factSources are the box's own figures: its market numbers for a money question (rates.go) and
+// the news it gathered (news.go). They say nothing unless the question is about them, and when
+// it is they ARE the answer, so they keep their place outside the cap the memories and the
+// archive share: "how is the btc price now" used to read two memories, the photos and three
+// archive matches, fill the six, and leave the model to say the box had nothing on the price
+// (10 Oct 2026). At most maxFacts of them, the money lines first.
+var factSources = []contextSource{ratesSource, newsSource}
+
+const maxFacts = 4
+
 // gatherContext runs the sources under one budget and caps the total. Order matters: earlier
-// sources get first claim on the cap.
+// sources get first claim on the cap; the facts and the box's Wikipedia keep their places.
 func gatherContext(runDir, prompt string) []ctxItem {
 	const maxItems = 6
+	var facts []ctxItem
+	for _, src := range factSources {
+		for _, it := range src(runDir, prompt) {
+			if it.Snippet != "" && len(facts) < maxFacts {
+				facts = append(facts, sanitize(it))
+			}
+		}
+	}
 	// the box's Wikipedia keeps its place: for "tell me about Greenwich" the article's lead is
 	// the backbone and the memories are the personal layer, and six memories used to fill the
 	// cap before the wiki source had its turn (4 Oct 2026)
@@ -1138,9 +1154,9 @@ func gatherContext(runDir, prompt string) []ctxItem {
 			wiki = append(wiki, sanitize(it))
 		}
 	}
-	var out []ctxItem
+	out := facts
 	for _, src := range contextSources {
-		if len(out)+len(wiki) >= maxItems {
+		if len(out)+len(wiki) >= maxItems+len(facts) {
 			break
 		}
 		for _, it := range src(runDir, prompt) {
@@ -1148,7 +1164,7 @@ func gatherContext(runDir, prompt string) []ctxItem {
 				continue
 			}
 			out = append(out, sanitize(it))
-			if len(out)+len(wiki) >= maxItems {
+			if len(out)+len(wiki) >= maxItems+len(facts) {
 				break
 			}
 		}

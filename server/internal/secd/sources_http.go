@@ -30,6 +30,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -80,6 +81,9 @@ type fetchState struct {
 	cmd *exec.Cmd
 	// run replaces the real update.sh in tests
 	run func(step, region, logPath string) (*exec.Cmd, error)
+	// dir is where the job logs go; "" is the box's update state (tests set a temp dir: the
+	// box's is root's, and the CI runner is not root)
+	dir string
 }
 
 var fetchStepRE = regexp.MustCompile(`^(wiki|maps|speech|engine|weights|phone|embedder)$`)
@@ -332,12 +336,61 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 		batches := int64(num(pull, "batchesSinceStart"))
 		readErr := str(pull, "error")
 		lastErr := str(sub(pull, "last"), "lastErr")
+		// THE BOX'S OWN FORECAST (tallyd's nwp.go): the models' runs pulled and blended; the
+		// API pull stands down once it is in the table
+		index := sub(ws, "index")
+		active, _ := index["active"].(bool)
+		var runs []string
+		if arr, ok := index["runs"].([]any); ok {
+			for _, r := range arr {
+				if rs, ok := r.(string); ok {
+					runs = append(runs, rs)
+				}
+			}
+		}
+		indexErr := str(index, "error")
+		var modelErrs []string
+		if models, ok := index["models"].(map[string]any); ok {
+			for id, mv := range models {
+				if m, ok := mv.(map[string]any); ok {
+					if e := str(m, "error"); e != "" {
+						modelErrs = append(modelErrs, id+": "+e)
+					}
+				}
+			}
+		}
+		sort.Strings(modelErrs)
 		switch {
+		case active && places > 0:
+			d.State = "ready"
+			d.From = []sourceFrom{
+				{Name: "ICON-D2", Role: "Deutscher Wetterdienst's 2 km model over Germany and its neighbours, pulled while the phone is there"},
+				{Name: "ICON-EU", Role: "Deutscher Wetterdienst's model over Europe, its grids pulled by the box every run"},
+				{Name: "IFS", Role: "ECMWF's global model, open data (CC-BY-4.0), its grids pulled by the box every run"},
+				{Name: "GFS", Role: "NOAA's global model, public domain, its grids pulled by the box every run"},
+				{Name: "GeoNames", Role: "the place list, from the box's own geo set"},
+			}
+			d.Line = fmt.Sprintf("the box's own forecast of %s places from %s, computed %s ago", humanCount(int64(num(index, "places"))), strings.Join(runs, " · "), agoWords(time.Now().Unix()-int64(num(index, "computedAt"))))
+			if here := str(index, "here"); here != "" {
+				d.Line += " · where the phone is: " + here
+			}
+			if len(modelErrs) > 0 {
+				d.Line += " · " + strings.Join(modelErrs, "; ")
+			}
+			d.Detail = "the models' grids are pulled from the centres themselves (the same six fields for the same six thousand cells, whoever and wherever you are), reduced to the box's place list and blended into one forecast per place, the models' disagreement kept with every hour; the temperature is moved from the model's ground height to the town's with the box's heights; where you are is looked up on the box"
 		case places > 0:
 			d.State = "ready"
 			d.Line = fmt.Sprintf("the forecast of %s places, the newest pulled %s ago", humanCount(places), agoWords(time.Now().Unix()-fetched))
 			if failed > 0 && lastErr != "" {
 				d.Line += fmt.Sprintf(" · %d of %d batches failed since the start, the last: %s", failed, batches, lastErr)
+			}
+			switch {
+			case indexErr != "":
+				d.Line += " · the box's own forecast: " + indexErr
+			case len(modelErrs) > 0:
+				d.Line += " · the box's own forecast is not up yet: " + strings.Join(modelErrs, "; ")
+			default:
+				d.Line += " · the box's own forecast from the models' grids comes once the first run is pulled (within the hour of a start)"
 			}
 			d.Detail = "Open-Meteo, the same list whoever and wherever you are (the largest town of every 55 km cell of the world, six thousand cells), a hundred every two minutes, each place again after sixteen hours with three days of hours; where you are is looked up on the box, the sky now from the hour the clock is in"
 		case readErr != "":
@@ -481,7 +534,10 @@ func (f *fetchState) start(step, region string) (*fetchJob, error) {
 	if f.job != nil && f.job.Running {
 		return nil, fmt.Errorf("a fetch is already running (%s)", f.job.Step)
 	}
-	dir := filepath.Join(update.BoxPaths().State, "jobs")
+	dir := f.dir
+	if dir == "" {
+		dir = filepath.Join(update.BoxPaths().State, "jobs")
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}

@@ -216,6 +216,20 @@ for svc in $CHECK; do
                     echo "$f" | grep -oE "\"k\":\"$S\",\"v\":\"$S\",\"state\":\"(flaky|late|failing)\"" \
                         | sed -E "s/\"k\":\"($S)\",\"v\":\"($S)\",\"state\":\"([a-z]*)\"/      ! \\1 (\\5): \\3/; s/\\\\\"/\"/g"
                 fi
+                # The weather: the box's own forecast from the models' runs (tallyd's nwp.go),
+                # or, before the first run is in, the API pull (ghost-cli ghost.tallyd weather).
+                w=$(cj ghost.tallyd weather)
+                # (the index's own keys come in order: ... "error", "models", "pace", "places", "runs")
+                wruns=$(echo "$w" | sed -n 's/.*"runs":\[\([^]]*\)\].*/\1/p' | head -1 | tr -d '"' | sed 's/,/ · /g')
+                wplaces=$(echo "$w" | sed -n 's/.*"pace":"[^"]*","places":\([0-9]*\).*/\1/p' | head -1)
+                werr=$(echo "$w" | sed -n 's/.*"error":"\([^"]*\)","models".*/\1/p' | head -1)
+                if [ -n "$wruns" ]; then
+                    printf '  weather: the box'"'"'s own forecast of %s places from %s\n' "${wplaces:-?}" "$wruns"
+                else
+                    tp=$(echo "$w" | sed -n 's/.*"table":{"places":\([0-9]*\).*/\1/p' | head -1)
+                    printf '  weather: %s places from the API pull; the box'"'"'s own forecast comes with the first model run (ghost-cli ghost.tallyd weather nwp=1 pulls now)\n' "${tp:-0}"
+                fi
+                [ -n "$werr" ] && printf '    ! weather index: %s\n' "$werr"
             fi
             if [ "$svc" = "ghost.synthd" ]; then
                 # The memories made from the photos, and the taste , built without the model.

@@ -83,9 +83,9 @@ AndroidX, Compose, CameraX and Kotlin.
 
 Public requests only, and the list is short: the exchanges and the ECB for prices (by the box),
 news feeds and the pages they link (by the phone on Wi-Fi, or by the box when the phone is
-away), Open-Meteo every sixteen hours for the forecast of the world's six thousand larger places (with their hours), the
-same list whoever and wherever you are (by the box; the weather where you are is then looked up
-on the box, so no weather service learns where that is), the mirror at www.localghost.ai for data
+away), the weather centres' own forecast grids (ECMWF, DWD, NOAA; the box reads them and
+forecasts the world's six thousand larger places itself, the same list whoever and wherever you
+are, so no weather service learns where that is; Open-Meteo until the first run is in), the mirror at www.localghost.ai for data
 and releases, Wikipedia's API only on a box that has not taken the local copy, a coin's own
 website for its page. Never a map tile, never a photo, never a note, never your trail, never a
 position.

@@ -25,6 +25,11 @@
 // hours, under every limit. Which batch goes first is the row's age and nothing else, never
 // where the person is.
 //
+// THE BOX'S OWN FORECAST. Since 10 October 2026 the box forecasts the list itself from the
+// models' grids (internal/nwp, docs/WEATHER.md) and writes the same rows; the pull below is
+// what fills the table until the first run is in, and stands down after (GHOST_WEATHER_API=1
+// keeps it). Nearest, ByName, Describe and the phone read both the same.
+//
 // THE HOURS. Since 10 October 2026 a pull carries the hourly forecast of the next three days
 // as well as the current conditions and the days: a row sixteen hours old still says what the
 // sky is doing now, from its hour, where the current block alone said what it did at the pull
@@ -119,6 +124,9 @@ type Hour struct {
 	PrecipMM float64 `json:"precipMm"`
 	Code     int     `json:"code"`
 	WindKmh  float64 `json:"windKmh"`
+	// SpreadC is how far the models' temperatures stood apart for the hour, for a forecast
+	// the box computed itself (internal/nwp); 0 for a pulled one.
+	SpreadC float64 `json:"spreadC,omitempty"`
 }
 
 // Forecast is what is kept for a place.
@@ -130,7 +138,17 @@ type Forecast struct {
 	Hours     []Hour `json:"hours,omitempty"` // HourDays × 24 from the pull day's midnight, local
 	FetchedAt int64  `json:"fetchedAt"`
 	UTCOffset int    `json:"utcOffset,omitempty"` // seconds east of UTC at the place, from the service
+	// Source names the model runs a forecast the box computed itself came from ("icon-eu
+	// 2026-10-10 09Z · ifs 2026-10-10 06Z · gfs 2026-10-10 06Z"); "" for one pulled from
+	// the service (then FetchedAt is the pull).
+	Source string `json:"source,omitempty"`
+	// Here marks the forecast computed at the phone's own last fix (the row with HereID),
+	// finer than a listed place's: the Place carries the fix and the nearest town's name.
+	Here bool `json:"here,omitempty"`
 }
+
+// HereID is the weather_places row of the forecast at the phone's fix.
+const HereID = -1
 
 // Current is the conditions now: the current block when the pull is under ninety minutes old,
 // else the hour of the forecast the clock is in (the pull's own "now" is the pull's, not the
@@ -407,7 +425,7 @@ type State struct {
 // Load reads the table's state.
 func Load(db Querier) State {
 	var st State
-	rows, err := db.Query("SELECT count(*), coalesce(max(fetched_at), 0), coalesce(min(fetched_at), 0) FROM weather_places")
+	rows, err := db.Query("SELECT count(*), coalesce(max(fetched_at), 0), coalesce(min(fetched_at), 0) FROM weather_places WHERE geonameid > 0")
 	if err != nil || len(rows.Vals) == 0 || len(rows.Vals[0]) < 3 {
 		return st
 	}
@@ -428,6 +446,16 @@ func Due(st State, now time.Time) bool {
 // Nearest is the forecast of the pulled place closest to a point, within NearKm, with the
 // distance; ok false when none is that close (the open sea, a desert, a box without the geo set).
 func Nearest(db Querier, lat, lon float64) (f Forecast, km float64, ok bool) {
+	return nearest(db, lat, lon, true)
+}
+
+// NearestListed is Nearest over the list's places alone, without the row at the phone's fix:
+// the town a point is named after.
+func NearestListed(db Querier, lat, lon float64) (f Forecast, km float64, ok bool) {
+	return nearest(db, lat, lon, false)
+}
+
+func nearest(db Querier, lat, lon float64, withHere bool) (f Forecast, km float64, ok bool) {
 	cosLat := math.Cos(lat * math.Pi / 180)
 	if cosLat < 0.05 {
 		cosLat = 0.05
@@ -446,7 +474,7 @@ func Nearest(db Querier, lat, lon float64) (f Forecast, km float64, ok bool) {
 			continue
 		}
 		var c Forecast
-		if json.Unmarshal([]byte(*v[0]), &c) != nil {
+		if json.Unmarshal([]byte(*v[0]), &c) != nil || (!withHere && c.Here) {
 			continue
 		}
 		if d := haversineKm(lat, lon, c.Place.Lat, c.Place.Lon); d < best {
@@ -489,11 +517,17 @@ func Describe(f Forecast, km float64, now time.Time) string {
 	if f.Place.Country != "" {
 		where += ", " + f.Place.Country
 	}
+	if f.Here {
+		where = "where the phone is (near " + where + ")"
+	}
 	sb.WriteString("Weather for " + where)
 	if km >= 1 {
 		sb.WriteString(fmt.Sprintf(" (%.0f km away, the nearest place the box has)", km))
 	}
-	if f.FetchedAt > 0 {
+	switch {
+	case f.Source != "":
+		sb.WriteString(", the box's own forecast from " + f.Source + ", computed " + ago(now.Unix()-f.FetchedAt) + " ago")
+	case f.FetchedAt > 0:
 		sb.WriteString(", from the box's pull " + ago(now.Unix()-f.FetchedAt) + " ago")
 	}
 	sb.WriteString(". ")

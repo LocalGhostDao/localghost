@@ -136,16 +136,28 @@ object HomeText {
         return "$day %.0f/%.0f".format(java.util.Locale.UK, maxC, minC) + (if (w.isNotEmpty()) " $w" else "") + (if (rainPct >= 30) " $rainPct%" else "")
     }
 
-    /** Under the card: where it is from and how fresh. */
-    fun weatherSource(place: String, country: String, fetchedAt: Long, places: Long, nowS: Long): String {
-        val where = if (country.isNotBlank()) "$place, $country" else place
+    /** Under the card: where it is from and how fresh. A forecast the box computed itself names
+     *  its model runs ([source], "icon-eu 2026-10-10 09Z · ifs 2026-10-10 06Z"); a pulled one
+     *  says when it was pulled. */
+    fun weatherSource(place: String, country: String, fetchedAt: Long, places: Long, nowS: Long, source: String = "", here: Boolean = false): String {
+        var where = if (country.isNotBlank()) "$place, $country" else place
+        if (here) where = "where you are, near $place"
         val age = nowS - fetchedAt
+        val verb = if (source.isNotBlank()) "computed" else "pulled"
         val fresh = when {
             fetchedAt == 0L -> "not pulled yet"
-            age < 3600 -> "pulled ${age / 60} min ago"
-            age < 48 * 3600 -> "pulled ${age / 3600} h ago"
-            else -> "pulled ${age / 86400} days ago"
+            age < 3600 -> "$verb ${age / 60} min ago"
+            age < 48 * 3600 -> "$verb ${age / 3600} h ago"
+            else -> "$verb ${age / 86400} days ago"
         }
+        if (source.isNotBlank()) return "$where · the box's own forecast from ${runsShort(source)} · $fresh"
         return "$where · nearest of ${"%,d".format(places)} places the box pulls every sixteen hours · $fresh"
     }
+
+    /** "icon-eu 2026-10-10 09Z · ifs 2026-10-10 06Z" as "ICON-EU 09Z, IFS 06Z": the model and its
+     *  run hour, the date dropped (the line has no room, and the freshness is beside it). */
+    fun runsShort(source: String): String = source.split(" · ").mapNotNull { r ->
+        val parts = r.trim().split(" ")
+        if (parts.size < 3) null else parts[0].uppercase() + " " + parts.last()
+    }.joinToString(", ")
 }

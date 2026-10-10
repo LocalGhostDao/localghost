@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -65,6 +66,14 @@ func weatherLoop(ctx context.Context, mount string, ws *weatherState, lg *slog.L
 			db = poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port, cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 		}
 		now := time.Now()
+		// the box's own forecast (nwp.go) fills the table once it has a run: the API is then
+		// left alone, unless GHOST_WEATHER_API=1 keeps it for a comparison
+		if nwpActive(mount) && os.Getenv("GHOST_WEATHER_API") != "1" {
+			if forced {
+				lg.Info("weather: the box's own forecast stands; the API pull is off (GHOST_WEATHER_API=1 keeps it)", "fn", "weatherLoop")
+			}
+			return
+		}
 		// the hundred longest unpulled; pulled when the oldest is Every old (or never pulled),
 		// or on fetch=1
 		batch, due, err := weather.NextBatch(db, now)
@@ -134,18 +143,27 @@ func weatherLoop(ctx context.Context, mount string, ws *weatherState, lg *slog.L
 	}
 }
 
-// weatherCtl answers `ghost-cli ghost.tallyd weather [lat= lon= | place=] [fetch=1]`.
-func weatherCtl(mount string, ws *weatherState, force chan<- struct{}, args json.RawMessage) (map[string]any, error) {
+// weatherCtl answers `ghost-cli ghost.tallyd weather [lat= lon= | place=] [fetch=1] [nwp=1]`.
+func weatherCtl(mount string, ws *weatherState, ns *nwpState, force chan<- struct{}, forceNWP chan<- struct{}, args json.RawMessage) (map[string]any, error) {
 	var a struct {
 		Lat   float64 `json:"lat"`
 		Lon   float64 `json:"lon"`
 		Place string  `json:"place"`
 		Fetch bool    `json:"fetch"`
+		NWP   bool    `json:"nwp"`
 	}
 	if len(args) > 0 {
 		_ = json.Unmarshal(args, &a)
 	}
-	out := map[string]any{"pull": ws.snapshot()}
+	out := map[string]any{"pull": ws.snapshot(), "index": ns.snapshot()}
+	if a.NWP {
+		select {
+		case forceNWP <- struct{}{}:
+			out["indexing"] = "the box looks for new runs now and computes; the log says what came"
+		default:
+			out["indexing"] = "a pass is already running"
+		}
+	}
 	cfg, err := hw.LoadServicesConfig(mount)
 	if err != nil {
 		return nil, err

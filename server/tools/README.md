@@ -462,19 +462,29 @@ backfilled a slice per pass. `tools/health.sh` shows the count and where the bac
 `ghost-cli ghost.synthd days` the same with detail, `days day=2026-09-25 rewrite=true` to have one
 day written again. "On this day" and the memories feed read these rows.
 
-## 1b'''''. The weather, pulled by the box , nothing to run
+## 1b'''''. The weather, forecast by the box , nothing to run
 
-ghost.tallyd asks Open-Meteo for the forecast of the world's larger places: the world cut into
-half-degree cells (55 km a side), each cell's largest GeoNames populated place of 15,000 or more
-(from the geo set of 1b'), the 6,000 largest of those; the same list whoever and wherever the
-person is, a hundred places a request, one request every two minutes, the longest unpulled
-first, a place pulled again once its row is a day old (under Open-Meteo's free limits on the
-sternest count, every place a call). The chat answers "what's
-the weather like" from that table for the phone's fix or the trail's newest point, and "weather
-in Faro" for the place named; the phone never asks a weather service anything, so none learns
-where it is. `ghost-cli ghost.tallyd weather` shows the table and the forecast where the trail
-says the phone is, `weather place=Faro` or `weather lat=37.0 lon=-7.9` a place, `weather fetch=1`
-pulls the next batch now. Box Status has a Weather section. Without the geo set there is nothing to pull.
+ghost.tallyd forecasts the world's larger places itself: the world cut into half-degree cells
+(55 km a side), each cell's largest GeoNames populated place of 15,000 or more (from the geo
+set of 1b'), the 6,000 largest of those; the same list whoever and wherever the person is. It
+pulls the forecast models' own grids from the centres that publish them, ECMWF's IFS (open
+data, CC-BY-4.0), DWD's ICON-EU over Europe and NOAA's GFS, every run as it is published (a
+look every half hour; some 600 MB a run across the three, four runs a day; six fields: the
+temperature and the dew point at 2 m, the precipitation, the wind at 10 m, the cloud cover),
+reads them with its own GRIB2 decoder, reduces each run to the place list (`<mount>/weather/
+runs/<model>-<run>.wx`, the newest two of each model kept) and blends the models into one
+forecast per place with their disagreement kept beside every hour, the temperature moved
+from the model's ground to the town's with the box's heights (1b'''). docs/WEATHER.md is the
+design. Until the first run is in, the Open-Meteo pull of before fills the table (a hundred
+places every two minutes); from then it stands down (`GHOST_WEATHER_API=1` in tallyd's
+environment keeps it for a comparison). The chat answers "what's the weather like" from
+the table for the phone's fix or the trail's newest point, and "weather in Faro" for the place
+named; the phone never asks a weather service anything, so none learns where it is.
+`ghost-cli ghost.tallyd weather` shows the index (the runs in, the last pull of each model, its
+error) and the table, and the forecast where the trail says the phone is, `weather place=Faro`
+or `weather lat=37.0 lon=-7.9` a place, `weather nwp=1` looks for new runs and computes now,
+`weather fetch=1` pulls the next API batch. Box Status has a Weather section; INTEGRATIONS ›
+Weather names the runs. Without the geo set there is nothing to forecast.
 
 ## 1b''''''. A newer Go , nothing to run
 

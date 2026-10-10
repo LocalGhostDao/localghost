@@ -1123,7 +1123,11 @@ object BoxClient {
     data class Weather(val ok: Boolean, val place: String, val country: String, val tempC: Double, val feelsC: Double, val code: Int,
                        val windKmh: Double, val humidity: Int, val days: List<WeatherDay>, val fetchedAt: Long, val places: Long,
                        val text: String, val noGeo: Boolean, val distanceKm: Double,
-                       val hours: List<com.localghost.app.ui.WeatherHour> = emptyList(), val utcOffset: Int = 0) {
+                       val hours: List<com.localghost.app.ui.WeatherHour> = emptyList(), val utcOffset: Int = 0,
+                       /** the model runs the box's own forecast came from ("icon-eu 2026-10-10 09Z · ifs …"); "" for a pulled one */
+                       val source: String = "",
+                       /** the forecast computed at the phone's own fix (the place is the nearest town's name) */
+                       val here: Boolean = false) {
         /** The conditions now: the pull's own when it is fresh, else the hour of the forecast the
          *  clock is in at the place (the pull is once in sixteen hours; its "now" is its own). */
         fun current(nowS: Long): com.localghost.app.ui.WeatherHour? = com.localghost.app.ui.WeatherHours.current(hours, fetchedAt, nowS, utcOffset)
@@ -1145,7 +1149,7 @@ object BoxClient {
         Weather(r.optBoolean("ok"), place?.optString("name") ?: "", place?.optString("country") ?: "",
             now?.optDouble("tempC") ?: Double.NaN, now?.optDouble("feelsC") ?: Double.NaN, now?.optInt("code") ?: -1,
             now?.optDouble("windKmh") ?: 0.0, now?.optInt("humidity") ?: 0, days, f?.optLong("fetchedAt") ?: (t?.optLong("fetchedAt") ?: 0L),
-            t?.optLong("places") ?: 0L, r.optString("text"), r.optBoolean("noGeo"), 0.0, hours, f?.optInt("utcOffset") ?: 0)
+            t?.optLong("places") ?: 0L, r.optString("text"), r.optBoolean("noGeo"), 0.0, hours, f?.optInt("utcOffset") ?: 0, f?.optString("source") ?: "", f?.optBoolean("here") ?: false)
     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
 
     suspend fun wiki(ctx: Context, q: String = "", idx: Long = 0, n: Int = 8): Wiki? = try {

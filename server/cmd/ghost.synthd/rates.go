@@ -120,9 +120,44 @@ func ratesSource(runDir, prompt string) []ctxItem {
 		}
 		if ok {
 			out = append(out, ratesItems(snap, codes, amount, time.Now())...)
+			// a look back ("compared to a few days ago", "last week", "trend"): the daily
+			// closes of the box's own index for the coins asked, so the comparison is made
+			// from the box's numbers and not from the model's memory of a price
+			if lookBack.MatchString(prompt) {
+				for _, c := range codes {
+					if _, has := snap.Index[c]; !has {
+						continue // a fiat code: its ECB line above is the rate of the day
+					}
+					if days, err := hw.RatesHistory(db, c, 8); err == nil {
+						if it, has := historyItem(c, days); has {
+							out = append(out, it)
+						}
+					}
+				}
+			}
 		}
 	}
 	return out
+}
+
+// lookBack is a question that compares with a time before now.
+var lookBack = regexp.MustCompile(`(?i)\b(ago|yesterday|last (week|month|night)|this (week|month)|past (few|\d+) (days|weeks)|compared?|since|trend|over the (week|month|last)|week|month|days)\b`)
+
+// historyItem is the daily closes of the box's index for one symbol as one prompt line, oldest
+// first (pure, for the tests): "BTC daily closes (USD, the box's index): 2026-10-03 112,100 · …".
+func historyItem(sym string, days []hw.DayPrice) (ctxItem, bool) {
+	var parts []string
+	for i := len(days) - 1; i >= 0; i-- {
+		if days[i].Close > 0 {
+			parts = append(parts, days[i].Day+" "+money(days[i].Close))
+		}
+	}
+	if len(parts) < 2 {
+		return ctxItem{}, false
+	}
+	return ctxItem{When: days[0].Day, Source: "rates",
+		Snippet: sym + " daily closes (USD, the box's index): " + strings.Join(parts, " · "),
+		Why:     "the box's own daily " + sym + " index, for the comparison asked"}, true
 }
 
 // marketItem is the market index's line (pure, for the tests).

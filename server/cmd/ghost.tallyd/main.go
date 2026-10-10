@@ -25,6 +25,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // the places' zones for the forecast's local hours, wherever the box runs
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/ghosthealth"
@@ -74,8 +75,10 @@ func main() {
 	fs := &fetchState{}
 	fast := &fastState{}
 	ws := &weatherState{}
+	ns := &nwpState{}
 	forceFetch := make(chan struct{}, 1)
 	forceWeather := make(chan struct{}, 1)
+	forceNWP := make(chan struct{}, 1)
 	srv := ghosthealth.NewServer(service, ghosthealth.ReporterFunc(func() ghosthealth.Health {
 		h := ing.health()
 		if bad, why := fs.stalled(time.Now()); bad && h.Code == ghosthealth.OK {
@@ -233,10 +236,10 @@ func main() {
 			data, _ := json.Marshal(monitor.Make(db, time.Now()))
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
-		// weather: the pull of the world's larger places (each again after sixteen hours) and the forecast where the trail
-		// says the phone is. `ghost-cli ghost.tallyd weather [lat= lon= | place=] [fetch=1]`.
+		// weather: the box's own forecast from the models' runs (nwp.go), the API pull it stands in for, and the
+		// forecast where the trail says the phone is. `ghost-cli ghost.tallyd weather [lat= lon= | place=] [fetch=1] [nwp=1]`.
 		ctl.Handle("weather", func(args json.RawMessage) (ctlsock.Response, error) {
-			out, err := weatherCtl(filepath.Dir(runDir), ws, forceWeather, args)
+			out, err := weatherCtl(filepath.Dir(runDir), ws, ns, forceWeather, forceNWP, args)
 			if err != nil {
 				return ctlsock.Response{OK: false, Err: err.Error()}, nil
 			}
@@ -262,7 +265,8 @@ func main() {
 		go ratesFetchLoop(ctx, filepath.Dir(runDir), rs, fs, hot, lg, forceFetch)
 		go fastLoop(ctx, hot, fast, lg)
 		go weatherLoop(ctx, filepath.Dir(runDir), ws, lg, forceWeather)
-		lg.Info("health and rates ingestion up; the box fetches rates itself when the phone is not on Wi-Fi, and the weather of the larger places, a hundred every two minutes", "fn", "main")
+		go nwpLoop(ctx, filepath.Dir(runDir), ns, lg, forceNWP)
+		lg.Info("health and rates ingestion up; the box fetches rates itself when the phone is not on Wi-Fi, and forecasts the weather of the larger places from the models' own grids", "fn", "main")
 	} else {
 		ing.note("", errors.New("no run dir: ingestion is off (started by hand without GHOST_RUN_DIR)"), tally.Result{})
 	}

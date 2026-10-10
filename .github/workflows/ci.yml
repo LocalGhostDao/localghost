@@ -50,7 +50,19 @@ jobs:
           GHOST_PG_SOCKET_DIR: /var/run/postgresql
           GHOST_PG_PORT: "5432"
           GHOST_PG_USER: runner
-        run: go test ./... -count=1
+        run: |
+          set -o pipefail
+          go test ./... -count=1 2>&1 | tee test.log
+      - name: what failed, named at the top of the run
+        if: failure()
+        run: |
+          grep -A15 -- '^--- FAIL' test.log | head -300 || true
+          grep -- '^--- FAIL' test.log | sed -E 's/^--- FAIL: (\S+).*/::error title=go test::\1 failed (the test step log has its lines)/' || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: server-test-log
+          path: server/test.log
       - name: builds on macOS too (a contributor's editor, not a box)
         run: GOOS=darwin go vet ./...
 

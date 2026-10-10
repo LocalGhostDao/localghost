@@ -31,7 +31,7 @@ func TestFeedID(t *testing.T) {
 // A fetch runs in the background, one at a time, and its last line and exit come back.
 func TestFetchJob(t *testing.T) {
 	dir := t.TempDir()
-	var f fetchState
+	f := fetchState{dir: dir}
 	f.run = func(step, region, logPath string) (*exec.Cmd, error) {
 		logf, err := os.Create(logPath)
 		if err != nil {
@@ -45,7 +45,6 @@ func TestFetchJob(t *testing.T) {
 		logf.Close()
 		return cmd, nil
 	}
-	t.Setenv("HOME", dir)
 	job, err := f.start("maps", "34:72,-25:45")
 	if err != nil {
 		t.Fatal(err)
