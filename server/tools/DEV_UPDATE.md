@@ -5499,3 +5499,12 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   LocationLog.last, kept at each fetch); PhraseSurface.updateWidgets builds per widget id with
   tall = OPTION_APPWIDGET_MIN_HEIGHT ≥ TALL_DP (180); w_more TextView in widget_phrase.xml with
   HomeBriefText.more(weather, nexts); PhraseWidget.onAppWidgetOptionsChanged redraws. Tests.
+
+## 10 October 2026 , wisp 0.0.6 cut
+
+- releases/0.0.6.md: "Cut on 10 October 2026", the at-the-cut paragraph replaced by what a box
+  and a phone on 0.0.5 see after it; RELEASES.md row; CITATION.cff 0.0.6 / 2026-10-10; README
+  status at 0.0.6 with the sixth cut's link, 76,000 lines of Go (without tests) with 180 test
+  files, 36,000 of Kotlin, and the status paragraph naming the weather, Wikipedia, the
+  integrations and the renewing certificates. release.names and the app were at 0.0.6 since
+  the 5th. 0.0.7 opens in the drop after the tag.

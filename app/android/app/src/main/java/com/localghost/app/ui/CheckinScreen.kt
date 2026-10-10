@@ -300,7 +300,7 @@ private fun CheckinForm(today: String, history: List<BoxClient.CheckinRow>, onSa
             Text("why?", color = GhostText, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(6.dp))
             BasicTextField(why, { why = it },
-                textStyle = MaterialTheme.typography.bodySmall.copy(color = JournalInk),
+                textStyle = MaterialTheme.typography.bodySmall.copy(color = GhostText),
                 cursorBrush = SolidColor(TerminalGreen),
                 decorationBox = { inner -> Box(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(Void)
                     .padding(8.dp)) { if (why.isEmpty()) Text("prefilled from your day once the box answers · edit freely",
@@ -403,7 +403,7 @@ private fun CheckedIn(today: String, row: BoxClient.CheckinRow?, onPhone: Set<St
                 }
                 if (row.why.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
-                    Text(row.why, color = JournalInk, style = MaterialTheme.typography.bodySmall)
+                    Text(row.why, color = GhostText, style = MaterialTheme.typography.bodySmall)
                 }
             }
             val said = row?.voices ?: emptyList()

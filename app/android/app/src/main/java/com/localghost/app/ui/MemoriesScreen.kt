@@ -362,8 +362,7 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
             }
             if (m.body.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
-                // your own words in ink, the box's in grey
-                Text(m.body, color = if (m.kind == "user" || m.edited) JournalInk else GhostTextDim, style = MaterialTheme.typography.bodySmall)
+                Text(m.body, color = GhostTextDim, style = MaterialTheme.typography.bodySmall)
             }
             Spacer(Modifier.height(4.dp))
             Text(MemoryText.origin(m.kind, m.summaryLine, m.meta?.optString("line") ?: "") + " · " +
