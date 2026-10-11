@@ -1751,13 +1751,18 @@ type HealthSeries struct {
 }
 
 // HealthStats returns every daily metric's series for the last n days, oldest first per series.
+// The HEALTH screen asks for ten years once and cuts its own windows (a week, a month, a year)
+// from the answer, so n reaches 3660; 30 when unsaid.
 func (s *NotifStore) HealthStats(slot int, n int) ([]HealthSeries, error) {
 	c, err := s.pg(slot)
 	if err != nil {
 		return nil, err
 	}
-	if n <= 0 || n > 365 {
+	if n <= 0 {
 		n = 30
+	}
+	if n > 3660 {
+		n = 3660
 	}
 	since := time.Now().AddDate(0, 0, -n).Format("2006-01-02")
 	rows, err := c.Query(
@@ -1777,6 +1782,49 @@ func (s *NotifStore) HealthStats(slot int, n int) ([]HealthSeries, error) {
 		last := &out[len(out)-1]
 		last.Days = append(last.Days, *v[1])
 		last.Values = append(last.Values, val)
+	}
+	return out, nil
+}
+
+// HealthDay is one day as the box holds it: its metrics, and the heart rate's five-minute
+// samples between the bounds the phone gives (the phone knows which hours its day spans).
+type HealthDay struct {
+	Day     string             `json:"day"`
+	Metrics map[string]float64 `json:"metrics"`
+	Samples [][2]float64       `json:"samples"` // [unix seconds, beats per minute], in time order
+}
+
+// HealthDay returns the day's metrics and its heart rate samples from from to to (unix seconds).
+func (s *NotifStore) HealthDay(slot int, day string, from, to int64) (HealthDay, error) {
+	out := HealthDay{Day: day, Metrics: map[string]float64{}, Samples: [][2]float64{}}
+	c, err := s.pg(slot)
+	if err != nil {
+		return out, err
+	}
+	rows, err := c.Query("SELECT metric, value FROM health_metrics WHERE day = $1 ORDER BY metric", day)
+	if err != nil {
+		return out, err
+	}
+	for _, v := range rows.Vals {
+		if len(v) < 2 || v[0] == nil || v[1] == nil {
+			continue
+		}
+		val, _ := strconv.ParseFloat(*v[1], 64)
+		out.Metrics[*v[0]] = val
+	}
+	if to > from {
+		rows, err = c.Query("SELECT ts, value FROM health_samples WHERE metric = 'heart_rate' AND ts >= $1 AND ts < $2 ORDER BY ts", from, to)
+		if err != nil {
+			return out, err
+		}
+		for _, v := range rows.Vals {
+			if len(v) < 2 || v[0] == nil || v[1] == nil {
+				continue
+			}
+			ts, _ := strconv.ParseFloat(*v[0], 64)
+			val, _ := strconv.ParseFloat(*v[1], 64)
+			out.Samples = append(out.Samples, [2]float64{ts, val})
+		}
 	}
 	return out, nil
 }

@@ -350,7 +350,7 @@ fun MainShell(
                         Dest.GALLERY -> GalleryScreen()
                         Dest.MAP -> MapScreen(openDay = mapDay, onDayShown = { mapDay = "" })
                         Dest.PHRASES -> PhrasesScreen()
-                        Dest.HEALTH -> HealthScreen()
+                        Dest.HEALTH -> HealthScreen(onOpenDay = { d -> openDay(d) })
                         Dest.CODES -> PinManagementScreen(devices)
                         Dest.SETTINGS -> SettingsScreen(
                             onOpenVerify = { dest = Dest.VERIFY },

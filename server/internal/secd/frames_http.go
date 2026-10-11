@@ -1299,6 +1299,7 @@ func (s *Server) handleHealthDiag(w http.ResponseWriter, r *http.Request) {
 		LastRun string   `json:"lastRun"`
 		Samsung bool     `json:"samsungHealth"`
 		Verdict string   `json:"verdict"`
+		Steps   string   `json:"steps"` // yesterday's steps four ways, when the phone counted them
 	}
 	_ = json.Unmarshal(body, &d)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -1329,7 +1330,45 @@ func (s *Server) handleHealthDiag(w http.ResponseWriter, r *http.Request) {
 	for _, l := range d.Lines {
 		secdLog.Info("health diagnostics: "+l, "fn", "handleHealthDiag")
 	}
+	if d.Steps != "" {
+		secdLog.Info("health diagnostics: "+d.Steps, "fn", "handleHealthDiag")
+	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleHealthDay , GET /v1/health/day?day=YYYY-MM-DD&from=<unix>&to=<unix> , the day's metrics
+// and its heart rate samples between the bounds, the HEALTH screen's day page. The bounds come
+// from the phone because the day is the phone's and the box does not know its hours.
+func (s *Server) handleHealthDay(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodGet {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	day := r.URL.Query().Get("day")
+	if _, err := time.Parse("2006-01-02", day); err != nil {
+		http.Error(w, "day=YYYY-MM-DD", http.StatusBadRequest)
+		return
+	}
+	from, _ := strconv.ParseInt(r.URL.Query().Get("from"), 10, 64)
+	to, _ := strconv.ParseInt(r.URL.Query().Get("to"), 10, 64)
+	if to <= from {
+		t, _ := time.Parse("2006-01-02", day)
+		from, to = t.Unix(), t.Add(24*time.Hour).Unix()
+	}
+	d, err := s.notif.HealthDay(mounted, day, from, to)
+	if err != nil {
+		secdLog.Warn("health day failed", "fn", "handleHealthDay", "err", err)
+		s.appearsDown(w)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "day": d})
 }
 
 // handleHealthStats , GET /v1/health/stats?days=N , daily series per metric for the HEALTH screen.

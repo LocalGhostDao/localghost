@@ -379,6 +379,8 @@ func (s *Server) routes() []route {
 			Auth: true, Response: okDoc{}, Handler: s.handleWeather},
 		{Method: "POST", Path: "/v1/health/diag", Summary: "The phone's account of Health Connect: the SDK's state, the permissions granted and missing, each record type's count, span and sources, the last sync; kept on the box and written to its log, so a box without health data can say why. GET returns the last one.",
 			Auth: true, Response: okDoc{}, Handler: s.handleHealthDiag},
+		{Method: "GET", Path: "/v1/health/day", Summary: "One day's health metrics and its heart rate samples (?day=YYYY-MM-DD&from=&to= unix bounds of the phone's day), the HEALTH screen's day page.",
+			Auth: true, Response: okDoc{}, Handler: s.handleHealthDay},
 		{Method: "POST", Path: "/v1/weather/metoffice", Summary: "The Met Office DataHub key and order for the box's own forecast ({key, order}; a key of \"\" forgets them); GET says whether one is set, the model's last pull, and where the box thinks home is for the order's region.",
 			Auth: true, Response: okDoc{}, Handler: s.handleWeatherMetOffice},
 		{Method: "GET", Path: "/v1/sources", Summary: "What the box draws on beyond the archive (Wikipedia, news, crypto, weather, maps and heights, speech), each with its state, and the fetch job running if any.",

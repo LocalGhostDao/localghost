@@ -936,6 +936,25 @@ object BoxClient {
         }
     } catch (_: Exception) { null }
 
+    /** One day as the box holds it: its metrics and the heart rate's five-minute samples. */
+    data class HealthDay(val day: String, val metrics: Map<String, Double>, val samples: List<Pair<Long, Double>>)
+
+    /** GET /v1/health/day: [from]..[to] are the unix bounds of the phone's day, which the box
+     *  cannot know on its own. null when the box did not answer. */
+    suspend fun healthDay(ctx: Context, day: String, from: Long, to: Long): HealthDay? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/health/day?day=$day&from=$from&to=$to")
+        val d = r.optJSONObject("day") ?: return null
+        val mo = d.optJSONObject("metrics") ?: JSONObject()
+        val metrics = LinkedHashMap<String, Double>()
+        mo.keys().forEach { k -> metrics[k] = mo.optDouble(k) }
+        val sa = d.optJSONArray("samples") ?: org.json.JSONArray()
+        val samples = (0 until sa.length()).mapNotNull { i ->
+            val p = sa.optJSONArray(i) ?: return@mapNotNull null
+            if (p.length() < 2) null else p.optDouble(0).toLong() to p.optDouble(1)
+        }
+        HealthDay(d.optString("day", day), metrics, samples)
+    } catch (_: Exception) { null }
+
     /** One check-in. [preselected] is what the app ticked from the day before the person looked;
      *  [voice] the note recorded with it (status "missing" until the phone has sent it); [voices]
      *  every note said to it, that one first, then the ones added through the day. */

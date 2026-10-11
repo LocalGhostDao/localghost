@@ -5807,3 +5807,24 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   storage before deployment"), a `pm clear` on every Run. Written up in BUILDING.md and the
   release notes; the signing-key change stays, for the cut-over-editor case.
 
+## 11 October 2026 , HEALTH three pages deep, the step count four ways
+
+- `ui/HealthText.kt` (pure, 7 tests): the metric table (key, label, group, cumulative), the
+  windows (7D/30D/90D/1Y/ALL), `fmt`/`fmtDelta`, `window` by date, `summary` (latest, mean,
+  median, min/max with days, total), `trend` by calendar days, `weekdayMeans`/`weekdayLine`,
+  `statLines`, `sleepEfficiency`, `dayLine`, `samplesLine`, `windowLine`.
+- `ui/HealthScreen.kt` rewritten: dashboard (window chips, newest-day link, four groups of
+  tiles two a row), the kind page (large bars with the dashed mean, STATS, BY WEEKDAY, DAYS),
+  the day page (`/v1/health/day`, groups against the 30-day mean, HEART RATE THROUGH THE DAY
+  curve with gaps drawn as gaps, prev/next, "open the day" → DayScreen via `onOpenDay`). Pages
+  are local state with a BackHandler; MainShell passes `openDay`. Asks `/v1/health/stats?days=3660`
+  once and cuts windows on the phone.
+- secd: `GET /v1/health/day?day=&from=&to=` (`hw.HealthDay`: the day's metrics and the heart
+  rate samples between the phone's bounds; UTC bounds when unsaid), in the OpenAPI table;
+  `HealthStats` cap 3660. `BoxClient.healthDay`.
+- `HealthSync.stepsYesterday`: yesterday's steps as HC total, Samsung-only total, the raw sum,
+  the sum by `metadata.device.type`, and the last record's end hour; in the diagnostics as
+  `steps`, logged by secd, appended to the SETTINGS line. For Vlad's "15,909 is low": the line
+  says which of the three causes it is.
+- Explain topic "health" says what the screen holds now.
+

@@ -462,6 +462,57 @@ object HealthSync {
         one("body fat", BodyFatRecord::class) { it.time }
         return out
     }
+
+    /** YESTERDAY'S STEPS, four ways, so a count the box shows under what the watch says can be
+     *  argued from evidence: Health Connect's own total (what the sync stores), Samsung Health's
+     *  records alone, the plain sum of every record, and that sum by the device that counted
+     *  (watch, phone), with the hour the last record ended. A plain sum above the total is the
+     *  dedup of overlapping records; a watch sum under the watch's face is the watch's app not
+     *  writing them all; a last record before midnight is a day still to arrive. */
+    suspend fun stepsYesterday(ctx: Context): String {
+        val client = try { HealthConnectClient.getOrCreate(ctx) } catch (e: Exception) { return "steps: Health Connect unavailable" }
+        val allowed = try { HealthPermission.getReadPermission(StepsRecord::class) in client.permissionController.getGrantedPermissions() } catch (_: Exception) { false }
+        if (!allowed) return "steps: not allowed"
+        val zone = ZoneId.systemDefault()
+        val day = java.time.LocalDate.now(zone).minusDays(1)
+        val start = day.atStartOfDay(zone).toInstant()
+        val end = day.plusDays(1).atStartOfDay(zone).toInstant()
+        val range = TimeRangeFilter.between(start, end)
+        val total = try { client.aggregate(androidx.health.connect.client.request.AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), range))[StepsRecord.COUNT_TOTAL] } catch (_: Exception) { null }
+        val samsung = try {
+            client.aggregate(androidx.health.connect.client.request.AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), range, setOf(DataOrigin(SAMSUNG_HEALTH))))[StepsRecord.COUNT_TOTAL]
+        } catch (_: Exception) { null }
+        var sum = 0L
+        var n = 0
+        val byDevice = java.util.TreeMap<String, Long>()
+        var last: Instant? = null
+        try {
+            var token: String? = null
+            do {
+                val resp = client.readRecords(if (token == null) ReadRecordsRequest(StepsRecord::class, range) else ReadRecordsRequest(StepsRecord::class, range, pageToken = token))
+                resp.records.forEach { r ->
+                    n++
+                    sum += r.count
+                    val dev = when (r.metadata.device?.type) {
+                        androidx.health.connect.client.records.metadata.Device.TYPE_WATCH -> "watch"
+                        androidx.health.connect.client.records.metadata.Device.TYPE_PHONE -> "phone"
+                        androidx.health.connect.client.records.metadata.Device.TYPE_FITNESS_BAND -> "band"
+                        androidx.health.connect.client.records.metadata.Device.TYPE_RING -> "ring"
+                        null -> "no device"
+                        else -> "other"
+                    }
+                    byDevice[dev] = (byDevice[dev] ?: 0L) + r.count
+                    if (last == null || r.endTime.isAfter(last)) last = r.endTime
+                }
+                token = resp.pageToken
+            } while (!token.isNullOrEmpty())
+        } catch (e: Exception) {
+            return "steps $day: not readable (${e.message?.take(40)})"
+        }
+        val lastAt = last?.atZone(zone)?.toLocalTime()?.toString()?.take(5) ?: "none"
+        return "steps $day: total ${total ?: "?"} · Samsung Health ${samsung ?: "?"} · $n record(s) summing $sum (" +
+            byDevice.entries.joinToString(", ") { "${it.key} ${it.value}" } + ") · last record ends $lastAt"
+    }
 }
 
 /**
@@ -489,6 +540,8 @@ object HealthDiag {
         o.put("samsungHealth", try { ctx.packageManager.getPackageInfo(HealthSync.SAMSUNG_HEALTH, 0); true } catch (_: Exception) { false })
         val lines = if (sdk == HealthConnectClient.SDK_AVAILABLE) HealthSync.probe(ctx) else emptyList()
         o.put("lines", org.json.JSONArray(lines))
+        // yesterday's steps four ways (see HealthSync.stepsYesterday): the box logs it with the rest
+        if (sdk == HealthConnectClient.SDK_AVAILABLE) o.put("steps", HealthSync.stepsYesterday(ctx))
         HealthSync.lastRun(ctx)?.let { r ->
             o.put("lastRun", "${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.UK).format(java.util.Date(r.at * 1000))} · ${r.days} day(s)" +
                 (if (r.newestDay.isNotEmpty()) " · newest ${r.newestDay}" else "") + (if (r.error.isNotEmpty()) " · ${r.error}" else "") +
@@ -502,7 +555,8 @@ object HealthDiag {
     suspend fun send(ctx: Context): String {
         val o = build(ctx)
         val ok = BoxClient.healthDiag(ctx, o)
-        return (if (ok) "sent to the box · " else "the box did not take it · ") + o.optString("verdict")
+        return (if (ok) "sent to the box · " else "the box did not take it · ") + o.optString("verdict") +
+            (if (o.has("steps")) " · " + o.optString("steps") else "")
     }
 }
 
