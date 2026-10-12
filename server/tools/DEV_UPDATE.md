@@ -5866,3 +5866,18 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   `WeatherHour.spreadC`, `WeatherDay.precipMm/sunrise/sunset`, `Weather.timezone/readAt`.
   `ui/WeatherText.kt` pure, tests (263 JVM).
 
+## 12 October 2026 , the watch's own step count
+
+- Vlad's screenshots: Samsung Health 18,776 on 10 Oct and 12,032 on 11 Oct; the box 15,909
+  and 9,162 (Health Connect's aggregate). Samsung Health's tile merges its devices (watch,
+  phone) by the larger count per slice of the day; Health Connect's total is under it.
+- `sync/StepsMerge.kt` (pure, 4 tests): ten-minute bins, each record's count spread over the
+  bins it spans, the larger device per bin, summed; `byDevice` for the diagnostics. The sync
+  reads the raw StepsRecords of the window after the aggregate and a day keeps the larger of
+  the merge and HC's total (never a sum of two devices). `HealthSync.deviceName`.
+- `stepsYesterday` now says HC total, Samsung Health's records, the raw sum by device, the
+  merge, and the last record's end. If the merge still sits under Samsung's tile, Health
+  Connect holds only one device's records and nothing on the phone can recover the other.
+- Distance and active kcal still come from HC's aggregate; Samsung's "distance while active"
+  is a different definition. Not touched.
+

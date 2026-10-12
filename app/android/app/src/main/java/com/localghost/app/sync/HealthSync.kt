@@ -228,6 +228,21 @@ object HealthSync {
             if (e is SecurityException) refused = e
             android.util.Log.w("LocalGhost", "aggregate unavailable, raw fallback: ${e.message}")
         }
+        // THE WATCH'S OWN NUMBER (StepsMerge): the raw records by day and device, merged the way
+        // Samsung Health's tile merges them; a day keeps the larger of the merge and Health
+        // Connect's total, never the sum of two devices
+        if (aggregated) tryRead("steps", StepsRecord::class) { recs ->
+            val byDay = HashMap<String, MutableList<StepsMerge.Entry>>()
+            recs.forEach { r ->
+                val d = r.startTime.atZone(zone).toLocalDate().format(fmt)
+                byDay.getOrPut(d) { ArrayList() }.add(StepsMerge.Entry(r.startTime.epochSecond, r.endTime.epochSecond, r.count, deviceName(r.metadata.device)))
+            }
+            byDay.forEach { (d, es) ->
+                val merged = StepsMerge.merged(es)
+                val m = days.getOrPut(d) { HashMap() }
+                if (merged > (m["steps"] ?: 0.0)) m["steps"] = Math.round(merged).toDouble()
+            }
+        }
         if (!aggregated) tryRead("steps", StepsRecord::class) { recs ->
             recs.forEach { r ->
                 val m = bucket(r.startTime)
@@ -491,6 +506,17 @@ object HealthSync {
         return out
     }
 
+    /** The device that counted, for the merge and the diagnostics: "watch", "phone", "band",
+     *  "ring", else the type's number, "no device" when the record carries none. */
+    fun deviceName(d: androidx.health.connect.client.records.metadata.Device?): String = when (d?.type) {
+        null -> "no device"
+        androidx.health.connect.client.records.metadata.Device.TYPE_WATCH -> "watch"
+        androidx.health.connect.client.records.metadata.Device.TYPE_PHONE -> "phone"
+        androidx.health.connect.client.records.metadata.Device.TYPE_FITNESS_BAND -> "band"
+        androidx.health.connect.client.records.metadata.Device.TYPE_RING -> "ring"
+        else -> "device ${d?.type}"
+    }
+
     /** YESTERDAY'S STEPS, four ways, so a count the box shows under what the watch says can be
      *  argued from evidence: Health Connect's own total (what the sync stores), Samsung Health's
      *  records alone, the plain sum of every record, and that sum by the device that counted
@@ -510,26 +536,14 @@ object HealthSync {
         val samsung = try {
             client.aggregate(androidx.health.connect.client.request.AggregateRequest(setOf(StepsRecord.COUNT_TOTAL), range, setOf(DataOrigin(SAMSUNG_HEALTH))))[StepsRecord.COUNT_TOTAL]
         } catch (_: Exception) { null }
-        var sum = 0L
-        var n = 0
-        val byDevice = java.util.TreeMap<String, Long>()
+        val entries = ArrayList<StepsMerge.Entry>()
         var last: Instant? = null
         try {
             var token: String? = null
             do {
                 val resp = client.readRecords(if (token == null) ReadRecordsRequest(StepsRecord::class, range) else ReadRecordsRequest(StepsRecord::class, range, pageToken = token))
                 resp.records.forEach { r ->
-                    n++
-                    sum += r.count
-                    val dev = when (r.metadata.device?.type) {
-                        androidx.health.connect.client.records.metadata.Device.TYPE_WATCH -> "watch"
-                        androidx.health.connect.client.records.metadata.Device.TYPE_PHONE -> "phone"
-                        androidx.health.connect.client.records.metadata.Device.TYPE_FITNESS_BAND -> "band"
-                        androidx.health.connect.client.records.metadata.Device.TYPE_RING -> "ring"
-                        null -> "no device"
-                        else -> "other"
-                    }
-                    byDevice[dev] = (byDevice[dev] ?: 0L) + r.count
+                    entries.add(StepsMerge.Entry(r.startTime.epochSecond, r.endTime.epochSecond, r.count, deviceName(r.metadata.device)))
                     if (last == null || r.endTime.isAfter(last)) last = r.endTime
                 }
                 token = resp.pageToken
@@ -538,8 +552,9 @@ object HealthSync {
             return "steps $day: not readable (${e.message?.take(40)})"
         }
         val lastAt = last?.atZone(zone)?.toLocalTime()?.toString()?.take(5) ?: "none"
-        return "steps $day: total ${total ?: "?"} · Samsung Health ${samsung ?: "?"} · $n record(s) summing $sum (" +
-            byDevice.entries.joinToString(", ") { "${it.key} ${it.value}" } + ") · last record ends $lastAt"
+        val sum = entries.sumOf { it.count }
+        return "steps $day: Health Connect total ${total ?: "?"} · Samsung Health's records ${samsung ?: "?"} · ${entries.size} record(s) summing $sum (" +
+            StepsMerge.byDevice(entries).entries.joinToString(", ") { "${it.key} ${it.value}" } + ") · merged ${Math.round(StepsMerge.merged(entries))} (the larger device per ten minutes, what the box keeps) · last record ends $lastAt"
     }
 }
 
