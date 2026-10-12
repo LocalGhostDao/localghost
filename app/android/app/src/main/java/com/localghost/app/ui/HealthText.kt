@@ -27,7 +27,6 @@ object HealthText {
         Metric("active_calories", "active kcal", MOVEMENT, true),
         Metric("floors", "floors", MOVEMENT, true),
         Metric("exercise_minutes", "exercise", MOVEMENT, true),
-        Metric("active_minutes", "active time", MOVEMENT, true),
         Metric("sleep_minutes", "sleep", SLEEP, false),
         Metric("sleep_deep_minutes", "deep sleep", SLEEP, false),
         Metric("sleep_light_minutes", "light sleep", SLEEP, false),
@@ -40,7 +39,6 @@ object HealthText {
         Metric("hrv_ms", "heart rate variability", HEART, false),
         Metric("spo2_pct", "blood oxygen", HEART, false),
         Metric("resp_rate", "breathing rate", HEART, false),
-        Metric("stress", "stress", HEART, false),
         Metric("vo2max", "VO2 max", BODY, false),
         Metric("weight_kg", "weight", BODY, false),
         Metric("body_fat_pct", "body fat", BODY, false),
@@ -55,7 +53,7 @@ object HealthText {
     data class Window(val label: String, val days: Int)
     val windows = listOf(Window("7D", 7), Window("30D", 30), Window("90D", 90), Window("1Y", 365), Window("ALL", 0))
 
-    private fun isTime(key: String) = key.startsWith("sleep_") || key == "exercise_minutes" || key == "active_minutes"
+    private fun isTime(key: String) = key.startsWith("sleep_") || key == "exercise_minutes"
 
     /** A value in the metric's unit: 15,909 · 7h12m · 61 bpm · 97% · 1.3 km. */
     fun fmt(key: String, v: Double): String = when {

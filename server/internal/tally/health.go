@@ -51,7 +51,7 @@ const RestingEstimate = "calories"
 // KeepHigher names the day counters that only grow as a day's data arrives: an upload with a
 // lower value than the box holds leaves the box's.
 var KeepHigher = map[string]bool{
-	"steps": true, "distance_km": true, "active_calories": true, "floors": true, "exercise_minutes": true, "active_minutes": true,
+	"steps": true, "distance_km": true, "active_calories": true, "floors": true, "exercise_minutes": true,
 }
 
 // metricOK: a short lowercase name with underscores and digits, nothing a phone could smuggle
@@ -147,11 +147,10 @@ func Ingest(db *poltergres.ReadWrite, raw []byte) (Result, error) {
 				res.Dropped++
 				continue
 			}
-			// A COUNTER NEVER GOES DOWN. Two writers describe the same day: Samsung Health's own
-			// download (the watch's full count) and Health Connect (what Samsung Health shared,
-			// or the phone's own counter when it shared nothing); the six-hourly sync rewrites
-			// the last week, and a lower count must not replace a fuller one. The counters keep
-			// the larger value; a measurement (a weight, a mean heart rate) takes the latest.
+			// A COUNTER NEVER GOES DOWN. The six-hourly sync rewrites the last week, and a day
+			// read before its last records arrived (the watch's merge against the phone's own
+			// count, say) must not replace a fuller one. The counters keep the larger value; a
+			// measurement (a weight, a mean heart rate) takes the latest.
 			upsert := "INSERT INTO health_metrics (day, metric, value) VALUES ($1,$2,$3) ON CONFLICT (day, metric) DO UPDATE SET value = EXCLUDED.value"
 			if KeepHigher[metric] {
 				upsert = "INSERT INTO health_metrics (day, metric, value) VALUES ($1,$2,$3) ON CONFLICT (day, metric) DO UPDATE SET value = GREATEST(health_metrics.value, EXCLUDED.value)"

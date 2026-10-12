@@ -13,8 +13,7 @@ import (
 )
 
 // A counter never goes down: a lower step count for a day the box already holds leaves the
-// box's (Health Connect's partial view after the Samsung download's full one); a measurement
-// takes the latest.
+// box's (a partial read after a fuller one); a measurement takes the latest.
 func TestIngestKeepsTheHigherCounter(t *testing.T) {
 	dir := os.Getenv("GHOST_PG_SOCKET_DIR")
 	if dir == "" {

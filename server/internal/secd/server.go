@@ -339,8 +339,6 @@ func (s *Server) Handler() http.Handler {
 	// grep before you claim one.
 	mux.HandleFunc("/v1/health/stats", s.handleHealthStats) // daily series per metric
 	mux.HandleFunc("/v1/health/day", s.handleHealthDay)     // one day's metrics and heart rate samples
-	mux.HandleFunc("/v1/health/import", s.handleHealthImport)       // a Samsung Health download: spool and scan; GET follows the import
-	mux.HandleFunc("/v1/health/import/start", s.handleHealthImport) // start the import of a spooled download
 	mux.HandleFunc("/v1/chat", s.handleChat)                // ask the box's model (via synthd's retrieval seam)
 	mux.HandleFunc("/v1/chat/stop", s.handleChatStop)       // STOP: ends the answer being written for a chat (closing the app does not)
 	mux.HandleFunc("/v1/chat/plan", s.handleChatPlan)       // what the question needs from the web, from the model, before the phone searches

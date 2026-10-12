@@ -9,3 +9,11 @@ app/android/app/src/test/java/com/localghost/app/ui/PaperTextTest.kt
 app/android/app/src/test/java/com/localghost/app/ui/UnreadableTextTest.kt
 server/internal/framed/unreadable.go
 server/internal/pgtest/unreadable_pg_test.go
+# 12 Oct 2026: the Samsung Health download import (cut: Health Connect is the only path)
+app/android/app/src/main/java/com/localghost/app/sync/HealthImport.kt
+app/android/app/src/main/java/com/localghost/app/sync/HealthImportText.kt
+app/android/app/src/test/java/com/localghost/app/sync/HealthImportTextTest.kt
+server/cmd/ghost.tallyd/import.go
+server/internal/shealth/shealth.go
+server/internal/shealth/shealth_test.go
+

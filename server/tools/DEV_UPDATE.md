@@ -5961,3 +5961,16 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   six-hourly HealthWorker: zip, send, start, mark. SETTINGS shows "watching that folder · a
   new download is imported within six hours · last …" and "[ stop watching ]".
 
+## 12 October 2026 , the download import cut
+
+- Vlad: "too much hassle, it's not worth it". The Samsung Health download import is out of
+  the app and the backend: `internal/shealth`, tallyd's `import.go` and the `health scan=|
+  import=` arguments, secd's `/v1/health/import` routes and handler and their OpenAPI entries,
+  the app's `HealthImport`, `HealthImportText` and the SETTINGS section, `BoxClient`'s three
+  import calls, the worker's auto-import, the `stress` and `active_minutes` metrics. The six
+  files are listed in `tools/removed.txt` and ship as stand-ins (`apply_removed.sh`).
+- Kept, since they stand on their own: `StepsMerge` (the watch's count over the phone's),
+  `tally.KeepHigher` (a counter never goes down; PG test), the manifest `<queries>` for Samsung
+  Health, the full writer name in the probe, the "Samsung Health writes nothing" verdict.
+- Health Connect is the one path: Samsung Health's own toggles decide what reaches it.
+

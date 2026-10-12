@@ -936,22 +936,6 @@ object BoxClient {
         }
     } catch (_: Exception) { null }
 
-    /** POST /v1/health/import: the Samsung Health download as a zip; the answer has the file's
-     *  name on the box and its scan. Minutes of read timeout: the box reads every table once. */
-    suspend fun healthImportUpload(ctx: Context, zip: java.io.File): JSONObject? =
-        BoxHttp.postFileJson(ctx, "/v1/health/import", zip, "application/zip", readTimeoutMs = 240_000)
-
-    /** POST /v1/health/import/start {file}: the import begins; the answer carries its progress. */
-    suspend fun healthImportStart(ctx: Context, file: String): Pair<JSONObject?, String> = try {
-        val r = BoxHttp.postJson(ctx, "/v1/health/import/start", JSONObject().put("file", file))
-        if (r.optBoolean("ok")) r.optJSONObject("import") to "" else null to r.optString("why", "the box said no")
-    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null to (e.message ?: "the box did not answer") }
-
-    /** GET /v1/health/import: the running (or last) import's progress; null without one. */
-    suspend fun healthImportStatus(ctx: Context): JSONObject? = try {
-        BoxHttp.getJson(ctx, "/v1/health/import").optJSONObject("import")
-    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-
     /** One day as the box holds it: its metrics and the heart rate's five-minute samples. */
     data class HealthDay(val day: String, val metrics: Map<String, Double>, val samples: List<Pair<Long, Double>>)
 

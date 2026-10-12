@@ -615,8 +615,6 @@ class HealthWorker(ctx: Context, params: androidx.work.WorkerParameters) : andro
         // the account of what was readable goes with every run, so the box can say why a day
         // is missing without the person opening SETTINGS
         runCatching { HealthDiag.send(ctx) }
-        // a new Samsung Health download in the watched folder is imported on its own
-        runCatching { HealthImport.autoImport(ctx) }
         return Result.success()
     }
 }

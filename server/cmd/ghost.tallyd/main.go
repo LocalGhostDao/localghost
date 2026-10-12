@@ -35,7 +35,6 @@ import (
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 	"github.com/LocalGhostDao/localghost/server/internal/rates"
 	"github.com/LocalGhostDao/localghost/server/internal/rotlog"
-	"github.com/LocalGhostDao/localghost/server/internal/shealth"
 	"github.com/LocalGhostDao/localghost/server/internal/svcconf"
 	"github.com/LocalGhostDao/localghost/server/internal/tally"
 )
@@ -72,7 +71,6 @@ func main() {
 	defer stop()
 
 	ing := &ingestState{}
-	imp := &importState{}
 	rs := &ratesState{}
 	fs := &fetchState{}
 	fast := &fastState{}
@@ -116,39 +114,9 @@ func main() {
 		})
 		// health: what the box holds (days, samples, each metric's newest day and value), what
 		// waits in the inbox, and how the last ingest went. `ghost-cli ghost.tallyd health`.
-		// `health scan=<file>` lists a Samsung Health download's tables; `health import=<file>`
-		// reads it into the box in the background; the answer's `import` follows it.
-		ctl.Handle("health", func(args json.RawMessage) (ctlsock.Response, error) {
+		ctl.Handle("health", func(json.RawMessage) (ctlsock.Response, error) {
 			mount := filepath.Dir(runDir)
-			var a struct {
-				Scan   string `json:"scan"`
-				Import string `json:"import"`
-			}
-			_ = json.Unmarshal(args, &a)
 			out := map[string]any{"ingest": ing.snapshot(), "inbox": inboxDepth(filepath.Join(mount, "tallyd", "inbox"))}
-			if a.Scan != "" {
-				p, err := importPath(mount, a.Scan)
-				if err != nil {
-					return ctlsock.Response{OK: false, Err: err.Error()}, nil
-				}
-				rep, err := shealth.Scan(p)
-				if err != nil {
-					return ctlsock.Response{OK: false, Err: err.Error()}, nil
-				}
-				out["scan"] = rep
-			}
-			if a.Import != "" {
-				p, err := importPath(mount, a.Import)
-				if err != nil {
-					return ctlsock.Response{OK: false, Err: err.Error()}, nil
-				}
-				if !imp.start(mount, p, lg.Info) {
-					return ctlsock.Response{OK: false, Err: "an import is running; `health` shows it"}, nil
-				}
-			}
-			if p := imp.snapshot(); p != nil {
-				out["import"] = p
-			}
 			// the phone's own account of Health Connect (secd's /v1/health/diag), when it sent one
 			if b, err := os.ReadFile(filepath.Join(mount, "tallyd", "health_diag.json")); err == nil {
 				out["phone"] = json.RawMessage(b)
