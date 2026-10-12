@@ -15,6 +15,7 @@ object HomeCache {
     private const val RATES = "rates.json"
     private const val NEWS = "news.json"
     private const val SNAP = "snap.json"
+    private const val WEATHER = "weather.json"
 
     @Volatile var forYou: HomeData.ForYou? = null
         private set
@@ -46,6 +47,13 @@ object HomeCache {
         put(ctx, SNAP, HomeData.forDisk(s))
         s.forYou?.let { forYou = it }
         return s
+    }
+
+    /** The last /v1/weather the phone read, with the hour it read it, so the card and the WEATHER
+     *  page open on it (the forecast for where the phone last was; the source line names the place). */
+    fun putWeather(ctx: Context, r: JSONObject, readAt: Long) = put(ctx, WEATHER, JSONObject().put("readAt", readAt).put("body", r).toString())
+    fun weather(ctx: Context): BoxClient.Weather? = get(ctx, WEATHER)?.let { o ->
+        runCatching { o.optJSONObject("body")?.let { BoxClient.weatherFrom(it, o.optLong("readAt")) } }.getOrNull()
     }
 
     fun rates(ctx: Context): BoxClient.Rates? = get(ctx, RATES)?.let { runCatching { BoxClient.ratesFrom(it) }.getOrNull() }

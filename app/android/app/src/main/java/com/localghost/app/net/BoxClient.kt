@@ -1163,7 +1163,8 @@ object BoxClient {
     } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null to (e.message ?: "the box did not answer") }
 
     // --- THE WEATHER where the phone is, from the box's daily pull ---
-    data class WeatherDay(val date: String, val code: Int, val maxC: Double, val minC: Double, val rainPct: Int)
+    data class WeatherDay(val date: String, val code: Int, val maxC: Double, val minC: Double, val rainPct: Int,
+                          val precipMm: Double = 0.0, val sunrise: String = "", val sunset: String = "")
     data class Weather(val ok: Boolean, val place: String, val country: String, val tempC: Double, val feelsC: Double, val code: Int,
                        val windKmh: Double, val humidity: Int, val days: List<WeatherDay>, val fetchedAt: Long, val places: Long,
                        val text: String, val noGeo: Boolean, val distanceKm: Double,
@@ -1171,7 +1172,11 @@ object BoxClient {
                        /** the model runs the box's own forecast came from ("icon-eu 2026-10-10 09Z · ifs …"); "" for a pulled one */
                        val source: String = "",
                        /** the forecast computed at the phone's own fix (the place is the nearest town's name) */
-                       val here: Boolean = false) {
+                       val here: Boolean = false,
+                       /** the place's zone, "Europe/Berlin"; "" when the box did not say */
+                       val timezone: String = "",
+                       /** when this phone read it from the box (unix seconds); the card says how old it is */
+                       val readAt: Long = 0L) {
         /** The conditions now: the pull's own when it is fresh, else the hour of the forecast the
          *  clock is in at the place (the pull is once in sixteen hours; its "now" is its own). */
         fun current(nowS: Long): com.localghost.app.ui.WeatherHour? = com.localghost.app.ui.WeatherHours.current(hours, fetchedAt, nowS, utcOffset)
@@ -1180,21 +1185,32 @@ object BoxClient {
         fun codeNow(nowS: Long): Int = current(nowS)?.code ?: code
     }
 
-    suspend fun weather(ctx: Context, lat: Double, lon: Double): Weather? = try {
+    /** The forecast where the phone is. [keep] writes the box's answer to the phone (HomeCache),
+     *  so HOME and WEATHER open on the last one before the box has answered again. */
+    suspend fun weather(ctx: Context, lat: Double, lon: Double, keep: Boolean = true): Weather? = try {
         val r = BoxHttp.getJson(ctx, "/v1/weather?lat=$lat&lon=$lon", readTimeoutMs = 15_000)
+        val w = weatherFrom(r, System.currentTimeMillis() / 1000)
+        if (keep && w.ok && w.place.isNotEmpty()) HomeCache.putWeather(ctx, r, w.readAt)
+        w
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+
+    /** The box's /v1/weather answer as the screens hold it. */
+    fun weatherFrom(r: JSONObject, readAt: Long): Weather {
         val t = r.optJSONObject("table")
         val f = r.optJSONObject("forecast")
         val now = f?.optJSONObject("now")
         val place = f?.optJSONObject("place")
         val days = f?.optJSONArray("days")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { d ->
-            WeatherDay(d.optString("date"), d.optInt("code"), d.optDouble("maxC"), d.optDouble("minC"), d.optInt("rainPct")) } } } ?: emptyList()
+            WeatherDay(d.optString("date"), d.optInt("code"), d.optDouble("maxC"), d.optDouble("minC"), d.optInt("rainPct"),
+                d.optDouble("precipMm", 0.0), d.optString("sunrise", ""), d.optString("sunset", "")) } } } ?: emptyList()
         val hours = f?.optJSONArray("hours")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { h ->
-            com.localghost.app.ui.WeatherHour(h.optString("at"), h.optDouble("tempC"), h.optInt("rainPct", -1), h.optDouble("precipMm"), h.optInt("code"), h.optDouble("windKmh")) } } } ?: emptyList()
-        Weather(r.optBoolean("ok"), place?.optString("name") ?: "", place?.optString("country") ?: "",
+            com.localghost.app.ui.WeatherHour(h.optString("at"), h.optDouble("tempC"), h.optInt("rainPct", -1), h.optDouble("precipMm"), h.optInt("code"), h.optDouble("windKmh"), h.optDouble("spreadC", 0.0)) } } } ?: emptyList()
+        return Weather(r.optBoolean("ok"), place?.optString("name") ?: "", place?.optString("country") ?: "",
             now?.optDouble("tempC") ?: Double.NaN, now?.optDouble("feelsC") ?: Double.NaN, now?.optInt("code") ?: -1,
             now?.optDouble("windKmh") ?: 0.0, now?.optInt("humidity") ?: 0, days, f?.optLong("fetchedAt") ?: (t?.optLong("fetchedAt") ?: 0L),
-            t?.optLong("places") ?: 0L, r.optString("text"), r.optBoolean("noGeo"), 0.0, hours, f?.optInt("utcOffset") ?: 0, f?.optString("source") ?: "", f?.optBoolean("here") ?: false)
-    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+            t?.optLong("places") ?: 0L, r.optString("text"), r.optBoolean("noGeo"), 0.0, hours, f?.optInt("utcOffset") ?: 0, f?.optString("source") ?: "", f?.optBoolean("here") ?: false,
+            f?.optString("timezone") ?: "", readAt)
+    }
 
     suspend fun wiki(ctx: Context, q: String = "", idx: Long = 0, n: Int = 8): Wiki? = try {
         val qs = ArrayList<String>()

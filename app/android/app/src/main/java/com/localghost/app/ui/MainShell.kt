@@ -46,6 +46,7 @@ enum class Dest(val label: String, val glyph: String) {
     WIKIPEDIA("WIKIPEDIA", "W"),
     NEWS("NEWS", "¶"),
     CRYPTO("CRYPTO", "₿"),
+    WEATHER("WEATHER", "☁"),
     COIN("COIN", "◈"),
     DAY("DAY", "◷"),
     NOTIFICATION("NOTIFICATION", "△"),
@@ -288,8 +289,10 @@ fun MainShell(
                             onOpenStory = { id -> newsFocus = id; dest = Dest.NEWS },
                             onOpenCrypto = { dest = Dest.CRYPTO },
                             onOpenCoin = { sym -> openCoin(sym, Dest.HOME) },
+                            onOpenWeather = { dest = Dest.WEATHER },
                             onOpenTarget = { link -> openTarget(NotifLink.resolve(link, "", "")) })
                         Dest.CRYPTO -> CryptoScreen(onOpenCoin = { sym -> openCoin(sym, Dest.CRYPTO) })
+                        Dest.WEATHER -> WeatherScreen()
                         Dest.COIN -> CoinScreen(coinSym)
                         Dest.DAY -> DayScreen(if (dayOpen.isEmpty()) DayText.of(System.currentTimeMillis() / 1000) else dayOpen,
                             onDay = { d -> dayOpen = d },

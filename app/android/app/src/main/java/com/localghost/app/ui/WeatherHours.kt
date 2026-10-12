@@ -11,7 +11,9 @@ import java.time.format.DateTimeFormatter
  * ago"); the next day is a line. Pure Kotlin, so the tests can read it.
  */
 /** One hour of the forecast, the place's local time ("2026-10-10T14:00"); the box's row. */
-data class WeatherHour(val at: String, val tempC: Double, val rainPct: Int, val precipMm: Double, val code: Int, val windKmh: Double)
+data class WeatherHour(val at: String, val tempC: Double, val rainPct: Int, val precipMm: Double, val code: Int, val windKmh: Double,
+                       /** how far the models' temperatures stood apart for the hour; 0 for a pulled forecast */
+                       val spreadC: Double = 0.0)
 
 object WeatherHours {
     /** The pull's own current block is trusted this long; after it the hour speaks. */

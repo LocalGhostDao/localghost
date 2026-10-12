@@ -61,7 +61,12 @@ object HealthSync {
         // without it, reads reach only 30 days before the grant, which is exactly the "one month
         // then nothing" the first full-history walk produced.
         "android.permission.health.READ_HEALTH_DATA_HISTORY",
+        // READING WHILE THE APP IS CLOSED. Without this Health Connect refuses every read from the
+        // six-hourly worker (a SecurityException per type), and the box got a day only when the
+        // person opened SETTINGS › HEALTH and pressed the button, which looked like "no new data".
+        "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND",
     )
+    const val BACKGROUND = "android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND"
 
     fun available(ctx: Context): Boolean =
         HealthConnectClient.getSdkStatus(ctx) == HealthConnectClient.SDK_AVAILABLE
@@ -124,7 +129,7 @@ object HealthSync {
     /** Read one window and upload. EACH record type is isolated: a denied permission or a
      *  flaky provider skips that type (named in `skipped`) rather than failing the sync , partial
      *  data honestly labelled beats all-or-nothing. */
-    suspend fun sync(ctx: Context, fromT: Instant? = null, toT: Instant? = null): SyncResult = try {
+    suspend fun sync(ctx: Context, fromT: Instant? = null, toT: Instant? = null, foreground: Boolean = true): SyncResult = try {
         val client = HealthConnectClient.getOrCreate(ctx)
         val zone = ZoneId.systemDefault()
         val fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd")
@@ -140,6 +145,7 @@ object HealthSync {
             return days.getOrPut(d) { HashMap() }
         }
         val skipped = ArrayList<String>()
+        var refused: Exception? = null // the last SecurityException: the reason when every type fails
         suspend fun <T> tryRead(name: String, cls: kotlin.reflect.KClass<T>, use: suspend (List<T>) -> Unit)
             where T : Any, T : androidx.health.connect.client.records.Record {
             try {
@@ -155,6 +161,7 @@ object HealthSync {
                 } while (!token.isNullOrEmpty())
             } catch (e: Exception) {
                 skipped.add(name)
+                if (e is SecurityException) refused = e
                 android.util.Log.w("LocalGhost", "health read $name skipped: ${e.message}")
             }
         }
@@ -218,6 +225,7 @@ object HealthSync {
             }
             aggregated = true
         } catch (e: Exception) {
+            if (e is SecurityException) refused = e
             android.util.Log.w("LocalGhost", "aggregate unavailable, raw fallback: ${e.message}")
         }
         if (!aggregated) tryRead("steps", StepsRecord::class) { recs ->
@@ -349,8 +357,16 @@ object HealthSync {
         // at all: active kcal is (2 Oct 2026). calOnly stays for the full-history walk's message.
         val calOnly = 0
         when {
-            days.isEmpty() && hrSamples.isEmpty() ->
-                SyncResult(0, skipped, if (skipped.size >= 8) "every record type failed , re-check permissions" else null).also { noteRun(ctx, it, days) }
+            days.isEmpty() && hrSamples.isEmpty() -> {
+                val r = refused
+                val why = when {
+                    r != null && !foreground -> "Health Connect refused to be read with the app closed (${r.message?.take(60)}) , CONNECT HEALTH in SETTINGS › HEALTH asks for reading in the background"
+                    r != null -> "Health Connect refused the read (${r.message?.take(80)})"
+                    skipped.size >= 8 -> "every record type failed , re-check permissions"
+                    else -> null
+                }
+                SyncResult(0, skipped, why).also { noteRun(ctx, it, days) }
+            }
             BoxClient.healthUpload(ctx, days, hrSamples) -> SyncResult(days.size, skipped, calOnlyDays = calOnly).also { noteRun(ctx, it, days) }
             else -> SyncResult(0, skipped, "box unreachable , is it unlocked?").also { noteRun(ctx, it, days) }
         }
@@ -378,6 +394,18 @@ object HealthSync {
         val at = p.getLong("at", 0L)
         if (at <= 0) return null
         return LastRun(at, p.getInt("days", 0), p.getString("newest", "") ?: "", p.getString("error", "") ?: "", p.getString("skipped", "") ?: "")
+    }
+
+    /** A sync on the app's opening when the last one is older than an hour: a read with the app
+     *  in front needs no background permission, so the box gets the day whenever the person looks
+     *  at the phone, whatever the worker managed. The account goes with it. */
+    suspend fun syncIfDue(ctx: Context) {
+        if (!available(ctx) || !com.localghost.app.security.BoxConfig.isConfigured(ctx)) return
+        if (grantedCount(ctx) == 0) return
+        val last = lastRun(ctx)
+        if (last != null && System.currentTimeMillis() / 1000 - last.at < 3600) return
+        sync(ctx)
+        runCatching { HealthDiag.send(ctx) }
     }
 
     /** Ships the last week every six hours, in the background, while the permissions are there
@@ -566,7 +594,7 @@ class HealthWorker(ctx: Context, params: androidx.work.WorkerParameters) : andro
         val ctx = applicationContext
         if (!HealthSync.available(ctx) || !com.localghost.app.security.BoxConfig.isConfigured(ctx)) return Result.success()
         if (HealthSync.grantedCount(ctx) == 0) return Result.success()
-        HealthSync.sync(ctx)
+        HealthSync.sync(ctx, foreground = false)
         // the account of what was readable goes with every run, so the box can say why a day
         // is missing without the person opening SETTINGS
         runCatching { HealthDiag.send(ctx) }

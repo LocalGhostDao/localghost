@@ -5844,3 +5844,25 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 - Hard Truths draft `outputs/hard-truths-breaking-free.md` (prices from the exchanges, the
   map from the raw files, the weather from the models; the web window lays it in).
 
+## 12 October 2026 , health reads in the background, WEATHER page and cache, the place kept across the lock
+
+- Health: the worker's reads were refused with the app closed. Health Connect wants
+  `READ_HEALTH_DATA_IN_BACKGROUND` for a read from WorkManager; it was neither declared nor
+  requested, so every six-hourly run failed per type (SecurityException) and the box got a
+  day only when SETTINGS › HEALTH was pressed. Declared in the manifest, in
+  `HealthSync.PERMISSIONS` (16 now; CONNECT HEALTH asks for it), `sync(foreground=)` names the
+  refusal in the run's error, and `HealthSync.syncIfDue` runs a foreground sync after unlock
+  when the last is an hour old (no background permission needed), with the diagnostics.
+- Backgrounding went home: onStop locks (AuthGate), the gate replaces MainShell, and a
+  composable out of the composition loses its rememberSaveable state, so every unlock opened
+  HOME. MainActivity wraps the shell in `rememberSaveableStateHolder().SaveableStateProvider("shell")`;
+  dest and the drill-in state survive the lock, the cached data is still torn down.
+- Weather: `BoxClient.weather(keep=true)` writes the box's answer to `HomeCache` (weather.json
+  with readAt); `weatherFrom(JSONObject, readAt)` parses; HOME opens on the kept forecast. The
+  card taps into `Dest.WEATHER` → `ui/WeatherScreen.kt`: now, two days as `WeatherLine` (moved to
+  its own file, `height`, `band` = the models' spread around the line), DAYS with sunrise and
+  sunset, every hour by day (`WeatherText.hourRow` with ±spread/2), SOURCES (model runs with a
+  note per model), the age of the box's forecast and of the phone's copy, refresh.
+  `WeatherHour.spreadC`, `WeatherDay.precipMm/sunrise/sunset`, `Weather.timezone/readAt`.
+  `ui/WeatherText.kt` pure, tests (263 JVM).
+

@@ -367,6 +367,12 @@ class MainActivity : ComponentActivity() {
                         scannedLink = null; scanEnrolOk = null; screen = Screen.Gate
                     }
                 }
+                // THE SHELL'S PLACE IS KEPT ACROSS THE LOCK. Backgrounding locks the app (onStop), the
+                // gate replaces the shell, and a composable that leaves the composition loses its
+                // rememberSaveable state, so every unlock opened on HOME whatever the person had been
+                // looking at. The holder keeps the shell's saved state while the gate is up; the data
+                // behind it is still torn down and read again.
+                val shellState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
                 when (val s = screen) {
                     is Screen.Crash -> CrashScreen(s.report) { CrashHandler.clear(this); screen = Screen.Gate }
                     Screen.Welcome -> {
@@ -408,7 +414,7 @@ class MainActivity : ComponentActivity() {
                     )
                     Screen.Gate -> LockScreen(error, unlocking = lockProgress != null, progress = lockProgress, onLocalOnly = ::enterLocalOnly, onReenroll = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Scan }, closing = vaultClosing) { passBiometric() }
                     Screen.Pin -> PinScreen(busy, error, unlockProgress, opening = vaultOpening) { submit(it) }
-                    Screen.Shell -> MainShell(
+                    Screen.Shell -> shellState.SaveableStateProvider("shell") { MainShell(
                 genStats = lastGenStats,
                 navRequest = pendingNav, onNavConsumed = { pendingNav = "" },
                         messages = messages, streaming = streaming, onSend = ::sendChat, onStopChat = ::stopChat,
@@ -487,7 +493,7 @@ class MainActivity : ComponentActivity() {
                         onSelectConversation = ::selectConversation,
                         onNewConversation = ::newConversation,
                         onDeleteConversation = ::deleteConversation,
-                    )
+                    ) }
                 }
             }
         }
@@ -1495,6 +1501,10 @@ class MainActivity : ComponentActivity() {
                     notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 screen = Screen.Shell
                 buzz()
+                // the health sync on opening, when the last is an hour old: a read with the app in
+                // front needs no background permission, so the day reaches the box whenever the
+                // person looks, whatever the six-hourly worker managed
+                lifecycleScope.launch { runCatching { com.localghost.app.sync.HealthSync.syncIfDue(this@MainActivity) } }
                 // Chat continuity: the box kept the conversation; put it back on the screen. Only
                 // when the screen is actually empty (a live in-memory chat wins) and not incognito
                 // (incognito threads are deliberately not persisted anywhere, including here).

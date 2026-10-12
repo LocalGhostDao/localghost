@@ -44,7 +44,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Long) -> Unit, onOpenCrypto: () -> Unit,
-               onOpenCoin: (String) -> Unit = {}, onOpenTarget: (String) -> Unit = {},
+               onOpenCoin: (String) -> Unit = {}, onOpenTarget: (String) -> Unit = {}, onOpenWeather: () -> Unit = {},
                continuing: String = "", onNewChat: () -> Unit = {}, onOpenChat: () -> Unit = {}) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
@@ -57,7 +57,7 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
     var forYou by remember { mutableStateOf<HomeData.ForYou?>(HomeCache.forYou) }
     // the weather where the phone is, from the box's daily pull (its position goes to the box and
     // nowhere else); read with the rest, every minute
-    var weather by remember { mutableStateOf<BoxClient.Weather?>(null) }
+    var weather by remember { mutableStateOf<BoxClient.Weather?>(HomeCache.weather(ctx)) }
     var failed by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var fetching by remember { mutableStateOf(false) }
@@ -133,7 +133,7 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
                 Spacer(Modifier.height(12.dp))
                 PricesCard(rates, fast, HomeCache.marketOf(rates, snap), failed, onOpenCrypto, onOpenCoin)
                 Spacer(Modifier.height(12.dp))
-                WeatherCard(weather, stamp)
+                WeatherCard(weather, stamp, onOpenWeather)
                 Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionLabel("THE DAY'S NEWS")
@@ -215,11 +215,14 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
  * no position yet or the box has no pull; a line says which.
  */
 @Composable
-private fun WeatherCard(w: BoxClient.Weather?, nowS: Long) {
-    Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter).padding(14.dp)) {
+private fun WeatherCard(w: BoxClient.Weather?, nowS: Long, onOpen: () -> Unit) {
+    // a tap opens WEATHER, the page with every hour and day, the models and their disagreement
+    Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter).clickable { onOpen() }.padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("WEATHER", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
             InfoButton("weather")
+            Spacer(Modifier.weight(1f))
+            Text("›", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }
         when {
             w == null -> Text("no position yet, or the box has not answered", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
@@ -248,45 +251,6 @@ private fun WeatherCard(w: BoxClient.Weather?, nowS: Long) {
                 Text(HomeText.weatherSource(w.place, w.country, w.fetchedAt, w.places, nowS, w.source, w.here), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
             }
         }
-    }
-}
-
-/** The next day's weather as a line: temperature across the hours, the chance of rain as bars
- *  along the bottom (darker the likelier), the hour under every sixth, the warmest and the
- *  coldest written at their points. Drawn, not charted: one glance says when it turns. */
-@Composable
-private fun WeatherLine(hs: List<WeatherHour>) {
-    val lo = hs.minOf { it.tempC }; val hi = hs.maxOf { it.tempC }
-    val iLo = hs.indexOfFirst { it.tempC == lo }; val iHi = hs.indexOfFirst { it.tempC == hi }
-    val labels = remember(hs) { WeatherHours.labelled(hs) }
-    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(64.dp)) {
-        val w = size.width; val h = size.height
-        val top = 12f * density; val bottom = h - 16f * density // room for the labels under
-        val barH = 6f * density
-        val plotBottom = bottom - barH - 2f * density
-        val step = if (hs.size > 1) w / (hs.size - 1) else w
-        fun x(i: Int) = i * step
-        fun y(t: Double) = top + WeatherHours.y(t, lo, hi) * (plotBottom - top)
-        // the rain bars
-        hs.forEachIndexed { i, hr ->
-            if (hr.rainPct > 0) drawRect(TerminalGreen.copy(alpha = 0.15f + 0.6f * (hr.rainPct / 100f)),
-                topLeft = androidx.compose.ui.geometry.Offset(x(i) - step / 2f + 1f, plotBottom + 2f * density),
-                size = androidx.compose.ui.geometry.Size((step - 2f).coerceAtLeast(1f), barH))
-        }
-        // the line
-        val path = androidx.compose.ui.graphics.Path()
-        hs.forEachIndexed { i, hr -> if (i == 0) path.moveTo(x(i), y(hr.tempC)) else path.lineTo(x(i), y(hr.tempC)) }
-        drawPath(path, TerminalGreen, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f * density))
-        val paint = android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(255, 0x7a, 0x8a, 0x7a); textSize = 10f * density
-            typeface = android.graphics.Typeface.MONOSPACE; textAlign = android.graphics.Paint.Align.CENTER
-        }
-        val nc = drawContext.canvas.nativeCanvas
-        labels.forEach { i -> nc.drawText(WeatherHours.hourOf(hs[i].at), x(i).coerceIn(8f * density, w - 8f * density), h - 3f * density, paint) }
-        // the warmest and the coldest, at their points
-        val bright = android.graphics.Paint(paint).apply { color = android.graphics.Color.argb(255, 0xd0, 0xd0, 0xd0) }
-        nc.drawText("%.0f°".format(java.util.Locale.UK, hi), x(iHi).coerceIn(12f * density, w - 12f * density), (y(hi) - 5f * density).coerceAtLeast(9f * density), bright)
-        if (iLo != iHi) nc.drawText("%.0f°".format(java.util.Locale.UK, lo), x(iLo).coerceIn(12f * density, w - 12f * density), (y(lo) + 12f * density).coerceAtMost(plotBottom), bright)
     }
 }
 
