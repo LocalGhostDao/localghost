@@ -5999,3 +5999,16 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 - A pull that stops with an error no longer ends the whole pass (it `return`ed, so one centre
   down left the models after it unpulled); the pass goes on to the next model.
 
+## 12 October 2026 , the Met Office order can change on its own
+
+- Vlad had "atmospheric-models" (the product's name) as the order and could not change it
+  without pasting the key again, which the box never shows back. `setMetOffice`: an empty key
+  with an order changes the order alone when a key is on the box (`metOfficeKeyOnly`); both
+  empty still forgets both; secd passes an order alone through; the ctl forces a pass on
+  either change. SETTINGS › MET OFFICE: SAVE is enabled with the order alone once a key is
+  kept and reads "SAVE THE ORDER" then.
+- The DataHub: a subscription is the plan and the key; an order (My orders › New order: the
+  UK 2 km lat-lon model, a region around home, the six fields, hourly to 48 h, the runs) is
+  what the API serves at `orders/<name>/latest`; without one there is nothing to pull. The
+  order's name, lower case with hyphens, is the ID.
+

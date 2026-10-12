@@ -424,11 +424,19 @@ func metOfficeSettings(db *poltergres.ReadWrite) *nwp.MetOffice {
 	return &mo
 }
 
-// setMetOffice keeps a key and an order (an empty key forgets both). The order's name is
-// taken as the API wants it: lower case, spaces as hyphens.
+// setMetOffice keeps a key and an order. An empty key with an order changes the order alone,
+// the box keeping the key it has (the key is never shown back, so the phone cannot resend it);
+// an empty key and an empty order forget both. The order's name is taken as the API wants
+// it: lower case, spaces as hyphens.
 func setMetOffice(db *poltergres.ReadWrite, key, order string) error {
 	key = strings.TrimSpace(key)
 	order = strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(order)), "-"))
+	if key == "" && order != "" {
+		if metOfficeKeyOnly(db) == "" {
+			return fmt.Errorf("no key on the box yet: the key is wanted with the order the first time")
+		}
+		return db.Exec("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", metOfficeOrderSetting, order)
+	}
 	if key == "" {
 		if err := db.Exec("DELETE FROM settings WHERE key IN ($1, $2)", metOfficeKeySetting, metOfficeOrderSetting); err != nil {
 			return err
@@ -441,6 +449,15 @@ func setMetOffice(db *poltergres.ReadWrite, key, order string) error {
 		}
 	}
 	return nil
+}
+
+// metOfficeKeyOnly is the kept key, "" without one (metOfficeSettings wants both).
+func metOfficeKeyOnly(db *poltergres.ReadWrite) string {
+	rows, err := db.Query("SELECT value FROM settings WHERE key = $1", metOfficeKeySetting)
+	if err != nil || len(rows.Vals) == 0 || len(rows.Vals[0]) == 0 || rows.Vals[0][0] == nil {
+		return ""
+	}
+	return *rows.Vals[0][0]
 }
 
 // metOfficeState is what the phone sees: whether a key is set, the order, and the model's

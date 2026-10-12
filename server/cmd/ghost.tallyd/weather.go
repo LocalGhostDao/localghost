@@ -180,7 +180,7 @@ func weatherCtl(mount string, ws *weatherState, ns *nwpState, force chan<- struc
 		if err := setMetOffice(db, a.MetOffice.Key, a.MetOffice.Order); err != nil {
 			return nil, err
 		}
-		if a.MetOffice.Key != "" {
+		if a.MetOffice.Key != "" || a.MetOffice.Order != "" {
 			select {
 			case forceNWP <- struct{}{}:
 			default:

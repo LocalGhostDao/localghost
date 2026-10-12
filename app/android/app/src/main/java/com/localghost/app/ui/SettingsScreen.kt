@@ -770,14 +770,17 @@ private fun MetOfficeSection() {
     field(key, if (st?.hasKey == true) "a new key (the box keeps the one it has)" else "DataHub API key (datahub.metoffice.gov.uk › My Subscriptions)", true) { key = it }
     field(order, "the order's name (lower case, hyphens for spaces)", false) { order = it }
     Row {
-        GhostButton(if (busy) "SAVING…" else "SAVE", {
-            if (!busy && key.isNotEmpty() && order.isNotEmpty()) scope.launch {
+        // with a key on the box the order can change on its own (the key is never shown back,
+        // so it cannot be resent); the first save wants both
+        val canSave = order.isNotEmpty() && (key.isNotEmpty() || st?.hasKey == true)
+        GhostButton(if (busy) "SAVING…" else if (key.isEmpty() && st?.hasKey == true) "SAVE THE ORDER" else "SAVE", {
+            if (!busy && canSave) scope.launch {
                 busy = true
                 val (after, why) = com.localghost.app.net.BoxClient.metOfficeSet(ctx, key, order)
                 busy = false
                 if (after != null) { st = after; key = ""; result = "kept on the box; the first pull follows within the hour" } else result = why
             }
-        }, modifier = Modifier.weight(1f))
+        }, modifier = Modifier.weight(1f), enabled = canSave || busy)
         if (st?.hasKey == true) {
             Spacer(Modifier.width(8.dp))
             GhostButton("FORGET", {

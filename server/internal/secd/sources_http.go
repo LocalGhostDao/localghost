@@ -903,6 +903,7 @@ func (s *Server) handleWeatherMetOffice(w http.ResponseWriter, r *http.Request) 
 			writeJSON(w, map[string]any{"ok": false, "why": "the order's name is wanted with the key"})
 			return
 		}
+		// an order alone changes the order, the box keeping its key; both empty forgets both
 		args["metoffice"] = map[string]any{"key": in.Key, "order": in.Order}
 	}
 	m, ok := ctlJSON("ghost.tallyd", runDir, "weather", args, 8*time.Second)
