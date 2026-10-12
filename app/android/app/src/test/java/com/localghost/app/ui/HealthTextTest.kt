@@ -79,6 +79,22 @@ class HealthTextTest {
         assertEquals("no days in this window", HealthText.windowLine(emptyList(), 0, HealthText.windows[0]))
     }
 
+    @Test fun moreStats() {
+        assertTrue(HealthText.spreadLine("steps", steps).startsWith("varies by ±3,"))
+        assertTrue(HealthText.spreadLine("steps", steps).endsWith("%)"))
+        assertEquals("", HealthText.spreadLine("steps", steps.take(2)))
+        // 2026-10-10 is a Saturday: this week Mon 5th..Sat 10th, last week ends Sun 4th
+        assertEquals("steps 69,909 this week · 8,000 last week · +774%", HealthText.weekCompare("steps", days, steps, LocalDate.of(2026, 10, 10)))
+        assertTrue(HealthText.weekCompare("resting_hr", days, steps, LocalDate.of(2026, 10, 10)).contains("this week (mean)"))
+        assertEquals("", HealthText.weekCompare("steps", days.drop(1), steps.drop(1), LocalDate.of(2026, 10, 10)))
+        val mm = HealthText.monthMeans(listOf("2026-09-30", "2026-10-01", "2026-10-02"), listOf(1.0, 2.0, 4.0), 12)
+        assertEquals(listOf("2026-09" to 1.0, "2026-10" to 3.0), mm)
+        assertEquals(listOf("2026-10" to 3.0), HealthText.monthMeans(listOf("2026-09-30", "2026-10-01", "2026-10-02"), listOf(1.0, 2.0, 4.0), 1))
+        assertEquals("Oct 26", HealthText.monthShort("2026-10"))
+        assertEquals("highest 15,909 on 2026-10-10 · lowest 7,000 on 2026-10-09 · 7 days kept since 2026-10-04", HealthText.recordsLine("steps", days, steps))
+        assertEquals("", HealthText.recordsLine("steps", emptyList(), emptyList()))
+    }
+
     @Test fun everyMetricHasAGroup() {
         HealthText.metrics.forEach { assertTrue(it.key, it.group in HealthText.groups) }
         assertEquals("steps", HealthText.label("steps"))

@@ -5828,3 +5828,19 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   says which of the three causes it is.
 - Explain topic "health" says what the screen holds now.
 
+## 12 October 2026 , the Met Office key fits, HEALTH shows more stats
+
+- secd `handleWeatherMetOffice` refused any key over 200 characters; the DataHub's key is a
+  JWT well over a thousand. Cap 8192 (order 200), body limit 16 KB, both trimmed. Vlad's
+  first paste was refused with "longer than any the DataHub gives", which was the box being
+  wrong, not the key. After the key saves, `ghost-cli ghost.tallyd weather` → `metoffice`
+  shows `set`, the order, and the model's last run or error (a 404 names the address, which
+  is the first real test of the DataHub paths in `internal/nwp/metoffice.go`).
+- HealthText: `spreadLine` (standard deviation and its share of the mean), `weekCompare`
+  (this calendar week against last, total for a kind that sums, mean otherwise), `monthMeans`
+  and `monthShort`, `recordsLine` (the highest and lowest over everything kept). Tests.
+- HealthScreen: THIS WEEK block on the dashboard; the kind page adds the spread and the week
+  line under STATS, BY MONTH (a year of monthly means as bars) and RECORDS above DAYS.
+- Hard Truths draft `outputs/hard-truths-breaking-free.md` (prices from the exchanges, the
+  map from the raw files, the weather from the models; the web window lays it in).
+

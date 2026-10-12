@@ -134,6 +134,19 @@ private fun HealthDashboard(series: List<BoxClient.HealthSeries>?, failed: Boole
                             modifier = Modifier.clickable { onDay(newest) }.padding(vertical = 4.dp))
                     }
                 }
+                // THIS WEEK against last, whole: the week's total where a kind sums, its mean
+                // where it does not; the kinds that have both weeks
+                item(key = "week") {
+                    val lines = all.map { HealthText.weekCompare(it.metric, it.days, it.values, today()) }.filter { it.isNotEmpty() }
+                    if (lines.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        SectionLabel("THIS WEEK")
+                        Spacer(Modifier.height(4.dp))
+                        Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(Void).padding(10.dp)) {
+                            lines.forEach { Text(it, color = GhostText, style = MaterialTheme.typography.labelMedium) }
+                        }
+                    }
+                }
                 HealthText.groups.forEach { g ->
                     val inGroup = all.filter { HealthText.metric(it.metric).group == g }.map { it to cut(it, win) }.filter { it.second.second.isNotEmpty() }
                     if (inGroup.isEmpty()) return@forEach
@@ -235,6 +248,10 @@ private fun HealthMetricPage(metric: String, all: List<BoxClient.HealthSeries>, 
                 Spacer(Modifier.height(4.dp))
                 HealthText.statLines(metric, sum, wl).forEach { Text(it, color = GhostText, style = MaterialTheme.typography.bodyMedium) }
                 Text(HealthText.againstMean(metric, sum.latest, sum.mean, wl), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                val spread = HealthText.spreadLine(metric, values)
+                if (spread.isNotEmpty()) Text(spread, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                val week = HealthText.weekCompare(metric, s!!.days, s!!.values, today())
+                if (week.isNotEmpty()) Text(week.removePrefix(HealthText.label(metric) + " "), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
                 // the last days against the days before, by the calendar; a week when the window
                 // holds two, a month when it holds two
                 val ser = s!!
@@ -269,6 +286,34 @@ private fun HealthMetricPage(metric: String, all: List<BoxClient.HealthSeries>, 
                 }
                 val wline = HealthText.weekdayLine(metric, means)
                 if (wline.isNotEmpty()) { Spacer(Modifier.height(4.dp)); Text(wline, color = GhostTextDim, style = MaterialTheme.typography.labelMedium) }
+            }
+            item {
+                // the months, whatever the window: a year of means, the kind's slow shape
+                val months = HealthText.monthMeans(s!!.days, s.values, 12)
+                if (months.size >= 2) {
+                    SectionLabel("BY MONTH")
+                    Spacer(Modifier.height(6.dp))
+                    val top = months.maxOf { it.second }
+                    Row(Modifier.fillMaxWidth().height(78.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+                        months.forEach { (ym, m) ->
+                            Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(HealthText.fmt(metric, m).substringBefore(' '), color = GhostTextDim, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                                val frac = if (top > 0) (m / top).toFloat() else 0f
+                                Box(Modifier.fillMaxWidth(0.75f).height((40 * frac).dp.coerceAtLeast(1.dp)).background(if (ym == months.last().first) TerminalGreen else TerminalDim))
+                                Text(HealthText.monthShort(ym).substringBefore(' '), color = TerminalDim, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                            }
+                        }
+                    }
+                    Text("the mean per day, each month · ${HealthText.monthShort(months.first().first)} to ${HealthText.monthShort(months.last().first)}", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(8.dp))
+                }
+                // the records over everything kept, so a window never hides the best day
+                val rec = HealthText.recordsLine(metric, s.days, s.values)
+                if (rec.isNotEmpty()) {
+                    SectionLabel("RECORDS")
+                    Spacer(Modifier.height(4.dp))
+                    Text(rec, color = GhostText, style = MaterialTheme.typography.labelMedium)
+                }
             }
             item { SectionLabel("DAYS") }
             val rows = days.indices.reversed().toList()

@@ -180,6 +180,64 @@ object HealthText {
         return out
     }
 
+    /** The spread day to day: the standard deviation and its share of the mean, "varies by
+     *  ±2,300 day to day (16%)"; "" with fewer than three days. */
+    fun spreadLine(key: String, values: List<Double>): String {
+        if (values.size < 3) return ""
+        val mean = values.average()
+        val sd = Math.sqrt(values.sumOf { (it - mean) * (it - mean) } / (values.size - 1))
+        val pct = if (mean != 0.0) " (${"%.0f".format(sd / Math.abs(mean) * 100)}%)" else ""
+        return "varies by ±${fmt(key, sd)} day to day$pct"
+    }
+
+    /** This calendar week (Monday to today) against last week, whole: the total for a kind that
+     *  sums, the mean for one that does not. "" when either week has no day. */
+    fun weekCompare(key: String, days: List<String>, values: List<Double>, today: LocalDate): String {
+        val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+        val lastMonday = monday.minusDays(7)
+        var a = 0.0; var an = 0; var b = 0.0; var bn = 0
+        for (i in days.indices) {
+            val d = try { LocalDate.parse(days[i]) } catch (_: Exception) { continue }
+            when {
+                !d.isBefore(monday) -> { a += values[i]; an++ }
+                !d.isBefore(lastMonday) -> { b += values[i]; bn++ }
+            }
+        }
+        if (an == 0 || bn == 0) return ""
+        val m = metric(key)
+        val x = if (m.cumulative) a else a / an
+        val y = if (m.cumulative) b else b / bn
+        val pct = if (y != 0.0) " · ${if (x >= y) "+" else "−"}${"%.0f".format(Math.abs((x / y - 1) * 100))}%" else ""
+        val what = if (m.cumulative) "" else " (mean)"
+        return "${label(key)} ${fmt(key, x)} this week$what · ${fmt(key, y)} last week$pct"
+    }
+
+    /** The mean per month, oldest first, the last [months] months that have a day: "2026-10" to 1,234. */
+    fun monthMeans(days: List<String>, values: List<Double>, months: Int): List<Pair<String, Double>> {
+        val sums = java.util.TreeMap<String, DoubleArray>()
+        for (i in days.indices) {
+            if (days[i].length < 7) continue
+            val m = days[i].substring(0, 7)
+            val e = sums.getOrPut(m) { DoubleArray(2) }
+            e[0] += values[i]; e[1] += 1
+        }
+        return sums.entries.toList().takeLast(months).map { it.key to it.value[0] / it.value[1] }
+    }
+
+    /** "Oct 26" from "2026-10". */
+    fun monthShort(ym: String): String {
+        val names = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+        val m = ym.substring(5, 7).toIntOrNull() ?: return ym
+        return names[(m - 1).coerceIn(0, 11)] + " " + ym.substring(2, 4)
+    }
+
+    /** The records over everything the box holds, whatever the window: "best 24,110 on 2026-07-14 ·
+     *  lowest 1,204 on 2026-01-02 · 312 days kept since 2025-11-01". */
+    fun recordsLine(key: String, days: List<String>, values: List<Double>): String {
+        val s = summary(days, values) ?: return ""
+        return "highest ${fmt(key, s.max)} on ${s.maxDay} · lowest ${fmt(key, s.min)} on ${s.minDay} · ${s.n} days kept since ${days.first()}"
+    }
+
     /** Sleep's efficiency where the stages are known: asleep over time in bed, as a percentage. */
     fun sleepEfficiency(total: Double, awake: Double): Double? =
         if (total <= 0 || awake < 0 || awake > total) null else (total - awake) / total * 100

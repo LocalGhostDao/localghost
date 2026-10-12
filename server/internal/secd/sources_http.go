@@ -887,14 +887,18 @@ func (s *Server) handleWeatherMetOffice(w http.ResponseWriter, r *http.Request) 
 			Key   string `json:"key"`
 			Order string `json:"order"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil {
+		// the DataHub's key is a JWT, well over a thousand characters: the first cut allowed
+		// 200 and refused every real one
+		if err := json.NewDecoder(io.LimitReader(r.Body, 16384)).Decode(&in); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		if len(in.Key) > 200 || len(in.Order) > 120 {
+		if len(in.Key) > 8192 || len(in.Order) > 200 {
 			writeJSON(w, map[string]any{"ok": false, "why": "the key or the order is longer than any the DataHub gives"})
 			return
 		}
+		in.Key = strings.TrimSpace(in.Key)
+		in.Order = strings.TrimSpace(in.Order)
 		if in.Key != "" && in.Order == "" {
 			writeJSON(w, map[string]any{"ok": false, "why": "the order's name is wanted with the key"})
 			return
