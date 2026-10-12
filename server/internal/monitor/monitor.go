@@ -1042,10 +1042,29 @@ func forecasts(db *poltergres.ReadWrite, now time.Time) Section {
 	s.AgeS = age(now, st.FetchedAt)
 	s.State = WeatherState(s.AgeS)
 	s.Rows = append(s.Rows, Row{K: "places", V: fmt.Sprintf("%d with a forecast, the oldest from %s ago", st.Places, Ago(age(now, st.OldestAt)))})
-	s.Rows = append(s.Rows, Row{K: "last pulled", V: Ago(s.AgeS) + " ago by the box"})
+	// THE BOX'S OWN FORECAST: one row per model (the feed log's "nwp:<model>" sources), its
+	// runs over two days and the last error. One model failing while the others come is a
+	// flaky section with that model named, not a failing one: the index is still computed from
+	// the models that came. The API pull's row stays for a box still on it.
+	models := 0
+	failing := 0
 	if stats, err := feedstat.Stats(db, feedstat.KindWeather, now.Add(-48*time.Hour), false); err == nil {
 		for _, v := range stats {
 			if v.Calls == 0 {
+				continue
+			}
+			if strings.HasPrefix(v.Key, "nwp:") {
+				models++
+				r := Row{K: strings.TrimPrefix(v.Key, "nwp:"), V: fmt.Sprintf("%d of %d runs came · %s a run", v.OK, v.Calls, Ago(int64(v.P50Ms/1000)))}
+				if v.OK < v.Calls {
+					r.V += " · " + v.LastError
+					r.State = Flaky
+					if v.FailsInRow >= 3 && v.OK == 0 {
+						r.State = Failing
+						failing++
+					}
+				}
+				s.Rows = append(s.Rows, r)
 				continue
 			}
 			r := Row{K: "batches (2 days)", V: fmt.Sprintf("%d of %d came · %s typical", v.OK, v.Calls, Ms(v.P50Ms))}
@@ -1060,6 +1079,22 @@ func forecasts(db *poltergres.ReadWrite, now time.Time) Section {
 			s.Rows = append(s.Rows, r)
 		}
 	}
+	if models > 0 {
+		s.Every = "the models' runs as the centres publish them, the index after each"
+		s.Rows = append(s.Rows, Row{K: "last computed", V: Ago(s.AgeS) + " ago"})
+		switch {
+		case failing == models:
+			s.State = Worst(s.State, Failing)
+		case failing > 0:
+			s.State = Worst(s.State, Flaky)
+		}
+		s.Line = fmt.Sprintf("%d places · the box's own forecast · computed %s ago", st.Places, Ago(s.AgeS))
+		if failing > 0 {
+			s.Line += fmt.Sprintf(" · %d of %d models not coming", failing, models)
+		}
+		return s
+	}
+	s.Rows = append(s.Rows, Row{K: "last pulled", V: Ago(s.AgeS) + " ago by the box"})
 	s.Line = fmt.Sprintf("%d places · pulled %s ago", st.Places, Ago(s.AgeS))
 	return s
 }

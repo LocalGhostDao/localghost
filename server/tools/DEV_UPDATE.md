@@ -5974,3 +5974,18 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   Health, the full writer name in the probe, the "Samsung Health writes nothing" verdict.
 - Health Connect is the one path: Samsung Health's own toggles decide what reaches it.
 
+## 12 October 2026 , the feeds' weather section knows the box's own forecast
+
+- health.sh said "weather failing" while the index was computing fine: the monitor's weather
+  section judged the feed log's `nwp:<model>` entries as if they were API batches, so one model
+  that never came (IFS, by the 03:02 readout: runs were icon-d2, icon-eu, gfs) made the section
+  fail. Now one row per model ("ifs: 0 of 6 runs came · … · <last error>"), the section flaky
+  while some models come and failing only when none do, the line "N places · the box's own
+  forecast · computed X ago · 1 of 3 models not coming". The API row stays for a box still on
+  the pull.
+- Read off the same readout: all 11 up after the 03:01 redeploy; oracled's "no CUDA lines"
+  verdict five seconds after start is the loading window (the GPU line comes eight seconds in);
+  synthd's memory index is still unbuilt (cued silent); the phone's whole-history walk shipped
+  each month three or four times over at 02:20 (idempotent, wasteful: the walk ran in parallel
+  with itself, worth a guard); IFS not in the runs; crypto50 and daily candles flaky.
+
