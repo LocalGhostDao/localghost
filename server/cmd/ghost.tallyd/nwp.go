@@ -46,6 +46,11 @@ type nwpModelState struct {
 	TookS   int    `json:"tookS,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Pulling bool   `json:"pulling,omitempty"`
+	// Looked is the last pass's verdict on this model's candidate runs ("12Z on the box",
+	// "00Z not complete yet, 18Z not complete yet, 12Z on the box"), so a model that never
+	// pulls can be read off `weather` without the log
+	Looked   string `json:"looked,omitempty"`
+	LookedAt int64  `json:"lookedAt,omitempty"`
 }
 
 // nwpState is what the ctl command and INTEGRATIONS see.
@@ -196,14 +201,24 @@ func nwpLoop(ctx context.Context, mount string, st *nwpState, lg *slog.Logger, f
 			st.mu.Lock()
 			ms.Skipped = ""
 			st.mu.Unlock()
+			var looked []string
+			note := func(s string) {
+				looked = append(looked, s)
+				st.mu.Lock()
+				ms.Looked, ms.LookedAt = strings.Join(looked, ", "), time.Now().Unix()
+				st.mu.Unlock()
+			}
 			for _, run := range nwp.Candidates(m, now) {
 				path := nwp.Path(mount, m.ID, run)
 				if _, err := os.Stat(path); err == nil {
+					note(run.Format("02 15Z") + " on the box")
 					break // the newest published run is on the box already
 				}
 				if !fetcher.Complete(ctx, m, run) {
+					note(run.Format("02 15Z") + " not complete yet")
 					continue // not all published yet: the run before, if it is newer than ours
 				}
+				note(run.Format("02 15Z") + " pulling")
 				st.mu.Lock()
 				ms.Pulling = true
 				st.mu.Unlock()
@@ -216,8 +231,13 @@ func nwpLoop(ctx context.Context, mount string, st *nwpState, lg *slog.Logger, f
 				_ = feedstat.Log(db, now, []feedstat.Entry{{Source: "nwp:" + m.ID, Kind: feedstat.KindWeather, By: "box", Status: 200,
 					OK: err == nil && nwp.Enough(r, m), TookMs: int(p.Took.Milliseconds()), Bytes: int(p.Bytes), Items: p.Fields, Error: p.LastErr}})
 				if err != nil {
+					// one centre down must not stop the others: on to the next model
 					lg.Warn("weather index: the pull stopped", "fn", "nwpLoop", "model", m.ID, "err", err)
-					return
+					if ctx.Err() != nil {
+						return
+					}
+					note("the pull stopped: " + err.Error())
+					break
 				}
 				if !nwp.Enough(r, m) {
 					lg.Warn("weather index: too little of the run came", "fn", "nwpLoop", "model", m.ID, "run", run.Format("2006-01-02 15Z"), "fields", p.Fields, "missing", p.Missing, "lastErr", p.LastErr)

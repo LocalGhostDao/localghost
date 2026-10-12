@@ -5989,3 +5989,13 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   each month three or four times over at 02:20 (idempotent, wasteful: the walk ran in parallel
   with itself, worth a guard); IFS not in the runs; crypto50 and daily candles flaky.
 
+## 12 October 2026 , why a model never pulls is now readable
+
+- `ghost-cli ghost.tallyd weather` showed `"ifs": {}`: no run, no error, no word on why. The
+  pass records each model's candidate verdicts (`looked`: "12 18Z not complete yet, 12 12Z on
+  the box", or "pulling", or "the pull stopped: …", with `lookedAt`), so a model that never
+  pulls says so. A HEAD on ECMWF's 120h `.index` from here answered 200, so the IFS layout is
+  right; the verdicts will say which step of the dance fails on the box.
+- A pull that stops with an error no longer ends the whole pass (it `return`ed, so one centre
+  down left the models after it unpulled); the pass goes on to the next model.
+
