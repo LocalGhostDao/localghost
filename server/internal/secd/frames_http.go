@@ -1800,3 +1800,102 @@ func deviceKeyFromRequest(r *http.Request) string {
 	}
 	return k
 }
+
+// handleHealthImport , the Samsung Health download. POST with the zip as the body spools it
+// under <mount>/tallyd/import (the run user's, like the inbox) and answers with tallyd's scan
+// of it: every table, its rows and span, and what the import would take. POST /v1/health/import/start
+// {file} starts the import; GET /v1/health/import follows it (tallyd's `health` answer, its
+// `import` part). The zip is the person's own data and stays on the volume.
+func (s *Server) handleHealthImport(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) {
+		s.appearsDown(w)
+		return
+	}
+	mounted, ok := s.mountedSlot()
+	if !ok {
+		s.appearsDown(w)
+		return
+	}
+	mount := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted))
+	runDir := filepath.Join(mount, "run")
+	switch {
+	case r.Method == http.MethodGet:
+		m, ok := ctlJSON("ghost.tallyd", runDir, "health", map[string]any{}, 8*time.Second)
+		if !ok {
+			writeJSON(w, map[string]any{"ok": false, "why": "the box did not answer"})
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "import": m["import"]})
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/start"):
+		var in struct {
+			File string `json:"file"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil || in.File == "" {
+			http.Error(w, "{file}", http.StatusBadRequest)
+			return
+		}
+		resp, err := ctlsock.NewClientTimeout("ghost.tallyd", runDir, 8*time.Second).Call("health", map[string]any{"import": filepath.Base(in.File)})
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": false, "why": "the box did not answer"})
+			return
+		}
+		if !resp.OK {
+			writeJSON(w, map[string]any{"ok": false, "why": resp.Err})
+			return
+		}
+		var m map[string]any
+		_ = json.Unmarshal(resp.Data, &m)
+		writeJSON(w, map[string]any{"ok": true, "import": m["import"]})
+	case r.Method == http.MethodPost:
+		dir := filepath.Join(mount, "tallyd", "import")
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			s.appearsDown(w)
+			return
+		}
+		name := fmt.Sprintf("samsung-health-%d.zip", time.Now().Unix())
+		part := filepath.Join(dir, name+".part")
+		f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+		if err != nil {
+			s.appearsDown(w)
+			return
+		}
+		// a download is hundreds of megabytes at most (years of heart rate); 4 GB is the ceiling
+		n, err := io.Copy(f, http.MaxBytesReader(w, r.Body, 4<<30))
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil || n == 0 {
+			_ = os.Remove(part)
+			http.Error(w, "the zip as the body", http.StatusBadRequest)
+			return
+		}
+		if s.cfg.RunUser != "" {
+			if u, uerr := user.Lookup(s.cfg.RunUser); uerr == nil {
+				uid, _ := strconv.Atoi(u.Uid)
+				gid, _ := strconv.Atoi(u.Gid)
+				_ = os.Chown(part, uid, gid)
+				_ = os.Chown(dir, uid, gid)
+			}
+		}
+		if err := os.Rename(part, filepath.Join(dir, name)); err != nil {
+			_ = os.Remove(part)
+			s.appearsDown(w)
+			return
+		}
+		secdLog.Info("samsung health download spooled", "fn", "handleHealthImport", "file", name, "bytes", n)
+		resp, err := ctlsock.NewClientTimeout("ghost.tallyd", runDir, 120*time.Second).Call("health", map[string]any{"scan": name})
+		if err != nil {
+			writeJSON(w, map[string]any{"ok": true, "file": name, "why": "spooled; the box did not answer the scan"})
+			return
+		}
+		if !resp.OK {
+			writeJSON(w, map[string]any{"ok": false, "file": name, "why": resp.Err})
+			return
+		}
+		var m map[string]any
+		_ = json.Unmarshal(resp.Data, &m)
+		writeJSON(w, map[string]any{"ok": true, "file": name, "scan": m["scan"]})
+	default:
+		s.appearsDown(w)
+	}
+}

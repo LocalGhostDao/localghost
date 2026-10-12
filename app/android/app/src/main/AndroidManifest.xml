@@ -56,6 +56,14 @@
     <!-- Reading with the app closed: the six-hourly worker is refused every type without it. -->
     <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 
+    <!-- Android 11+ hides other packages unless named here: without this the app could not see
+         Samsung Health was installed, and the diagnostics said "no app writes them" to a phone
+         with a watch. -->
+    <queries>
+        <package android:name="com.sec.android.app.shealth" />
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
+
     <application
         android:name=".LocalGhostApp"
         android:allowBackup="false"

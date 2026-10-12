@@ -474,7 +474,7 @@ object HealthSync {
                         if (oldest == null || t.isBefore(oldest)) oldest = t
                         if (newest == null || t.isAfter(newest)) newest = t
                         val pkg = r.metadata.dataOrigin.packageName
-                        if (pkg.isNotEmpty()) apps.add(pkg.substringAfterLast('.'))
+                        if (pkg.isNotEmpty()) apps.add(pkg)
                     }
                     token = resp.pageToken
                     pages++
@@ -590,7 +590,9 @@ object HealthDiag {
                 (if (r.newestDay.isNotEmpty()) " · newest ${r.newestDay}" else "") + (if (r.error.isNotEmpty()) " · ${r.error}" else "") +
                 (if (r.skipped.isNotEmpty()) " · skipped ${r.skipped}" else ""))
         }
-        o.put("verdict", HealthVerdict.of(sdk == HealthConnectClient.SDK_AVAILABLE, HealthSync.PERMISSIONS.count { it !in granted }, lines, o.optBoolean("samsungHealth")))
+        // whether Samsung Health is among the writers at all: the probe names each record's app
+        val samsungWrites = lines.any { it.contains(HealthSync.SAMSUNG_HEALTH) }
+        o.put("verdict", HealthVerdict.of(sdk == HealthConnectClient.SDK_AVAILABLE, HealthSync.PERMISSIONS.count { it !in granted }, lines, o.optBoolean("samsungHealth"), samsungWrites))
         return o
     }
 
@@ -613,6 +615,8 @@ class HealthWorker(ctx: Context, params: androidx.work.WorkerParameters) : andro
         // the account of what was readable goes with every run, so the box can say why a day
         // is missing without the person opening SETTINGS
         runCatching { HealthDiag.send(ctx) }
+        // a new Samsung Health download in the watched folder is imported on its own
+        runCatching { HealthImport.autoImport(ctx) }
         return Result.success()
     }
 }

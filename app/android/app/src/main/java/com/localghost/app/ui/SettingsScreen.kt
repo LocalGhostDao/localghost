@@ -523,7 +523,7 @@ internal fun HealthSection() {
             }
         }.padding(vertical = 6.dp))
     probeLines.forEach { l -> Text("  $l", color = TerminalDim, style = MaterialTheme.typography.labelMedium) }
-    if (probeLines.isNotEmpty()) Text("  a type with nothing in it is not shared with Health Connect: Samsung Health › Settings › Health Connect › allow it",
+    if (probeLines.isNotEmpty()) Text("  a kind with nothing in it is not shared with Health Connect, and the app named after \"from\" is the one that wrote what is there: " + com.localghost.app.sync.HealthVerdict.SAMSUNG_PATH,
         color = TerminalDim, style = MaterialTheme.typography.labelMedium)
     var diagMsg by remember { mutableStateOf("") }
     var diagBusy by remember { mutableStateOf(false) }
@@ -536,6 +536,72 @@ internal fun HealthSection() {
             }
         }.padding(vertical = 6.dp))
     if (diagMsg.isNotEmpty()) Text("  $diagMsg", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+    // THE SAMSUNG HEALTH DOWNLOAD: the years Health Connect never held. The person picks the
+    // folder Samsung Health wrote (Download › Samsung Health), the phone zips its CSVs and sends
+    // them, the box says what is in them, and the import runs on the box with this following.
+    var importMsg by remember { mutableStateOf("") }
+    var importLines by remember { mutableStateOf<List<String>>(emptyList()) }
+    var importScan by remember { mutableStateOf<com.localghost.app.sync.HealthImportText.Scan?>(null) }
+    var importBusy by remember { mutableStateOf(false) }
+    var pickedTree by remember { mutableStateOf<android.net.Uri?>(null) }
+    var watchTick by remember { mutableIntStateOf(0) }
+    val treeLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        pickedTree = uri
+        importBusy = true; importScan = null; importLines = emptyList()
+        scope.launch {
+            importMsg = "zipping the tables and their readings…"
+            val z = com.localghost.app.sync.HealthImport.zipTree(hctx, uri) { n -> importMsg = "zipping… $n files" }
+            if (z == null) { importMsg = "! no CSV files in that folder , pick the Samsung Health folder under Download"; importBusy = false; return@launch }
+            importMsg = "sending ${z.csvs} tables and ${z.jsons} reading files (${z.bytes / 1024} KB) to the box, which reads every table once…"
+            val (sc, why) = com.localghost.app.sync.HealthImport.send(hctx, z)
+            if (sc == null) { importMsg = "! $why"; importBusy = false; return@launch }
+            importScan = sc
+            importLines = com.localghost.app.sync.HealthImportText.lines(sc)
+            importMsg = "on the box as ${sc.file} · nothing written yet"
+            importBusy = false
+        }
+    }
+    Text(if (importBusy) "[ working on the download… ]" else "[ import a Samsung Health download ]",
+        color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+        modifier = Modifier.clickable { if (!importBusy) treeLauncher.launch(null) }.padding(vertical = 6.dp))
+    Text("  Samsung Health › ⋮ › Settings › Download personal data writes a folder under Download › Samsung Health; pick it. The box reads the years the watch has worn, Health Connect or not, stress and all. After the first import the folder is watched, and the next download you make is imported on its own.",
+        color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+    importLines.forEach { l -> Text("  $l", color = TerminalDim, style = MaterialTheme.typography.labelMedium) }
+    val sc = importScan
+    if (sc != null && !importBusy) {
+        Text("[ import it ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.clickable {
+                importBusy = true
+                scope.launch {
+                    val (p0, why) = com.localghost.app.net.BoxClient.healthImportStart(hctx, sc.file)
+                    if (p0 == null && why.isNotEmpty()) { importMsg = "! $why"; importBusy = false; return@launch }
+                    importScan = null; importLines = emptyList()
+                    var p = com.localghost.app.sync.HealthImportText.progressOf(p0)
+                    while (p == null || (p.state != "done" && p.state != "failed")) {
+                        if (p != null) importMsg = com.localghost.app.sync.HealthImportText.progressLine(p)
+                        kotlinx.coroutines.delay(2000)
+                        p = com.localghost.app.sync.HealthImportText.progressOf(com.localghost.app.net.BoxClient.healthImportStatus(hctx)) ?: p
+                    }
+                    importMsg = com.localghost.app.sync.HealthImportText.progressLine(p)
+                    importBusy = false
+                    // the folder just imported is the one to watch: the next download goes on its own
+                    pickedTree?.let { t -> if (p.state == "done" && com.localghost.app.sync.HealthImport.watch(hctx, t)) { com.localghost.app.sync.HealthImport.markImported(hctx, t); watchTick++ } }
+                    tick++
+                }
+            }.padding(vertical = 6.dp))
+    }
+    if (importMsg.isNotEmpty()) Text("  $importMsg", color = if (importMsg.startsWith("!")) Warning else GhostTextDim, style = MaterialTheme.typography.labelMedium)
+    // THE WATCHED FOLDER: once a download has been imported, the folder is kept and the
+    // six-hourly worker imports the next download by itself
+    val watch = remember(watchTick) { com.localghost.app.sync.HealthImport.watching(hctx) }
+    if (watch != null) {
+        val last = if (watch.lastAt > 0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.UK).format(java.util.Date(watch.lastAt * 1000)) else "never"
+        Text("  watching that folder · a new download is imported within six hours · last $last" + (if (watch.note.isNotEmpty()) " · ${watch.note}" else ""),
+            color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+        Text("[ stop watching ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.clickable { com.localghost.app.sync.HealthImport.unwatch(hctx); watchTick++ }.padding(vertical = 6.dp))
+    }
     if (healthMsg.isNotEmpty()) {
         Spacer(Modifier.height(6.dp))
         Text(healthMsg, color = GhostTextDim, style = MaterialTheme.typography.labelMedium)

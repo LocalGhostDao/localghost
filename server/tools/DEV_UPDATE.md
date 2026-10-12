@@ -5881,3 +5881,83 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 - Distance and active kcal still come from HC's aggregate; Samsung's "distance while active"
   is a different definition. Not touched.
 
+## 12 October 2026 , Samsung Health writes nothing to Health Connect
+
+- Vlad's diagnostics (03:20): steps 3000+ records from one app whose package's last segment
+  is a hash (not Samsung Health), every other kind "nothing in Health Connect", Samsung
+  Health's own aggregate `?` (no records of its origin), the raw records all `phone`, the
+  verdict "(no app writes them)". Reading: Samsung Health is not sharing with Health Connect
+  at all; the steps there are the phone's own counter through another writer; the watch's
+  data lives only in Samsung Health. Nothing the app reads can change that; the sharing
+  toggles in Samsung Health can.
+- `samsungHealth` came back false because Android 11+ hides packages: `<queries>` for
+  `com.sec.android.app.shealth` and `com.google.android.apps.healthdata` in the manifest.
+- The probe prints the writer's full package name (the last segment alone hid it).
+- `HealthVerdict.of(…, samsungWrites)`: "Samsung Health writes nothing to Health Connect (what
+  is there, another app wrote): Samsung Health › ⋮ › Settings › Health Connect (or Connected
+  services › Health Connect) › allow all data types". `SAMSUNG_PATH` shared by the three
+  Samsung lines and the SETTINGS hint. Tests.
+
+## 12 October 2026 , the Samsung Health download, imported
+
+- Vlad downloaded his Samsung Health data (Samsung Health › ⋮ › Settings › Download personal
+  data): a folder under Download › Samsung Health with one CSV per table and a jsons folder.
+  Health Connect holds only what Samsung Health has shared since it was told to (sleep and
+  steps so far); the download holds the watch's years and every kind.
+- `internal/shealth` (tests over a synthetic download): `Scan(zip)` lists every table (name
+  after `com.samsung.(s)health.`, rows, the days it names, what the box takes or "not read");
+  `Batches(zip)` reads the known tables into month `tally.Batch`es. Columns by suffix; the
+  preamble line (`<table>,<version>,<n>`) skipped; times UTC + `time_offset`; `day_time` epoch
+  ms. Taken: pedometer_day_summary (steps/distance/active kcal, the largest of the day's rows),
+  sleep (merged, under the night's end day) and sleep_stage (40001..40004 → awake/light/deep/
+  REM, by `sleep_id`), tracker.heart_rate (day mean/min/max, 5-minute samples), exercise
+  (minutes), weight (kg, body fat), oxygen_saturation (mean), stress (mean, new metric `stress`),
+  floors_climbed, activity.day_summary (`active_minutes`, new), heart_rate_variability.
+  The format is as remembered, not as verified: the scan says what parsed.
+- tallyd: `health scan=<file>` / `health import=<file>` (files under `<mount>/tallyd/import`,
+  base name only); the import runs in the background through `tally.Ingest` a month at a time;
+  `health` answers `import` {state, table, tables, rows, days, months, samples, oldest, newest,
+  error}; the zip is renamed `.done` after.
+- secd: `POST /v1/health/import` (the zip as the body, 4 GB cap) spools to the import dir
+  (chowned) and answers the scan; `POST /v1/health/import/start {file}`; `GET /v1/health/import`
+  follows. OpenAPI entries.
+- tally: `KeepHigher` (steps, distance_km, active_calories, floors, exercise_minutes,
+  active_minutes) upsert with GREATEST, so Health Connect's partial week never lowers the
+  download's full days; a measurement takes the latest. PG test.
+- App: SETTINGS › HEALTH › "[ import a Samsung Health download ]" → OpenDocumentTree →
+  `HealthImport.zipTree` (the CSVs of the picked folder into a cache zip) → `send` → the scan's
+  lines → "[ import it ]" → polls `/v1/health/import` every 2 s. `HealthImportText` pure (tests).
+  HealthText gains `active_minutes` and `stress`.
+
+## 12 October 2026 , the download as it really is, and the permanent door
+
+- Vlad's files: a UTF-8 BOM opens each CSV; the preamble is `<table>,<version>,<n>`; the
+  columns are plain (`start_time`, `time_offset`, `deviceuuid`, `pkg_name`, `datauuid`, a
+  trailing comma); `day_time` can be a datetime string; `time_offset` varies per row
+  (travel). The per-minute readings (heart rate, respiratory rate) are not in the CSV: the
+  row is the session's summary and names a `binning_data` json under `jsons/<table>/`, an
+  array of {start_time ms, end_time ms, heart_rate, heart_rate_min, heart_rate_max} (zeros for
+  no reading). shealth strips the BOM, reads the binning files for heart rate and breathing
+  rate (falling back to the row's value), and takes skin temperature; test fixtures in the
+  real shape. The phone zips the jsons folder too, with paths.
+- The permanent path is Samsung's own SDK, not Health Connect: the Samsung Health Data SDK
+  (developer.samsung.com/health/data) reads Samsung Health directly, Android 10+, an .aar
+  from Samsung, Gson. It reads steps, sleep, heart rate, blood oxygen, skin temperature, body
+  composition, body temperature, exercise, floors, energy score, activity summary, nutrition,
+  water, blood pressure, blood glucose, sleep apnea; it does not read stress or HRV (the
+  download does). Developer mode (⋮ › Settings › About Samsung Health › tap the version ten
+  times › Developer mode for Data Read) lets an app built with any key read; a released app
+  needs Samsung's partner registration of its package and signature. Not built yet: the aar
+  is downloaded from Samsung; the integration follows once it is in `app/libs`.
+
+## 12 October 2026 , the watched folder: no SDK, the next download imports itself
+
+- Vlad: no third-party tools, so no Samsung SDK. The permanent loop without one: Health
+  Connect for what Samsung Health shares (steps, sleep so far), and the download for the
+  rest, with the app doing everything but the tap in Samsung Health.
+- `HealthImport.watch(ctx, tree)` keeps the picked folder (takePersistableUriPermission) after
+  a successful import; `fingerprint` (newest CSV's modified time, count, name; the jsons
+  folder skipped) says whether a new download is there; `autoImport` runs at the end of every
+  six-hourly HealthWorker: zip, send, start, mark. SETTINGS shows "watching that folder · a
+  new download is imported within six hours · last …" and "[ stop watching ]".
+
