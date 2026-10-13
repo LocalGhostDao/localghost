@@ -41,9 +41,9 @@ SETTINGS › MAIL › THE RELAY'S LINE (tap to copy), or `ghost-cli ghost.noted 
 box=vlad addresses=vlad@ghost.localghost.ai pub=<64 hex> token=<64 hex> dkim_rsa=<base64> dkim_ed=<base64>
 ```
 
-The relay's operator appends it to `/etc/ghost-mail/boxes.conf` (the relay reloads the file
+The relay's operator appends it to `~/ghost-mail/etc/boxes.conf` (the relay reloads the file
 within a minute) and publishes your two DKIM keys under the shared domain, which
-`ghost.maild -dns ghost.localghost.ai` prints for them:
+`ghost-maild -dns ghost.localghost.ai` prints for them:
 
 ```
 vlad-rsa._domainkey.ghost.localghost.ai.  TXT  "v=DKIM1; k=rsa; p=…"

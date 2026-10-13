@@ -85,7 +85,7 @@ vlad-ed._domainkey.ghost.localghost.ai.   TXT  "v=DKIM1; k=ed25519; p=<the box's
 ```
 
 The keys travel in the box's enrol line (`dkim_rsa=`, `dkim_ed=`), and the relay prints the
-zone lines for every box with `ghost.maild -dns ghost.localghost.ai`. The private halves never
+zone lines for every box with `ghost-maild -dns ghost.localghost.ai`. The private halves never
 leave the box's volume, so LocalGhost publishes keys it cannot use, and `p=reject` with strict
 DKIM alignment means only the box can send as its own address.
 
@@ -98,16 +98,18 @@ with both.
 
 ## The relay, `deploy/mail/cmd/ghost.maild` in the web repository
 
-`ghost-mail` user, `/var/lib/ghost-mail`, systemd with `CAP_NET_BIND_SERVICE` and nothing else,
-`:25` for SMTP, `127.0.0.1:8025` for the box API behind the host's nginx. Its own A record, a
-PTR at the host's provider pointing back, a Let's Encrypt certificate copied in by a certbot
-deploy hook (reloaded within ten minutes), port 25 open both ways. `deploy/mail/` over there has
-the unit, the config examples, the hook, the nginx snippet, the MTA-STS policy and
-`scripts/install.sh`. Its `internal/seal` and `internal/wire` are this repository's
-`internal/mailseal` and `internal/mailwire`, the same files: the seal format and the note are
-the contract, and neither side changes them alone.
+Runs as the relay machine's deploy user from `~/ghost-mail` (binary, configuration, TLS copies,
+the relay's own key, the queue), as a systemd user unit; root is needed once on the machine
+(unprivileged ports from 25, a certbot deploy hook that copies the mx certificate's PEMs into
+`~/ghost-mail/tls`, lingering) and never for an update. `:25` for SMTP, `127.0.0.1:8025` for
+the box API behind the host's nginx. Its own A record, a PTR at the host's provider pointing
+back, a Let's Encrypt certificate reloaded within ten minutes of a renewal, port 25 open both
+ways. `deploy/mail/` over there has the unit, the config examples, the hook, the nginx snippet,
+the MTA-STS policy, `scripts/root-once.sh` and `scripts/install.sh`. Its `internal/seal` and
+`internal/wire` are this repository's `internal/mailseal` and `internal/mailwire`, the same
+files: the seal format and the note are the contract, and neither side changes them alone.
 
-**Boxes.** `/etc/ghost-mail/boxes.conf`, one line per box, written by hand (no `/enrol` in the
+**Boxes.** `~/ghost-mail/etc/boxes.conf`, one line per box, written by hand (no `/enrol` in the
 first version; see "Who may use the relay"):
 
 ```
