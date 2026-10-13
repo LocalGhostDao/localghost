@@ -6177,3 +6177,19 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   reads `lgs.example.com` now; the code never had it. Git history keeps the earlier text, which
   is the one more reason mail never uses that name. `MAIL_RUNBOOK.md` (outputs) is the
   per-machine command list: the localghost.ai server, the DNS, the box, the phone.
+
+## 14 October 2026 , first relay live; two ctl fixes
+
+- The relay runs on xyntai as coder (`~/ghost-mail`, a user unit, root once for ports from 25
+  and the certbot hook), with its own certificate for `mx` and `mta-sts`; the shared domain's
+  five records and the box's two DKIM records are live at Cloudflare; the box is enrolled and
+  pulls an empty queue. Found on the way: nginx had been refusing every reload since the
+  Anchor Terminal site changed a `limit_req_zone` key (an `[emerg]` only the journal shows;
+  `nginx -t` passes), so the live config was weeks old; a restart fixed it.
+- `mail-address shared=1` did not take: ghost-cli types `1` as a number and the handler
+  wanted a bool, so the enrol line said `domains=` for the shared domain. The ctl flags now
+  take true, 1, on or yes (`flagOn`), for `mail-address` and `mail-checks`; the enrol text
+  names `~/ghost-mail/etc/boxes.conf`.
+- Receiving waits on the router's port-25 forward (a week away); a Gmail message sent before
+  it bounces after two days and has to be sent again. Sending from the home IP will be
+  refused by the large receivers (no PTR); a VPS fixes both, same scripts.

@@ -849,6 +849,16 @@ func (m *mailer) enrolLine(s mailSettings, make bool) (string, error) {
 		base64.StdEncoding.EncodeToString(rsaDer), base64.StdEncoding.EncodeToString(m.keys.ed.Public().(ed25519.PublicKey))), nil
 }
 
+// flagOn reads a ctl flag however ghost-cli typed it: true, 1, "on", "yes", or a bare flag.
+func flagOn(raw json.RawMessage) bool {
+	v := strings.Trim(strings.ToLower(strings.TrimSpace(string(raw))), `"`)
+	switch v {
+	case "true", "1", "on", "yes":
+		return true
+	}
+	return false
+}
+
 // bindMailCtl registers the mail commands on the control socket.
 func (m *mailer) bindCtl(ctl *ctlsock.Server) {
 	ctl.Handle("mail", func(json.RawMessage) (ctlsock.Response, error) {
@@ -869,21 +879,24 @@ func (m *mailer) bindCtl(ctl *ctlsock.Server) {
 		return ctlsock.Response{OK: true, Text: "a pass is on its way"}, nil
 	})
 	ctl.Handle("mail-address", func(args json.RawMessage) (ctlsock.Response, error) {
+		// ghost-cli turns `shared=1` into a number and `shared=true` into a bool; take both
 		var a struct {
-			Address string `json:"address"`
-			Shared  bool   `json:"shared"`
-			Own     bool   `json:"own"`
+			Address string          `json:"address"`
+			Shared  json.RawMessage `json:"shared"`
+			Own     json.RawMessage `json:"own"`
 		}
 		_ = json.Unmarshal(args, &a)
 		addr := strings.ToLower(strings.TrimSpace(a.Address))
 		if !validAddress(addr) {
-			return ctlsock.Response{OK: false, Err: "address=<local@domain>, e.g. vlad@ghost.localghost.ai (shared=1) or agent@ghost.example.org (own=1)"}, nil
+			return ctlsock.Response{OK: false, Err: "address=<local@domain>, e.g. vlad@ghost.localghost.ai shared=1, or agent@ghost.example.org own=1"}, nil
 		}
 		if err := m.store.SetSetting(m.slot, "mail_address", addr); err != nil {
 			return ctlsock.Response{OK: false, Err: err.Error()}, nil
 		}
-		if a.Shared || a.Own {
-			m.store.SetSetting(m.slot, "mail_shared", map[bool]string{true: "on", false: "off"}[a.Shared])
+		if flagOn(a.Shared) {
+			m.store.SetSetting(m.slot, "mail_shared", "on")
+		} else if flagOn(a.Own) {
+			m.store.SetSetting(m.slot, "mail_shared", "off")
 		}
 		m.writeDNS()
 		text := "the address is " + addr + "; `mail-dns` prints the records, `mail-enrol` the relay's line"
@@ -923,7 +936,7 @@ func (m *mailer) bindCtl(ctl *ctlsock.Server) {
 		if err != nil {
 			return ctlsock.Response{OK: false, Err: err.Error()}, nil
 		}
-		return ctlsock.Response{OK: true, Text: "add this line to the relay's /etc/ghost-mail/boxes.conf:\n" + line}, nil
+		return ctlsock.Response{OK: true, Text: "add this line to the relay's ~/ghost-mail/etc/boxes.conf:\n" + line}, nil
 	})
 	ctl.Handle("mail-dns", func(json.RawMessage) (ctlsock.Response, error) {
 		recs := m.dnsRecords(m.settings())
@@ -946,12 +959,12 @@ func (m *mailer) bindCtl(ctl *ctlsock.Server) {
 	})
 	ctl.Handle("mail-checks", func(args json.RawMessage) (ctlsock.Response, error) {
 		var a struct {
-			On  bool `json:"on"`
-			Off bool `json:"off"`
+			On  json.RawMessage `json:"on"`
+			Off json.RawMessage `json:"off"`
 		}
 		_ = json.Unmarshal(args, &a)
 		v := "on"
-		if a.Off {
+		if flagOn(a.Off) {
 			v = "off"
 		}
 		m.store.SetSetting(m.slot, "mail_dns_checks", v)
