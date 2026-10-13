@@ -95,6 +95,14 @@ class HealthTextTest {
         assertEquals("", HealthText.recordsLine("steps", emptyList(), emptyList()))
     }
 
+    @Test fun aRunningDayIsNotUnderTheMean() {
+        val s = HealthText.summary(days, steps)!!
+        assertEquals("today so far", HealthText.tileLine("steps", s, "2026-10-10"))
+        assertEquals("+4,779 on mean", HealthText.tileLine("steps", s, "2026-10-11"))
+        // a measurement is whole at any hour: no "so far" for a resting heart rate
+        assertEquals("+4779 bpm on mean", HealthText.tileLine("resting_hr", s, "2026-10-10"))
+    }
+
     @Test fun everyMetricHasAGroup() {
         HealthText.metrics.forEach { assertTrue(it.key, it.group in HealthText.groups) }
         assertEquals("steps", HealthText.label("steps"))

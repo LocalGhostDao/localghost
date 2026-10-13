@@ -2450,4 +2450,120 @@ object BoxClient {
         }
     }
 
+    // --- MAIL (docs/MAIL.md): the box's inbox through the relay, and the person's tap on SEND ---
+    private fun strList(a: org.json.JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }
+
+    private fun mailRowOf(o: JSONObject): com.localghost.app.ui.MailText.Row =
+        com.localghost.app.ui.MailText.Row(o.optLong("id"), o.optString("direction"), o.optString("state"), o.optString("from"), o.optString("fromName"),
+            strList(o.optJSONArray("to")), strList(o.optJSONArray("cc")), o.optString("replyTo"), o.optString("subject"),
+            o.optLong("sentAt"), o.optLong("receivedAt"), o.optString("preview"), o.optInt("attachmentCount"), o.optString("spam"),
+            o.optString("threadKey"), o.optString("messageId"), o.optString("lastErr"))
+
+    data class MailCounts(val inbox: Int, val unseen: Int, val sent: Int, val waiting: Int)
+    data class MailPage(val rows: List<com.localghost.app.ui.MailText.Row>, val counts: MailCounts)
+
+    /** GET /v1/mail: a folder's rows newest first; [before] pages past the last id seen. */
+    suspend fun mailList(ctx: Context, folder: String, q: String = "", before: Long = 0, limit: Int = 50): MailPage? = try {
+        val qs = "folder=" + folder + "&limit=" + limit + (if (before > 0) "&before=$before" else "") +
+            (if (q.isNotBlank()) "&q=" + java.net.URLEncoder.encode(q, "UTF-8") else "")
+        val r = BoxHttp.getJson(ctx, "/v1/mail?$qs")
+        val a = r.optJSONArray("messages") ?: org.json.JSONArray()
+        val c = r.optJSONObject("counts") ?: JSONObject()
+        MailPage((0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { mailRowOf(it) } },
+            MailCounts(c.optInt("in"), c.optInt("unseen"), c.optInt("sent"), c.optInt("waiting")))
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+
+    /** One message whole: the text, the verdicts, the attachments, its thread. */
+    data class MailMessage(val row: com.localghost.app.ui.MailText.Row, val body: String, val bodyKind: String,
+                           val verdicts: com.localghost.app.ui.MailText.Verdicts?, val attachments: List<com.localghost.app.ui.MailText.Attachment>,
+                           val thread: List<com.localghost.app.ui.MailText.Row>, val rawSize: Long)
+
+    private fun verdictsOf(v: JSONObject?): com.localghost.app.ui.MailText.Verdicts? {
+        if (v == null) return null
+        val spf = v.optJSONObject("spf") ?: JSONObject()
+        val dk = v.optJSONArray("dkim") ?: org.json.JSONArray()
+        var passBy = ""; var dkRes = ""
+        for (i in 0 until dk.length()) {
+            val k = dk.optJSONObject(i) ?: continue
+            if (k.optString("result") == "pass" && passBy.isEmpty()) passBy = k.optString("domain")
+            if (dkRes.isEmpty() || k.optString("result") == "fail") dkRes = k.optString("result")
+        }
+        val dm = v.optJSONObject("dmarc") ?: JSONObject()
+        val sc = v.optJSONObject("screen") ?: JSONObject()
+        return com.localghost.app.ui.MailText.Verdicts(spf.optString("result"), passBy, dkRes, dm.optString("result"), dm.optString("policy"),
+            dm.optString("aligned"), v.optString("reverse"), v.optBoolean("heloMatch"), strList(sc.optJSONArray("reasons")),
+            v.optString("spam"), strList(v.optJSONArray("spamReasons")))
+    }
+
+    suspend fun mailMessage(ctx: Context, id: Long): MailMessage? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/mail/message?id=$id")
+        val m = r.optJSONObject("message") ?: return null
+        val atts = m.optJSONArray("attachments") ?: org.json.JSONArray()
+        val th = r.optJSONArray("thread") ?: org.json.JSONArray()
+        MailMessage(mailRowOf(m), m.optString("body"), m.optString("bodyKind"), verdictsOf(m.optJSONObject("verdicts")),
+            (0 until atts.length()).mapNotNull { i -> atts.optJSONObject(i)?.let { a ->
+                com.localghost.app.ui.MailText.Attachment(a.optLong("id"), a.optString("name"), a.optString("mime"), a.optLong("bytes"), a.optBoolean("kept")) } },
+            (0 until th.length()).mapNotNull { i -> th.optJSONObject(i)?.let { mailRowOf(it) } }, m.optLong("rawSize"))
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+
+    suspend fun mailState(ctx: Context, id: Long, state: String): Boolean = try {
+        BoxHttp.postJsonCode(ctx, "/v1/mail/state", JSONObject().put("id", id).put("state", state)) == 200
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
+
+    suspend fun mailDelete(ctx: Context, id: Long): Boolean = try {
+        BoxHttp.postJsonCode(ctx, "/v1/mail/delete", JSONObject().put("id", id)) == 200
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { false }
+
+    /** The person's tap: the request goes to the box, which hands it to noted; "" on success, else why. */
+    suspend fun mailSend(ctx: Context, to: List<String>, cc: List<String>, subject: String, body: String,
+                         replyTo: Long = 0, forwardOf: Long = 0, quote: Boolean = true): String = try {
+        val o = JSONObject().put("to", org.json.JSONArray(to)).put("cc", org.json.JSONArray(cc)).put("subject", subject).put("body", body)
+            .put("replyTo", replyTo).put("forwardOf", forwardOf).put("quote", quote)
+        val (code, r) = BoxHttp.postJsonCodeBody(ctx, "/v1/mail/send", o)
+        when (code) {
+            200 -> ""
+            409 -> "mail is not set up: the domain and the relay in SETTINGS › MAIL"
+            400 -> "the box refused the message (a recipient is missing?)"
+            else -> "the box answered $code"
+        }
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { e.message ?: "the box did not answer" }
+
+    /** An attachment's bytes, as the box kept them (never run, never rendered as a page). */
+    suspend fun mailAttachment(ctx: Context, id: Long): ByteArray? = BoxHttp.getBytes(ctx, "/v1/mail/attachment?id=$id")
+
+    data class MailDns(val name: String, val type: String, val value: String, val why: String)
+    data class MailSettings(val domain: String, val address: String, val shared: Boolean, val relayUrl: String, val relayBox: String, val relayHost: String,
+                            val fromName: String, val dnsChecks: Boolean, val tokenSet: Boolean)
+    data class MailStatus(val settings: MailSettings, val ready: Boolean, val lastPull: Long, val lastOk: Long, val lastErr: String,
+                          val queued: Int, val inbox: Int, val unseen: Int, val dns: List<MailDns>, val enrolLine: String,
+                          /** the box's word against the domain: it has an address record, so every sender can find that address */
+                          val warning: String = "")
+
+    private fun mailSettingsOf(o: JSONObject) = MailSettings(o.optString("domain"), o.optString("address"), o.optBoolean("shared"), o.optString("relayUrl"), o.optString("relayBox"),
+        o.optString("relayHost"), o.optString("fromName"), o.optBoolean("dnsChecks", true), o.optBoolean("tokenSet"))
+
+    suspend fun mailStatus(ctx: Context): MailStatus? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/mail/status")
+        val st = r.optJSONObject("status") ?: JSONObject()
+        val dns = r.optJSONArray("dns") ?: org.json.JSONArray()
+        MailStatus(mailSettingsOf(r.optJSONObject("settings") ?: JSONObject()), st.optBoolean("ready"), st.optLong("lastPull"), st.optLong("lastOk"),
+            st.optString("lastErr"), st.optInt("queuedOnRelay"), st.optInt("in"), st.optInt("unseen"),
+            (0 until dns.length()).mapNotNull { i -> dns.optJSONObject(i)?.let { MailDns(it.optString("name"), it.optString("type"), it.optString("value"), it.optString("why")) } },
+            r.optString("enrolLine"), r.optString("warning"))
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+
+    /** Sets what is given (null leaves a field as it is); the settings after, or null with why. */
+    suspend fun mailSettingsSet(ctx: Context, address: String?, shared: Boolean?, relayUrl: String?, relayBox: String?, fromName: String?, dnsChecks: Boolean?, newToken: Boolean = false): Pair<MailSettings?, String> = try {
+        val o = JSONObject()
+        address?.let { o.put("address", it) }
+        shared?.let { o.put("shared", it) }
+        relayUrl?.let { o.put("relayUrl", it) }
+        relayBox?.let { o.put("relayBox", it) }
+        fromName?.let { o.put("fromName", it) }
+        dnsChecks?.let { o.put("dnsChecks", it) }
+        if (newToken) o.put("newToken", true)
+        val (code, r) = BoxHttp.postJsonCodeBody(ctx, "/v1/mail/settings", o)
+        if (code == 200 && r != null) mailSettingsOf(r.optJSONObject("settings") ?: JSONObject()) to "" else null to (r?.optString("error")?.ifBlank { null } ?: "the box answered $code")
+    } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { null to (e.message ?: "the box did not answer") }
+
 }

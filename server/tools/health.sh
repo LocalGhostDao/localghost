@@ -146,6 +146,21 @@ for svc in $CHECK; do
                     printf '  phone model offered: none (sudo ./tools/phone_model.sh)\n'
                 fi
             fi
+            if [ "$svc" = "ghost.noted" ]; then
+                # MAIL (docs/MAIL.md): the address, the last pull, what waits on the relay
+                ms="$MOUNT/noted/mail/status.json"
+                if [ -f "$ms" ]; then
+                    ma=$(sed -n 's/.*"address": *"\([^"]*\)".*/\1/p' "$ms")
+                    mr=$(sed -n 's/.*"ready": *\(true\|false\).*/\1/p' "$ms")
+                    mi=$(sed -n 's/.*"in": *\([0-9]*\).*/\1/p' "$ms")
+                    mu=$(sed -n 's/.*"unseen": *\([0-9]*\).*/\1/p' "$ms")
+                    mq=$(sed -n 's/.*"queuedOnRelay": *\([0-9]*\).*/\1/p' "$ms")
+                    me=$(sed -n 's/.*"lastErr": *"\([^"]*\)".*/\1/p' "$ms")
+                    printf '  mail: %s ready=%s in=%s unseen=%s on relay=%s%s\n' "${ma:-no address}" "${mr:-false}" "${mi:-0}" "${mu:-0}" "${mq:-0}" "${me:+ , $me}"
+                else
+                    printf '  mail: not set up (SETTINGS › MAIL, or ghost-cli ghost.noted mail-domain)\n'
+                fi
+            fi
             if [ "$svc" = "ghost.voiced" ]; then
                 # The voice notes: how many wait, and the speech engine (whisper.cpp + a ggml model on
                 # the volume; none until the mirror's sets whisper and speech are fetched)

@@ -9,7 +9,7 @@ package com.localghost.app.ui
  */
 object NotifLink {
     /** [dest]: "map", "day", "memories", "checkin", "news", "status", "notification",
-     *  "notifications" or "" (nowhere); [arg]: a day for the map, a memory's id or "near" for
+     *  "notifications", "mail" or "" (nowhere); [arg]: a day for the map, a memory's id or "near" for
      *  memories (the id opens that memory's page). */
     data class Target(val dest: String, val arg: String = "")
 
@@ -24,6 +24,7 @@ object NotifLink {
                 "day" -> return Target("day", arg.takeIf { day.matches(it) } ?: "")
                 "notification" -> return Target("notification", arg.takeIf { it.toLongOrNull() != null } ?: "")
                 "memories" -> return Target("memories", arg.takeIf { it == "near" || it.toLongOrNull() != null } ?: "")
+                "mail" -> return Target("mail", arg.takeIf { it.toLongOrNull() != null } ?: "")
                 "checkin", "news", "status", "notifications" -> return Target(head)
             }
         }
@@ -33,6 +34,7 @@ object NotifLink {
             "cued" to "reflection" -> Target("memories")
             "secd" to "checkin" -> Target("checkin") // a box from before 0.0.5 says "memories"; the kind says where
             "synthd" to "news" -> Target("news")
+            "noted" to "mail" -> Target("mail")
             else -> when (service.removePrefix("ghost.")) {
                 "watchd", "shadowd" -> Target("status")
                 else -> Target("")

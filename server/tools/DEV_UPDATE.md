@@ -6012,3 +6012,161 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   what the API serves at `orders/<name>/latest`; without one there is nothing to pull. The
   order's name, lower case with hyphens, is the ID.
 
+## 12 October 2026 , the watch's data on the box; a running day's tile
+
+- Samsung Health's sharing toggles showed on and had never written; Vlad unticked and
+  re-ticked each one and Health Connect filled: distance, exercise, speed, steps, sleep (with
+  stages), heart rate, oxygen saturation, about a month back. HEALTH now shows sleep and its
+  stages, heart rate three ways, blood oxygen, distance and exercise.
+- The dashboard's counter tiles compared today's half day with the mean ("−7,574 on mean" at
+  noon). `HealthText.tileLine`: a counter whose latest day is today says "today so far"; a
+  measurement (a heart rate, a weight) keeps its delta. Test.
+
+## 12 October 2026 , mail for the ghost, specified
+
+- `docs/MAIL.md`: `agent@vladcealicu.com` with nothing of anyone else's in the path. A
+  receiver (`ghost.maild`) on the public host, stdlib SMTP with STARTTLS, no AUTH and no
+  relay, SPF/DKIM verdicts recorded as headers, every message sealed to the box's mail key
+  (the backup's X25519/HKDF/ChaCha20 scheme) before it touches the disk; the box pulls over
+  HTTPS and `ghost.noted` unseals, parses (`net/mail`, `mime`), keeps (`mail_messages`,
+  `mail_attachments`, images into frames), journals, indexes; cued raises one cue for a known
+  person. Sending only on the person's tap in the app, DKIM-signed by the server, delivered to
+  the MX with `net/smtp`. The address: the subdomain's own MX (fully owned) or a Workspace
+  routing rule for the exact name (one hop through Google); the domain's MX stays at Google.
+  Mail is read as data, never instructions. Not built.
+
+
+## 12 October 2026 , mail revised: agent@ the box's domain, receive and notify only
+
+- The address is `agent@` in front of whatever the box's domain is (`agent@lgs.vladcealicu.com`
+  here), one MX record pointing the subdomain at its own host; Google is not in the path and
+  the Workspace route and the MX move are gone from the spec. The address is derived from the
+  domain, never a second setting.
+- The first version does nothing with a message: `ghost.maild` verifies SPF, DKIM, DMARC
+  alignment, forward-confirmed reverse DNS, a structural header screen (duplicate `From`,
+  header injection, encoded-word tricks, a display name that is an address, `Reply-To`
+  elsewhere, executable or macro attachments) and a spam score, stamps them as `X-Ghost-`
+  headers (any arriving `Authentication-Results` renamed first), seals the bytes. The box
+  unseals the header block only, keeps the sealed file and one `mail_received` row (address,
+  date, size, verdicts; the subject stays sealed), and raises one notification: "mail from
+  `<address>` · verdicts". No body into the chat, no journal, no index, no cue, no
+  attachments opened, no reply, no bounce. Reading, sending and a MAIL screen are later
+  layers, each its own decision. Still not built.
+
+## 12 October 2026 , mail revised again: no address on the box's domain, a queue drained when unlocked
+
+- A sender learns the domain after the `@` and the IP its MX points at, so neither may be
+  the box's. `docs/MAIL.md`: the address lives on a mail domain of its own (bought for this
+  with registrant privacy, or later a shared one LocalGhost runs where an address is a
+  handle among thousands), on a relay machine of its own IP that serves nothing else; a
+  second name on the site's IP is the same IP. `vladcealicu.com` and `lgs.vladcealicu.com`
+  never appear in an MX, a `Received`, a DKIM `d=` or a `Message-ID`; the box speaks only to
+  the relay, outbound, over HTTPS.
+- Receive only when unlocked: the relay always accepts and seals (nothing readable exists
+  there), the sealed files are the queue, and noted, which runs inside the vault, drains it on
+  the first pull after unlock. The other reading (the relay tempfails while the box is
+  locked) is a switch, off, because it tells every sender when the box is open and bounces
+  mail after five days away.
+- Transport: TLS required on the way in (530 before STARTTLS), TLS 1.2+, MTA-STS in enforce
+  mode on the mail domain, DANE when DNSSEC allows. Later layer added: end to end by an
+  OpenPGP key published with WKD, and ghost to ghost as a sealed blob through the relay.
+
+## 12 October 2026 , mail: the relay at mx.localghost.ai, verdicts on the box, the box signs
+
+- `docs/MAIL.md` rewritten for a relay LocalGhost runs. The address stays
+  `agent@lgs.vladcealicu.com`; the domain's MX points at `mx.localghost.ai`, so a sender
+  learns the domain (by choice) and the relay's IP, never the box's. The relay keeps nothing
+  readable (bytes sealed to the box's X25519 key as they stream in) and parses nothing: it
+  writes a second sealed note (connecting IP, EHLO, envelope, TLS, PTR) and the box verifies
+  SPF, DKIM, DMARC, reverse DNS, the header screen and a spam score after unseal. A relay
+  that is rooted exposes the next minutes' mail, never an inbox.
+- Four DNS records on the box's domain, shown ready to paste in SETTINGS › MAIL: MX to the
+  relay, SPF including `_spf.localghost.ai`, the box's own Ed25519 DKIM key at
+  `ghost._domainkey`, DMARC `p=reject`. The DKIM private key lives on the volume, so the
+  relay can never author mail as a box.
+- Sending (phase two): the box composes, the person taps, the box signs with its DKIM key,
+  seals to the relay's pinned key and posts to `/box/<id>/out`; the relay delivers to the MX
+  with `net/smtp`, retries a day, bounces back into the queue. The box cannot send itself:
+  port 25 is blocked at home, home IPs are blocklisted, and the home IP would sit in every
+  `Received` header. Enrol: the box posts domain and key signed by its box key; LocalGhost
+  checks the MX before listing it. Later: WKD for end to end, `_ghost.<domain>` TXT for ghost
+  to ghost as a sealed blob through both relays. Not built.
+
+## 12 October 2026 , mail: who may use the relay
+
+- `docs/MAIL.md`, "Who may use the relay": nobody without a line in `boxes.conf`. First
+  version: no `/enrol` at all, one box, one line by hand. Later: enrolment by a one-time
+  invite LocalGhost issues (by hand, then for a fee that pays for the machine), still refused
+  until the domain's MX points at the relay. Receiving for an unenrolled domain is 550 and a
+  bounce for the sender; each box's queue is capped. Sending needs the token, a DKIM
+  signature with the key in the enrolled domain's own DNS and a `From` on that domain; the
+  relay signs nothing as `localghost.ai`; an allowance per box (a hundred a day, ten an
+  hour, a tenth for a new box's first month); bounce and complaint rates pause a box. Forged
+  `Received` lines and copied `include:_spf.localghost.ai` gain nothing without our IP.
+
+## 12 October 2026 , mail, built: the relay, the box's side, the app's MAIL
+
+- `internal/mailseal`: the backup's X25519/HKDF/ChaCha20-Poly1305 stream with its own magic
+  (`GHSTML1`), 64 KB chunks, `NewWriter`/`Open`/`SealBytes`, key files. `internal/mailauth`:
+  SPF (RFC 7208 with macros, ten lookups), DKIM verify (RSA-SHA256, Ed25519-SHA256, relaxed
+  and simple, `l=`, `x=`, testing and revoked keys) and sign (both keys, relaxed/relaxed),
+  DMARC alignment with an org-domain table, the header screen, the spam score, `Judge` and
+  `Verdicts.Line`; a `Resolver` interface so every verdict is tested without a network and
+  `NoResolver` makes them "not checked". `internal/mailwire`: the note, the entries, the
+  outbound envelope, the name and box-id patterns.
+- `cmd/ghost.maild`, the relay: stdlib SMTP on :25 with required STARTTLS (530 before it), no
+  AUTH, no relay (550 for an unenrolled domain), the limits, the sealed message streamed per
+  recipient box under a Received line and a sealed note (IP, HELO, envelope, TLS, FCrDNS),
+  the API behind nginx (list, fetch, delete, key, out, out status; bearer token, sha256 in
+  `boxes.conf`), outbound delivery with `net/smtp` (MX order, verified STARTTLS then unverified,
+  never plain, backoff for a day, bounce sealed into the box's queue), the allowance, the
+  thirty-day sweep, `-keygen`/`-pubkey`. `tools/maild/`: unit, conf examples, certbot hook,
+  nginx snippet, MTA-STS policy, `install.sh`. `docs/MAIL_RELAY.md` for the localghost.ai
+  operator.
+- `cmd/ghost.noted/mail.go`, `mailparse.go`: the keys (X25519, RSA-2048, Ed25519) under
+  `noted/mail/keys/`, `dns.json` and `status.json` for secd, the pull every two minutes
+  (idempotent on the relay name), judge, parse (net/mail, MIME to eight levels, Latin-1 and
+  cp1252 by hand, HTML reduced, dangerous attachments named and not kept), store, one
+  notification (`mail:<id>`, a burst collapsed), delete on the relay; the outbox (build,
+  quote, forward with attachments, sign, seal, post) and the out-status poll; the ctl `mail`,
+  `mail-pull`, `mail-domain`, `mail-relay`, `mail-enrol`, `mail-dns`, `mail-from`,
+  `mail-checks`. `internal/hw/mailstore.go` + the registry tables `mail_messages`,
+  `mail_attachments` (and the legacy blob).
+- secd `mail_http.go`: `/v1/mail` list, `message` (marks seen, with the thread), `state`,
+  `delete`, `attachment` (download, nosniff), `send` (outbox file chowned to the run user),
+  `status` (settings, noted's status, the DNS records, the enrol line; the token made here
+  when missing and never sent to the phone), `settings`. OpenAPI entries.
+- App: `MailText` (pure, tested), `MailScreen` (list/message/compose in one, BackHandler),
+  `MailSave` (Downloads), BoxClient's mail calls, `Dest.MAIL` in the drawer, `mail:<id>`
+  notification links, SETTINGS › MAIL, the ⓘ topic. JVM tests 273.
+- Tests: mailseal 3, mailauth 8, maild 4 (an SMTP session over loopback TLS), noted 3, the
+  mail rows against Postgres; `go build ./...` and vet clean.
+
+## 12 October 2026 , the relay moves to the web repository
+
+- Vlad: the relay lives on the web repository. `cmd/ghost.maild`, `tools/maild/` and
+  `docs/MAIL_RELAY.md` leave this tree (stand-ins and `tools/removed.txt`); the same code goes
+  to the web repository as `deploy/mail/`, its own module `localghost/maild` with no
+  dependencies: `internal/mailseal` moved to the standard library's AES-256-GCM and
+  `crypto/hkdf` (Go 1.24+) in place of x/crypto's ChaCha20 and HKDF, so the relay needs no
+  `require`. `deploy/mail/internal/{seal,wire}` are this tree's `internal/{mailseal,mailwire}`,
+  the same files; `deploy/mail/PROTOCOL.md` writes the contract down (the seal, the names, the
+  note, the API, boxes.conf, SMTP, delivery). The brief for the web thread is
+  `MAIL_RELAY_BRIEF.md` (outputs), with the zip of the directory.
+
+## 13 October 2026 , the address leaves the box's zone
+
+- Vlad: `lgs.vladcealicu.com` is what the phone connects to, so it resolves to the box; anyone
+  with the address has the zone, and the zone has the box. The address therefore lives on the
+  relay's shared domain by default (`vlad@ghost.localghost.ai`), where the zone is LocalGhost's
+  and a sender learns nothing; an own domain is allowed only when its zone holds nothing of
+  the box, and the box warns in red when the chosen domain has an address record.
+- Box: `mail_address` (a full address) and `mail_shared` replace `mail_domain`; DKIM selectors
+  are `<box>-rsa` and `<box>-ed`; the enrol line carries `addresses=` (shared) or `domains=`
+  (own) and the two DKIM public keys (`dkim_rsa=`, `dkim_ed=`); noted writes the line, the
+  records and the warning into `dns.json`, secd passes them through; ctl `mail-address
+  address= shared=1|own=1`; SETTINGS › MAIL has the address and a shared/own switch.
+- Relay (web `deploy/mail/`): `addresses=` lines, `RCPT` matched by exact address then domain
+  (a stranger's local part on the shared domain is 550), `box.owns` for the outbound checks,
+  `d=` must be the From's domain, `ghost.maild -dns ghost.localghost.ai` prints the shared
+  domain's MX/SPF/DMARC and every box's two DKIM records. Tests cover both kinds.

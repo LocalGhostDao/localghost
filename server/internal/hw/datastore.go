@@ -481,6 +481,49 @@ CREATE TABLE IF NOT EXISTS health_samples (
     value  DOUBLE PRECISION NOT NULL,
     PRIMARY KEY (metric, ts)
 );
+-- MAIL , ghost.noted's inbox and sent box (docs/MAIL.md). One row per message; the sealed
+-- original stays on the volume at seal_path; attachments are rows with the bytes under
+-- <mount>/noted/mail/att/. verdicts is the JSON of what the box concluded (SPF, DKIM, DMARC,
+-- reverse DNS, the header screen, the spam score). (direction, relay_name) is the identity, so a
+-- pull interrupted after the insert stores the same message once.
+CREATE TABLE IF NOT EXISTS mail_messages (
+    id          BIGSERIAL PRIMARY KEY,
+    direction   TEXT NOT NULL,
+    state       TEXT NOT NULL DEFAULT 'new',
+    message_id  TEXT NOT NULL DEFAULT '',
+    in_reply_to TEXT NOT NULL DEFAULT '',
+    thread_key  TEXT NOT NULL DEFAULT '',
+    from_addr   TEXT NOT NULL DEFAULT '',
+    from_name   TEXT NOT NULL DEFAULT '',
+    to_addrs    TEXT NOT NULL DEFAULT '[]',
+    cc_addrs    TEXT NOT NULL DEFAULT '[]',
+    reply_to    TEXT NOT NULL DEFAULT '',
+    subject     TEXT NOT NULL DEFAULT '',
+    sent_at     BIGINT NOT NULL DEFAULT 0,
+    received_at BIGINT NOT NULL DEFAULT 0,
+    body        TEXT NOT NULL DEFAULT '',
+    body_kind   TEXT NOT NULL DEFAULT 'text',
+    raw_size    BIGINT NOT NULL DEFAULT 0,
+    verdicts    TEXT NOT NULL DEFAULT '',
+    spam        TEXT NOT NULL DEFAULT '',
+    seal_path   TEXT NOT NULL DEFAULT '',
+    relay_name  TEXT NOT NULL DEFAULT '',
+    last_err    TEXT NOT NULL DEFAULT '',
+    UNIQUE (direction, relay_name)
+);
+CREATE INDEX IF NOT EXISTS mail_messages_id_desc ON mail_messages (id DESC);
+CREATE INDEX IF NOT EXISTS mail_messages_thread ON mail_messages (thread_key);
+CREATE TABLE IF NOT EXISTS mail_attachments (
+    id         BIGSERIAL PRIMARY KEY,
+    message_id BIGINT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    mime       TEXT NOT NULL DEFAULT '',
+    bytes      BIGINT NOT NULL DEFAULT 0,
+    kept       BOOLEAN NOT NULL DEFAULT TRUE,
+    path       TEXT NOT NULL DEFAULT '',
+    sha256     TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS mail_attachments_message ON mail_attachments (message_id);
 CREATE TABLE IF NOT EXISTS reports (
     day          TEXT PRIMARY KEY,       -- 'MM-DD'
     generated_at BIGINT NOT NULL,

@@ -58,7 +58,7 @@ account anywhere, no relay, no third party between the phone and the box.
 | **ghost.secd** | The front door and the only thing on the system disk: HTTPS with client certificates, the unlock, the sessions, the API the phone speaks, the parent of watchd. |
 | **ghost.watchd** | Starts the cohort on the volume, watches it, restarts what falls over. |
 | **ghost.framed** | Photos and videos: originals archived as they are, previews, time and place from EXIF and the container, a place name from the box's own GeoNames, captions and tags through the model, each day's trail drawn as a path and told as stays and moves along the streets, the heights under it, the map's own tiles. |
-| **ghost.noted** | Notes, the evening check-in and the chats, into the journal. |
+| **ghost.noted** | Notes, the evening check-in and the chats, into the journal; the box's mail (`agent@` its domain) pulled sealed from the relay, judged (SPF, DKIM, DMARC, the header screen) and kept, and the person's replies signed and handed back. The relay itself (`mx.localghost.ai`, the one machine on port 25 so that no box has to be) lives in the [web repository](https://github.com/LocalGhostDao/web/tree/main/deploy/mail). |
 | **ghost.voiced** | Voice notes, transcribed on the box (whisper.cpp) and journaled. |
 | **ghost.tallyd** | The health sync, the prices from the exchanges every minute and every five seconds, the ECB table, the daily candles and the history, CRYPTO50. |
 | **ghost.synthd** | The memory layer: distills the journal into memories, writes what it knows of the person and their people, counts the places, notices things once a day, writes each day's story, groups the news and writes the brief, writes the coin pages, answers the chat with the person's own context. |

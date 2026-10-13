@@ -114,6 +114,14 @@ object HealthText {
             values[mi], days[mi], values[ma], days[ma], values.sum())
     }
 
+    /** The tile's second line. A day still running is not a day under the mean: a counter's
+     *  tile at eleven in the morning says "today so far" instead of "−7,574 on mean", and the
+     *  mean it is measured against is the mean of the days before it. */
+    fun tileLine(key: String, s: Summary, today: String): String {
+        if (s.latestDay == today && metric(key).cumulative) return "today so far"
+        return fmtDelta(key, s.latest - s.mean) + " on mean"
+    }
+
     /** The latest value against the window's mean: "+1,204 on the 30-day mean of 14,705". */
     fun againstMean(key: String, latest: Double, mean: Double, windowLabel: String): String =
         "${fmtDelta(key, latest - mean)} on the $windowLabel mean of ${fmt(key, mean)}"

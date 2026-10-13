@@ -339,6 +339,15 @@ func (s *Server) Handler() http.Handler {
 	// grep before you claim one.
 	mux.HandleFunc("/v1/health/stats", s.handleHealthStats) // daily series per metric
 	mux.HandleFunc("/v1/health/day", s.handleHealthDay)     // one day's metrics and heart rate samples
+	// MAIL (docs/MAIL.md): what ghost.noted pulled from the relay, and the person's tap on SEND
+	mux.HandleFunc("/v1/mail", s.handleMailList)                  // the inbox, sent, archive; q= searches
+	mux.HandleFunc("/v1/mail/message", s.handleMailMessage)       // one message whole, with its verdicts, attachments and thread
+	mux.HandleFunc("/v1/mail/state", s.handleMailState)           // seen, new, archived
+	mux.HandleFunc("/v1/mail/delete", s.handleMailDelete)         // the row, the attachments and the sealed original
+	mux.HandleFunc("/v1/mail/attachment", s.handleMailAttachment) // an attachment's bytes
+	mux.HandleFunc("/v1/mail/send", s.handleMailSend)             // reply, forward or a new message, handed to noted
+	mux.HandleFunc("/v1/mail/status", s.handleMailStatus)         // settings, noted's status, the DNS records, the enrol line
+	mux.HandleFunc("/v1/mail/settings", s.handleMailSettings)     // domain, relay, box id, name, DNS checks
 	mux.HandleFunc("/v1/chat", s.handleChat)                // ask the box's model (via synthd's retrieval seam)
 	mux.HandleFunc("/v1/chat/stop", s.handleChatStop)       // STOP: ends the answer being written for a chat (closing the app does not)
 	mux.HandleFunc("/v1/chat/plan", s.handleChatPlan)       // what the question needs from the web, from the model, before the phone searches

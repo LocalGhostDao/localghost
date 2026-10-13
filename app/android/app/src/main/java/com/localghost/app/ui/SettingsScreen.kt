@@ -158,6 +158,13 @@ fun SettingsScreen(
             HealthSection()
         }
 
+        // MAIL: the box's own address through the relay (docs/MAIL.md); the domain, the relay,
+        // the records to paste, the line for the relay
+        var mailLine by remember { mutableStateOf("not set up") }
+        Fold("MAIL", mailLine, openAtFirst = false) {
+            MailSection(onLine = { mailLine = it })
+        }
+
         // The map fetches tiles from the box as you look; ticked, the phone keeps them ahead of
         // time (Wi-Fi only, once a day), streets around where you have been first, and whole
         // countries when picked.
@@ -802,3 +809,113 @@ private fun MetOfficeSection() {
         color = TerminalDim, style = MaterialTheme.typography.labelSmall)
 }
 
+
+
+/** MAIL. The box's address is on LocalGhost's shared domain (a sender learns nothing about the
+ *  person) or on a domain of the person's own whose zone holds nothing of the box; mail lands
+ *  on a relay and the box pulls it sealed (docs/MAIL.md). Set here: the address, which of the
+ *  two it is, the relay's address and the box id the relay knows the box by, the name mail
+ *  leaves under, whether the box looks domains up to judge a message. The box makes its keys
+ *  and its token itself; this page shows the line to add to the relay's boxes.conf (which
+ *  carries the keys) and, for an own domain, the records to paste at its provider. */
+@Composable
+private fun MailSection(onLine: (String) -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var st by remember { mutableStateOf<com.localghost.app.net.BoxClient.MailStatus?>(null) }
+    var address by remember { mutableStateOf("") }
+    var shared by remember { mutableStateOf(true) }
+    var relay by remember { mutableStateOf("") }
+    var boxId by remember { mutableStateOf("") }
+    var fromName by remember { mutableStateOf("") }
+    var checks by remember { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf("") }
+    var armed by remember { mutableStateOf(false) }
+    var tick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(tick) {
+        val s = com.localghost.app.net.BoxClient.mailStatus(ctx)
+        st = s
+        s?.let {
+            if (tick == 0) { address = it.settings.address; shared = it.settings.shared || it.settings.address.isEmpty(); relay = it.settings.relayUrl; boxId = it.settings.relayBox; fromName = it.settings.fromName; checks = it.settings.dnsChecks }
+            onLine(MailText.settingsLine(it.settings.address, it.settings.relayHost, it.ready, it.lastErr))
+        }
+    }
+    val nowS = System.currentTimeMillis() / 1000
+    Text("MAIL", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(4.dp))
+    st?.let { s ->
+        Text(if (s.settings.address.isNotEmpty()) "the address is " + s.settings.address else "no address yet", color = GhostText, style = MaterialTheme.typography.bodySmall)
+        Text(MailText.statusLine(s.ready, s.lastPull, s.lastOk, s.lastErr, s.queued, nowS), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+        if (s.warning.isNotEmpty()) { Spacer(Modifier.height(4.dp)); Text(s.warning, color = Warning, style = MaterialTheme.typography.labelMedium) }
+    } ?: Text("asking the box…", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+    Spacer(Modifier.height(8.dp))
+    val field: @Composable (String, String, (String) -> Unit) -> Unit = { value, hint, onChange ->
+        androidx.compose.foundation.text.BasicTextField(value, { onChange(it) }, singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(color = GhostText),
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(TerminalGreen),
+            decorationBox = { inner -> Box(Modifier.fillMaxWidth()
+                .border(1.dp, GhostBorder, androidx.compose.ui.graphics.RectangleShape).padding(8.dp)) {
+                if (value.isEmpty()) Text(hint, color = TerminalDim, style = MaterialTheme.typography.bodySmall); inner() } },
+            modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(6.dp))
+    }
+    field(address, if (shared) "your address on the shared domain (vlad@ghost.localghost.ai)" else "your address on a domain of your own (agent@ghost.example.org)") { address = it.trim() }
+    toggleRow("on LocalGhost's shared domain", if (shared) "a sender learns nothing about you; LocalGhost publishes the box's keys" else "your own domain: its zone must hold nothing of the box, and you paste the records", shared) { shared = it }
+    field(relay, "the relay (https://mx.localghost.ai)") { relay = it.trim() }
+    field(boxId, "the box id the relay knows you by (letters, digits, dashes)") { boxId = it.trim() }
+    field(fromName, "the name mail leaves under (optional)") { fromName = it }
+    toggleRow("look domains up", "SPF, DKIM and DMARC need DNS; off, the verdicts read \"not checked\"", checks) { checks = it }
+    Row {
+        GhostButton(if (busy) "SAVING…" else "SAVE", {
+            if (!busy) scope.launch {
+                busy = true
+                val (after, why) = com.localghost.app.net.BoxClient.mailSettingsSet(ctx, address, shared, relay, boxId, fromName, checks)
+                busy = false
+                if (after != null) { result = if (shared) "kept on the box; the relay's line below is what LocalGhost needs" else "kept on the box; the records below are for your domain"; tick++ } else result = why
+            }
+        }, modifier = Modifier.weight(1f), enabled = !busy)
+    }
+    if (result.isNotEmpty()) { Spacer(Modifier.height(4.dp)); Text(result, color = GhostTextDim, style = MaterialTheme.typography.labelMedium) }
+    val copy = { label: String, text: String ->
+        (ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+            .setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+        result = "$label copied"
+    }
+    st?.let { s ->
+        if (s.dns.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text(if (s.settings.shared) "THE BOX'S KEYS IN DNS" else "DNS RECORDS TO PASTE", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+            Text(if (s.settings.shared) "LocalGhost publishes these under " + s.settings.domain + " from the relay's line; shown so you can check them" else "at " + s.settings.domain + "'s DNS provider, once; the box's keys are in them", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+            s.dns.forEach { r ->
+                Spacer(Modifier.height(6.dp))
+                Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, androidx.compose.ui.graphics.RectangleShape).clickable { copy(r.type + " " + r.name, r.value) }.padding(8.dp)) {
+                    Text(r.type + "  " + r.name, color = GhostText, style = MaterialTheme.typography.labelMedium)
+                    Text(r.value, color = GhostTextDim, style = MaterialTheme.typography.labelSmall, maxLines = 4)
+                    Text(r.why + " · tap to copy the value", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        if (s.enrolLine.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("THE RELAY'S LINE", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+            Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, androidx.compose.ui.graphics.RectangleShape).clickable { copy("the relay's line", s.enrolLine) }.padding(8.dp)) {
+                Text(s.enrolLine, color = GhostTextDim, style = MaterialTheme.typography.labelSmall)
+                Text("add it to /etc/ghost-mail/boxes.conf on the relay · tap to copy", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+            }
+            Spacer(Modifier.height(6.dp))
+            GhostButton(if (armed) "NEW TOKEN, SURE" else "NEW TOKEN", {
+                if (!armed) armed = true else scope.launch {
+                    armed = false
+                    val (after, why) = com.localghost.app.net.BoxClient.mailSettingsSet(ctx, null, null, null, null, null, null, newToken = true)
+                    result = if (after != null) "a new token; paste the new line on the relay" else why
+                    tick++
+                }
+            }, modifier = Modifier.fillMaxWidth())
+            if (armed) Text("a new token makes the old line on the relay wrong until replaced", color = Warning, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+    Spacer(Modifier.height(4.dp))
+    Text("the box never listens on the internet: the relay takes the mail in, seals it to the box's key and keeps nothing readable; the token and the keys never leave the box, and this page only ever shows public halves",
+        color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+}

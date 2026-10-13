@@ -176,7 +176,7 @@ private fun MetricTile(metric: String, days: List<String>, values: List<Double>,
         Text(HealthText.label(metric), color = TerminalDim, style = MaterialTheme.typography.labelMedium, maxLines = 1)
         Spacer(Modifier.height(2.dp))
         Text(HealthText.fmt(metric, s.latest), color = GhostText, style = MaterialTheme.typography.titleMedium, maxLines = 1)
-        Text(HealthText.fmtDelta(metric, s.latest - s.mean) + " on mean", color = GhostTextDim, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+        Text(HealthText.tileLine(metric, s, today().toString()), color = GhostTextDim, style = MaterialTheme.typography.labelSmall, maxLines = 1)
         Spacer(Modifier.height(6.dp))
         Bars(values, s.mean, Modifier.fillMaxWidth().height(28.dp), meanLine = false)
     }

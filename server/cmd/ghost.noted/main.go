@@ -108,6 +108,12 @@ func main() {
 			svcconf.FillBaseDefaults(&base)
 			return base, nil, nil
 		})
+		// MAIL: the relay's queue pulled, judged and kept; the outbox signed and posted; the
+		// ctl commands (mail, mail-pull, mail-address, mail-relay, mail-enrol, mail-dns,
+		// mail-from, mail-checks). docs/MAIL.md.
+		mailer := newMailer(filepath.Dir(runDir), lg)
+		mailer.bindCtl(ctl)
+		go mailer.run(ctx)
 		defer ctl.Cleanup()
 		go func() {
 			if err := ctl.Serve(ctx); err != nil {

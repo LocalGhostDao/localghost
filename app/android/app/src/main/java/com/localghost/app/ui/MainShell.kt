@@ -57,6 +57,7 @@ enum class Dest(val label: String, val glyph: String) {
     MAP("MAP", "◎"),
     PHRASES("PHRASES", "»"),
     HEALTH("HEALTH", "♥"),
+    MAIL("MAIL", "✉"),
     CODES("CODES", "⚿"),
     SETTINGS("SETTINGS", "⚙"),
     PERMISSIONS("PERMISSIONS", "⊡"),
@@ -180,8 +181,15 @@ fun MainShell(
         notifOpen = id
         dest = Dest.NOTIFICATION
     }
+    // one mail's page (a notification's tap): the id MAIL opens on, cleared once it has
+    var mailOpen by rememberSaveable { mutableLongStateOf(0L) }
+    fun openMail(id: Long) {
+        mailOpen = id
+        dest = Dest.MAIL
+    }
     fun openTarget(t: NotifLink.Target) {
         when (t.dest) {
+            "mail" -> t.arg.toLongOrNull()?.let { openMail(it) } ?: run { dest = Dest.MAIL }
             "notification" -> t.arg.toLongOrNull()?.let { openNotification(it) }
             "day" -> if (t.arg.isNotEmpty()) openDay(t.arg) else dest = Dest.MEMORIES
             "map" -> { mapDay = t.arg; dest = Dest.MAP }
@@ -198,7 +206,7 @@ fun MainShell(
     LaunchedEffect(navRequest) {
         when {
             // a notification's own place (the shade's tap): "map:<day>", "memories:<id>", "status"
-            navRequest.startsWith("map") || navRequest.startsWith("memories") || navRequest.startsWith("day:") ||
+            navRequest.startsWith("map") || navRequest.startsWith("memories") || navRequest.startsWith("day:") || navRequest.startsWith("mail") ||
                 navRequest.startsWith("notification:") || navRequest == "status" || navRequest == "checkin" ->
                 openTarget(NotifLink.resolve(navRequest, "", ""))
         }
@@ -354,6 +362,7 @@ fun MainShell(
                         Dest.MAP -> MapScreen(openDay = mapDay, onDayShown = { mapDay = "" })
                         Dest.PHRASES -> PhrasesScreen()
                         Dest.HEALTH -> HealthScreen(onOpenDay = { d -> openDay(d) })
+                        Dest.MAIL -> MailScreen(openId = mailOpen, onOpened = { mailOpen = 0L })
                         Dest.CODES -> PinManagementScreen(devices)
                         Dest.SETTINGS -> SettingsScreen(
                             onOpenVerify = { dest = Dest.VERIFY },
@@ -600,7 +609,7 @@ private fun DrawerPanel(
             SectionLabel("YOUR ARCHIVE")
             // PHRASES appears while the lock-screen card is on (from the start; off by hand in settings).
             val phrasesOn = com.localghost.app.phrases.PhraseState.enabled(androidx.compose.ui.platform.LocalContext.current)
-            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.CHECKIN, Dest.MEMORIES, Dest.SYNC)
+            listOf(Dest.GALLERY, Dest.MAP, Dest.PHRASES, Dest.HEALTH, Dest.MAIL, Dest.CHECKIN, Dest.MEMORIES, Dest.SYNC)
                 .filter { it != Dest.PHRASES || phrasesOn || current == Dest.PHRASES }
                 .forEach { DrawerRow(it, it == current) { onSelect(it) } }
 

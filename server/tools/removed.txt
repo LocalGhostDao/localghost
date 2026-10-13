@@ -17,3 +17,18 @@ server/cmd/ghost.tallyd/import.go
 server/internal/shealth/shealth.go
 server/internal/shealth/shealth_test.go
 
+# 12 Oct 2026: the mail relay moved to the web repository (deploy/mail/); the box keeps noted's side
+server/cmd/ghost.maild/api.go
+server/cmd/ghost.maild/deliver.go
+server/cmd/ghost.maild/maild_test.go
+server/cmd/ghost.maild/main.go
+server/cmd/ghost.maild/queue.go
+server/cmd/ghost.maild/smtp.go
+server/tools/maild/boxes.conf.example
+server/tools/maild/certbot-hook.sh
+server/tools/maild/ghost.maild.service
+server/tools/maild/install.sh
+server/tools/maild/maild.conf.example
+server/tools/maild/mta-sts.txt
+server/tools/maild/nginx-mail.conf
+server/docs/MAIL_RELAY.md
