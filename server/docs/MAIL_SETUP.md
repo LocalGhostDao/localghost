@@ -13,8 +13,8 @@ come from them, the relay's line comes last.
 - A decision about the address. The safe one is on LocalGhost's shared domain,
   `vlad@ghost.localghost.ai`: a sender learns nothing about you, and there is nothing of yours
   in DNS. Your own domain is only right if its zone holds nothing of the box: the name your
-  phone connects to (`lgs.vladcealicu.com`) resolves to the box, so nothing under
-  `vladcealicu.com` qualifies; a second domain with no record near the box would.
+  phone connects to (`lgs.example.com`) resolves to the box, so nothing under
+  `example.com` qualifies; a second domain with no record near the box would.
 
 ## 1. Tell the box its address and the relay
 

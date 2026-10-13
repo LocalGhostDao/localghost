@@ -16,8 +16,8 @@ with no dependency beyond the standard library; its `README.md` is the operator'
 ## Why the address is not on the box's own name
 
 A sender has the domain after the `@`, and every domain is one lookup from everything in its
-zone. The name the phone connects to the box by (`lgs.vladcealicu.com`) resolves to the box's
-own address; an address under that name, or anywhere under `vladcealicu.com`, hands a sender a
+zone. The name the phone connects to the box by (`lgs.example.com`) resolves to the box's
+own address; an address under that name, or anywhere under `example.com`, hands a sender a
 zone with the box in it (the name is guessable, in certificate transparency logs, in passive
 DNS). So the address lives on a domain that has nothing of the person's in it at all: the
 relay's shared domain, `ghost.localghost.ai`, where an address is one local part among many and

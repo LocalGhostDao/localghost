@@ -6024,7 +6024,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 
 ## 12 October 2026 , mail for the ghost, specified
 
-- `docs/MAIL.md`: `agent@vladcealicu.com` with nothing of anyone else's in the path. A
+- `docs/MAIL.md`: `agent@example.com` with nothing of anyone else's in the path. A
   receiver (`ghost.maild`) on the public host, stdlib SMTP with STARTTLS, no AUTH and no
   relay, SPF/DKIM verdicts recorded as headers, every message sealed to the box's mail key
   (the backup's X25519/HKDF/ChaCha20 scheme) before it touches the disk; the box pulls over
@@ -6038,7 +6038,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 
 ## 12 October 2026 , mail revised: agent@ the box's domain, receive and notify only
 
-- The address is `agent@` in front of whatever the box's domain is (`agent@lgs.vladcealicu.com`
+- The address is `agent@` in front of whatever the box's domain is (`agent@lgs.example.com`
   here), one MX record pointing the subdomain at its own host; Google is not in the path and
   the Workspace route and the MX move are gone from the spec. The address is derived from the
   domain, never a second setting.
@@ -6059,7 +6059,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   the box's. `docs/MAIL.md`: the address lives on a mail domain of its own (bought for this
   with registrant privacy, or later a shared one LocalGhost runs where an address is a
   handle among thousands), on a relay machine of its own IP that serves nothing else; a
-  second name on the site's IP is the same IP. `vladcealicu.com` and `lgs.vladcealicu.com`
+  second name on the site's IP is the same IP. `example.com` and `lgs.example.com`
   never appear in an MX, a `Received`, a DKIM `d=` or a `Message-ID`; the box speaks only to
   the relay, outbound, over HTTPS.
 - Receive only when unlocked: the relay always accepts and seals (nothing readable exists
@@ -6074,7 +6074,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 ## 12 October 2026 , mail: the relay at mx.localghost.ai, verdicts on the box, the box signs
 
 - `docs/MAIL.md` rewritten for a relay LocalGhost runs. The address stays
-  `agent@lgs.vladcealicu.com`; the domain's MX points at `mx.localghost.ai`, so a sender
+  `agent@lgs.example.com`; the domain's MX points at `mx.localghost.ai`, so a sender
   learns the domain (by choice) and the relay's IP, never the box's. The relay keeps nothing
   readable (bytes sealed to the box's X25519 key as they stream in) and parses nothing: it
   writes a second sealed note (connecting IP, EHLO, envelope, TLS, PTR) and the box verifies
@@ -6156,7 +6156,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 
 ## 13 October 2026 , the address leaves the box's zone
 
-- Vlad: `lgs.vladcealicu.com` is what the phone connects to, so it resolves to the box; anyone
+- Vlad: `lgs.example.com` is what the phone connects to, so it resolves to the box; anyone
   with the address has the zone, and the zone has the box. The address therefore lives on the
   relay's shared domain by default (`vlad@ghost.localghost.ai`), where the zone is LocalGhost's
   and a sender learns nothing; an own domain is allowed only when its zone holds nothing of
@@ -6170,3 +6170,10 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (a stranger's local part on the shared domain is 550), `box.owns` for the outbound checks,
   `d=` must be the From's domain, `ghost.maild -dns ghost.localghost.ai` prints the shared
   domain's MX/SPF/DMARC and every box's two DKIM records. Tests cover both kinds.
+
+## 13 October 2026 , the box's name out of the record
+
+- Every mention of the box's own domain in this log and in `docs/MAIL.md`, `docs/MAIL_SETUP.md`
+  reads `lgs.example.com` now; the code never had it. Git history keeps the earlier text, which
+  is the one more reason mail never uses that name. `MAIL_RUNBOOK.md` (outputs) is the
+  per-machine command list: the localghost.ai server, the DNS, the box, the phone.
