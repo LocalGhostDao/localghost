@@ -6438,3 +6438,9 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   two); tests on the real message. `GhostButton` keeps its label on one line (`BasicText` with
   `TextAutoSize.StepBased` down to 9 sp, side padding 10 dp): ARCHIVE, UNREAD and DELETE no
   longer break mid-word. Not compiled here; Vlad builds.
+- Gmail's "Show original" on the first outbound: DKIM rsa PASS, DMARC PASS (p=REJECT), SPF FAIL
+  "with IP 2a01:…:fe0d:22ec": the relay had dialled Gmail's AAAA from the box's global IPv6,
+  which `a:mx.localghost.ai` (A only) does not designate. The relay (web repo, maild-for-web.zip)
+  now dials receivers over IPv4 first and IPv6 only for a host with no A record (`dialMail`).
+  The Ed25519 signature came back "neutral (no key)" although `vlad-ed._domainkey` resolves
+  (k=ed25519, 32-byte key): Gmail does not verify RFC 8463 signatures; the RSA one carries DMARC.
