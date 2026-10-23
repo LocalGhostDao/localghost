@@ -6388,3 +6388,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   the trips, the mail and the audit. `release.names` already had 0.0.7 and the app 0.0.7 / 7.
 - After the tag, the next drop opens 0.0.8 (`release.names`, the app 0.0.8 / 8,
   `releases/0.0.8.md` "In progress"), so the tag's tree says 0.0.7 everywhere.
+- The app's first real compile of the map's layer (Vlad, Windows, Gradle 9.8): `drawLayer` is an
+  extension in `androidx.compose.ui.graphics.layer`, not a member of DrawScope; the import the stub
+  check had dropped is back in MapScreen.kt. The stub check cannot see Compose's extension
+  packages, so an "unresolved reference" it does not report is still possible until CI builds.
