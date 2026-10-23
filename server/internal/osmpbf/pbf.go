@@ -7,7 +7,7 @@
 // do the rest.
 //
 // What the road cutter needs is what is decoded: every dense node's id and coordinates (tags are
-// skipped), every way's id, tags and node refs. Relations are skipped. Blocks are decompressed and
+// skipped), every way's id, tags and node refs, every relation's id, tags and members. Blocks are decompressed and
 // parsed in parallel and handed to the caller in file order, which is what a two-pass pipeline over
 // a sorted file relies on.
 package osmpbf
@@ -31,13 +31,28 @@ type Way struct {
 	Refs []int64
 }
 
-// Block is one PrimitiveBlock's nodes and ways. Node coordinates are in nanodegrees, as OSM stores
-// them (lat/lon × 1e9); NodeIDs, NodeLat and NodeLon run in parallel.
+// Member is one member of a relation: a node (0), a way (1) or a relation (2), by id, with its role.
+type Member struct {
+	Type uint8
+	Ref  int64
+	Role string
+}
+
+// Relation is one OSM relation: its tags and members (the water's multipolygons, for the map).
+type Relation struct {
+	ID      int64
+	Tags    map[string]string
+	Members []Member
+}
+
+// Block is one PrimitiveBlock's nodes, ways and relations. Node coordinates are in nanodegrees,
+// as OSM stores them (lat/lon × 1e9); NodeIDs, NodeLat and NodeLon run in parallel.
 type Block struct {
-	NodeIDs []int64
-	NodeLat []int64
-	NodeLon []int64
-	Ways    []Way
+	NodeIDs   []int64
+	NodeLat   []int64
+	NodeLon   []int64
+	Ways      []Way
+	Relations []Relation
 }
 
 // Header is what the OSMHeader blob says about the file.
@@ -434,6 +449,58 @@ func parseBlock(payload []byte) (*Block, error) {
 					w.Refs[i] = ref
 				}
 				b.Ways = append(b.Ways, w)
+			case 4: // a Relation
+				rr := &reader{b: gr.bytes()}
+				var rel Relation
+				var keys, vals, roles, types []uint64
+				tmp = tmp[:0]
+				for {
+					n, wt, ok := rr.field()
+					if !ok {
+						break
+					}
+					switch n {
+					case 1:
+						rel.ID = int64(rr.varint())
+					case 2:
+						keys = rr.packedVarints(wt, keys)
+					case 3:
+						vals = rr.packedVarints(wt, vals)
+					case 8:
+						roles = rr.packedVarints(wt, roles)
+					case 9:
+						tmp = rr.packedVarints(wt, tmp)
+					case 10:
+						types = rr.packedVarints(wt, types)
+					default:
+						rr.skip(wt)
+					}
+				}
+				if rr.err != nil {
+					return nil, rr.err
+				}
+				if len(keys) != len(vals) || len(roles) != len(tmp) || len(types) != len(tmp) {
+					return nil, errors.New("osmpbf: relation: field counts differ")
+				}
+				if len(keys) > 0 {
+					rel.Tags = make(map[string]string, len(keys))
+					for i := range keys {
+						if int(keys[i]) < len(strs) && int(vals[i]) < len(strs) {
+							rel.Tags[string(strs[keys[i]])] = string(strs[vals[i]])
+						}
+					}
+				}
+				rel.Members = make([]Member, len(tmp))
+				var ref int64
+				for i, d := range tmp {
+					ref += zigzag(d)
+					role := ""
+					if int(roles[i]) < len(strs) {
+						role = string(strs[roles[i]])
+					}
+					rel.Members[i] = Member{Type: uint8(types[i]), Ref: ref, Role: role}
+				}
+				b.Relations = append(b.Relations, rel)
 			default:
 				gr.skip(wire)
 			}
@@ -581,4 +648,105 @@ func Scan(path string, workers int, fn func(*Block) error, progress func(read, t
 type result struct {
 	b   *Block
 	err error
+}
+
+// ScanTail reads the file's blocks from the END backwards, calling fn with each, until fn returns
+// false (or an error) or the file is exhausted. The planet and Geofabrik's extracts hold their
+// relations last, so the relations are read without decompressing the nodes and ways before them:
+// the blob headers are walked (a few bytes each, the data skipped), then the last blobs decoded,
+// in parallel, newest first. Order within a batch of workers blocks is not the file's.
+func ScanTail(path string, workers int, fn func(*Block) (more bool, err error)) error {
+	if workers <= 0 {
+		workers = runtime.NumCPU()
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	// the blobs' offsets and sizes, without reading their data
+	type span struct{ off, size int64 }
+	var spans []span
+	var pos int64
+	var lenb [4]byte
+	for {
+		if _, err := f.ReadAt(lenb[:], pos); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		hl := int64(binary.BigEndian.Uint32(lenb[:]))
+		if hl <= 0 || hl > 64<<10 {
+			return fmt.Errorf("osmpbf: blob header length %d", hl)
+		}
+		hb := make([]byte, hl)
+		if _, err := f.ReadAt(hb, pos+4); err != nil {
+			return fmt.Errorf("osmpbf: blob header: %w", err)
+		}
+		r := &reader{b: hb}
+		typ := ""
+		size := int64(-1)
+		for {
+			num, wire, ok := r.field()
+			if !ok {
+				break
+			}
+			switch num {
+			case 1:
+				typ = string(r.bytes())
+			case 3:
+				size = int64(r.varint())
+			default:
+				r.skip(wire)
+			}
+		}
+		if r.err != nil || size < 0 {
+			return fmt.Errorf("osmpbf: blob header at %d", pos)
+		}
+		if typ == "OSMData" {
+			spans = append(spans, span{pos + 4 + hl, size})
+		}
+		pos += 4 + hl + size
+	}
+	for end := len(spans); end > 0; end -= workers {
+		start := end - workers
+		if start < 0 {
+			start = 0
+		}
+		batch := spans[start:end]
+		results := make([]result, len(batch))
+		var wg sync.WaitGroup
+		for i, sp := range batch {
+			wg.Add(1)
+			go func(i int, sp span) {
+				defer wg.Done()
+				data := make([]byte, sp.size)
+				if _, err := f.ReadAt(data, sp.off); err != nil {
+					results[i] = result{nil, err}
+					return
+				}
+				payload, err := unblob(data)
+				var b *Block
+				if err == nil {
+					b, err = parseBlock(payload)
+				}
+				results[i] = result{b, err}
+			}(i, sp)
+		}
+		wg.Wait()
+		for i := len(results) - 1; i >= 0; i-- {
+			if results[i].err != nil {
+				return results[i].err
+			}
+			more, err := fn(results[i].b)
+			if err != nil {
+				return err
+			}
+			if !more {
+				return nil
+			}
+		}
+	}
+	return nil
 }

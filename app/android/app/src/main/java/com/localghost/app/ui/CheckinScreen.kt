@@ -10,7 +10,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -21,7 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -115,7 +121,10 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
         return
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
+    // above the keyboard, as CHAT is: the IME inset minus the nav bar the shell already pads, so the
+    // page shrinks to what is visible and the field being typed in can be scrolled to
+    Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.ime.exclude(WindowInsets.navigationBars))
+        .padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(DayText.heading(day), color = GhostText, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
@@ -153,10 +162,12 @@ fun CheckinScreen(onOpenDay: (String) -> Unit) {
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("▲ bright  ● easy  ◆ tense  ▼ heavy  ◇ mind", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
-            Text("tap a day · an empty one to fill it in", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
-        }
+        // the key and the hint, a line each: side by side, the hint was squeezed into a narrow
+        // column on the right and wrapped a word a line
+        Text("▲ bright  ● easy  ◆ tense  ▼ heavy  ◇ mind", color = TerminalDim, style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
+        Text("tap a day · an empty one to fill it in", color = TerminalDim, style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(16.dp))
 
         // THE DAY BEING TOLD
@@ -267,6 +278,7 @@ private fun toneColour(tone: String, checked: Boolean) = when {
  *  and the mind row, the box's guesses ticked before you look and marked "·" (one tap unticks), the
  *  why prefilled from that day, a voice note, the save. The check-in text records the guesses left standing ("Preselected: tired"), so a
  *  later look can tell a guess from a feeling picked. */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class) // BringIntoViewRequester, experimental in older foundations
 @Composable
 private fun CheckinForm(day: String, today: String, dayWord: String, history: List<BoxClient.CheckinRow>, onSaved: () -> Unit) {
     val ctx = LocalContext.current
@@ -345,13 +357,32 @@ private fun CheckinForm(day: String, today: String, dayWord: String, history: Li
         Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(VoidLighter).padding(10.dp)) {
             Text("why?", color = GhostText, style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(6.dp))
+            // a capital after a full stop, as any writing field; and the line being typed kept in
+            // view as the field grows (the page scrolls to the cursor, not just to the field)
+            val bring = remember { BringIntoViewRequester() }
+            var whyLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+            var whyFocused by remember { mutableStateOf(false) }
+            // a line and the box's padding under the cursor, so the line typed is not on the edge
+            val below = with(androidx.compose.ui.platform.LocalDensity.current) { 40.dp.toPx() }
+            LaunchedEffect(why, whyFocused) {
+                if (!whyFocused) return@LaunchedEffect
+                kotlinx.coroutines.delay(60) // the new line laid out first
+                val l = whyLayout
+                if (l == null) bring.bringIntoView() else {
+                    val r = l.getCursorRect(why.length.coerceAtMost(l.layoutInput.text.length))
+                    bring.bringIntoView(r.copy(bottom = r.bottom + below))
+                }
+            }
             BasicTextField(why, { why = it },
                 textStyle = MaterialTheme.typography.bodySmall.copy(color = GhostText),
                 cursorBrush = SolidColor(TerminalGreen),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                onTextLayout = { whyLayout = it },
                 decorationBox = { inner -> Box(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(Void)
                     .padding(8.dp)) { if (why.isEmpty()) Text("prefilled from your day once the box answers · edit freely",
                         color = TerminalDim, style = MaterialTheme.typography.bodySmall); inner() } },
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp))
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).bringIntoViewRequester(bring)
+                    .onFocusChanged { whyFocused = it.isFocused })
             Spacer(Modifier.height(10.dp))
             Text("or say it", color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(2.dp))

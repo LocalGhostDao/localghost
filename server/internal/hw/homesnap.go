@@ -46,6 +46,8 @@ type HomeSnap struct {
 	Top          []SnapStory          `json:"top"`
 	// FOR YOU: places near the trail, this day in earlier years, the news that touches me (foryou.go)
 	ForYou *ForYou `json:"forYou,omitempty"`
+	// NEXT: what the phone's calendar says comes next, the next day and a half, at most three
+	Calendar []CalendarEvent `json:"calendar,omitempty"`
 }
 
 // HomeSymbols are the coins the snapshot carries.

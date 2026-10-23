@@ -33,7 +33,7 @@ object SourcesMemory {
 }
 
 @Composable
-fun SourcesScreen(onOpenIntegration: (String) -> Unit) {
+fun SourcesScreen(onOpenIntegration: (String) -> Unit, onOpenCalendar: () -> Unit = {}, onOpenContacts: () -> Unit = {}) {
     val ctx = LocalContext.current
     // the last answer shown at once (the page opened a moment ago; the box is asked again behind it)
     var data by remember { mutableStateOf(SourcesMemory.last) }
@@ -45,6 +45,16 @@ fun SourcesScreen(onOpenIntegration: (String) -> Unit) {
             kotlinx.coroutines.delay(if (d?.job?.running == true) 5_000 else 60_000)
         }
     }
+    // THE PHONE'S OWN: the calendar is read here and kept on the box, so its card is the phone's,
+    // after the box's; it opens CALENDAR
+    var calMeta by remember { mutableStateOf<CalendarText.Meta?>(null) }
+    var calAsked by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { calMeta = BoxClient.calendar(ctx, 1, 2)?.meta; calAsked = true }
+    val calAllowed = remember { com.localghost.app.sync.CalendarSync.granted(ctx) && com.localghost.app.sync.CalendarSync.enabled(ctx) }
+    var conMeta by remember { mutableStateOf<ContactsText.Meta?>(null) }
+    var conAsked by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { conMeta = BoxClient.contacts(ctx, limit = 1)?.meta; conAsked = true }
+    val conAllowed = remember { com.localghost.app.sync.ContactsSync.granted(ctx) && com.localghost.app.sync.ContactsSync.enabled(ctx) }
     val d = data
     LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -72,18 +82,32 @@ fun SourcesScreen(onOpenIntegration: (String) -> Unit) {
             }
         }
         if (d != null) items(d.sources, key = { it.id }) { src -> IntegrationCard(src) { onOpenIntegration(src.id) } }
+        item(key = "calendar") {
+            val state = when { !calAllowed -> "off"; calMeta != null -> "ready"; calAsked -> "missing"; else -> "" }
+            IntegrationCard(BoxClient.Source(id = "calendar", name = "Calendar", state = state,
+                line = if (!calAllowed) "not sent , SETTINGS › CALENDAR turns it on" else CalendarText.synced(calMeta, System.currentTimeMillis() / 1000),
+                detail = "", action = "", label = "calendar", open = "calendar", bytes = 0,
+                from = listOf(BoxClient.SourceFrom("this phone", "phone", if (calAllowed) "on" else "off"))), glyph = "▤") { onOpenCalendar() }
+        }
+        item(key = "contacts") {
+            val state = when { !conAllowed -> "off"; conMeta != null -> "ready"; conAsked -> "missing"; else -> "" }
+            IntegrationCard(BoxClient.Source(id = "contacts", name = "Contacts", state = state,
+                line = if (!conAllowed) "not sent , SETTINGS › CONTACTS turns it on" else ContactsText.synced(conMeta, System.currentTimeMillis() / 1000),
+                detail = "", action = "", label = "contacts", open = "contacts", bytes = 0,
+                from = listOf(BoxClient.SourceFrom("this phone", "phone", if (conAllowed) "on" else "off"))), glyph = "☏") { onOpenContacts() }
+        }
         item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(2) }) { Spacer(Modifier.height(24.dp)) }
     }
 }
 
 /** One integration as a card: the glyph, the name, the state, one line, the count of places. */
 @Composable
-private fun IntegrationCard(src: BoxClient.Source, onClick: () -> Unit) {
+private fun IntegrationCard(src: BoxClient.Source, glyph: String = "", onClick: () -> Unit) {
     val colour = stateColour(src.state)
     Column(Modifier.fillMaxWidth().heightIn(min = 150.dp).border(1.dp, if (src.state == "ready") TerminalDim else GhostBorder, RectangleShape)
         .background(VoidLighter).clickable { onClick() }.padding(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(SourcesText.glyph(src.id), color = TerminalGreen, style = glow(MaterialTheme.typography.titleLarge))
+            Text(glyph.ifEmpty { SourcesText.glyph(src.id) }, color = TerminalGreen, style = glow(MaterialTheme.typography.titleLarge))
             Spacer(Modifier.weight(1f))
             Text(SourcesText.mark(src.state) + " " + SourcesText.word(src.state), color = colour, style = MaterialTheme.typography.labelSmall)
         }

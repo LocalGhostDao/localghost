@@ -58,6 +58,8 @@ enum class Dest(val label: String, val glyph: String) {
     PHRASES("PHRASES", "»"),
     HEALTH("HEALTH", "♥"),
     MAIL("MAIL", "✉"),
+    CALENDAR("CALENDAR", "▤"),
+    CONTACTS("CONTACTS", "☏"),
     CODES("CODES", "⚿"),
     SETTINGS("SETTINGS", "⚙"),
     PERMISSIONS("PERMISSIONS", "⊡"),
@@ -196,6 +198,7 @@ fun MainShell(
             // a memory's id: its own page; "near" (or nothing): the list, NEAR YOU open
             "memories" -> t.arg.toLongOrNull()?.let { openMemory(it) } ?: run { memFocus = t.arg; dest = Dest.MEMORIES }
             "checkin" -> dest = Dest.CHECKIN
+            "calendar" -> dest = Dest.CALENDAR
             "news" -> { newsFocus = 0L; dest = Dest.NEWS }
             "status" -> dest = Dest.HARNESS
             "notifications" -> dest = Dest.NOTIFICATIONS
@@ -242,7 +245,7 @@ fun MainShell(
             Dest.MEMORY -> dest = if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom
             Dest.INTEGRATION -> { dest = Dest.SOURCES; integOpen = "" }
             Dest.FEEDS -> dest = if (integOpen.isNotEmpty()) Dest.INTEGRATION else Dest.SOURCES
-            Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.MAP -> { dest = if (!fromSources) Dest.HOME else if (integOpen.isNotEmpty()) Dest.INTEGRATION else Dest.SOURCES; fromSources = false }
+            Dest.WIKIPEDIA, Dest.NEWS, Dest.CRYPTO, Dest.MAP, Dest.CALENDAR, Dest.CONTACTS -> { dest = if (!fromSources) Dest.HOME else if (integOpen.isNotEmpty()) Dest.INTEGRATION else Dest.SOURCES; fromSources = false }
             else -> dest = Dest.HOME
         }
     }
@@ -330,7 +333,9 @@ fun MainShell(
                             backLabel = (if (memFrom == Dest.MEMORY) Dest.MEMORIES else memFrom).label.lowercase(),
                             onBack = { goBack() })
                         Dest.CHECKIN -> CheckinScreen(onOpenDay = { d -> openDay(d) })
-                        Dest.SOURCES -> SourcesScreen(onOpenIntegration = { id -> integOpen = id; dest = Dest.INTEGRATION })
+                        Dest.SOURCES -> SourcesScreen(onOpenIntegration = { id -> integOpen = id; dest = Dest.INTEGRATION },
+                            onOpenCalendar = { integOpen = ""; fromSources = true; dest = Dest.CALENDAR },
+                            onOpenContacts = { integOpen = ""; fromSources = true; dest = Dest.CONTACTS })
                         Dest.INTEGRATION -> IntegrationScreen(integOpen,
                             onOpen = { page ->
                                 fromSources = true
@@ -363,6 +368,9 @@ fun MainShell(
                         Dest.PHRASES -> PhrasesScreen()
                         Dest.HEALTH -> HealthScreen(onOpenDay = { d -> openDay(d) })
                         Dest.MAIL -> MailScreen(openId = mailOpen, onOpened = { mailOpen = 0L })
+                        Dest.CALENDAR -> CalendarScreen(onOpenDay = { d -> openDay(d) },
+                            backLabel = if (fromSources) "‹ integrations" else "", onBack = { goBack() })
+                        Dest.CONTACTS -> ContactsScreen(backLabel = if (fromSources) "‹ integrations" else "", onBack = { goBack() })
                         Dest.CODES -> PinManagementScreen(devices)
                         Dest.SETTINGS -> SettingsScreen(
                             onOpenVerify = { dest = Dest.VERIFY },
@@ -618,7 +626,7 @@ private fun DrawerPanel(
             // the news, the market numbers, the weather, the maps, speech; one row, the pages
             // open from its cards and from HOME), then the machine itself
             SectionLabel("THE BOX")
-            DrawerRow(Dest.SOURCES, current in setOf(Dest.SOURCES, Dest.FEEDS, Dest.INTEGRATION, Dest.NEWS, Dest.CRYPTO, Dest.WIKIPEDIA)) { onSelect(Dest.SOURCES) }
+            DrawerRow(Dest.SOURCES, current in setOf(Dest.SOURCES, Dest.FEEDS, Dest.INTEGRATION, Dest.NEWS, Dest.CRYPTO, Dest.WIKIPEDIA, Dest.CALENDAR, Dest.CONTACTS)) { onSelect(Dest.SOURCES) }
             listOf(Dest.HARNESS, Dest.MODELS, Dest.NOTIFICATIONS, Dest.CONNECTORS, Dest.CODES).forEach {
                 DrawerRow(it, it == current) { onSelect(it) }
             }

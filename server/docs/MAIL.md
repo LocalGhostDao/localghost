@@ -98,10 +98,16 @@ with both.
 
 ## The relay, `deploy/mail/cmd/ghost.maild` in the web repository
 
-Runs as the relay machine's deploy user from `~/ghost-mail` (binary, configuration, TLS copies,
-the relay's own key, the queue), as a systemd user unit; root is needed once on the machine
-(unprivileged ports from 25, a certbot deploy hook that copies the mx certificate's PEMs into
-`~/ghost-mail/tls`, lingering) and never for an update. `:25` for SMTP, `127.0.0.1:8025` for
+Runs as a system user of its own, `ghost-mail` (no shell, no home), under a hardened system
+unit that lets it write one path, `/var/lib/ghost-mail` (the queue, its own key, the TLS
+copies), and read the deploy user's `~/ghost-mail/{bin,etc}` (the binary, the configuration,
+`boxes.conf`); it binds 25 by capability. Root is needed once on the machine
+(`scripts/root-once.sh`: the user, the unit, a certbot deploy hook that copies the mx
+certificate's PEMs into `/var/lib/ghost-mail/tls`, and the deploy user's leave to restart the
+unit without a password); an update is the deploy user's `install.sh`, whose one sudo is that
+restart. Until 18 October 2026 it ran as the deploy user itself, a user unit on a lowered
+unprivileged-port floor; a parser that takes bytes from any host on the internet should not
+own the machine's websites. `:25` for SMTP, `127.0.0.1:8025` for
 the box API behind the host's nginx. Its own A record, a PTR at the host's provider pointing
 back, a Let's Encrypt certificate reloaded within ten minutes of a renewal, port 25 open both
 ways. `deploy/mail/` over there has the unit, the config examples, the hook, the nginx snippet,

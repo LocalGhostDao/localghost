@@ -60,3 +60,32 @@ func TestRejectsWhatItIsNot(t *testing.T) {
 		t.Fatal("garbage scanned")
 	}
 }
+
+// Relations are read with their tags and members, and ScanTail finds them at the end of the file
+// without walking the blocks before them.
+func TestRelationsAndTail(t *testing.T) {
+	blocks := []testBlock{
+		{Nodes: []TestNode{{1, 0.1, 0.1}, {2, 0.1, 0.2}, {3, 0.2, 0.2}, {4, 0.2, 0.1}}},
+		{Ways: []TestWay{{ID: 10, Refs: []int64{1, 2, 3}}, {ID: 11, Refs: []int64{3, 4, 1}}}},
+		{Relations: []TestRelation{{ID: 500, Tags: map[string]string{"type": "multipolygon", "natural": "water", "name": "Lacul"},
+			Members: []Member{{1, 10, "outer"}, {1, 11, "outer"}, {0, 1, ""}}}}},
+	}
+	p := filepath.Join(t.TempDir(), "r.osm.pbf")
+	os.WriteFile(p, Encode(blocks...), 0o644)
+	var rels []Relation
+	if err := Scan(p, 2, func(b *Block) error { rels = append(rels, b.Relations...); return nil }, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(rels) != 1 || rels[0].ID != 500 || rels[0].Tags["name"] != "Lacul" || len(rels[0].Members) != 3 ||
+		rels[0].Members[1].Ref != 11 || rels[0].Members[1].Role != "outer" || rels[0].Members[1].Type != 1 || rels[0].Members[2].Type != 0 {
+		t.Fatalf("relations: %+v", rels)
+	}
+	var seen []int // relations per block, from the end, until a block with ways
+	err := ScanTail(p, 1, func(b *Block) (bool, error) {
+		seen = append(seen, len(b.Relations))
+		return len(b.Ways) == 0 && len(b.NodeIDs) == 0, nil
+	})
+	if err != nil || len(seen) != 2 || seen[0] != 1 || seen[1] != 0 {
+		t.Fatalf("tail: %v %v", seen, err)
+	}
+}

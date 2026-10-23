@@ -148,7 +148,10 @@ func TestChainTripsAndTheTripItMakes(t *testing.T) {
 	if got := tripTitle(tripMeta{Start: day("2025-12-30"), End: day("2026-01-02"), Countries: []string{"France", "Italy"}}); got != "France and Italy, 30 December 2025 to 2 January 2026" {
 		t.Fatalf("title %q", got)
 	}
-	if got := tripTitle(tripMeta{Start: day("2026-07-01"), End: day("2026-07-21"), Countries: []string{"A", "B", "C"}}); got != "three countries, 1 to 21 July 2026" {
+	if got := tripTitle(tripMeta{Start: day("2026-07-01"), End: day("2026-07-21"), Countries: []string{"A", "B", "C"}}); got != "A, B and C, 1 to 21 July 2026" {
+		t.Fatalf("title %q", got)
+	}
+	if got := tripTitle(tripMeta{Start: day("2026-07-01"), End: day("2026-07-21"), Countries: []string{"A", "B", "C", "D"}}); got != "four countries, 1 to 21 July 2026" {
 		t.Fatalf("title %q", got)
 	}
 	if got := tripBody(tripMeta{Days: 7, Countries: []string{"Italy"}, Photos: 1, Outings: []string{"x"}}); got != "A week away in Italy. 1 photo over 1 outing." {
@@ -169,5 +172,104 @@ func TestTripOutingsFate(t *testing.T) {
 	}
 	if got := tripOutingsFate(outs, "", partOf); got != "none listed" {
 		t.Fatalf("no list: %q", got)
+	}
+}
+
+// The country rule (16 Oct 2026): a week or more in one country is a trip of its own; a shorter
+// stay joins the neighbouring trip it is closer to in time.
+func TestSplitByCountry(t *testing.T) {
+	day := func(d string) int64 { tt, _ := time.Parse("2006-01-02", d); return tt.Unix() }
+	span := func(ref, from, to, country string) tripOuting {
+		return tripOuting{ref: ref, start: day(from) + 36000, end: day(to) + 72000, away: true, photos: 10, country: country}
+	}
+	// ten days in Greece, ten in Romania, back to back: two trips
+	outs := []tripOuting{span("g1", "2026-07-01", "2026-07-05", "Greece"), span("g2", "2026-07-06", "2026-07-10", "Greece"),
+		span("r1", "2026-07-11", "2026-07-20", "Romania")}
+	g := chainTrips(outs)
+	if len(g) != 2 || len(g[0]) != 2 || len(g[1]) != 1 || g[1][0] != 2 {
+		t.Fatalf("Greece and Romania: %v", g)
+	}
+	if got := tripTitle(tripOf(outs, g[0])); got != "Greece, 1 to 10 July 2026" {
+		t.Fatalf("%q", got)
+	}
+	// eight days in Germany, three in Italy: one trip, both named
+	outs = []tripOuting{span("d", "2026-08-01", "2026-08-08", "Germany"), span("i", "2026-08-09", "2026-08-11", "Italy")}
+	g = chainTrips(outs)
+	if len(g) != 1 || len(g[0]) != 2 {
+		t.Fatalf("Germany and Italy: %v", g)
+	}
+	if got := tripTitle(tripOf(outs, g[0])); got != "Germany and Italy, 1 to 11 August 2026" {
+		t.Fatalf("%q", got)
+	}
+	// ten in Greece, three in Italy, ten in Romania: Italy goes with the one it is closer to (a day
+	// after Greece, two before Romania)
+	outs = []tripOuting{span("g", "2026-07-01", "2026-07-10", "Greece"), span("i", "2026-07-12", "2026-07-14", "Italy"), span("r", "2026-07-17", "2026-07-26", "Romania")}
+	g = chainTrips(outs)
+	if len(g) != 2 || len(g[0]) != 2 || g[0][1] != 1 || len(g[1]) != 1 {
+		t.Fatalf("Greece with Italy, then Romania: %v", g)
+	}
+	// three short countries in a row: one trip
+	outs = []tripOuting{span("a", "2026-09-01", "2026-09-03", "Austria"), span("b", "2026-09-04", "2026-09-06", "Slovakia"), span("c", "2026-09-07", "2026-09-09", "Hungary")}
+	if g = chainTrips(outs); len(g) != 1 || len(g[0]) != 3 {
+		t.Fatalf("three short legs: %v", g)
+	}
+	if got := tripTitle(tripOf(outs, g[0])); got != "Austria, Slovakia and Hungary, 1 to 9 September 2026" {
+		t.Fatalf("%q", got)
+	}
+	// an outing with no country rides with the leg under way, and a week in one town is still one trip
+	outs = []tripOuting{span("x", "2026-05-01", "2026-05-04", "Portugal"), span("y", "2026-05-05", "2026-05-05", ""), span("z", "2026-05-06", "2026-05-09", "Portugal")}
+	if g = chainTrips(outs); len(g) != 1 || len(g[0]) != 3 {
+		t.Fatalf("no country in the middle: %v", g)
+	}
+}
+
+// Two days in a country puts it in the title; less is a passage, said in the body. A title names
+// three countries at most; a trip that would name four is cut in time order.
+func TestTripNamesAndSplitAtFour(t *testing.T) {
+	day := func(d string) int64 { tt, _ := time.Parse("2006-01-02", d); return tt.Unix() }
+	span := func(ref, from, to, country string, hoursEnd int) tripOuting {
+		return tripOuting{ref: ref, start: day(from) + 36000, end: day(to) + int64(hoursEnd)*3600, away: true, photos: 10, country: country}
+	}
+	// five days in Italy with an afternoon in San Marino on the way: Italy in the title, San Marino in the body
+	outs := []tripOuting{span("i1", "2026-06-01", "2026-06-03", "Italy", 20), span("sm", "2026-06-04", "2026-06-04", "San Marino", 16), span("i2", "2026-06-04", "2026-06-05", "Italy", 20)}
+	g := chainTrips(outs)
+	if len(g) != 1 {
+		t.Fatalf("one trip: %v", g)
+	}
+	tr := tripOf(outs, g[0])
+	if got := tripTitle(tr); got != "Italy, 1 to 5 June 2026" {
+		t.Fatalf("%q", got)
+	}
+	if len(tr.Through) != 1 || tr.Through[0] != "San Marino" || !strings.Contains(tripBody(tr), "Through San Marino on the way.") {
+		t.Fatalf("%+v %q", tr.Through, tripBody(tr))
+	}
+	// a weekend, under two days anywhere: the country stays in the title all the same
+	outs = []tripOuting{span("p", "2026-03-06", "2026-03-07", "France", 20)}
+	if got := tripTitle(tripOf(outs, chainTrips(outs)[0])); got != "France, 6 to 7 March 2026" {
+		t.Fatalf("%q", got)
+	}
+	// four countries with two days in each, none a week: two trips, three and one
+	outs = []tripOuting{span("a", "2026-09-01", "2026-09-03", "Austria", 20), span("b", "2026-09-04", "2026-09-06", "Slovakia", 20),
+		span("c", "2026-09-07", "2026-09-09", "Hungary", 20), span("d", "2026-09-10", "2026-09-12", "Slovenia", 20)}
+	g = chainTrips(outs)
+	if len(g) != 2 || len(g[0]) != 3 || len(g[1]) != 1 {
+		t.Fatalf("four countries: %v", g)
+	}
+	if got := tripTitle(tripOf(outs, g[0])); got != "Austria, Slovakia and Hungary, 1 to 9 September 2026" {
+		t.Fatalf("%q", got)
+	}
+	if got := tripTitle(tripOf(outs, g[1])); got != "Slovenia, 10 to 12 September 2026" {
+		t.Fatalf("%q", got)
+	}
+	// a passage between them does not count as a fourth: Austria, a day in Liechtenstein, Switzerland, Italy stay one trip
+	outs = []tripOuting{span("a", "2026-09-01", "2026-09-03", "Austria", 20), span("l", "2026-09-04", "2026-09-04", "Liechtenstein", 18),
+		span("s", "2026-09-05", "2026-09-07", "Switzerland", 20), span("i", "2026-09-08", "2026-09-10", "Italy", 20)}
+	g = chainTrips(outs)
+	if len(g) != 1 {
+		t.Fatalf("a passage is not a fourth country: %v", g)
+	}
+	tr = tripOf(outs, g[0])
+	if got := tripTitle(tr); got != "Austria, Switzerland and Italy, 1 to 10 September 2026" || len(tr.Through) != 1 {
+		t.Fatalf("%q %v", got, tr.Through)
 	}
 }

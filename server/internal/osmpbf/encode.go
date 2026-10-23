@@ -44,14 +44,22 @@ type TestWay struct {
 	Refs []int64
 }
 
-// EncBlock is one block to encode: nodes (written as DenseNodes) and ways.
+// TestRelation is a relation to encode: members as (type, ref, role).
+type TestRelation struct {
+	ID      int64
+	Tags    map[string]string
+	Members []Member
+}
+
+// EncBlock is one block to encode: nodes (written as DenseNodes), ways and relations.
 type EncBlock struct {
-	Nodes []TestNode
-	Ways  []TestWay
+	Nodes     []TestNode
+	Ways      []TestWay
+	Relations []TestRelation
 }
 
 // Encode writes a PBF with one OSMHeader and the given blocks, zlib-compressed like the real thing.
-// For tests and fixtures, not a general writer (no relations, no metadata).
+// For tests and fixtures, not a general writer (no metadata).
 func Encode(blocks ...EncBlock) []byte {
 	var out bytes.Buffer
 	writeBlob := func(typ string, payload []byte) {
@@ -128,6 +136,33 @@ func Encode(blocks ...EncBlock) []byte {
 				}
 				we.packed(8, refs)
 				g.bytesField(3, we.b)
+			}
+			groups = append(groups, g)
+		}
+		if len(bl.Relations) > 0 {
+			var g enc
+			for _, rel := range bl.Relations {
+				var re enc
+				re.uintField(1, uint64(rel.ID))
+				var ks, vs []uint64
+				for k, v := range rel.Tags {
+					ks = append(ks, str(k))
+					vs = append(vs, str(v))
+				}
+				re.packed(2, ks)
+				re.packed(3, vs)
+				var roles, refs, types []uint64
+				var prev int64
+				for _, m := range rel.Members {
+					roles = append(roles, str(m.Role))
+					refs = append(refs, zz(m.Ref-prev))
+					types = append(types, uint64(m.Type))
+					prev = m.Ref
+				}
+				re.packed(8, roles)
+				re.packed(9, refs)
+				re.packed(10, types)
+				g.bytesField(4, re.b)
 			}
 			groups = append(groups, g)
 		}

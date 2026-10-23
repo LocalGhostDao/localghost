@@ -41,6 +41,9 @@ import (
 const (
 	tripGapS       = 3 * 86400 // outings this close in time, both away from home, are one trip
 	tripMinSpanS   = 86400     // a trip is at least a night away; outings on one day are a day out
+	tripCountryD   = 7         // a week or more in one country is a trip of its own (16 Oct 2026, Vlad's rule)
+	tripNameS      = 48 * 3600 // a country is in a trip's title from two days in it; less is a passage, said in the body
+	tripNameMax    = 3         // a title names three countries at most; a trip that would name four is split
 	consolidateKey = "synthd_consolidated_day"
 	personProseMax = 3 // tries at writing a person before the facts stand as they are
 )
@@ -701,8 +704,20 @@ type tripOuting struct {
 // outing starts more than tripGapS after the last ended; a chain is a trip when it spans a night
 // at least, a lone outing included (a week in one town is one outing and still a trip; until
 // 10 October 2026 it took two outings, and a trip spent in one place never showed as one).
-// Returns the groups as indexes into outs.
+// Then the countries: a chain is split where a week or more in one country meets a week or more
+// in another (ten days in Greece then ten in Romania are two trips), and a shorter stay joins
+// the neighbouring trip it is closer to in time (eight days in Germany then three in Italy are
+// one, "Germany and Italy"; splitByCountry). Returns the groups as indexes into outs.
 func chainTrips(outs []tripOuting) [][]int {
+	var groups [][]int
+	for _, chain := range chainByTime(outs) {
+		groups = append(groups, splitByCountry(outs, chain)...)
+	}
+	return groups
+}
+
+// chainByTime is the first half of chainTrips: the chains by the gaps between outings.
+func chainByTime(outs []tripOuting) [][]int {
 	idx := make([]int, 0, len(outs))
 	for i, o := range outs {
 		if o.away && o.start > 0 && o.end >= o.start {
@@ -733,6 +748,172 @@ func chainTrips(outs []tripOuting) [][]int {
 	return groups
 }
 
+// countryLeg is a run of consecutive outings in one country; an outing with no country rides with
+// the leg under way.
+type countryLeg struct {
+	idx        []int
+	country    string
+	start, end int64
+}
+
+// countryLegs folds a chain of outings (indexes into outs, in time order) into legs by country.
+func countryLegs(outs []tripOuting, chain []int) []*countryLeg {
+	var legs []*countryLeg
+	for _, i := range chain {
+		o := outs[i]
+		if n := len(legs); n > 0 && (o.country == "" || legs[n-1].country == "" || o.country == legs[n-1].country) {
+			l := legs[n-1]
+			l.idx = append(l.idx, i)
+			if l.country == "" {
+				l.country = o.country
+			}
+			if o.end > l.end {
+				l.end = o.end
+			}
+			continue
+		}
+		legs = append(legs, &countryLeg{idx: []int{i}, country: o.country, start: o.start, end: o.end})
+	}
+	return legs
+}
+
+// countryTime is how long a chain spent in each country, by its legs' spans (first outing's start
+// to last outing's end), and the countries in the order first entered.
+func countryTime(outs []tripOuting, chain []int) (map[string]int64, []string) {
+	secs := map[string]int64{}
+	var order []string
+	for _, l := range countryLegs(outs, chain) {
+		if l.country == "" {
+			continue
+		}
+		if _, ok := secs[l.country]; !ok {
+			order = append(order, l.country)
+		}
+		secs[l.country] += l.end - l.start
+	}
+	return secs, order
+}
+
+// namedCountries is what a trip's title says: the countries it spent tripNameS or more in, when
+// it spent that long in any (else the one it spent longest in), each once.
+func namedCountries(secs map[string]int64, order []string) (named, through []string) {
+	for _, c := range order {
+		if secs[c] >= tripNameS {
+			named = append(named, c)
+		} else {
+			through = append(through, c)
+		}
+	}
+	if len(named) == 0 && len(order) > 0 {
+		best := order[0]
+		for _, c := range order {
+			if secs[c] > secs[best] {
+				best = c
+			}
+		}
+		named = []string{best}
+		through = through[:0]
+		for _, c := range order {
+			if c != best {
+				through = append(through, c)
+			}
+		}
+	}
+	return named, through
+}
+
+// splitByCountry cuts one time-chain into trips by country. The chain's outings, in order, form
+// legs: consecutive outings in one country (an outing with no country joins the leg under way).
+// A leg of tripCountryD days or more stands as a trip; a shorter leg is folded into the
+// neighbouring leg it is closer to in time (the earlier one on a tie), so what remains are legs
+// each with a week in one country, and the boundaries between them are the trips'. A chain with
+// one leg, or none long, stays one trip. Then a trip whose title would name four countries or
+// more (two days in each) is cut into trips of three at most, in time order (splitByNames).
+func splitByCountry(outs []tripOuting, chain []int) [][]int {
+	type leg struct {
+		idx        []int
+		country    string
+		start, end int64
+		long       bool
+	}
+	var legs []*leg
+	for _, cl := range countryLegs(outs, chain) {
+		legs = append(legs, &leg{idx: cl.idx, country: cl.country, start: cl.start, end: cl.end,
+			long: (dayStart(cl.end)-dayStart(cl.start))/86400+1 >= tripCountryD})
+	}
+	// fold the short legs into a neighbour until every leg left is long
+	for len(legs) > 1 {
+		k := -1
+		for i, l := range legs {
+			if !l.long {
+				k = i
+				break
+			}
+		}
+		if k < 0 {
+			break
+		}
+		into := k - 1
+		if k == 0 {
+			into = 1
+		} else if k+1 < len(legs) && legs[k+1].start-legs[k].end < legs[k].start-legs[k-1].end {
+			into = k + 1
+		}
+		a, b := legs[into], legs[k]
+		if into > k {
+			a, b = b, a // keep time order inside the merged leg
+		}
+		merged := &leg{idx: append(append([]int{}, a.idx...), b.idx...), country: a.country, start: a.start, end: b.end, long: a.long || b.long}
+		if a.end > merged.end {
+			merged.end = a.end
+		}
+		lo := k
+		if into < k {
+			lo = into
+		}
+		legs = append(legs[:lo], append([]*leg{merged}, legs[lo+2:]...)...)
+	}
+	out := make([][]int, 0, len(legs))
+	for _, l := range legs {
+		out = append(out, splitByNames(outs, l.idx)...)
+	}
+	return out
+}
+
+// splitByNames cuts a trip that would name four or more countries into trips naming three at
+// most: its legs in time order, a new trip where the next leg's country would be the fourth
+// named one. A passage (under tripNameS) stays with the trip it is in.
+func splitByNames(outs []tripOuting, chain []int) [][]int {
+	secs, _ := countryTime(outs, chain)
+	named := map[string]bool{}
+	for c, sec := range secs {
+		if sec >= tripNameS {
+			named[c] = true
+		}
+	}
+	if len(named) <= tripNameMax {
+		return [][]int{chain}
+	}
+	var out [][]int
+	var cur []int
+	seen := map[string]bool{}
+	for _, l := range countryLegs(outs, chain) {
+		if named[l.country] && !seen[l.country] && len(seen) == tripNameMax {
+			out = append(out, cur)
+			cur = nil
+			seen = map[string]bool{}
+		}
+		if named[l.country] {
+			seen[l.country] = true
+		}
+		cur = append(cur, l.idx...)
+	}
+	if len(cur) > 0 {
+		out = append(out, cur)
+	}
+	return out
+}
+
 // tripMeta is the trip's JSON for the app and for the next pass.
 type tripMeta struct {
 	Start     int64    `json:"start"`
@@ -740,7 +921,8 @@ type tripMeta struct {
 	Days      int      `json:"days"`
 	Photos    int      `json:"photos"`
 	Outings   []string `json:"outings"`
-	Countries []string `json:"countries,omitempty"`
+	Countries []string `json:"countries,omitempty"` // the title's: two days or more in each
+	Through   []string `json:"through,omitempty"`   // passed through: under two days, said in the body
 	Places    []string `json:"places,omitempty"`
 	Covers    []string `json:"covers,omitempty"`
 	DistanceM float64  `json:"distanceM,omitempty"`
@@ -796,7 +978,20 @@ func tripOf(outs []tripOuting, group []int) tripMeta {
 	}
 	sort.SliceStable(countries, func(a, b int) bool { return countryN[countries[a]] > countryN[countries[b]] })
 	sort.SliceStable(places, func(a, b int) bool { return placeN[places[a]] > placeN[places[b]] })
-	t.Countries = countries
+	// the title's countries are the ones with two days in them, most photographed first; the rest
+	// were passed through
+	secs, order := countryTime(outs, group)
+	named, through := namedCountries(secs, order)
+	isNamed := map[string]bool{}
+	for _, c := range named {
+		isNamed[c] = true
+	}
+	for _, c := range countries {
+		if isNamed[c] {
+			t.Countries = append(t.Countries, c)
+		}
+	}
+	t.Through = through
 	if len(places) > 6 {
 		places = places[:6]
 	}
@@ -808,15 +1003,13 @@ func tripOf(outs []tripOuting, group []int) tripMeta {
 func dayStart(ts int64) int64 { return ts - ts%86400 }
 
 // tripTitle: "Canada, 12 to 19 September 2026"; the places when no country is known; "France and
-// Italy" for two, "three countries" for more.
+// Italy" for two, "France, Italy and Austria" for three, "four countries" past that.
 func tripTitle(t tripMeta) string {
 	where := ""
 	switch {
-	case len(t.Countries) == 1:
-		where = t.Countries[0]
-	case len(t.Countries) == 2:
-		where = t.Countries[0] + " and " + t.Countries[1]
-	case len(t.Countries) > 2:
+	case len(t.Countries) >= 1 && len(t.Countries) <= 3:
+		where = joinAnd(t.Countries)
+	case len(t.Countries) > 3:
 		where = numberWord(len(t.Countries)) + " countries"
 	case len(t.Places) > 0:
 		where = joinSome(t.Places, 3)
@@ -838,6 +1031,9 @@ func tripBody(t tripMeta) string {
 		b.WriteString(": " + joinSome(t.Places, 4))
 	}
 	b.WriteString(".")
+	if len(t.Through) > 0 {
+		b.WriteString(" Through " + joinSome(t.Through, 3) + " on the way.")
+	}
 	if t.Photos > 0 {
 		b.WriteString(fmt.Sprintf(" %d photo%s over %d outing%s", t.Photos, plural(t.Photos), len(t.Outings), plural(len(t.Outings))))
 		if t.DistanceM >= 950 {
@@ -1103,6 +1299,9 @@ func tripFacts(db *poltergres.ReadWrite, title string, meta map[string]any) []st
 	}
 	if cs := metaStrings(meta, "countries"); len(cs) > 0 {
 		f = append(f, "Countries: "+strings.Join(cs, ", "))
+	}
+	if cs := metaStrings(meta, "through"); len(cs) > 0 {
+		f = append(f, "Passed through, under two days each: "+strings.Join(cs, ", "))
 	}
 	if ps := metaStrings(meta, "places"); len(ps) > 0 {
 		f = append(f, "Places (most photographed first): "+strings.Join(ps, ", "))

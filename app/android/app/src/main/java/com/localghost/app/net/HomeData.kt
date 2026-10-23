@@ -22,7 +22,8 @@ object HomeData {
         val empty: Boolean get() = places.isEmpty() && days.isEmpty() && stories.isEmpty() && remember == null
     }
     data class Snap(val at: Long, val prices: Map<String, Price>, val marketCode: String, val marketValue: Double, val marketChange: Double,
-                    val brief: String, val briefAt: Long, val briefStories: List<Long>, val top: List<Story>, val forYou: ForYou?)
+                    val brief: String, val briefAt: Long, val briefStories: List<Long>, val top: List<Story>, val forYou: ForYou?,
+                    val calendar: List<com.localghost.app.ui.CalendarText.Event> = emptyList())
 
     private fun strings(a: JSONArray?): List<String> = if (a == null) emptyList() else (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() }
     private fun <T> objs(a: JSONArray?, f: (JSONObject) -> T): List<T> =
@@ -43,7 +44,8 @@ object HomeData {
         return Snap(o.optLong("at"), prices, o.optString("marketCode"), o.optDouble("marketValue", 0.0), o.optDouble("marketChange", 0.0),
             o.optString("brief"), o.optLong("briefAt"), if (bs == null) emptyList() else (0 until bs.length()).map { bs.optDouble(it, 0.0).toLong() }.filter { it > 0 },
             objs(o.optJSONArray("top")) { s -> Story(s.optLong("id"), s.optString("title"), s.optString("lead"), strings(s.optJSONArray("outlets")), s.optInt("sources"), s.optLong("lastSeen")) },
-            o.optJSONObject("forYou")?.let { forYou(it) })
+            o.optJSONObject("forYou")?.let { forYou(it) },
+            com.localghost.app.ui.CalendarText.parseEvents(o.optJSONArray("calendar")))
     }
 
     fun forYou(f: JSONObject): ForYou = ForYou(f.optLong("at"), f.optLong("from"),

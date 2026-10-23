@@ -65,6 +65,12 @@ func (s *Server) homeSnap(mounted int) (hw.HomeSnap, bool) {
 	snap := hw.MakeHomeSnap(rates, fast, news, now)
 	if db, err := s.notif.DB(mounted); err == nil {
 		snap.ForYou = forYouFor(db, rd, rerr == nil, news, now)
+		if evs, err := hw.CalendarUpcoming(db, now, 36, 3); err == nil && len(evs) > 0 {
+			for i := range evs {
+				evs[i].Notes = "" // HOME shows the time, title and place; the rest is the DAY page's
+			}
+			snap.Calendar = evs
+		}
 	}
 	return snap, true
 }

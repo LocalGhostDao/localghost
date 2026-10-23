@@ -820,12 +820,13 @@ func mapsDoc(mount string) sourceDoc {
 	geo := filepath.Join(mount, "geo")
 	coast := countFiles(filepath.Join(mount, "landtiles"), ".lgt")
 	roads := countFiles(filepath.Join(mount, "roadtiles", "0"), ".lgr") + countFiles(filepath.Join(mount, "roadtiles", "1"), ".lgr")
+	_, waterErr := os.Stat(filepath.Join(mount, "roadtiles", "water.ok")) // tiles cut with the water in them (16 Oct 2026)
 	packs := countFiles(filepath.Join(geo, "elevation"), ".heights")
 	tiles := countFiles(filepath.Join(geo, "elevation"), ".tif")
 	_, tz := os.Stat(filepath.Join(geo, "tz", "grid.bin"))
 	d := sourceDoc{ID: "maps", Name: "Maps and heights", Open: "map", Action: "maps", Label: "fetch the maps from the mirror", From: []sourceFrom{
 		{Name: "OpenStreetMap", Role: "the coastline, from the land polygons"},
-		{Name: "Geofabrik", Role: "the roads, from extracts cut into tiles on the box"},
+		{Name: "Geofabrik", Role: "the roads and the water (rivers, canals, lakes), from extracts cut into tiles on the box"},
 		{Name: "GeoNames", Role: "the places, with their populations"},
 		{Name: "Copernicus DEM", Role: "the ground's height at 90 m, in packs of a 30-degree block"},
 		{Name: "LocalGhost mirror", Role: "all of it, signed, at setup or when you ask here"},
@@ -835,7 +836,11 @@ func mapsDoc(mount string) sourceDoc {
 		parts = append(parts, fmt.Sprintf("coastline %s tiles", humanCount(int64(coast))))
 	}
 	if roads > 0 {
-		parts = append(parts, fmt.Sprintf("roads %s tiles", humanCount(int64(roads))))
+		if waterErr == nil {
+			parts = append(parts, fmt.Sprintf("roads and water %s tiles", humanCount(int64(roads))))
+		} else {
+			parts = append(parts, fmt.Sprintf("roads %s tiles (no water yet: the next cut adds it)", humanCount(int64(roads))))
+		}
 	}
 	switch {
 	case packs > 0:

@@ -348,6 +348,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/mail/send", s.handleMailSend)             // reply, forward or a new message, handed to noted
 	mux.HandleFunc("/v1/mail/status", s.handleMailStatus)         // settings, noted's status, the DNS records, the enrol line
 	mux.HandleFunc("/v1/mail/settings", s.handleMailSettings)     // domain, relay, box id, name, DNS checks
+	mux.HandleFunc("/v1/calendar", s.handleCalendar)                // the phone's calendar: a window, a search, the next thirty days
+	mux.HandleFunc("/v1/calendar/upload", s.handleCalendarUpload)   // a window of the phone's calendar store, replaced whole
+	mux.HandleFunc("/v1/calendar/forget", s.handleCalendarForget)   // every event dropped
+	mux.HandleFunc("/v1/contacts", s.handleContacts)                // the phone's contacts: a search, everyone, or the one a number belongs to
+	mux.HandleFunc("/v1/contacts/upload", s.handleContactsUpload)   // the phone's whole set, replaced
+	mux.HandleFunc("/v1/contacts/forget", s.handleContactsForget)   // every contact dropped
 	mux.HandleFunc("/v1/chat", s.handleChat)                // ask the box's model (via synthd's retrieval seam)
 	mux.HandleFunc("/v1/chat/stop", s.handleChatStop)       // STOP: ends the answer being written for a chat (closing the app does not)
 	mux.HandleFunc("/v1/chat/plan", s.handleChatPlan)       // what the question needs from the web, from the model, before the phone searches

@@ -524,6 +524,58 @@ CREATE TABLE IF NOT EXISTS mail_attachments (
     sha256     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS mail_attachments_message ON mail_attachments (message_id);
+-- CALENDAR , the phone's calendar store, read on the phone (hw/calendarstore.go). One row per
+-- event instance; the window the phone read is replaced whole on each upload (gen).
+CREATE TABLE IF NOT EXISTS calendar_events (
+    key         TEXT PRIMARY KEY,
+    device      TEXT NOT NULL DEFAULT '',
+    event_id    BIGINT NOT NULL DEFAULT 0,
+    calendar_id BIGINT NOT NULL DEFAULT 0,
+    calendar    TEXT NOT NULL DEFAULT '',
+    account     TEXT NOT NULL DEFAULT '',
+    title       TEXT NOT NULL DEFAULT '',
+    location    TEXT NOT NULL DEFAULT '',
+    notes       TEXT NOT NULL DEFAULT '',
+    begin_ts    BIGINT NOT NULL DEFAULT 0,
+    end_ts      BIGINT NOT NULL DEFAULT 0,
+    all_day     BOOLEAN NOT NULL DEFAULT FALSE,
+    tz          TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT '',
+    self_status TEXT NOT NULL DEFAULT '',
+    busy        BOOLEAN NOT NULL DEFAULT FALSE,
+    organizer   TEXT NOT NULL DEFAULT '',
+    attendees   TEXT NOT NULL DEFAULT '[]',
+    gen         BIGINT NOT NULL DEFAULT 0,
+    updated_at  BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS calendar_events_begin ON calendar_events (begin_ts);
+CREATE INDEX IF NOT EXISTS calendar_events_device ON calendar_events (device, begin_ts);
+-- CONTACTS , the phone's contacts, read on the phone (hw/contactstore.go). One row per contact;
+-- the set is replaced whole on each upload (gen).
+CREATE TABLE IF NOT EXISTS contacts (
+    key         TEXT PRIMARY KEY,
+    device      TEXT NOT NULL DEFAULT '',
+    contact_id  BIGINT NOT NULL DEFAULT 0,
+    lookup      TEXT NOT NULL DEFAULT '',
+    name        TEXT NOT NULL DEFAULT '',
+    given       TEXT NOT NULL DEFAULT '',
+    family      TEXT NOT NULL DEFAULT '',
+    nickname    TEXT NOT NULL DEFAULT '',
+    org         TEXT NOT NULL DEFAULT '',
+    title       TEXT NOT NULL DEFAULT '',
+    starred     BOOLEAN NOT NULL DEFAULT FALSE,
+    numbers     TEXT NOT NULL DEFAULT '[]',
+    emails      TEXT NOT NULL DEFAULT '[]',
+    birthday    TEXT NOT NULL DEFAULT '',
+    bday_md     TEXT NOT NULL DEFAULT '',
+    phones      TEXT NOT NULL DEFAULT '',
+    search      TEXT NOT NULL DEFAULT '',
+    emails_lc   TEXT NOT NULL DEFAULT '',
+    gen         BIGINT NOT NULL DEFAULT 0,
+    updated_at  BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS contacts_bday ON contacts (bday_md);
+CREATE INDEX IF NOT EXISTS contacts_device ON contacts (device);
 CREATE TABLE IF NOT EXISTS reports (
     day          TEXT PRIMARY KEY,       -- 'MM-DD'
     generated_at BIGINT NOT NULL,

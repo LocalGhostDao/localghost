@@ -245,10 +245,12 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 29) permChain.add(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
         permChain.add(arrayOf(Manifest.permission.CAMERA))
         permChain.add(arrayOf(Manifest.permission.RECORD_AUDIO))
+        permChain.add(arrayOf(Manifest.permission.READ_CALENDAR))
+        permChain.add(arrayOf(Manifest.permission.READ_CONTACTS))
         AppSettings.setEverAskedMedia(this, true)
         AppSettings.setWelcomeAsked(this, true)
         permAsking = true
-        permChainDone = { refreshGrants() }
+        permChainDone = { refreshGrants(); com.localghost.app.sync.CalendarSync.schedule(this); com.localghost.app.sync.ContactsSync.schedule(this) }
         nextInChain()
     }
 
@@ -279,6 +281,12 @@ class MainActivity : ComponentActivity() {
         rows += Grant("◈", "microphone",
             "voice notes to your check-in, and questions asked aloud; heard on your box, nowhere else",
             state(Manifest.permission.RECORD_AUDIO))
+        rows += Grant("◈", "calendar",
+            "your plans, read here and kept on your box, so the day and the chat know them; never written to",
+            state(Manifest.permission.READ_CALENDAR))
+        rows += Grant("◈", "contacts",
+            "who someone is and how to reach them, for the chat, and birthdays; read here, kept on your box, never written to",
+            state(Manifest.permission.READ_CONTACTS))
         return rows
     }
 
@@ -323,6 +331,8 @@ class MainActivity : ComponentActivity() {
         PollWorker.schedule(this)
         SyncWorker.schedule(this)          // 15-min background sync, Wi-Fi only
         com.localghost.app.sync.HealthSync.schedule(this) // the last week of Health Connect, every six hours
+        com.localghost.app.sync.CalendarSync.schedule(this) // the phone's calendar to the box, on change and every six hours
+        com.localghost.app.sync.ContactsSync.schedule(this) // the phone's contacts to the box, the same way
         com.localghost.app.sync.BoxFetch.schedule(this)   // the news feeds and the tickers, hourly, for the box
         CrashHandler.pending(this)?.let { screen = Screen.Crash(it) }
         // what a killed app left in its cache (a capture in flight is minutes old at most)
@@ -1505,6 +1515,8 @@ class MainActivity : ComponentActivity() {
                 // front needs no background permission, so the day reaches the box whenever the
                 // person looks, whatever the six-hourly worker managed
                 lifecycleScope.launch { runCatching { com.localghost.app.sync.HealthSync.syncIfDue(this@MainActivity) } }
+                lifecycleScope.launch { runCatching { com.localghost.app.sync.CalendarSync.syncIfDue(this@MainActivity) } }
+                lifecycleScope.launch { runCatching { com.localghost.app.sync.ContactsSync.syncIfDue(this@MainActivity) } }
                 // Chat continuity: the box kept the conversation; put it back on the screen. Only
                 // when the screen is actually empty (a live in-memory chat wins) and not incognito
                 // (incognito threads are deliberately not persisted anywhere, including here).

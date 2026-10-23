@@ -70,6 +70,12 @@ type dayFacts struct {
 	Notes  []string `json:"notes,omitempty"`  // journal titles that day (not the check-in, not a voice note)
 	Spoken []string `json:"spoken,omitempty"` // what the person said in the day's voice notes (ghost.voiced's transcripts)
 	Chats  []string `json:"chats,omitempty"`  // chats started that day, by title
+	// what the phone's calendar had that day (hw/calendarstore.go), live ones only, in its zone
+	Events []string `json:"events,omitempty"`
+	// whose birthday it was, from the phone's contacts (hw/contactstore.go), with the age when
+	// the year is known. Like the calendar, it colours a day the box knows something of; a
+	// day with nothing else stays empty
+	Birthdays []string `json:"birthdays,omitempty"`
 	// the outing this day is part of
 	Outing     string `json:"outing,omitempty"`
 	OutingDay  int    `json:"outingDay,omitempty"`
@@ -423,6 +429,44 @@ func gatherDayFacts(db *poltergres.ReadWrite, mount, day string) *dayFacts {
 			}
 		}
 	}
+	// the calendar's events that day, in the zone the phone's calendar was read in; a calendar
+	// alone is not signal (a year of workdays would fill the feed), it colours a day that has some
+	if loc := hw.CalendarZone(db); loc != nil {
+		lt := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc)
+		if evs, err := hw.CalendarRange(db, lt.Unix(), lt.AddDate(0, 0, 1).Unix(), 40); err == nil {
+			for _, e := range evs {
+				if !e.Live() {
+					continue
+				}
+				// an all-day event is kept at UTC midnight of its date; one from another date
+				// that the local window caught at its edge is not this day's
+				if e.AllDay && (time.Unix(e.Begin, 0).UTC().Format("2006-01-02") > day || time.Unix(e.End-1, 0).UTC().Format("2006-01-02") < day) {
+					continue
+				}
+				f.Events = append(f.Events, clip(hw.CalendarLine(e, loc, false), 160))
+				if len(f.Events) == 8 {
+					break
+				}
+			}
+		}
+	}
+	// whose birthday it was (the contacts' month and day); one the calendar already names is not
+	// said twice
+	if bs, err := hw.ContactBirthdays(db, []time.Time{t}); err == nil {
+		for _, c := range bs {
+			first := strings.ToLower(strings.Fields(c.Name + " x")[0])
+			dup := false
+			for _, e := range f.Events {
+				le := strings.ToLower(e)
+				if strings.Contains(le, "birthday") && strings.Contains(le, first) {
+					dup = true
+				}
+			}
+			if !dup && len(f.Birthdays) < 6 {
+				f.Birthdays = append(f.Birthdays, hw.BirthdayLine(c, t))
+			}
+		}
+	}
 	// the outing this day belongs to
 	if rows, err := db.Query(`SELECT title, (meta->>'start')::bigint, (meta->>'end')::bigint, coalesce((meta->>'away')::boolean, false)
 		FROM memories WHERE kind = 'outing' AND NOT tombstoned AND (meta->>'start')::bigint < $1 AND (meta->>'end')::bigint >= $2 ORDER BY (meta->>'start')::bigint LIMIT 1`, s1, s0); err == nil && len(rows.Vals) == 1 {
@@ -571,6 +615,16 @@ func dayTemplate(f *dayFacts) string {
 	if len(f.Chats) > 0 {
 		parts = append(parts, fmt.Sprintf("You asked the box about %s.", joinAnd(f.Chats)))
 	}
+	if len(f.Birthdays) > 0 {
+		parts = append(parts, "It was "+joinAnd(f.Birthdays)+".")
+	}
+	if len(f.Events) > 0 {
+		ev := f.Events
+		if len(ev) > 3 {
+			ev = ev[:3]
+		}
+		parts = append(parts, "On the calendar: "+strings.Join(ev, "; ")+".")
+	}
 	return strings.Join(parts, " ")
 }
 
@@ -658,6 +712,12 @@ func (f *dayFacts) sheet() []string {
 	}
 	for _, c := range f.Chats {
 		s = append(s, "You started a chat with the box about: "+c)
+	}
+	for _, e := range f.Events {
+		s = append(s, "Your phone's calendar had (planned, not proof it happened): "+e)
+	}
+	for _, b := range f.Birthdays {
+		s = append(s, "From your contacts, it was "+b)
 	}
 	return s
 }

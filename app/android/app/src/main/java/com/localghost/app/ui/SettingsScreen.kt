@@ -158,6 +158,18 @@ fun SettingsScreen(
             HealthSection()
         }
 
+        // CALENDAR: the phone's calendar read here and kept on the box (sync/CalendarSync.kt)
+        var calLine by remember { mutableStateOf("your plans, read here, kept on the box") }
+        Fold("CALENDAR", calLine, openAtFirst = false) {
+            CalendarSection(onLine = { calLine = it })
+        }
+
+        // CONTACTS: the phone's contacts read here and kept on the box (sync/ContactsSync.kt)
+        var conLine by remember { mutableStateOf("names for numbers, read here, kept on the box") }
+        Fold("CONTACTS", conLine, openAtFirst = false) {
+            ContactsSection(onLine = { conLine = it })
+        }
+
         // MAIL: the box's own address through the relay (docs/MAIL.md); the domain, the relay,
         // the records to paste, the line for the relay
         var mailLine by remember { mutableStateOf("not set up") }

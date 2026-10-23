@@ -30,6 +30,8 @@ type Options struct {
 type Stats struct {
 	Files      int
 	Ways       int64 // road ways read
+	WaterWays  int64 // rivers, canals, streams and water areas drawn from single ways
+	WaterRels  int64 // water relations (lakes and river banks as multipolygons) whose rings closed
 	MajorTiles int
 	FineTiles  int
 	Points     int64
@@ -41,14 +43,17 @@ type Stats struct {
 }
 
 func (s Stats) String() string {
-	return fmt.Sprintf("%d files, %d road ways → %d major tiles + %d fine tiles (%d points, %.1f GB), %d graph cells (%d edges, %.1f GB) in %s",
-		s.Files, s.Ways, s.MajorTiles, s.FineTiles, s.Points, float64(s.Bytes)/1e9, s.GraphCells, s.Edges, float64(s.GraphBytes)/1e9, s.Took.Round(time.Second))
+	return fmt.Sprintf("%d files, %d road ways, %d water ways + %d water relations → %d major tiles + %d fine tiles (%d points, %.1f GB), %d graph cells (%d edges, %.1f GB) in %s",
+		s.Files, s.Ways, s.WaterWays, s.WaterRels, s.MajorTiles, s.FineTiles, s.Points, float64(s.Bytes)/1e9, s.GraphCells, s.Edges, float64(s.GraphBytes)/1e9, s.Took.Round(time.Second))
 }
 
-// Build cuts the roads of the PBF files into tiles under outDir: index.bin, 1/<x>_<y>.lgr (major
-// roads, one-degree cells) and 0/<x>_<y>.lgr (every road with its name, tenth-of-a-degree cells).
-// Three passes over each file , the node ids the roads need, those nodes' coordinates, the roads
-// themselves , then one pass over the cells. Written beside outDir and swapped in whole when
+// Build cuts the roads and the water of the PBF files into tiles under outDir: index.bin,
+// 1/<x>_<y>.lgr (major roads, rivers, canals and the larger lakes, one-degree cells) and
+// 0/<x>_<y>.lgr (every road with its name and every stream and pond, tenth-of-a-degree cells).
+// The water relations are read first from the file's end (water.go), then three passes over each
+// file , the node ids the roads and the water need, those nodes' coordinates, the ways themselves
+// (the relations' member ways spooled, their rings stitched and cut after) , then one pass over
+// the cells. Written beside outDir and swapped in whole when
 // complete, so a reader sees the old tiles or the new ones, never half.
 //
 // Memory: two bitmaps over the node id space (the roads' nodes and the junctions; about 1.6 GB
@@ -89,15 +94,57 @@ func Build(pbfs []string, outDir string, opt Options) (Stats, error) {
 			return st, fmt.Errorf("%s: %w", name, err)
 		}
 		st.Files++
-		// pass 1: which nodes the roads need
-		say(name + ": pass 1 of 3, finding the roads' nodes")
+		// pass 0: the water relations, from the end of the file (where the planet and the extracts
+		// keep them), until the first block that holds ways or nodes
+		say(name + ": reading the water relations from the file's end")
+		rels := map[int64]*waterRel{}
+		memberWays := newBitmap()
+		err := osmpbf.ScanTail(pbf, opt.Workers, func(b *osmpbf.Block) (bool, error) {
+			for i := range b.Relations {
+				r := &b.Relations[i]
+				if !waterRelation(r.Tags) {
+					continue
+				}
+				wr := &waterRel{name: cleanName(r.Tags["name"])}
+				for _, m := range r.Members {
+					if m.Type != 1 {
+						continue
+					}
+					if m.Role == "inner" {
+						wr.inner = append(wr.inner, m.Ref)
+					} else {
+						wr.outer = append(wr.outer, m.Ref)
+					}
+					memberWays.set(m.Ref)
+				}
+				if len(wr.outer) > 0 {
+					rels[r.ID] = wr
+				}
+			}
+			return len(b.Ways) == 0 && len(b.NodeIDs) == 0, nil
+		})
+		if err != nil {
+			return st, fmt.Errorf("%s: %w", name, err)
+		}
+		say(fmt.Sprintf("%s: %d water relations, %d member ways", name, len(rels), memberWays.count()))
+		// pass 1: which nodes the roads and the water need
+		say(name + ": pass 1 of 3, finding the roads' and the water's nodes")
 		need := newBitmap()
 		twice := newBitmap() // a node two road ways share: a junction, where the graph's edges split
-		var roadWays int64
-		err := osmpbf.Scan(pbf, opt.Workers, func(b *osmpbf.Block) error {
+		var roadWays, waterWays int64
+		err = osmpbf.Scan(pbf, opt.Workers, func(b *osmpbf.Block) error {
 			for i := range b.Ways {
 				w := &b.Ways[i]
-				if Class(w.Tags["highway"]) == 0 || len(w.Refs) < 2 {
+				if len(w.Refs) < 2 {
+					continue
+				}
+				if Class(w.Tags["highway"]) == 0 {
+					if WaterLine(w.Tags) != 0 || (WaterArea(w.Tags) && closedWay(w.Refs)) || memberWays.has(w.ID) {
+						waterWays++
+						for _, r := range w.Refs {
+							need.set(r)
+						}
+					}
 					continue
 				}
 				roadWays++
@@ -114,8 +161,8 @@ func Build(pbfs []string, outDir string, opt Options) (Stats, error) {
 		if err != nil {
 			return st, fmt.Errorf("%s: %w", name, err)
 		}
-		say(fmt.Sprintf("%s: %d road ways, %d nodes to find, %d junctions", name, roadWays, need.count(), twice.count()))
-		if roadWays == 0 {
+		say(fmt.Sprintf("%s: %d road ways, %d water ways, %d nodes to find, %d junctions", name, roadWays, waterWays, need.count(), twice.count()))
+		if roadWays == 0 && waterWays == 0 {
 			continue
 		}
 		// pass 2: those nodes' coordinates, in id order, to a flat file
@@ -165,16 +212,25 @@ func Build(pbfs []string, outDir string, opt Options) (Stats, error) {
 		if err != nil {
 			return st, err
 		}
-		// pass 3: the roads, cut into cells
-		say(name + ": pass 3 of 3, cutting the roads")
+		// pass 3: the roads and the water, cut into cells; the relations' member ways spooled
+		say(name + ": pass 3 of 3, cutting the roads and the water")
+		spool, err := newMemberSpool(filepath.Join(work, "members-"+name+".bin"))
+		if err != nil {
+			return st, err
+		}
 		var missing int64
 		coords := make([]float64, 0, 1024)
 		pts := make([]nodePt, 0, 512)
 		err = osmpbf.Scan(pbf, opt.Workers, func(b *osmpbf.Block) error {
 			for i := range b.Ways {
 				w := &b.Ways[i]
+				if len(w.Refs) < 2 {
+					continue
+				}
 				class := Class(w.Tags["highway"])
-				if class == 0 || len(w.Refs) < 2 {
+				water := class == 0 && (WaterLine(w.Tags) != 0 || (WaterArea(w.Tags) && closedWay(w.Refs)))
+				member := class == 0 && memberWays.has(w.ID)
+				if class == 0 && !water && !member {
 					continue
 				}
 				coords = coords[:0]
@@ -190,6 +246,34 @@ func Build(pbfs []string, outDir string, opt Options) (Stats, error) {
 					pts = append(pts, nodePt{id: r, lon: lon, lat: lat, ok: true})
 				}
 				if len(coords) < 4 {
+					continue
+				}
+				if member {
+					if err := spool.add(w.ID, coords); err != nil {
+						return err
+					}
+				}
+				if class == 0 {
+					if !water {
+						continue
+					}
+					st.WaterWays++
+					name := cleanName(w.Tags["name"])
+					if lc := WaterLine(w.Tags); lc != 0 {
+						if err := cut(0, coords, uint8(lc), 0, name, cells); err != nil {
+							return err
+						}
+						if lc != ClassStream {
+							if err := cut(1, coords, uint8(lc), 0, name, cells); err != nil {
+								return err
+							}
+						}
+						continue
+					}
+					// a closed way: a ring (the repeated first point dropped)
+					if err := cutWaterRing(coords[:len(coords)-2], 0, name, cells); err != nil {
+						return err
+					}
 					continue
 				}
 				st.Ways++
@@ -228,12 +312,55 @@ func Build(pbfs []string, outDir string, opt Options) (Stats, error) {
 		twice = nil
 		nodes.close()
 		_ = os.Remove(nodePath)
+		if err == nil {
+			err = spool.finish()
+		}
 		if err != nil {
+			spool.close()
 			return st, fmt.Errorf("%s: %w", name, err)
 		}
 		if missing > 0 {
 			say(fmt.Sprintf("%s: %d node refs not in the file (ways at the extract's edge), pieces cut short", name, missing))
 		}
+		// the relations: their members' rings stitched and cut, outer and inner alike (the
+		// phone's even-odd fill makes the holes)
+		if len(rels) > 0 {
+			say(fmt.Sprintf("%s: stitching %d water relations", name, len(rels)))
+			var open int
+			for _, id := range sortedKeys(rels) {
+				r := rels[id]
+				for pass, members := range [][]int64{r.outer, r.inner} {
+					ways := make([][]float64, 0, len(members))
+					for _, wid := range members {
+						if c := spool.get(wid); c != nil {
+							ways = append(ways, c)
+						}
+					}
+					rings := stitchRings(ways)
+					if pass == 0 && len(rings) == 0 {
+						open++
+						break
+					}
+					if pass == 0 {
+						st.WaterRels++
+					}
+					var flags uint8
+					if pass == 1 {
+						flags = FlagHole
+					}
+					for _, ring := range rings {
+						if err := cutWaterRing(ring, flags, r.name, cells); err != nil {
+							spool.close()
+							return st, err
+						}
+					}
+				}
+			}
+			if open > 0 {
+				say(fmt.Sprintf("%s: %d water relations did not close (members outside the file, or broken in OSM), left out", name, open))
+			}
+		}
+		spool.close()
 	}
 	if err := cells.flushAll(); err != nil {
 		return st, err
@@ -314,6 +441,10 @@ func Build(pbfs []string, outDir string, opt Options) (Stats, error) {
 	if err := os.WriteFile(filepath.Join(tmp, "index.bin"), ix.Encode(), 0o644); err != nil {
 		return st, err
 	}
+	// the water's mark: a tile set from before the water was cut with the roads is cut again
+	if err := os.WriteFile(filepath.Join(tmp, "water.ok"), []byte("rivers, canals, streams, lakes and reservoirs are in these tiles\n"), 0o644); err != nil {
+		return st, err
+	}
 	old := strings.TrimRight(outDir, "/") + ".old"
 	_ = os.RemoveAll(old)
 	if _, err := os.Stat(outDir); err == nil {
@@ -373,6 +504,9 @@ func StaleWhy(pbfs []string, outDir string) string {
 	}
 	if _, err := os.Stat(filepath.Join(outDir, "graph")); err != nil {
 		return "the tiles have no street graph yet (the day routes walk on it): cut once more"
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "water.ok")); err != nil {
+		return "the tiles have no water yet (rivers, lakes): cut once more"
 	}
 	for _, p := range pbfs {
 		if fi, err := os.Stat(p); err == nil && fi.ModTime().After(ii.ModTime()) {

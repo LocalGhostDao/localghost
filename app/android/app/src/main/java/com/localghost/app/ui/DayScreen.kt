@@ -94,6 +94,9 @@ fun DayScreen(day: String, onDay: (String) -> Unit, onOpenMap: (String) -> Unit,
             }
         }
 
+        // what the phone's calendar had that day (nothing shown when it had nothing)
+        DayCalendar(day)
+
         // the photos and videos
         val fs = frames
         Spacer(Modifier.height(18.dp))

@@ -25,7 +25,14 @@ internal object RoadTileGeom {
     const val FINE_PXZ = LandTileGeom.TILE_PXZ * 10
     const val NAME_PXZ = LandTileGeom.TILE_PXZ * 30
 
-    const val FLAG_ONEWAY = 1; const val FLAG_NAMED = 2; const val FLAG_TUNNEL = 4; const val FLAG_BRIDGE = 8
+    const val FLAG_ONEWAY = 1; const val FLAG_NAMED = 2; const val FLAG_TUNNEL = 4; const val FLAG_BRIDGE = 8; const val FLAG_HOLE = 16
+
+    /** THE WATER rides in the same tiles (the box cuts it with the roads): an area (a lake, a
+     *  reservoir, a river's banks) as a ring to fill, rivers, canals and streams as lines. A
+     *  tile's rings are filled even-odd, so an island inside a lake is a hole by itself. */
+    const val CLASS_WATER_AREA = 10; const val CLASS_RIVER = 11; const val CLASS_CANAL = 12; const val CLASS_STREAM = 13
+    const val MAX_CLASS = 13
+    fun isWater(cls: Int) = cls in CLASS_WATER_AREA..CLASS_STREAM
 
     class Piece(val cls: Int, val flags: Int, val name: String, val pts: IntArray)
     class Decoded(val level: Int, val x: Int, val y: Int, val pieces: List<Piece>)
@@ -115,6 +122,13 @@ internal object RoadTileGeom {
         }
         out[k++] = r[r.size - 2]; out[k++] = r[r.size - 1]
         return out.copyOf(k)
+    }
+
+    /** Whether a water class shows at a zoom: areas, rivers and canals from the major tiles' zoom,
+     *  streams from the zoom that shows the residential streets. */
+    fun showsWater(cls: Int, pxz: Float): Boolean = when (cls) {
+        CLASS_STREAM -> pxz >= FINE_PXZ * 2.5f
+        else -> isWater(cls) && pxz >= MAJOR_PXZ
     }
 
     /** Which classes a zoom shows: the coarser the view, the fewer. Class numbers as the box

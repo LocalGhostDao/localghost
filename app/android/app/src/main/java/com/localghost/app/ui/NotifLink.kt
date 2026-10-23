@@ -25,7 +25,7 @@ object NotifLink {
                 "notification" -> return Target("notification", arg.takeIf { it.toLongOrNull() != null } ?: "")
                 "memories" -> return Target("memories", arg.takeIf { it == "near" || it.toLongOrNull() != null } ?: "")
                 "mail" -> return Target("mail", arg.takeIf { it.toLongOrNull() != null } ?: "")
-                "checkin", "news", "status", "notifications" -> return Target(head)
+                "checkin", "news", "status", "notifications", "calendar" -> return Target(head)
             }
         }
         return when (service.removePrefix("ghost.") to kind) {

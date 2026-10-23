@@ -385,6 +385,12 @@ func main() {
 		for _, it := range weatherItems(chatStore(mount), q.Prompt, q.Here, time.Now()) {
 			extra = append(extra, sanitize(it))
 		}
+		for _, it := range calendarItems(chatStore(mount), q.Prompt, time.Now()) {
+			extra = append(extra, sanitize(it)) // THE CALENDAR the phone sent, for a question about plans (calendar.go)
+		}
+		for _, it := range contactItems(chatStore(mount), q.Prompt, time.Now()) {
+			extra = append(extra, sanitize(it)) // THE CONTACTS the phone sent, for a question about someone in them (contacts.go)
+		}
 		if len(extra) > 0 {
 			real := items[:0:0]
 			for _, it := range items {
@@ -1295,6 +1301,9 @@ func sanitize(it ctxItem) ctxItem {
 	}
 	if it.Source == "weather" {
 		limit = 700 // now and four days, one line each
+	}
+	if it.Source == "calendar" || it.Source == "contacts" {
+		limit = 400 // one event: when, what, where, with whom, a little of its notes
 	}
 	if len(s) > limit {
 		s = s[:limit] + "…"

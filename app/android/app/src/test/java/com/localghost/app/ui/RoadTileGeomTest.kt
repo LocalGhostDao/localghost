@@ -17,7 +17,7 @@ class RoadTileGeomTest {
     @Test fun decodesTheBoxTile() {
         val d = RoadTileGeom.decode(res("/road_fixture.lgr"))!!
         assertEquals(0, d.level); assertEquals(2061, d.x); assertEquals(1344, d.y)
-        assertEquals(3, d.pieces.size)
+        assertEquals(6, d.pieces.size)
         val p0 = d.pieces[0]
         assertEquals(3, p0.cls); assertEquals("Șoseaua Colentina", p0.name)
         assertTrue(p0.flags and RoadTileGeom.FLAG_ONEWAY != 0)
@@ -30,6 +30,18 @@ class RoadTileGeomTest {
         assertEquals(6, p2.cls); assertEquals("Strada Mică", p2.name)
         assertTrue(p2.flags and RoadTileGeom.FLAG_BRIDGE != 0)
         assertEquals(6, p2.pts.size)
+        // the water in the same tile: a pond as a ring, its island a hole, a river as a line
+        val lake = d.pieces[3]
+        assertEquals(RoadTileGeom.CLASS_WATER_AREA, lake.cls); assertEquals("Lacul Tei", lake.name); assertEquals(8, lake.pts.size)
+        assertTrue(RoadTileGeom.isWater(lake.cls)); assertFalse(RoadTileGeom.isWater(p2.cls))
+        val island = d.pieces[4]
+        assertTrue(island.flags and RoadTileGeom.FLAG_HOLE != 0)
+        assertEquals(RoadTileGeom.CLASS_RIVER, d.pieces[5].cls); assertEquals("Colentina", d.pieces[5].name)
+        // what shows when: rivers with the major tiles, streams with the streets
+        assertTrue(RoadTileGeom.showsWater(RoadTileGeom.CLASS_RIVER, RoadTileGeom.MAJOR_PXZ))
+        assertFalse(RoadTileGeom.showsWater(RoadTileGeom.CLASS_STREAM, RoadTileGeom.FINE_PXZ))
+        assertTrue(RoadTileGeom.showsWater(RoadTileGeom.CLASS_STREAM, RoadTileGeom.FINE_PXZ * 3))
+        assertFalse(RoadTileGeom.showsWater(6, RoadTileGeom.FINE_PXZ * 3))
     }
 
     @Test fun refusesGarbageAndShortTiles() {

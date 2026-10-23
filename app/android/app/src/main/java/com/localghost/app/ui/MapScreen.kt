@@ -75,6 +75,11 @@ private val MapWater = androidx.compose.ui.graphics.Color(0xFF0A1620)
 // the coast's own dim green it vanished into the coastline. Every trail sits on a dark halo.
 private val MapTrail = androidx.compose.ui.graphics.Color(0xFFD9A441)
 private val MapLand = androidx.compose.ui.graphics.Color(0xFF16211A)
+// Inland water (the box cuts it with the roads): a lake is the sea's own colour with a shore line
+// a shade lighter, a river a blue-grey line, a canal thinner, a stream thinner still.
+private val MapShore = androidx.compose.ui.graphics.Color(0xFF1E3A4A)
+private val MapRiver = androidx.compose.ui.graphics.Color(0xFF2E5F7A)
+private val MapWaterName = androidx.compose.ui.graphics.Color(0xFF6FA3C0)
 
 private fun invMercX(x: Double): Double = x / WORLD_UNITS * 360.0 - 180.0
 private fun invMercY(y: Double): Double {
@@ -752,6 +757,13 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             textAlign = android.graphics.Paint.Align.CENTER
         }
     }
+    // a river's or a lake's name: the same size, in the water's blue
+    val waterNamePaint = remember {
+        android.graphics.Paint(roadNamePaint).apply {
+            color = android.graphics.Color.argb(0xFF, 0x6F, 0xA3, 0xC0)
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.ITALIC)
+        }
+    }
     val roadNameHalo = remember {
         android.graphics.Paint(roadNamePaint).apply {
             color = android.graphics.Color.argb(0xD0, 0x0A, 0x16, 0x20); style = android.graphics.Paint.Style.STROKE; strokeWidth = 3f * density
@@ -854,6 +866,20 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         // otherwise only what a person needs: nothing while it has photos to show, the one line
         // that says why when it has none.
         val debug = remember { com.localghost.app.settings.AppSettings.debugMode(ctx) }
+        // the recorded base (see the Canvas): the layer, what camera it was drawn at, and a tick
+        // that fires once the camera has stood still for a moment, so the base is drawn crisp again
+        val baseLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
+        class BaseRec {
+            var cx = 0.0; var cy = 0.0; var pxz = 0f; var w = 0f; var h = 0f; var tick = -1; var settle = -1
+            var world: World? = null; var roads: RoadTileGeom.Index? = null; var tiles: ByteArray? = null; var debug = false
+            var roadsWanted: List<Int>? = null
+        }
+        val baseRec = remember { BaseRec() }
+        var settleTick by remember { mutableIntStateOf(0) }
+        LaunchedEffect(cx, cy, zoom) {
+            kotlinx.coroutines.delay(120)
+            settleTick++
+        }
         // YOU ARE HERE breathes: a slow pulse on the halo, so the eye finds it on a busy map. A
         // few breaths when the map opens or the fix moves, then still: an animation that never
         // ends keeps the window rendering at the display's rate for as long as the map is open,
@@ -890,6 +916,193 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             // and a label changing under it replay a texture rather than re-render the world's
             // paths, the tiles and the roads; only the camera, a landed tile or the data redraw
             // them.
+            // drawBase paints the sea, the land (the world cut, or the coast tiles past TILE_PXZ),
+            // the roads and the road names for a camera (cx0, cy0 at pxz0 pixels a map unit) onto a
+            // surface lw by lh pixels: the recorded base layer's content (see the Canvas below).
+            val drawBase: androidx.compose.ui.graphics.drawscope.DrawScope.(Double, Double, Double, Float, Float) -> Unit = { cx0, cy0, pxzD, lw, lh ->
+                val pxz = pxzD.toFloat()
+                val ox = -cx0 * pxzD + lw / 2.0
+                val oy = -cy0 * pxzD + lh / 2.0
+                fun sx(x: Double) = (x * pxzD + ox).toFloat()
+                fun sy(y: Double) = (y * pxzD + oy).toFloat()
+                val vx0 = cx0 - (lw / 2.0 + 32) / pxzD; val vx1 = cx0 + (lw / 2.0 + 32) / pxzD
+                val vy0 = cy0 - (lh / 2.0 + 32) / pxzD; val vy1 = cy0 + (lh / 2.0 + 32) / pxzD
+                // THE SEA first: the canvas is water, the land is painted on it.
+                drawRect(MapWater)
+                // graticule every 15 degrees , the projection's skeleton, for the debug switch
+                // only: a map is land, water and where you are, not a grid
+                if (debug) {
+                    var lon = -180.0
+                    while (lon <= 180.0) {
+                        val x = sx(mercXD(lon))
+                        if (x in -2f..lw + 2f) drawLine(GhostBorder, Offset(x, 0f), Offset(x, lh), 1f)
+                        lon += 15.0
+                    }
+                    var lat = -75.0
+                    while (lat <= 75.0) {
+                        val y = sy(mercYD(lat))
+                        if (y in -2f..lh + 2f) drawLine(GhostBorder, Offset(0f, y), Offset(lw, y), 1f)
+                        lat += 15.0
+                    }
+                }
+                // PRE-BUILT PATHS UNDER A TRANSFORM. Each ring's Path is in map units relative to
+                // its own origin; the canvas is translated to that origin's screen position
+                // (computed in Double) and scaled by pxz. Stroke width is given in map units so
+                // it stays ~1.5 screen px; past a few hundred px per unit a hairline (width 0,
+                // always exactly one pixel, and the cheapest stroke Skia has) takes over, because
+                // a stroke of 1e-6 map units has no float precision left to be a stroke with.
+                fun drawRings(rings: List<Ring>, color: androidx.compose.ui.graphics.Color, widthPx: Float) {
+                    val stroke = Stroke(width = if (pxz > 400f) 0f else widthPx / pxz)
+                    for (r in rings) {
+                        if (r.maxX < vx0 || r.minX > vx1 || r.maxY < vy0 || r.minY > vy1) continue
+                        withTransform({
+                            translate(sx(r.ox.toDouble()), sy(r.oy.toDouble()))
+                            scale(pxz, pxz, pivot = Offset.Zero)
+                        }) {
+                            drawPath(r.path, color, style = stroke)
+                        }
+                    }
+                }
+                fun fillRings(rings: List<Ring>, color: androidx.compose.ui.graphics.Color) {
+                    for (r in rings) {
+                        if (r.maxX < vx0 || r.minX > vx1 || r.maxY < vy0 || r.minY > vy1) continue
+                        withTransform({
+                            translate(sx(r.ox.toDouble()), sy(r.oy.toDouble()))
+                            scale(pxz, pxz, pivot = Offset.Zero)
+                        }) { drawPath(r.path, color) }
+                    }
+                }
+                // THE BASE: Natural Earth land filled over the sea, its outline the coast (and the
+                // borders), at the detail level that is under a pixel of error right now.
+                fun drawWorld() {
+                    world?.let { w ->
+                        val lv = w.levels[World.levelFor(pxz)]
+                        fillRings(lv, MapLand)
+                        drawRings(lv, TerminalDim, 1.5f)
+                    }
+                }
+                // THE DETAIL: zoomed in past what the base can show, every one-degree cell under the
+                // view is drawn from the box's land tiles , sea left as sea, solid land filled, a
+                // coast cell from its tile (the base, clipped to the cell, until the tile lands).
+                val idx = tileIndex
+                val tileCells = if (idx != null && pxz >= LandTileGeom.TILE_PXZ)
+                    LandTileGeom.cellsFor(invMercX(vx0), invMercX(vx1), invMercY(vy1), invMercY(vy0)) else emptyList()
+                if (tileCells.isEmpty()) drawWorld() else {
+                    val lv = LandTileGeom.levelFor(pxz)
+                    val coastStroke = Stroke(width = if (pxz > 400f) 0f else 1.5f / pxz)
+                    for (key in tileCells) {
+                        val lon0 = key % LandTileGeom.COLS - 180.0; val lat0 = key / LandTileGeom.COLS - 90.0
+                        val left = sx(mercXD(lon0)); val right = sx(mercXD(lon0 + 1))
+                        val top = sy(mercYD(lat0 + 1)); val bottom = sy(mercYD(lat0))
+                        when (idx!![key].toInt()) {
+                            LandTileGeom.LAND -> drawRect(MapLand, Offset(left, top), androidx.compose.ui.geometry.Size(right - left, bottom - top))
+                            LandTileGeom.COAST -> {
+                                val t = tileCache.get(key)
+                                if (t != null) {
+                                    withTransform({
+                                        translate(sx(t.ox), sy(t.oy))
+                                        scale(pxz, pxz, pivot = Offset.Zero)
+                                    }) {
+                                        drawPath(t.fill[lv], MapLand)
+                                        drawPath(t.coast[lv], TerminalDim, style = coastStroke)
+                                    }
+                                } else clipRect(left, top, right, bottom) { drawWorld() }
+                            }
+                            else -> {} // sea
+                        }
+                    }
+                }
+                // THE ROADS, over the land and under the trails: for every road tile under the view
+                // (major tiles always, street tiles from FINE_PXZ), the classes this zoom shows, each
+                // class one Path per tile, casing first then fill, screen-space widths (given in map
+                // units, so widthPx / pxz). Street names along their middle segment at NAME_PXZ.
+                // THE WATER first, under the roads: the same tiles carry it (lakes and river banks as
+                // rings filled even-odd in the sea's colour with a shore line, rivers, canals and
+                // streams as lines); past FINE_PXZ it is drawn from the street tiles, which hold all
+                // of it, else from the major tiles, which hold the larger lakes and the rivers.
+                if (roadIndex != null && pxz >= RoadTileGeom.MAJOR_PXZ && wantRoads.isNotEmpty()) {
+                    val maxCls = RoadTileGeom.maxClassFor(pxz)
+                    val tiles = wantRoads.mapNotNull { k ->
+                        // a street tile's major roads are already in the major tile: draw only
+                        // classes above MajorMax from level 0 where a major tile covers the cell
+                        roadCache.get(k)?.let { it to RoadTileGeom.levelOf(k) }
+                    }
+                    val waterLevel = if (pxz >= RoadTileGeom.FINE_PXZ) 0 else 1
+                    val shore = Stroke(width = if (pxz > 400f) 0f else 1f / pxz)
+                    for ((t, lvl) in tiles) {
+                        if (lvl != waterLevel) continue
+                        val dl = RoadTiles.levelFor(pxz, lvl)
+                        t.paths[dl][RoadTileGeom.CLASS_WATER_AREA]?.let { path ->
+                            withTransform({
+                                translate(sx(t.ox), sy(t.oy))
+                                scale(pxz, pxz, pivot = Offset.Zero)
+                            }) {
+                                drawPath(path, MapWater)
+                                drawPath(path, MapShore, style = shore)
+                            }
+                        }
+                        for (cls in RoadTileGeom.CLASS_RIVER..RoadTileGeom.CLASS_STREAM) {
+                            if (!RoadTileGeom.showsWater(cls, pxz)) continue
+                            val path = t.paths[dl][cls] ?: continue
+                            val w = when (cls) { RoadTileGeom.CLASS_RIVER -> 2.5f; RoadTileGeom.CLASS_CANAL -> 1.6f; else -> 1f }
+                            withTransform({
+                                translate(sx(t.ox), sy(t.oy))
+                                scale(pxz, pxz, pivot = Offset.Zero)
+                            }) { drawPath(path, MapRiver, style = Stroke(width = w / pxz, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)) }
+                        }
+                    }
+                    for (pass in 0..1) for (cls in 9 downTo 1) {
+                        if (cls > maxCls) continue
+                        val rp = roadPaints[cls] ?: continue
+                        val w = if (pass == 0) rp.width + 2f else rp.width
+                        val stroke = Stroke(width = w / pxz, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                            pathEffect = if (rp.dashed && pass == 1) PathEffect.dashPathEffect(floatArrayOf(6f / pxz, 4f / pxz)) else null)
+                        for ((t, lvl) in tiles) {
+                            if (lvl == 0 && cls <= 4) continue // the major tile already drew these
+                            val path = t.paths[RoadTiles.levelFor(pxz, lvl)][cls] ?: continue
+                            withTransform({
+                                translate(sx(t.ox), sy(t.oy))
+                                scale(pxz, pxz, pivot = Offset.Zero)
+                            }) { drawPath(path, if (pass == 0) rp.casing else rp.fill, style = stroke) }
+                        }
+                    }
+                    if (pxz >= RoadTileGeom.NAME_PXZ) {
+                        // names: each named road once, on its middle segment, rotated to it, the
+                        // biggest roads first, a claimed strip per name so they never cross
+                        val nc = drawContext.canvas.nativeCanvas
+                        val claimed = ArrayList<FloatArray>()
+                        var drawn = 0
+                        val minLenPx = 60f * density
+                        outer@ for ((t, lvl) in tiles) {
+                            if (lvl != 0) continue
+                            for (nm in t.names) {
+                                val water = RoadTileGeom.isWater(nm.cls)
+                                if (!water && nm.cls > maxCls) continue
+                                if (water && (nm.cls == RoadTileGeom.CLASS_STREAM || !RoadTileGeom.showsWater(nm.cls, pxz))) continue
+                                val ax = sx(t.ox + nm.x0); val ay = sy(t.oy + nm.y0)
+                                val bx = sx(t.ox + nm.x1); val by = sy(t.oy + nm.y1)
+                                val mx = (ax + bx) / 2; val my = (ay + by) / 2
+                                if (mx < 0f || mx > lw || my < 0f || my > lh) continue
+                                val paint = if (water) waterNamePaint else roadNamePaint
+                                val textW = paint.measureText(nm.name)
+                                val roadPx = nm.lengthQ * 0.1 / RoadTileGeom.Q * 2.84 * pxz // quantised length → degrees → map units → px
+                                if (roadPx < textW || roadPx < minLenPx) continue
+                                val r = floatArrayOf(mx - textW / 2 - 6f, my - 12f * density, mx + textW / 2 + 6f, my + 12f * density)
+                                if (claimed.any { it[0] < r[2] && r[0] < it[2] && it[1] < r[3] && r[1] < it[3] }) continue
+                                claimed.add(r)
+                                var ang = if (nm.cls == RoadTileGeom.CLASS_WATER_AREA) 0f else Math.toDegrees(Math.atan2((by - ay).toDouble(), (bx - ax).toDouble())).toFloat()
+                                if (ang > 90f) ang -= 180f else if (ang < -90f) ang += 180f
+                                nc.save()
+                                nc.rotate(ang, mx, my)
+                                nc.drawText(nm.name, mx, my - 4f * density, roadNameHalo)
+                                nc.drawText(nm.name, mx, my - 4f * density, paint)
+                                nc.restore()
+                                if (++drawn >= 80) break@outer
+                            }
+                        }
+                    }
+                }
+            }
             Canvas(Modifier.fillMaxSize().clipToBounds()
                 .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
                 .onSizeChanged { viewW = it.width.toFloat(); viewH = it.height.toFloat() }
@@ -965,9 +1178,6 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                     }
                 }) {
                 val sw = size.width; val sh = size.height
-                @Suppress("UNUSED_VARIABLE") val tilesLanded = tileTick // read, so a landed tile redraws
-                // THE SEA first: the canvas is water, the land is painted on it.
-                drawRect(MapWater)
                 val pxzD = (minOf(sw, sh) / WORLD).toDouble() * zoom
                 val pxz = pxzD.toFloat()
                 // Screen origin of map coordinate (0,0), in Double , the one subtraction that
@@ -979,148 +1189,45 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                 // Visible window in map units, with a margin, for bbox culling.
                 val vx0 = cx - (sw / 2.0 + 32) / pxzD; val vx1 = cx + (sw / 2.0 + 32) / pxzD
                 val vy0 = cy - (sh / 2.0 + 32) / pxzD; val vy1 = cy + (sh / 2.0 + 32) / pxzD
-                // graticule every 15 degrees , the projection's skeleton, for the debug switch
-                // only: a map is land, water and where you are, not a grid
-                if (debug) {
-                    var lon = -180.0
-                    while (lon <= 180.0) {
-                        val x = sx(mercXD(lon))
-                        if (x in -2f..sw + 2f) drawLine(GhostBorder, Offset(x, 0f), Offset(x, sh), 1f)
-                        lon += 15.0
+
+                // THE BASE, RECORDED ONCE AND REPLAYED. The sea, the land, the coast tiles, the roads
+                // and their names are drawn into a layer of their own, a quarter of a screen wider
+                // than the view on every side, at the camera of the moment they were drawn. Every
+                // frame after that draws the layer moved and scaled to where the camera is now: a
+                // pan or a pinch costs one textured quad, not a few hundred stroked paths (which is
+                // what warmed the phone). The layer is drawn again when the view has moved past its
+                // margin, when the zoom has drifted far enough to blur it, when a tile lands or the
+                // data changes, and once the camera has stood still for a moment (settleTick), so
+                // the picture is crisp again as soon as the finger lifts.
+                @Suppress("UNUSED_VARIABLE") val settled = settleTick
+                val rec = baseRec
+                val mx = (sw * 0.25f).toInt().toFloat(); val my = (sh * 0.25f).toInt().toFloat()
+                val lw = sw + 2 * mx; val lh = sh + 2 * my
+                val ratio = if (rec.pxz > 0f) pxz / rec.pxz else 0f
+                val moved = rec.pxz > 0f && (kotlin.math.abs(cx - rec.cx) * pxzD > mx * 0.9 || kotlin.math.abs(cy - rec.cy) * pxzD > my * 0.9)
+                val drifted = ratio < 0.77f || ratio > 1.3f
+                val changed = rec.w != lw || rec.h != lh || rec.tick != tileTick || rec.world !== world || rec.roads !== roadIndex ||
+                    rec.tiles !== tileIndex || rec.debug != debug || rec.roadsWanted != wantRoads // (a list equal in content is the same want)
+                val still = rec.settle != settleTick && (cx != rec.cx || cy != rec.cy || pxz != rec.pxz)
+                if (changed || moved || drifted || still) {
+                    baseLayer.record(size = androidx.compose.ui.unit.IntSize(lw.toInt(), lh.toInt())) {
+                        drawBase(this, cx, cy, pxzD, lw, lh)
                     }
-                    var lat = -75.0
-                    while (lat <= 75.0) {
-                        val y = sy(mercYD(lat))
-                        if (y in -2f..sh + 2f) drawLine(GhostBorder, Offset(0f, y), Offset(sw, y), 1f)
-                        lat += 15.0
-                    }
+                    rec.cx = cx; rec.cy = cy; rec.pxz = pxz; rec.w = lw; rec.h = lh; rec.tick = tileTick
+                    rec.world = world; rec.roads = roadIndex; rec.tiles = tileIndex; rec.debug = debug; rec.roadsWanted = wantRoads
+                    rec.settle = settleTick
                 }
-                // PRE-BUILT PATHS UNDER A TRANSFORM. Each ring's Path is in map units relative to
-                // its own origin; the canvas is translated to that origin's screen position
-                // (computed in Double) and scaled by pxz. Stroke width is given in map units so
-                // it stays ~1.5 screen px; past a few hundred px per unit a hairline (width 0,
-                // always exactly one pixel, and the cheapest stroke Skia has) takes over, because
-                // a stroke of 1e-6 map units has no float precision left to be a stroke with.
-                fun drawRings(rings: List<Ring>, color: androidx.compose.ui.graphics.Color, widthPx: Float) {
-                    val stroke = Stroke(width = if (pxz > 400f) 0f else widthPx / pxz)
-                    for (r in rings) {
-                        if (r.maxX < vx0 || r.minX > vx1 || r.maxY < vy0 || r.minY > vy1) continue
-                        withTransform({
-                            translate(sx(r.ox.toDouble()), sy(r.oy.toDouble()))
-                            scale(pxz, pxz, pivot = Offset.Zero)
-                        }) {
-                            drawPath(r.path, color, style = stroke)
-                        }
-                    }
-                }
-                fun fillRings(rings: List<Ring>, color: androidx.compose.ui.graphics.Color) {
-                    for (r in rings) {
-                        if (r.maxX < vx0 || r.minX > vx1 || r.maxY < vy0 || r.minY > vy1) continue
-                        withTransform({
-                            translate(sx(r.ox.toDouble()), sy(r.oy.toDouble()))
-                            scale(pxz, pxz, pivot = Offset.Zero)
-                        }) { drawPath(r.path, color) }
-                    }
-                }
-                // THE BASE: Natural Earth land filled over the sea, its outline the coast (and the
-                // borders), at the detail level that is under a pixel of error right now.
-                fun drawBase() {
-                    world?.let { w ->
-                        val lv = w.levels[World.levelFor(pxz)]
-                        fillRings(lv, MapLand)
-                        drawRings(lv, TerminalDim, 1.5f)
-                    }
-                }
-                // THE DETAIL: zoomed in past what the base can show, every one-degree cell under the
-                // view is drawn from the box's land tiles , sea left as sea, solid land filled, a
-                // coast cell from its tile (the base, clipped to the cell, until the tile lands).
-                val idx = tileIndex
-                val tileCells = if (idx != null && pxz >= LandTileGeom.TILE_PXZ)
-                    LandTileGeom.cellsFor(invMercX(vx0), invMercX(vx1), invMercY(vy1), invMercY(vy0)) else emptyList()
-                if (tileCells.isEmpty()) drawBase() else {
-                    val lv = LandTileGeom.levelFor(pxz)
-                    val coastStroke = Stroke(width = if (pxz > 400f) 0f else 1.5f / pxz)
-                    for (key in tileCells) {
-                        val lon0 = key % LandTileGeom.COLS - 180.0; val lat0 = key / LandTileGeom.COLS - 90.0
-                        val left = sx(mercXD(lon0)); val right = sx(mercXD(lon0 + 1))
-                        val top = sy(mercYD(lat0 + 1)); val bottom = sy(mercYD(lat0))
-                        when (idx!![key].toInt()) {
-                            LandTileGeom.LAND -> drawRect(MapLand, Offset(left, top), androidx.compose.ui.geometry.Size(right - left, bottom - top))
-                            LandTileGeom.COAST -> {
-                                val t = tileCache.get(key)
-                                if (t != null) {
-                                    withTransform({
-                                        translate(sx(t.ox), sy(t.oy))
-                                        scale(pxz, pxz, pivot = Offset.Zero)
-                                    }) {
-                                        drawPath(t.fill[lv], MapLand)
-                                        drawPath(t.coast[lv], TerminalDim, style = coastStroke)
-                                    }
-                                } else clipRect(left, top, right, bottom) { drawBase() }
-                            }
-                            else -> {} // sea
-                        }
-                    }
-                }
-                // THE ROADS, over the land and under the trails: for every road tile under the view
-                // (major tiles always, street tiles from FINE_PXZ), the classes this zoom shows, each
-                // class one Path per tile, casing first then fill, screen-space widths (given in map
-                // units, so widthPx / pxz). Street names along their middle segment at NAME_PXZ.
-                if (roadIndex != null && pxz >= RoadTileGeom.MAJOR_PXZ && wantRoads.isNotEmpty()) {
-                    val maxCls = RoadTileGeom.maxClassFor(pxz)
-                    val tiles = wantRoads.mapNotNull { k ->
-                        // a street tile's major roads are already in the major tile: draw only
-                        // classes above MajorMax from level 0 where a major tile covers the cell
-                        roadCache.get(k)?.let { it to RoadTileGeom.levelOf(k) }
-                    }
-                    for (pass in 0..1) for (cls in 9 downTo 1) {
-                        if (cls > maxCls) continue
-                        val rp = roadPaints[cls] ?: continue
-                        val w = if (pass == 0) rp.width + 2f else rp.width
-                        val stroke = Stroke(width = w / pxz, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round,
-                            pathEffect = if (rp.dashed && pass == 1) PathEffect.dashPathEffect(floatArrayOf(6f / pxz, 4f / pxz)) else null)
-                        for ((t, lvl) in tiles) {
-                            if (lvl == 0 && cls <= 4) continue // the major tile already drew these
-                            val path = t.paths[RoadTiles.levelFor(pxz, lvl)][cls] ?: continue
-                            withTransform({
-                                translate(sx(t.ox), sy(t.oy))
-                                scale(pxz, pxz, pivot = Offset.Zero)
-                            }) { drawPath(path, if (pass == 0) rp.casing else rp.fill, style = stroke) }
-                        }
-                    }
-                    if (pxz >= RoadTileGeom.NAME_PXZ) {
-                        // names: each named road once, on its middle segment, rotated to it, the
-                        // biggest roads first, a claimed strip per name so they never cross
-                        val nc = drawContext.canvas.nativeCanvas
-                        val claimed = ArrayList<FloatArray>()
-                        var drawn = 0
-                        val minLenPx = 60f * density
-                        outer@ for ((t, lvl) in tiles) {
-                            if (lvl != 0) continue
-                            for (nm in t.names) {
-                                if (nm.cls > maxCls) continue
-                                val ax = sx(t.ox + nm.x0); val ay = sy(t.oy + nm.y0)
-                                val bx = sx(t.ox + nm.x1); val by = sy(t.oy + nm.y1)
-                                val mx = (ax + bx) / 2; val my = (ay + by) / 2
-                                if (mx < 0f || mx > sw || my < 0f || my > sh) continue
-                                val textW = roadNamePaint.measureText(nm.name)
-                                val roadPx = nm.lengthQ * 0.1 / RoadTileGeom.Q * 2.84 * pxz // quantised length → degrees → map units → px
-                                if (roadPx < textW || roadPx < minLenPx) continue
-                                val r = floatArrayOf(mx - textW / 2 - 6f, my - 12f * density, mx + textW / 2 + 6f, my + 12f * density)
-                                if (claimed.any { it[0] < r[2] && r[0] < it[2] && it[1] < r[3] && r[1] < it[3] }) continue
-                                claimed.add(r)
-                                var ang = Math.toDegrees(kotlin.math.atan2((by - ay).toDouble(), (bx - ax).toDouble())).toFloat()
-                                if (ang > 90f) ang -= 180f else if (ang < -90f) ang += 180f
-                                nc.save()
-                                nc.rotate(ang, mx, my)
-                                nc.drawText(nm.name, mx, my - 4f * density, roadNameHalo)
-                                nc.drawText(nm.name, mx, my - 4f * density, roadNamePaint)
-                                nc.restore()
-                                if (++drawn >= 80) break@outer
-                            }
-                        }
-                    }
-                }
+                // the layer's pixel (px, py) is map (x, y) with px = x·rec.pxz + oxL; on screen it is
+                // x·pxz + ox, so the layer goes down scaled by pxz/rec.pxz and moved by ox − oxL·s
+                val sL = pxz / rec.pxz
+                val oxL = -rec.cx * rec.pxz + rec.w / 2.0
+                val oyL = -rec.cy * rec.pxz + rec.h / 2.0
+                drawRect(MapWater) // under the layer's edges when it is scaled down
+                withTransform({
+                    translate((ox - oxL * sL).toFloat(), (oy - oyL * sL).toFloat())
+                    scale(sL, sL, pivot = Offset.Zero)
+                }) { drawLayer(baseLayer) }
+
                 // day tracks , movement under the moments, drawn OVER the coastline and stroked in
                 // SCREEN space per vertex, so the line stays 2.5px wide from the world view to the
                 // street. Affordable because framed simplified each day already; culled by bbox.

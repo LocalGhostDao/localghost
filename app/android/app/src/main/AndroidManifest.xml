@@ -24,6 +24,10 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- ghost.phrased: redraw the lock-screen card and widget after a reboot. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- THE CALENDAR: read on the phone, kept on the box (sync/CalendarSync.kt). Never written. -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- THE CONTACTS: read on the phone, kept on the box (sync/ContactsSync.kt). Never written. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- The location trail (sync/LocationLog): a fix every quarter hour, kept on the phone and
          handed to the box's map when there is one, and the country the lock-screen phrase is in.
          Background access is what lets the fix happen with the app closed; all three are asked

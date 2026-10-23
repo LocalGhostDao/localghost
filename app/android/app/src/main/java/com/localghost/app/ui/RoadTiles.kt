@@ -14,7 +14,8 @@ import kotlinx.coroutines.withContext
  *  tile origin, and its class (so a motorway's name is drawn before a lane's). */
 internal class RoadName(val name: String, val cls: Int, val x0: Float, val y0: Float, val x1: Float, val y1: Float, val lengthQ: Int)
 
-/** A road tile ready to draw: one Path per class per detail level (so a class is one drawPath),
+/** A road tile ready to draw: one Path per class per detail level (so a class is one drawPath;
+ *  the water's classes 10 to 13 among them, the areas' path closed and filled even-odd),
  *  in map units relative to (ox, oy), the cell's top-left, kept in Double like the coast. */
 internal class RoadTile(val key: Int, val ox: Double, val oy: Double, val paths: Array<Array<Path?>>, val names: List<RoadName>, val points: Int)
 
@@ -39,27 +40,41 @@ internal object RoadTiles {
         val ox = mercXD(lon0); val oy = mercYD(lat0 + deg)
         fun px(q: Int) = (mercXD(lon0 + q * deg / RoadTileGeom.Q) - ox).toFloat()
         fun py(q: Int) = (mercYD(lat0 + q * deg / RoadTileGeom.Q) - oy).toFloat()
-        val paths = Array(TOL_Q.size) { arrayOfNulls<Path>(10) }
+        val paths = Array(TOL_Q.size) { arrayOfNulls<Path>(RoadTileGeom.MAX_CLASS + 1) }
         val names = ArrayList<RoadName>()
         var points = 0
         for (p in d.pieces) {
-            if (p.cls !in 1..9 || p.pts.size < 4) continue
+            if (p.cls !in 1..RoadTileGeom.MAX_CLASS || p.pts.size < 4) continue
+            val area = p.cls == RoadTileGeom.CLASS_WATER_AREA
+            if (area && p.pts.size < 6) continue
             points += p.pts.size / 2
             for ((lv, tol) in TOL_Q.withIndex()) {
-                val r = RoadTileGeom.simplify(p.pts, tol)
-                val path = paths[lv][p.cls] ?: Path().also { paths[lv][p.cls] = it }
+                // a ring keeps its shape at every level: a lake simplified to a sliver is worse than none
+                val r = if (area) RoadTileGeom.simplify(p.pts, tol / 4) else RoadTileGeom.simplify(p.pts, tol)
+                if (area && r.size < 6) continue
+                val path = paths[lv][p.cls] ?: Path().also { paths[lv][p.cls] = it; if (area) it.fillType = androidx.compose.ui.graphics.PathFillType.EvenOdd }
                 path.moveTo(px(r[0]), py(r[1]))
                 var i = 2
                 while (i < r.size) { path.lineTo(px(r[i]), py(r[i + 1])); i += 2 }
+                if (area) path.close()
             }
-            if (p.name.isNotEmpty()) {
-                // the middle segment carries the name; its quantised length says whether the name fits
-                val n = p.pts.size / 2
-                val m = (n - 1) / 2
-                var lenQ = 0
-                var i = 0
-                while (i < p.pts.size - 2) { lenQ += kotlin.math.abs(p.pts[i + 2] - p.pts[i]) + kotlin.math.abs(p.pts[i + 3] - p.pts[i + 1]); i += 2 }
-                names.add(RoadName(p.name, p.cls, px(p.pts[2 * m]), py(p.pts[2 * m + 1]), px(p.pts[2 * m + 2]), py(p.pts[2 * m + 3]), lenQ))
+            if (p.name.isNotEmpty() && (p.flags and RoadTileGeom.FLAG_HOLE) == 0) {
+                if (area) {
+                    // a lake's name sits at the middle of its piece; the piece's width says whether it fits
+                    var x0 = Int.MAX_VALUE; var x1 = Int.MIN_VALUE; var y0 = Int.MAX_VALUE; var y1 = Int.MIN_VALUE
+                    var i = 0
+                    while (i < p.pts.size) { x0 = minOf(x0, p.pts[i]); x1 = maxOf(x1, p.pts[i]); y0 = minOf(y0, p.pts[i + 1]); y1 = maxOf(y1, p.pts[i + 1]); i += 2 }
+                    val mx = (x0 + x1) / 2; val my = (y0 + y1) / 2
+                    names.add(RoadName(p.name, p.cls, px(x0), py(my), px(x1), py(my), x1 - x0))
+                } else {
+                    // the middle segment carries the name; its quantised length says whether the name fits
+                    val n = p.pts.size / 2
+                    val m = (n - 1) / 2
+                    var lenQ = 0
+                    var i = 0
+                    while (i < p.pts.size - 2) { lenQ += kotlin.math.abs(p.pts[i + 2] - p.pts[i]) + kotlin.math.abs(p.pts[i + 3] - p.pts[i + 1]); i += 2 }
+                    names.add(RoadName(p.name, p.cls, px(p.pts[2 * m]), py(p.pts[2 * m + 1]), px(p.pts[2 * m + 2]), py(p.pts[2 * m + 3]), lenQ))
+                }
             }
         }
         names.sortBy { it.cls }

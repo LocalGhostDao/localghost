@@ -6193,3 +6193,114 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 - Receiving waits on the router's port-25 forward (a week away); a Gmail message sent before
   it bounces after two days and has to be sent again. Sending from the home IP will be
   refused by the large receivers (no PTR); a VPS fixes both, same scripts.
+
+## 16 October 2026 , the calendar, and the check-in typed properly
+
+- `hw/calendarstore.go`: `calendar_events` (in the registry and the legacy blob), one row per
+  instance keyed `device|event|begin`; `CalendarReplace` upserts the upload with a generation
+  and deletes the device's older rows starting in the window (no transaction needed; a crash
+  between leaves stale rows until the next upload); `CalendarRange` (overlap), `CalendarSearch`
+  (every term in title, place, notes or guests), `CalendarUpcoming`, `CalendarZone` (the
+  phone's zone, else the box's), `CalendarLine`, `CalendarForget`; meta in settings
+  `calendar_meta`. Postgres test.
+- secd: `POST /v1/calendar/upload` (24 MB, three-year window, 30k events, strings clipped on a
+  rune boundary, statuses from a fixed set, events starting outside the window dropped),
+  `GET /v1/calendar?from&to&q`, `POST /v1/calendar/forget`; HOME's snapshot has `calendar`.
+- synthd: `calendar.go`, a question about plans gets the window it names (today, tomorrow,
+  yesterday, a weekday, this, next or last week, the weekend, this or next month) or a search
+  for what it names, nearest first; the calendar covers it in `boxCovers`, so it never goes to
+  the web. The day's facts carry `Events` (live ones, in the phone's zone, all-day ones by
+  date); they colour a day's sheet and template and are not signal on their own.
+- App: `sync/CalendarSync.kt` (CalendarContract Instances, Calendars, Attendees; hash-skipped;
+  WorkManager content trigger re-armed behind each run, six-hourly, on unlock after 15 min),
+  `ui/CalendarText.kt` + test, `ui/CalendarScreen.kt` (agenda, search, DAY block, HOME's NEXT,
+  SETTINGS fold), READ_CALENDAR in the manifest and the welcome grants, Explain topic.
+- `docs/PHONE_SOURCES.md`: contacts, screen time, call log, SMS, notifications with WhatsApp
+  (and its limits), what each feeds, the proposed order.
+- Check-in: `KeyboardCapitalization.Sentences` on "why?"; the page takes the IME inset minus
+  the nav bar (as CHAT does) and brings the cursor's line into view as the text grows; the
+  strip's legend and hint on separate lines.
+- Explain's mail topic still said "agent@ its domain"; it says the shared domain now.
+- The calendar is not a menu row: it is a card at the end of INTEGRATIONS (built on the phone,
+  `id "calendar"`, state from the box's meta and the phone's permission), opening CALENDAR with
+  "‹ integrations" back; the drawer marks INTEGRATIONS while it is open; HOME's NEXT still opens
+  it directly (back goes HOME). PERMISSIONS' explainer names the calendar.
+
+## 16 October 2026 , the contacts
+
+- `hw/contactstore.go`: `contacts` (registry and legacy blob), one row per person keyed
+  `device|lookup`, replaced whole per upload (generation); lookup columns `phones` (each number's
+  last nine digits, space-delimited) and `emails_lc`, `search` (lower-case names, organisation,
+  addresses, digits), `bday_md`. `ContactsReplace`, `ContactSearch` (every term), `ContactFor`
+  (a shared number names nobody unless one is starred), `ContactBirthdays`, `ContactBirthday`
+  (the forms address books write), `BirthdayLine`, `ContactLine`, `ContactsForget`; meta in
+  settings `contacts_meta`. Postgres test.
+- secd: `POST /v1/contacts/upload` (16 MB, 20k contacts, strings clipped, numbers without digits
+  and addresses without an @ dropped, birthdays normalised, duplicates dropped),
+  `GET /v1/contacts?q=|for=&limit=`, `POST /v1/contacts/forget`.
+- synthd: `contacts.go`, a question about someone's number, address or birthday, whose number
+  this is, or whose birthday falls in a window (the calendar's window words); covered in
+  `boxCovers`, never the web. Day facts carry `Birthdays` (not said twice when the calendar
+  already has it). Calendar `Events` no longer make a day non-empty: a day with nothing but
+  meetings gets no story, as a day with nothing but a birthday does not.
+- App: `sync/ContactsSync.kt` (ContactsContract.Data, E.164 via the provider or the SIM's
+  country, dedup by last nine digits, hash-skip, content trigger, six-hourly, on unlock after an
+  hour), `ui/ContactsText.kt` + test, `ui/ContactsScreen.kt` (page and SETTINGS fold), a card
+  under INTEGRATIONS, READ_CONTACTS in the manifest and the welcome grants, Explain topic.
+
+## 17 October 2026 , the map's base in a layer; water in the tiles; trips by country
+
+- MapScreen: the base (sea, world cut or coast tiles, roads, road names) is recorded into a
+  `GraphicsLayer` (`rememberGraphicsLayer`, `record`, `drawLayer`) at the camera of the moment,
+  the view plus a 25% margin each side; every frame draws the layer translated and scaled
+  (`pxz / rec.pxz`); re-recorded when the view moves past 90% of the margin, the zoom ratio
+  leaves [0.77, 1.3], a tile lands (`tileTick`), the data or the wanted tiles change (by
+  content, not identity), or `settleTick` fires 120 ms after the camera last moved. The dynamic
+  layer (tracks, route, stays, questions, fixes, labels, dots) is drawn per frame as before.
+- osmpbf: relations parsed (id, tags, members with type, ref, role); `ScanTail` walks the blob
+  headers without reading their data and decodes blocks from the end until one holds ways or
+  nodes (the planet and Geofabrik keep relations last); the test encoder writes relations.
+- roadtiles: water in the same tiles as classes 10 (area ring), 11 river, 12 canal, 13 stream,
+  `FlagHole` on an inner ring (`water.go`): a pass 0 reads the water relations from the file's
+  end (natural=water, landuse=reservoir|basin, waterway=riverbank|dock as multipolygons) and
+  marks their member ways; pass 1 marks the water ways' and the members' nodes too; pass 3 cuts
+  waterway lines (streams fine tiles only), closed water ways as rings (Sutherland–Hodgman per
+  cell, a cell wholly inside a ring gets the whole cell, so even-odd fill on the phone makes
+  islands holes), spools member ways' coordinates to a file, then stitches each relation's rings
+  (`stitchRings`, endpoints matched at 1e-7°, ways reversed as needed) and cuts them; rings
+  under 2e-4 deg² stay out of the major tiles. `water.ok` marks a set cut with water;
+  `StaleWhy` asks for a cut without it. The fixture tile carries a pond, its island and a
+  river; the app's copy updated. Stats: `WaterWays`, `WaterRels`.
+- Phone: `RoadTileGeom` classes 10..13, `isWater`, `showsWater` (streams from the residential
+  zoom), `FLAG_HOLE`; `RoadTiles.build` keeps rings at every detail level (tolerance / 4),
+  closes them, `PathFillType.EvenOdd`; lake names at the piece's middle, river names along the
+  segment, in italic blue; drawn after the land, before the roads, from the street tiles past
+  FINE_PXZ else the major tiles. INTEGRATIONS › Maps says "roads and water" once `water.ok` is
+  there, "no water yet" before.
+- synthd trips: `splitByCountry` after the time chaining: legs by country (an outing without a
+  country joins the leg under way), a leg of 7+ days is long; short legs fold into the
+  neighbour with the smaller time gap (the earlier on a tie) until every leg is long; the legs
+  are the trips. Titles name up to three countries.
+- Trips, the title (Vlad, 17 Oct): a country is named from 48 h in it (`tripNameS`, by the
+  legs' spans), the rest go to `Through` and the body ("Through X on the way"); a single short
+  trip still names its country. A trip that would name four or more is cut in time order into
+  trips of three (`splitByNames`); a passage does not count. `tripFacts` tells the model the
+  passages.
+
+## 18 October 2026 , the relay off the deploy user
+
+- Web `deploy/mail/` (maild-for-web.zip): the daemon runs as the system user `ghost-mail`
+  under a hardened system unit (`CAP_NET_BIND_SERVICE` only, `ProtectSystem=strict`,
+  `ProtectHome=read-only`, `ReadWritePaths=/var/lib/ghost-mail`, no new privileges, syscall
+  filter, 1 GB, 256 tasks); the binary and the conf stay coder's under `~/ghost-mail/{bin,etc}`
+  (set-group-id to `ghost-mail`), the queue, the key and the TLS copies move to
+  `/var/lib/ghost-mail`. `root-once.sh` v2 makes the user, migrates a user-unit install (stops
+  it, moves the queue and the key, puts the port floor back to 1024), installs the unit, the
+  hook and `/etc/sudoers.d/ghost-mail` (coder may restart/start/stop/status the unit), adds
+  coder to `systemd-journal`. `install.sh` v2: build, conf (paths rewritten on an old conf),
+  `sudo systemctl restart ghost.maild`. The daemon makes its own relay key at first start when
+  the file is missing (the deploy user cannot write the state directory). README: the relay
+  probe must go through STARTTLS (`openssl s_client -starttls smtp -crlf -quiet`), since
+  `MAIL FROM` before TLS is `530` and a plain `nc` probe never reaches the relay question; the
+  daemon's own limits listed; an nftables per-source rate on new connections to 25 advised.
+

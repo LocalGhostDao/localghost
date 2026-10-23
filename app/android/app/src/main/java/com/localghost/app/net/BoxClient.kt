@@ -921,6 +921,45 @@ object BoxClient {
             org.json.JSONObject().put("days", arr).put("samples", sarr)); true
     } catch (_: Exception) { false }
 
+    /** THE CALENDAR: a window of the phone's calendar store, replacing what the box held for it.
+     *  (events kept, removed) or null when the box did not take it. */
+    suspend fun calendarUpload(ctx: Context, body: org.json.JSONObject): Pair<Int, Int>? = try {
+        val r = BoxHttp.postJson(ctx, "/v1/calendar/upload", body, readTimeoutMs = 120_000)
+        if (r.optBoolean("ok")) r.optInt("events") to r.optInt("removed") else null
+    } catch (_: Exception) { null }
+
+    /** The events overlapping from..to (unix seconds), or with q the ones matching it; no window
+     *  is the next thirty days. Null when the box would not say. */
+    suspend fun calendar(ctx: Context, from: Long = 0, to: Long = 0, q: String = ""): com.localghost.app.ui.CalendarText.Page? = try {
+        val qs = ArrayList<String>()
+        if (from > 0 && to > from) { qs.add("from=$from"); qs.add("to=$to") }
+        if (q.isNotBlank()) qs.add("q=" + java.net.URLEncoder.encode(q.trim(), "UTF-8"))
+        val r = BoxHttp.getJson(ctx, "/v1/calendar" + if (qs.isEmpty()) "" else "?" + qs.joinToString("&"))
+        com.localghost.app.ui.CalendarText.parsePage(r)
+    } catch (_: Exception) { null }
+
+    /** THE CONTACTS: the phone's whole set, replacing what the box held. (kept, removed) or null. */
+    suspend fun contactsUpload(ctx: Context, body: org.json.JSONObject): Pair<Int, Int>? = try {
+        val r = BoxHttp.postJson(ctx, "/v1/contacts/upload", body, readTimeoutMs = 120_000)
+        if (r.optBoolean("ok")) r.optInt("contacts") to r.optInt("removed") else null
+    } catch (_: Exception) { null }
+
+    /** The contacts matching q (everyone when blank), with the meta; null when the box would not say. */
+    suspend fun contacts(ctx: Context, q: String = "", limit: Int = 0): com.localghost.app.ui.ContactsText.Page? = try {
+        val qs = ArrayList<String>()
+        if (q.isNotBlank()) qs.add("q=" + java.net.URLEncoder.encode(q.trim(), "UTF-8"))
+        if (limit > 0) qs.add("limit=$limit")
+        com.localghost.app.ui.ContactsText.parsePage(BoxHttp.getJson(ctx, "/v1/contacts" + if (qs.isEmpty()) "" else "?" + qs.joinToString("&")))
+    } catch (_: Exception) { null }
+
+    suspend fun contactsForget(ctx: Context): Boolean = try {
+        BoxHttp.postJson(ctx, "/v1/contacts/forget", org.json.JSONObject()).optBoolean("ok")
+    } catch (_: Exception) { false }
+
+    suspend fun calendarForget(ctx: Context): Boolean = try {
+        BoxHttp.postJson(ctx, "/v1/calendar/forget", org.json.JSONObject()).optBoolean("ok")
+    } catch (_: Exception) { false }
+
     data class HealthSeries(val metric: String, val days: List<String>, val values: List<Double>)
 
     suspend fun healthStats(ctx: Context, days: Int = 30): List<HealthSeries>? = try {

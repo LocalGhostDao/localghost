@@ -316,9 +316,9 @@ func main() {
 	if shp := landtiles.FindShapefile(filepath.Join(*mount, "geo")); shp != "" && landtiles.Stale(shp, tilesOut) {
 		buildTiles("the shapefile is newer than the tiles")
 	}
-	// road-tiles: cut OpenStreetMap's roads (the .osm.pbf files under <mount>/geo/roads, from
-	// tools/fetch_geo.sh: the planet or Geofabrik's continents) into the map's road tiles under
-	// <mount>/roadtiles (internal/roadtiles). Hours for the world, in the background, one build at
+	// road-tiles: cut OpenStreetMap's roads and water (the .osm.pbf files under <mount>/geo/roads,
+	// from tools/fetch_geo.sh: the planet or Geofabrik's continents) into the map's tiles under
+	// <mount>/roadtiles (internal/roadtiles; the water rides in the same tiles since 16 Oct 2026). Hours for the world, in the background, one build at
 	// a time; the old tiles stay served until the new set is whole. Also by itself at start when a
 	// PBF is newer than the tiles.
 	roadsIn := filepath.Join(*mount, "geo", "roads")

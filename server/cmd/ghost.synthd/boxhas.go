@@ -163,6 +163,12 @@ func boxCovers(runDir, prompt string) (string, bool) {
 	if why, ok := weatherCovers(runDir, prompt); ok {
 		return why, true
 	}
+	if why, ok := calendarCovers(prompt); ok {
+		return why, true // the person's plans: the phone's calendar on the box (calendar.go), never the web
+	}
+	if why, ok := contactCovers(prompt); ok {
+		return why, true // someone's number, address or birthday: the phone's contacts on the box (contacts.go)
+	}
 	if why, ok := wikiCovers(prompt); ok {
 		return why, true // "what is X" with X an article of the box's own Wikipedia (wikipedia.go)
 	}

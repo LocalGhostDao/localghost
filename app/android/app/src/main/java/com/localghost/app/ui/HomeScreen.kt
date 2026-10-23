@@ -134,6 +134,11 @@ fun HomeScreen(onAsk: (String) -> Unit, onOpenNews: () -> Unit, onOpenStory: (Lo
                 PricesCard(rates, fast, HomeCache.marketOf(rates, snap), failed, onOpenCrypto, onOpenCoin)
                 Spacer(Modifier.height(12.dp))
                 WeatherCard(weather, stamp, onOpenWeather)
+                // NEXT: what the phone's calendar says comes next (the box's copy of it)
+                snap?.calendar?.takeIf { it.isNotEmpty() }?.let { evs ->
+                    Spacer(Modifier.height(12.dp))
+                    HomeNext(evs, onOpen = { onOpenTarget("calendar") })
+                }
                 Spacer(Modifier.height(20.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     SectionLabel("THE DAY'S NEWS")

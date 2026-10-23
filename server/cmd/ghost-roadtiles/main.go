@@ -1,11 +1,12 @@
-// ghost-roadtiles , cut OpenStreetMap's roads into the map's tiles, outside a box.
+// ghost-roadtiles , cut OpenStreetMap's roads and water into the map's tiles, outside a box.
 //
 //	ghost-roadtiles -out <dir> [-work <dir>] [-workers N] [-buffer-mb N] <file.osm.pbf>...
 //	ghost-roadtiles -out <dir> -in <dir-of-pbfs>
 //
 // The same internal/roadtiles.Build that ghost.framed runs on a box (road-tiles). Pass the planet
-// or Geofabrik's continent extracts; every file is read three times (the roads' node ids, those
-// nodes, the roads) and the tiles are written whole at the end. Hours for a continent, most of it
+// or Geofabrik's continent extracts; every file is read three times (the roads' and the water's
+// node ids, those nodes, the ways; the water relations once more from the file's end) and the
+// tiles are written whole at the end. Hours for a continent, most of it
 // zlib; RAM about 2 GB plus the OS cache of the node file (see the package comment).
 package main
 
