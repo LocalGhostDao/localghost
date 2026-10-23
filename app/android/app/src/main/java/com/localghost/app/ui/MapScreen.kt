@@ -832,7 +832,16 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                 invMercY(cy + viewH / 2.0 / pxzNow), invMercY(cy - viewH / 2.0 / pxzNow))
                 .filter { idx[it].toInt() == LandTileGeom.COAST }
         }
-        LaunchedEffect(wantTiles) { if (wantTiles.isNotEmpty()) tileCache.ensure(mapScope, ctx, wantTiles) { tileTick++ } }
+        // one tick for every tile that lands within a third of a second: the base is recorded
+        // again on a tick, and a pan over a coast lands many tiles at once
+        val tickSoon = remember {
+            val pending = java.util.concurrent.atomic.AtomicBoolean(false)
+            fun() {
+                if (!pending.compareAndSet(false, true)) return
+                mapScope.launch { kotlinx.coroutines.delay(300); pending.set(false); tileTick++ }
+            }
+        }
+        LaunchedEffect(wantTiles) { if (wantTiles.isNotEmpty()) tileCache.ensure(mapScope, ctx, wantTiles) { tickSoon() } }
         val wantRoads = remember(roadIndex, cx, cy, pxzNow, viewW, viewH) {
             val idx = roadIndex
             if (idx == null || pxzNow < RoadTileGeom.MAJOR_PXZ) emptyList()
@@ -843,7 +852,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                 if (pxzNow >= RoadTileGeom.FINE_PXZ) major + RoadTileGeom.cellsFor(idx, 0, lon0, lon1, latLo, latHi) else major
             }
         }
-        LaunchedEffect(wantRoads) { if (wantRoads.isNotEmpty()) roadCache.ensure(mapScope, ctx, wantRoads) { tileTick++ } }
+        LaunchedEffect(wantRoads) { if (wantRoads.isNotEmpty()) roadCache.ensure(mapScope, ctx, wantRoads, pxzNow) { tileTick++ } }
         // The note says what the coast is doing, so "the map does not work" has a line to quote:
         // no index (the box has no tiles, or the phone never got the index), not zoomed in yet,
         // or tiles wanted / here / failed, with the last failure's reason.
@@ -1033,7 +1042,20 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                     for ((t, lvl) in tiles) {
                         if (lvl != waterLevel) continue
                         val dl = RoadTiles.levelFor(pxz, lvl)
-                        t.paths[dl][RoadTileGeom.CLASS_WATER_AREA]?.let { path ->
+                        val tp = roadCache.pathsFor(t, dl) ?: continue
+                        // the lines first, the areas over them: a wide river is in OSM both as a
+                        // centre line and as its banks, and the line drawn on top read as a bright
+                        // thread down the middle of a dark band
+                        for (cls in RoadTileGeom.CLASS_RIVER..RoadTileGeom.CLASS_STREAM) {
+                            if (!RoadTileGeom.showsWater(cls, pxz)) continue
+                            val path = tp[cls] ?: continue
+                            val w = when (cls) { RoadTileGeom.CLASS_RIVER -> 2.5f; RoadTileGeom.CLASS_CANAL -> 1.6f; else -> 1f }
+                            withTransform({
+                                translate(sx(t.ox), sy(t.oy))
+                                scale(pxz, pxz, pivot = Offset.Zero)
+                            }) { drawPath(path, MapRiver, style = Stroke(width = w / pxz, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)) }
+                        }
+                        tp[RoadTileGeom.CLASS_WATER_AREA]?.let { path ->
                             withTransform({
                                 translate(sx(t.ox), sy(t.oy))
                                 scale(pxz, pxz, pivot = Offset.Zero)
@@ -1041,15 +1063,6 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                                 drawPath(path, MapWater)
                                 drawPath(path, MapShore, style = shore)
                             }
-                        }
-                        for (cls in RoadTileGeom.CLASS_RIVER..RoadTileGeom.CLASS_STREAM) {
-                            if (!RoadTileGeom.showsWater(cls, pxz)) continue
-                            val path = t.paths[dl][cls] ?: continue
-                            val w = when (cls) { RoadTileGeom.CLASS_RIVER -> 2.5f; RoadTileGeom.CLASS_CANAL -> 1.6f; else -> 1f }
-                            withTransform({
-                                translate(sx(t.ox), sy(t.oy))
-                                scale(pxz, pxz, pivot = Offset.Zero)
-                            }) { drawPath(path, MapRiver, style = Stroke(width = w / pxz, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)) }
                         }
                     }
                     for (pass in 0..1) for (cls in 9 downTo 1) {
@@ -1060,7 +1073,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                             pathEffect = if (rp.dashed && pass == 1) PathEffect.dashPathEffect(floatArrayOf(6f / pxz, 4f / pxz)) else null)
                         for ((t, lvl) in tiles) {
                             if (lvl == 0 && cls <= 4) continue // the major tile already drew these
-                            val path = t.paths[RoadTiles.levelFor(pxz, lvl)][cls] ?: continue
+                            val path = roadCache.pathsFor(t, RoadTiles.levelFor(pxz, lvl))?.get(cls) ?: continue
                             withTransform({
                                 translate(sx(t.ox), sy(t.oy))
                                 scale(pxz, pxz, pivot = Offset.Zero)

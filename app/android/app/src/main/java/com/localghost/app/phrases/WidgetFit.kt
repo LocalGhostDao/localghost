@@ -37,6 +37,9 @@ object WidgetFit {
     const val MAX = 1.6f
     const val SMALL_MAX = 1.15f
 
+    /** The prices' size at home (sp): a step above the story's line, well under the phrase's. */
+    fun priceSize(sizes: IntArray): Int = maxOf(sizes[1] + 3, Math.round(sizes[0] * 0.7f))
+
     /** The sizes (sp: local, say, en, the small lines) scaled, rounded to whole sp. */
     fun sizes(base: IntArray, scale: Float): IntArray = IntArray(base.size) { i ->
         Math.round(base[i] * (if (i == 3) smallScale(scale) else scale))

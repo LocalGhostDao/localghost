@@ -6392,3 +6392,26 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   extension in `androidx.compose.ui.graphics.layer`, not a member of DrawScope; the import the stub
   check had dropped is back in MapScreen.kt. The stub check cannot see Compose's extension
   packages, so an "unresolved reference" it does not report is still possible until CI builds.
+
+## 23 October 2026 , the map's heat, the water's order, the country names, the widget's prices
+
+- Vlad: the phone still gets hot loading the map. Two causes in RoadTiles.kt: every tile that
+  landed built its paths at all three detail levels (three simplifications of every piece, two
+  of them for zooms the map was not at), and every landing bumped `tileTick`, so a pan over a
+  city re-recorded the base layer once per tile. Now a `RoadTile` keeps its decoded pieces and
+  builds one level's paths when that level is first wanted (`pathsNear`, `claim`, `build`; the
+  level the tile is wanted at is built on arrival off the main thread, the others on demand off
+  the main thread while the frame draws the nearest built level), and the cache coalesces the
+  ticks: one every 300 ms however many tiles land (`RoadTileCache.tick`); the coast tiles'
+  ticks are coalesced the same way in MapScreen (`tickSoon`).
+- Water: the river and stream lines are drawn BEFORE the areas, so a wide river mapped as both
+  (the Thames) is its banks, not a bright thread down a dark band. Vlad's screenshot was taken
+  while the tiles were still being cut ("no water yet"), so the Thames showed as land.
+- Country labels: GeoLabels takes a country's short name from countryInfo (`geo_names` `c:<cc>`)
+  instead of the point's official one ("Germany", not "Federal Republic of Germany", which
+  spanned the screen at the world zoom).
+- Widget at home: the prices sit at `WidgetFit.priceSize` (a step above the story's size, 0.7 of
+  the phrase's at most) instead of the phrase's; the tall widget's weather has a second line
+  with the next three days ("sat 12/7 rain 60% · sun 13/6 partly cloudy · mon 11/5 clear",
+  `HomeBriefText.weatherDays`), `w_more` already took two lines.
+- Not compiled here (no Kotlin toolchain in this container since the reclaim); Vlad builds.

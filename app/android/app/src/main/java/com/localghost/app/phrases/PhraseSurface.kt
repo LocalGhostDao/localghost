@@ -485,7 +485,11 @@ object PhraseSurface {
         // point, the tint is the frame.
         rv.setInt(R.id.w_bg, "setImageAlpha", look.alpha255)
         val sz = WidgetFit.sizes(look.sizes, scale)
-        rv.setTextViewTextSize(R.id.w_local, android.util.TypedValue.COMPLEX_UNIT_SP, sz[0].toFloat())
+        // at home the big line holds the prices: a number to glance at, not a word to learn, so it
+        // sits a step above the story's size rather than at the phrase's (which made BTC and ETH
+        // the largest thing on the home screen)
+        val localSp = if (snap.home && snap.extra.isNotEmpty()) WidgetFit.priceSize(sz) else sz[0]
+        rv.setTextViewTextSize(R.id.w_local, android.util.TypedValue.COMPLEX_UNIT_SP, localSp.toFloat())
         rv.setTextViewTextSize(R.id.w_say, android.util.TypedValue.COMPLEX_UNIT_SP, sz[1].toFloat())
         rv.setTextViewTextSize(R.id.w_en, android.util.TypedValue.COMPLEX_UNIT_SP, sz[2].toFloat())
         for (id in intArrayOf(R.id.w_head, R.id.w_foot, R.id.w_more, R.id.w_say_btn, R.id.w_next_btn, R.id.w_got_btn)) {

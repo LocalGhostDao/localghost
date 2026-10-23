@@ -56,6 +56,12 @@ class HomeBriefTextTest {
         assertEquals("13° partly cloudy · Neu-Ulm · today 17/9 showers 40%", HomeBriefText.weatherLine("Neu-Ulm", 13.2, 2, 17.0, 9.4, 80, 40))
         assertEquals("13° · Neu-Ulm", HomeBriefText.weatherLine("Neu-Ulm", 13.0, -1, Double.NaN, Double.NaN, -1, 0))
         assertEquals("", HomeBriefText.weatherLine("Neu-Ulm", Double.NaN, 2, 17.0, 9.0, 2, 0))
+        // the days after today: name, high/low, word, rain when likely; three at most, a day with no highs skipped
+        assertEquals("sat 12/7 rain 60% · sun 13/6 partly cloudy · mon 11/5 clear",
+            HomeBriefText.weatherDays(listOf("2026-10-24", "2026-10-25", "2026-10-26", "2026-10-27"),
+                listOf(12.0, 13.4, 11.0, 10.0), listOf(7.0, 6.0, 5.0, 4.0), listOf(63, 2, 0, 0), listOf(60, 10, 0, 0)))
+        assertEquals("sun 13/6", HomeBriefText.weatherDays(listOf("2026-10-24", "2026-10-25"), listOf(Double.NaN, 13.0), listOf(7.0, 6.0), listOf(-1, -1), listOf(0, 0)))
+        assertEquals("", HomeBriefText.weatherDays(emptyList(), emptyList(), emptyList(), emptyList(), emptyList()))
     }
 
     @Test fun theStoriesTurnWithThePhrases() {

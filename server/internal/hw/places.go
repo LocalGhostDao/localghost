@@ -40,9 +40,13 @@ func (s *NotifStore) GeoLabels(slot int, minLat, maxLat, minLon, maxLon float64,
 	if !(maxLon <= 180) {
 		maxLon = 180
 	}
-	rows, err := c.Query(`SELECT name, lat, lon, kind, fcode, population, rank FROM geo_points
-		WHERE rank > 0 AND lat BETWEEN $1 AND $2 AND lon BETWEEN $3 AND $4
-		ORDER BY rank DESC LIMIT $5`, minLat, maxLat, minLon, maxLon, limit)
+	// a country's label is its short name from countryInfo ("Germany"), not the GeoNames point's
+	// official one ("Federal Republic of Germany"), which spans a phone's width at the world zoom
+	rows, err := c.Query(`SELECT CASE WHEN p.kind = 'A' AND p.fcode LIKE 'PCL%' THEN COALESCE(n.name, p.name) ELSE p.name END,
+		p.lat, p.lon, p.kind, p.fcode, p.population, p.rank FROM geo_points p
+		LEFT JOIN geo_names n ON p.kind = 'A' AND p.fcode LIKE 'PCL%' AND n.code = 'c:' || p.country
+		WHERE p.rank > 0 AND p.lat BETWEEN $1 AND $2 AND p.lon BETWEEN $3 AND $4
+		ORDER BY p.rank DESC LIMIT $5`, minLat, maxLat, minLon, maxLon, limit)
 	if err != nil {
 		return nil, err
 	}

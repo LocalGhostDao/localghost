@@ -42,7 +42,12 @@ object HomeBrief {
         if (!w.ok || w.tempC.isNaN()) return ""
         val today = w.days.firstOrNull()
         val nowS = System.currentTimeMillis() / 1000
-        return HomeBriefText.weatherLine(w.place, w.tempNow(nowS), w.codeNow(nowS), today?.maxC ?: Double.NaN, today?.minC ?: Double.NaN, today?.code ?: -1, today?.rainPct ?: 0)
+        val line = HomeBriefText.weatherLine(w.place, w.tempNow(nowS), w.codeNow(nowS), today?.maxC ?: Double.NaN, today?.minC ?: Double.NaN, today?.code ?: -1, today?.rainPct ?: 0)
+        if (line.isEmpty()) return ""
+        // the days after today on a second line, for a widget tall enough to show it
+        val next = w.days.drop(1)
+        val days = HomeBriefText.weatherDays(next.map { it.date }, next.map { it.maxC }, next.map { it.minC }, next.map { it.code }, next.map { it.rainPct })
+        return if (days.isEmpty()) line else line + "\n" + days
     }
 
     /** Ask the box for the stories and the prices, keep what came, redraw the card. A box out of

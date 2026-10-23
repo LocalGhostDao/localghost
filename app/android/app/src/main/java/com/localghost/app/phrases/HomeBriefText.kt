@@ -66,6 +66,26 @@ object HomeBriefText {
         return sb.toString()
     }
 
+    /** The days after today as one line for the tall widget, under the weather line: the day's
+     *  name, its high and low, its word, the rain when it is likely ("sat 12/7 rain 60% · sun
+     *  13/6 cloudy · mon 11/5 clear"). [dates] are yyyy-mm-dd; at most [n] days; "" with none. */
+    fun weatherDays(dates: List<String>, maxC: List<Double>, minC: List<Double>, codes: List<Int>, rainPct: List<Int>, n: Int = 3): String {
+        val parts = ArrayList<String>()
+        for (i in dates.indices) {
+            if (parts.size >= n || i >= maxC.size || i >= minC.size) break
+            if (maxC[i].isNaN() || minC[i].isNaN()) continue
+            val day = runCatching {
+                val d = java.time.LocalDate.parse(dates[i])
+                d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.UK).lowercase()
+            }.getOrNull() ?: continue
+            val sb = StringBuilder(day).append(" %.0f/%.0f".format(java.util.Locale.UK, maxC[i], minC[i]))
+            codes.getOrNull(i)?.let { c -> com.localghost.app.ui.HomeText.weatherWord(c).takeIf { it.isNotEmpty() }?.let { sb.append(" ").append(it) } }
+            rainPct.getOrNull(i)?.takeIf { it >= 30 }?.let { sb.append(" ").append(it).append("%") }
+            parts.add(sb.toString())
+        }
+        return parts.joinToString(" · ")
+    }
+
     /** The stories kept for the widget abroad, as one string (a headline a line) so the snapshot
      *  carries them in its one aside field; [story] picks one. */
     fun asides(cards: List<Card>, n: Int = 6): String = cards.take(n).map { it.headline.trim() }.filter { it.isNotEmpty() }.joinToString("\n")
