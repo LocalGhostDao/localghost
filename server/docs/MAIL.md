@@ -275,7 +275,9 @@ subject and text, the counts, and a row per message (who, when, the subject, the
 what happened to a sent one, `new`, the files, `spam?`); older pages load on a tap. A message
 shows who and when (a `Reply-To` elsewhere in amber), one line of the spam verdict with the
 checks under a tap (each verdict in plain words), the text as text (an HTML message says it
-was reduced), the attachments (a tap saves a kept one to Downloads; the app opens nothing), and
+was reduced; plain text a sender broke at a column is joined back into paragraphs, by its
+`format=flowed` marks where it has them and by the wrapper's rule where it does not, lists and
+quotes left as they came), the attachments (a tap saves a kept one to Downloads; the app opens nothing), and
 REPLY, ALL (when there were others), FORWARD, ARCHIVE, UNREAD, DELETE (armed by a first tap),
 then the thread. The composer is to, cc, subject, text, "quote the message under your text"
 for a reply, and SEND, which hands the message to the box; SENT shows it waiting at the relay,

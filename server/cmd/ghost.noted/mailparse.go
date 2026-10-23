@@ -174,6 +174,160 @@ func parseMail(raw []byte) (parsedMail, error) {
 	return p, nil
 }
 
+// quoteDepth splits a line into its quote marks and the text after them: "> > hi" is (2, "hi").
+func quoteDepth(line string) (int, string) {
+	d := 0
+	for {
+		t := strings.TrimLeft(line, " ")
+		if !strings.HasPrefix(t, ">") {
+			return d, line
+		}
+		line = t[1:]
+		if strings.HasPrefix(line, " ") {
+			line = line[1:]
+		}
+		d++
+	}
+}
+
+func firstWord(s string) string {
+	s = strings.TrimLeft(s, " ")
+	if i := strings.IndexByte(s, ' '); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// listStart reports a line that begins a list item or a block the author laid out by hand, which
+// a reflow must not pull onto the line above.
+func listStart(s string) bool {
+	if s == "" || s[0] == ' ' || s[0] == '\t' || s[0] == '|' || strings.HasPrefix(s, "• ") {
+		return true
+	}
+	switch s[0] {
+	case '-', '*', '+':
+		return len(s) > 1 && s[1] == ' '
+	}
+	i := 0
+	for i < len(s) && i < 3 && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return i > 0 && i < len(s) && (s[i] == '.' || s[i] == ')') && i+1 < len(s) && s[i+1] == ' '
+}
+
+// unflow decodes format=flowed text (RFC 3676): a line ending in a space continues on the next
+// line of the same quote depth, the stuffing space is removed, and with DelSp the soft break's
+// space goes too. The signature separator "-- " is a hard break.
+func unflow(s string, delsp bool) string {
+	lines := strings.Split(s, "\n")
+	var out []string
+	cur, curDepth, open := "", 0, false
+	for _, l := range lines {
+		d, t := quoteDepth(l)
+		if d == 0 && strings.HasPrefix(t, " ") {
+			t = t[1:] // space-stuffed
+		}
+		soft := strings.HasSuffix(t, " ") && t != "-- "
+		if open && d == curDepth {
+			cur += t
+		} else {
+			if open {
+				out = append(out, quoted(curDepth, strings.TrimRight(cur, " ")))
+			}
+			cur, curDepth = t, d
+		}
+		if soft {
+			if delsp {
+				cur = strings.TrimSuffix(cur, " ")
+			}
+			open = true
+		} else {
+			out = append(out, quoted(curDepth, strings.TrimRight(cur, " ")))
+			open = false
+		}
+	}
+	if open {
+		out = append(out, quoted(curDepth, strings.TrimRight(cur, " ")))
+	}
+	return strings.Join(out, "\n")
+}
+
+func quoted(depth int, s string) string {
+	if depth == 0 {
+		if s == "--" {
+			return "-- " // the signature separator keeps its space
+		}
+		return s
+	}
+	return strings.Repeat(">", depth) + " " + s
+}
+
+// unwrap joins the lines a sending client broke at a fixed column (Gmail's plain text at 76, many
+// others at 72) so the phone wraps the paragraph to its own width instead of showing ragged
+// three-word tails. The rule is the wrapper's own, read backwards: a line was broken before a
+// word only if the word did not fit, so two lines of one quote depth join when the first plus
+// a space plus the next line's first word would pass the widest line in the message. Lines
+// the author laid out (lists, indented text, a blank line, the signature separator) stay.
+// Text that was never wrapped (no line near a column) is returned as it came.
+func unwrap(s string) string {
+	lines := strings.Split(s, "\n")
+	width := 0
+	for _, l := range lines {
+		if n := utf8.RuneCountInString(strings.TrimRight(l, " ")); n > width {
+			width = n
+		}
+	}
+	if width < 50 || width > 100 {
+		return collapseBlank(lines)
+	}
+	var out []string
+	for i := 0; i < len(lines); i++ {
+		l := strings.TrimRight(lines[i], " ")
+		if lines[i] == "-- " {
+			l = lines[i] // the signature separator keeps its space
+		}
+		d, t := quoteDepth(l)
+		if t == "" || t == "--" || l == "-- " || listStart(t) {
+			out = append(out, l)
+			continue
+		}
+		for i+1 < len(lines) {
+			n := strings.TrimRight(lines[i+1], " ")
+			nd, nt := quoteDepth(n)
+			if nd != d || nt == "" || nt == "--" || lines[i+1] == "-- " || listStart(nt) {
+				break
+			}
+			cur := utf8.RuneCountInString(t)
+			if cur < width*2/3 || cur+1+utf8.RuneCountInString(firstWord(nt)) <= width {
+				break
+			}
+			t += " " + nt
+			i++
+		}
+		out = append(out, quoted(d, t))
+	}
+	return collapseBlank(out)
+}
+
+// collapseBlank keeps at most two blank lines in a row.
+func collapseBlank(lines []string) string {
+	var out []string
+	blank := 0
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
+			blank++
+			if blank > 2 {
+				continue
+			}
+			out = append(out, "")
+			continue
+		}
+		blank = 0
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
 func clipText(s string) string {
 	if len(s) > maxBodyText {
 		return s[:maxBodyText] + "\n[cut at 512 KB]"
@@ -229,7 +383,13 @@ func walkPart(ctype, cte, cdisp string, body io.Reader, depth int, texts, htmls 
 		b, _ := io.ReadAll(io.LimitReader(decodeBody(body, cte), maxBodyText*2))
 		s := toUTF8(b, params["charset"])
 		if mt == "text/plain" {
-			*texts = append(*texts, strings.ReplaceAll(s, "\r\n", "\n"))
+			s = strings.ReplaceAll(s, "\r\n", "\n")
+			if strings.EqualFold(params["format"], "flowed") {
+				s = unflow(s, strings.EqualFold(params["delsp"], "yes"))
+			} else {
+				s = unwrap(s)
+			}
+			*texts = append(*texts, s)
 		} else {
 			*htmls = append(*htmls, s)
 		}

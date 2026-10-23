@@ -8,6 +8,10 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -19,6 +23,7 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.localghost.app.ui.theme.GhostBorder
 import com.localghost.app.ui.theme.TerminalDim
 import com.localghost.app.ui.theme.TerminalGreen
@@ -52,7 +57,22 @@ fun GhostButton(
             contentColor = TerminalGreen,
             disabledContentColor = GhostBorder,
         ),
-    ) { Text("[ $label ]") }
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        // one line, always: a button sharing a row with two others ("[ ARCHIVE ]" beside
+        // "[ UNREAD ]" and "[ DELETE ]") used to break its word in the middle; the label now
+        // shrinks a step or two instead, and the button's own side padding is a third of the
+        // Material default, which was most of the squeeze
+        val style = LocalTextStyle.current
+        val max = if (style.fontSize.isSp) style.fontSize else 14.sp
+        BasicText(
+            "[ $label ]",
+            style = style.copy(color = LocalContentColor.current),
+            maxLines = 1,
+            softWrap = false,
+            autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = max, stepSize = 0.5.sp),
+        )
+    }
 }
 
 @Composable

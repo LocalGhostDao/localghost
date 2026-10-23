@@ -6419,3 +6419,22 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (Vlad: "a bit big in text, maybe behind an info"); the section now shows one glance line
   (`HealthText.weekGlance`: the first four kinds' changes, "steps −70% · deep sleep +13% …") and
   "[ + against last week ]" opens the full block, in the small label size.
+
+## 23 October 2026 , the first mail round trip
+- Outbound at 17:11 UTC: the relay (as ghost-mail) handed "hello" to Gmail on the first try,
+  "delivered box=vlad domain=vladcealicu.com rcpts=1 try=1"; Gmail filed it in Spam, the usual
+  landing for a residential IP with no PTR and no history. The PTR from the ISP is a
+  spam-folder matter, not a delivery one.
+- Inbound at 23:20 and 23:23 UTC, once the router's TCP 25 forward was On and its firewall at
+  Middle: two Gmail messages received by the relay, pulled by noted within forty seconds of
+  sending, both `spam: low` with `dnsChecks: true` (Gmail's SPF and DKIM passed the screen); the
+  reply to "hello" carried `In-Reply-To` and joined the outbound's thread (`threadKey` = the
+  box's Message-ID). Status after: in=2 out=1 unseen=1 queuedOnRelay=0 ready=true. MAIL on the
+  phone showed them; the first was read there (state seen).
+- The phone showed the first message as three-word tails (Gmail breaks plain text at 76 and
+  does not say format=flowed): `unflow()` for RFC 3676 text, `unwrap()` for the rest (join two
+  lines of one quote depth when the first plus the next line's first word would pass the
+  message's widest line; lists, indented text, blank lines and "-- " stay; blank runs stop at
+  two); tests on the real message. `GhostButton` keeps its label on one line (`BasicText` with
+  `TextAutoSize.StepBased` down to 9 sp, side padding 10 dp): ARCHIVE, UNREAD and DELETE no
+  longer break mid-word. Not compiled here; Vlad builds.

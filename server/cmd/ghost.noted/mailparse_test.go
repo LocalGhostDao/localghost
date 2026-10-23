@@ -208,3 +208,45 @@ func zipOf(t *testing.T, entries map[string]string) []byte {
 	zw.Close()
 	return buf.Bytes()
 }
+
+// Gmail breaks plain text at 76 columns and does not say format=flowed; the first real message
+// through the relay reached the phone as ragged three-word tails. The lines a wrapper broke join
+// again; the lines the author broke stay.
+func TestUnwrapHardWrappedText(t *testing.T) {
+	gmail := "Hello LocalGhost,\n\n" +
+		"It's been a pleasure building you, from the early days of just getting a QR\n" +
+		"coder and decoder in, to scaffolding empty daemons, to holy shit we have a\n" +
+		"good map, to news and crypto, to our own weather forecasting and now email.\n" +
+		"We have so much more ahead of us.\n\n\n\n-- \nBest wishes,\nVlad Cealicu\n"
+	want := "Hello LocalGhost,\n\n" +
+		"It's been a pleasure building you, from the early days of just getting a QR coder and decoder in, to scaffolding empty daemons, to holy shit we have a good map, to news and crypto, to our own weather forecasting and now email. We have so much more ahead of us.\n\n\n-- \nBest wishes,\nVlad Cealicu\n"
+	if got := unwrap(gmail); got != want {
+		t.Fatalf("got:\n%s", got)
+	}
+	// a reply: the quote joins at its own depth, the empty quoted line and the signature stay
+	reply := "Yes! well done!\n\nOn Fri, 23 Oct 2026 at 18:11, Vlad <vlad@ghost.localghost.ai> wrote:\n\n" +
+		"> is this working? and is this a long enough line to be a wrapped one at seventy\n> six columns\n>\n\n-- \nBest wishes,\n"
+	if got := unwrap(reply); !strings.Contains(got, "> is this working? and is this a long enough line to be a wrapped one at seventy six columns\n>\n") || !strings.Contains(got, "wrote:\n\n>") {
+		t.Fatalf("got:\n%s", got)
+	}
+	// lists, indented text and short lines are the author's
+	kept := "The plan, which is long enough that the widest line reaches the wrap column:\n- first thing\n- second thing\n  indented\nShort line\nnext short line\n1. one\n2. two\n"
+	if got := unwrap(kept); got != kept {
+		t.Fatalf("got:\n%s", got)
+	}
+	// text never wrapped (no line near a column) is untouched
+	if s := "a\nb\nc\n"; unwrap(s) != s {
+		t.Fatal(unwrap(s))
+	}
+	// format=flowed, with and without DelSp, through the parser
+	flowed := "From: a@b.example\r\nSubject: x\r\nContent-Type: text/plain; format=flowed\r\n\r\nthis line is \r\nsoft \r\nbroken\r\n> quoted \r\n> too\r\n-- \r\nsig \r\nline\r\n"
+	p, _ := parseMail([]byte(flowed))
+	if p.Body != "this line is soft broken\n> quoted too\n-- \nsig line\n" {
+		t.Fatalf("%q", p.Body)
+	}
+	delsp := "From: a@b.example\r\nSubject: x\r\nContent-Type: text/plain; format=flowed; delsp=yes\r\n\r\nwo \r\nrd\r\n"
+	p, _ = parseMail([]byte(delsp))
+	if p.Body != "word\n" {
+		t.Fatalf("%q", p.Body)
+	}
+}
