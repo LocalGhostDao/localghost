@@ -110,7 +110,7 @@ if ss -ltnH 2>/dev/null | grep -q '127.0.0.1:8443 '; then
     if [ "$(cat /etc/ghost/edge 2>/dev/null)" = tls ] && [ -f /etc/nginx/localghost-stream.conf ]; then
         pass "ghost.secd terminates the phone's TLS itself (edge=tls, nginx forwards the raw stream by name): a plain-HTTP client on :8443 gets the down page, not the door"
     else
-        warn "ghost.secd still trusts the X-Client-Cert header on plain 127.0.0.1:8443: any local process reaches the PIN door without the phone's certificate. Move it with: sudo ghost-ctl edge-passthrough --domain <box name> (secd does its own TLS, nginx forwards the raw stream by name)"
+        warn "ghost.secd still trusts the X-Client-Cert header on plain 127.0.0.1:8443: any local process that forges the header reaches the PIN door without the phone's certificate. Move it with: sudo ghost-ctl edge-passthrough --domain <box name> (secd does its own TLS, nginx forwards the raw stream by name, and the edge flag is written for you)"
     fi
 fi
 for p in 18080 18081; do

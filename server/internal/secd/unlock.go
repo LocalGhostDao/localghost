@@ -389,11 +389,12 @@ func (s *Server) handleUnlockPoll(w http.ResponseWriter, r *http.Request) {
 					resp["ttlSeconds"] = int(SessionTTL.Seconds())
 				}
 			}
-		} else {
-			// wrong PIN (or failed unlock): revoke any live token, so the foreground AND the poller
-			// go dark together (shared fate). The mount is NOT touched.
-			s.session.Revoke()
 		}
+	} else if u.failed != "" {
+		// wrong PIN (or failed unlock): the token was revoked by onDone the moment the run
+		// failed; revoking again here is idempotent and covers a server restarted mid-run. The
+		// mount is NOT touched.
+		s.session.Revoke()
 	}
 	writeJSON(w, resp)
 }

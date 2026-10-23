@@ -43,7 +43,12 @@ import (
 const uploadMaxBytes = 4 << 30
 
 // locationsMaxBytes bounds one location batch. A day of 1Hz samples is ~5MB of JSON; 16MB is generous.
-const locationsMaxBytes = 16 << 20
+// locationsMaxPoints bounds its points (a day at 1 Hz is 86400): framed inserts in chunks, but a
+// batch that is not a batch is refused at the door, not spooled for framed to choke on.
+const (
+	locationsMaxBytes  = 16 << 20
+	locationsMaxPoints = 100000
+)
 
 // handleFrameUpload accepts one raw image per POST and spools it for ghost.framed. The body is the
 // image bytes, exactly as shot , no multipart, no re-encode, no inspection. framed archives the same
@@ -638,6 +643,18 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 		if bad > 0 {
 			secdLog.Warn("sealed points that do not open with this device's key were left out", "fn", "handleLocations", "count", bad)
 		}
+	}
+	// the shape framed will read: a JSON object with a bounded points array
+	var probe struct {
+		Points []json.RawMessage `json:"points"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		http.Error(w, "upload failed", http.StatusBadRequest)
+		return
+	}
+	if len(probe.Points) > locationsMaxPoints {
+		http.Error(w, "too many points in one batch", http.StatusRequestEntityTooLarge)
+		return
 	}
 	n, err := spoolFrom(dir, r, bytes.NewReader(body), uid, gid)
 	if err != nil {

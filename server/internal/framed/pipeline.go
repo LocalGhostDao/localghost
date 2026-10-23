@@ -107,6 +107,8 @@ type Pipeline struct {
 	// archive rename, and write duplicate previews. Hash dedup makes it harmless to the DATA, but the
 	// races are noisy and pure waste , one drain at a time.
 	mu sync.Mutex
+	// locFails counts, per spooled file, the ticks its insert failed (see locMaxTries)
+	locFails map[string]int
 	// notifySearch, when set, hands each archived frame to the search layer (ghost.searchd ingest):
 	// the ARCHIVE path is the identity, the RENDER path is what the vision model should look at
 	// (the 1600px upright preview, or a frame grab for a video, never a 12MP original or a 500MB
@@ -619,6 +621,10 @@ type locBatch struct {
 	Points []SpooledPoint `json:"points"`
 }
 
+// locMaxTries is how many ticks a location batch may fail to insert before it is moved to
+// incoming-locations/rejected for a person to look at.
+const locMaxTries = 3
+
 // DrainLocations ingests spooled location batches and rebuilds the days they touch.
 func (p *Pipeline) DrainLocations() int {
 	p.mu.Lock()
@@ -657,9 +663,25 @@ func (p *Pipeline) DrainLocations() int {
 			src = "watch"
 		}
 		if err := p.store.InsertSpooled(src, batch.Points); err != nil {
-			p.log.Warn("point insert failed, leaving for retry", "fn", "DrainLocations", "err", err)
+			// a batch that keeps failing is set aside after a few ticks, not retried for ever under
+			// the drain's lock (a 16 MB file that always fails would cost every tick its decode)
+			if p.locFails == nil {
+				p.locFails = map[string]int{}
+			}
+			p.locFails[e.Name()]++
+			if p.locFails[e.Name()] >= locMaxTries {
+				rej := filepath.Join(p.dirs.IncomingLoc, "rejected")
+				_ = os.MkdirAll(rej, 0o750)
+				if mvErr := os.Rename(full, filepath.Join(rej, e.Name())); mvErr == nil {
+					p.log.Error("location batch set aside after repeated insert failures", "fn", "DrainLocations", "file", e.Name(), "err", err, "dir", rej)
+				}
+				delete(p.locFails, e.Name())
+				continue
+			}
+			p.log.Warn("point insert failed, leaving for retry", "fn", "DrainLocations", "file", e.Name(), "try", p.locFails[e.Name()], "err", err)
 			continue
 		}
+		delete(p.locFails, e.Name())
 		_ = os.Remove(full)
 		p.work.Add("track points", len(batch.Points))
 		for _, pt := range batch.Points {

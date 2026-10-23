@@ -22,6 +22,10 @@ import (
 // without a box-issued device cert at the handshake (the access key), so every request that reaches
 // here is already from an enrolled device. The PIN (account selection) is then proven at /unlock.
 type Server struct {
+	// doorOpenForTests lets a plain request with no certificate header reach the routes; only
+	// the package's tests set it (they drive the mux as a phone that passed the door). There is
+	// no configuration or environment path to it.
+	doorOpenForTests bool
 	// cached run-user credentials for spool-file handoff (see spoolCred in frames_http.go)
 	credOnce       sync.Once
 	credUID        int
@@ -217,7 +221,16 @@ func New(cfg Config) (*Server, error) {
 	// newDefaultBackend is build-tag-selected: the simulation in the default build, the real TPM +
 	// dm-crypt + Postgres/Redis backend with -tags tpm. This is the seam where unlock meets hardware.
 	s.unlock = newUnlockService(newDefaultBackend(cfg))
-	s.unlock.onDone = s.trialOnUnlock // a release on trial is judged by its first unlocks
+	s.unlock.onDone = func(ok bool, failedAt profile.Stage) {
+		if !ok {
+			// a wrong PIN (or any failed unlock) revokes the live token the moment it fails, whether
+			// or not anyone polls: the foreground and the notification poller go dark together, as
+			// session.go promises (the audit found the only revoke sat on a path a failed unlock
+			// never reached)
+			s.session.Revoke()
+		}
+		s.trialOnUnlock(ok, failedAt) // a release on trial is judged by its first unlocks
+	}
 	// the last cold unlocks' step times live on the encrypted volume, beside the data they open
 	s.unlock.timesPath = filepath.Join(cfg.StateDir, "mnt", fmt.Sprintf("slot%d", profile.MainSlot), "secd", "unlock-times.json")
 

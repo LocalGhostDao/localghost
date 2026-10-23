@@ -189,28 +189,41 @@ unseal both in memory, write the sealed message as fetched to `<mount>/noted/mai
 
 1. **Judge** (`internal/mailauth`, `Judge`): SPF for the note's IP against the `MAIL FROM`
    domain (or the HELO for a bounce): `ip4`, `ip6`, `a`, `mx`, `include`, `exists`, `ptr`,
-   `redirect=`, the macros, ten lookups at most; every DKIM signature (RSA-SHA256 and
-   Ed25519-SHA256, relaxed and simple, `l=`, `x=`, the key at `<s>._domainkey.<d>`, testing
-   keys neutral, revoked keys fail); DMARC alignment with the `From` domain's policy (the
+   `redirect=`, the macros, ten lookups at most and forty DNS queries in all (the hosts behind
+   `mx` and `ptr` count); the first eight DKIM signatures (RSA-SHA256 and Ed25519-SHA256,
+   relaxed and simple, `l=`, `x=`, the key at `<s>._domainkey.<d>`, testing keys neutral,
+   revoked keys fail; more than eight is one permerror, an `h=` list past 64 names too); DMARC
+   alignment with the `From` domain's policy (the
    organisational domain by a short public-suffix table, relaxed or strict as the record
    says); the note's reverse verdict and whether it matches the HELO; the **header screen**
    (more than one `From`, `Date`, `Subject`; a bare CR or LF inside a field; a line over 998
    bytes; a `From` with two addresses or none; control characters or a second address in the
    display name; a display name that is an address on another domain, or that pretends to be
    this box; a `Reply-To` on another domain; no `Message-ID` or `Date`; a subject all in
-   capitals; a body that is HTML only); and a **spam score** from those and from whether the
-   sender has written before (low, medium, high, with the reasons). DNS goes through the
-   system resolver with a five-second timeout; `mail_dns_checks=off` turns it off and the
+   capitals; a body that is HTML only; a header block past 128 KB or 2000 lines, which is cut
+   there); and a **spam score** from those and from whether the sender has written before (low,
+   medium, high, with the reasons). DNS goes through the system resolver with a five-second
+   timeout and the whole judging of one message under a minute (past it the verdicts read
+   temperror and the message is still stored); `mail_dns_checks=off` turns DNS off and the
    verdicts read "not checked". A note whose reverse verdict is `relay` is a delivery report.
+   The header parse is linear in the message's size however the fields are folded, and a
+   message the box fails to store three times is given up on (its sealed original kept under
+   `noted/mail/in`, the relay copy deleted), so one message cannot hold the mail loop.
 2. **Parse** (`mailparse.go`): `net/mail` for the headers (encoded words decoded, Latin-1 and
    Windows-1252 handled by hand, UTF-8 otherwise), the MIME tree walked eight levels deep: the
    first `text/plain` part is the body, else the `text/html` reduced to text (scripts and
    styles dropped, block ends as line breaks, entities decoded, nothing fetched); every other
    part is an attachment. What runs or hides things that run is **named and not kept**:
-   executables by extension and by magic (`MZ`, ELF, Mach-O), archives (`PK` unless it is an
-   office or EPUB file), office files with macros (`.docm` and friends, or an OLE file with a
-   VBA stream); so is anything over 20 MB or past 25 MB in all. Names are reduced to a safe
-   character set and a base name.
+   executables by extension, by declared type and by magic (`MZ`, ELF, Mach-O), archives (`PK`
+   unless it is named as an office or EPUB file AND opens as one: `[Content_Types].xml` or a
+   `mimetype` entry, nothing inside that is a class, a dex, an executable or an Android
+   manifest, no `vbaProject.bin`), office files with macros (`.docm` and friends, or an OLE
+   file with a VBA stream, in the UTF-16LE the format stores names in); so is anything over
+   20 MB or past 25 MB in all, and everything after the fiftieth attachment of one message.
+   The type stored and handed to the phone is the one the file name says, not the one the
+   sender declared. Subject, display name and address lists are clipped (998 bytes, 256, a
+   hundred addresses). Names are reduced to a safe character set and a base name; the file on
+   disk is named by the row and the part, so two parts with one name are two files.
 3. **Store**: one `mail_messages` row (direction, state, Message-ID, In-Reply-To, the thread
    key, From, To, Cc, Reply-To, subject, the dates, the text, its kind, the size, the verdicts
    as JSON, the spam level, the sealed file's path, the relay's name) and one

@@ -61,8 +61,18 @@ func (c *Conn) query(sql string, args []any) (*Rows, error) {
 	}
 }
 
+// MaxParams is the wire protocol's bound on parameters in one Bind message (an int16 count). A
+// statement past it is refused here with a clear error rather than sent with a wrapped count.
+const MaxParams = 65535
+
+// ErrTooManyParams: more bound parameters than one statement can carry; chunk the statement.
+var ErrTooManyParams = errors.New("poltergres: more than 65535 bound parameters in one statement")
+
 // sendExtended writes Parse (unnamed), Bind (unnamed, all-text params + results), Execute, Sync.
 func (c *Conn) sendExtended(sql string, args []any) error {
+	if len(args) > MaxParams {
+		return ErrTooManyParams
+	}
 	// Parse: name\0 query\0 int16 paramTypeCount(0 = infer)
 	var parse bytes.Buffer
 	parse.WriteByte(0)

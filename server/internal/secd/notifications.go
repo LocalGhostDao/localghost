@@ -84,7 +84,9 @@ func (s *Server) handleNotifications(w http.ResponseWriter, r *http.Request) {
 // appearsDown emits a bare 502; nginx proxy_intercept_errors + error_page maps it to the one fixed
 // @down response, identical to a genuinely-down upstream. No distinguishing body.
 func (s *Server) appearsDown(w http.ResponseWriter) {
-	w.WriteHeader(http.StatusBadGateway) // 502 -> nginx @down
+	// the down page itself: behind the old nginx site a 503 is intercepted to @down like the 502
+	// was, and over secd's own TLS there is no nginx to fold a bare status into the page
+	writeDown(w)
 }
 
 // globalMuted reports whether the GLOBAL mute is active (collapses the surface to down).

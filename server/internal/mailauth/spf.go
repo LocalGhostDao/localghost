@@ -21,7 +21,14 @@ type SPFResult struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-const spfMaxLookups = 10
+// spfMaxLookups is RFC 7208's ten terms that need DNS. The MX hosts behind an mx term and the
+// names behind a ptr term are not counted there (the RFC bounds each at ten), so a record of
+// ten mx terms could still cost a hundred sequential queries; spfMaxQueries bounds every query
+// the evaluation makes, whatever the term.
+const (
+	spfMaxLookups = 10
+	spfMaxQueries = 40
+)
 
 type spfEval struct {
 	ctx     context.Context
@@ -30,7 +37,14 @@ type spfEval struct {
 	sender  string // the full MAIL FROM address
 	helo    string
 	lookups int
+	queries int
 	void    int
+}
+
+// query counts one DNS query against spfMaxQueries; false when the budget is spent.
+func (e *spfEval) query() bool {
+	e.queries++
+	return e.queries <= spfMaxQueries
 }
 
 // CheckSPF evaluates the sender's SPF for the connecting ip. mailFrom is the envelope sender
@@ -55,6 +69,9 @@ func CheckSPF(ctx context.Context, res Resolver, ip net.IP, mailFrom, helo strin
 }
 
 func (e *spfEval) record(domain string) (string, string, string) {
+	if !e.query() {
+		return "", "permerror", "too many DNS queries"
+	}
 	txts, err := e.res.LookupTXT(e.ctx, domain)
 	if err != nil {
 		if isNotFound(err) {
@@ -194,10 +211,16 @@ func (e *spfEval) mechanism(domain, term string) (bool, string, string) {
 	case "a":
 		ips, err := e.lookupIPs(target)
 		if err != nil {
+			if err.Error() == "too many DNS queries" {
+				return false, "permerror", err.Error()
+			}
 			return false, err.Error(), "lookup of " + target + " failed"
 		}
 		return e.anyMatch(ips, cidr4, cidr6), "", ""
 	case "mx":
+		if !e.query() {
+			return false, "permerror", "too many DNS queries"
+		}
 		mxs, err := e.res.LookupMX(e.ctx, target)
 		if err != nil {
 			if isNotFound(err) {
@@ -214,15 +237,24 @@ func (e *spfEval) mechanism(domain, term string) (bool, string, string) {
 			if err != nil && err.Error() == "temperror" {
 				return false, "temperror", "MX host lookup failed"
 			}
+			if err != nil && err.Error() == "too many DNS queries" {
+				return false, "permerror", "too many DNS queries"
+			}
 			if e.anyMatch(ips, cidr4, cidr6) {
 				return true, "", ""
 			}
 		}
 		return false, "", ""
 	case "ptr":
+		if !e.query() {
+			return false, "permerror", "too many DNS queries"
+		}
 		names, err := e.res.LookupAddr(e.ctx, e.ip.String())
 		if err != nil {
 			return false, "", ""
+		}
+		if len(names) > 10 {
+			names = names[:10] // RFC 7208 section 4.6.4: at most ten names evaluated
 		}
 		for _, n := range names {
 			n = lowerDomain(n)
@@ -235,6 +267,9 @@ func (e *spfEval) mechanism(domain, term string) (bool, string, string) {
 		}
 		return false, "", ""
 	case "exists":
+		if !e.query() {
+			return false, "permerror", "too many DNS queries"
+		}
 		ips, err := e.res.LookupIP(e.ctx, "ip4", target)
 		if err != nil {
 			if isNotFound(err) {
@@ -248,6 +283,9 @@ func (e *spfEval) mechanism(domain, term string) (bool, string, string) {
 }
 
 func (e *spfEval) lookupIPs(host string) ([]net.IP, error) {
+	if !e.query() {
+		return nil, fmt.Errorf("too many DNS queries")
+	}
 	ips, err := e.res.LookupIP(e.ctx, "ip", host)
 	if err != nil {
 		if isNotFound(err) {

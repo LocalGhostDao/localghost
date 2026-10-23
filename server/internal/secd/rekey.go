@@ -180,8 +180,68 @@ func (s *Server) Retire(key string) error {
 	if err := s.retired.add(key); err != nil {
 		return err
 	}
-	secdLog.Warn("device retired: every certificate it presents is refused from now on", "fn", "Retire", "device", key)
+	minted := s.retireMinted(key, 0)
+	secdLog.Warn("device retired: every certificate it presents or minted is refused from now on", "fn", "Retire", "device", key, "mintedRetired", minted)
 	return nil
+}
+
+// retireMinted retires every certificate a retired identity rotated to and never confirmed (the
+// pending hand-overs whose old side is the key), and what those minted in turn. A confirmed
+// hand-over has no pending file left and its new identity is the device the owner sees and
+// retires by name.
+func (s *Server) retireMinted(key string, depth int) int {
+	if depth > 32 {
+		return 0
+	}
+	dir := filepath.Join(s.devicesDir(), "pending")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range ents {
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		var p rekeyPending
+		if err != nil || json.Unmarshal(b, &p) != nil {
+			continue
+		}
+		if p.OldDev != key && p.OldID != key && !(len(p.OldID) == 64 && p.OldID[:16] == key) {
+			continue
+		}
+		newID := p.NewID
+		if newID == "" {
+			newID = strings.TrimSuffix(e.Name(), ".json") // the file is named after the new certificate
+		}
+		_ = s.retired.addUntil(newID, p.NewExp)
+		if p.NewDev != "" {
+			_ = s.retired.addUntil(p.NewDev, p.NewExp)
+			n += s.retireMinted(p.NewDev, depth+1)
+		}
+		n += 1 + s.retireMinted(newID, depth+1)
+		_ = os.Remove(filepath.Join(dir, e.Name()))
+	}
+	return n
+}
+
+// pendingFrom is the unconfirmed hand-over a device already has, if any: one at a time.
+func (s *Server) pendingFrom(dev, id string) (rekeyPending, string, bool) {
+	dir := filepath.Join(s.devicesDir(), "pending")
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return rekeyPending{}, "", false
+	}
+	for _, e := range ents {
+		path := filepath.Join(dir, e.Name())
+		b, err := os.ReadFile(path)
+		var p rekeyPending
+		if err != nil || json.Unmarshal(b, &p) != nil {
+			continue
+		}
+		if (dev != "" && p.OldDev == dev) || (id != "" && p.OldID == id) {
+			return p, path, true
+		}
+	}
+	return rekeyPending{}, "", false
 }
 
 // DevicesView is what `ghost-cli ghost.secd devices` prints: the enrolled phones with what each
@@ -190,7 +250,10 @@ type DevicesView struct {
 	Locked  bool           `json:"locked"`
 	Devices []hw.DeviceRow `json:"devices,omitempty"`
 	Retired int            `json:"retired"`
-	Note    string         `json:"note,omitempty"`
+	// Pending is how many rotations were issued and not yet confirmed: a phone mid-rotation shows
+	// one; more than one, or one that stays, is worth a look (retire covers them).
+	Pending int    `json:"pending"`
+	Note    string `json:"note,omitempty"`
 }
 
 // Devices lists the enrolled phones for the control socket.
@@ -200,6 +263,9 @@ func (s *Server) Devices() DevicesView {
 	n := len(s.retired.ids)
 	s.retired.mu.Unlock()
 	v := DevicesView{Retired: n}
+	if ents, err := os.ReadDir(filepath.Join(s.devicesDir(), "pending")); err == nil {
+		v.Pending = len(ents)
+	}
 	s.mu.Lock()
 	mounted := s.mounted
 	s.mu.Unlock()
@@ -277,6 +343,21 @@ type rekeyPending struct {
 	OldDev string `json:"oldDev"` // its device key (where the phone's data is filed)
 	At     int64  `json:"at"`
 	OldExp int64  `json:"oldExp,omitempty"` // when the old certificate expires: the retired list forgets it then
+	// the identity the box issued, so retiring the old device also retires what it minted and
+	// never confirmed (the audit found pre-issued spares outlived a retirement)
+	NewID  string `json:"newId,omitempty"`  // derID of the new certificate
+	NewDev string `json:"newDev,omitempty"` // its device key (the SPKI hash, what admit checks)
+	NewExp int64  `json:"newExp,omitempty"` // when it expires anyway
+}
+
+// devKeyOfDER is the device key a certificate's DER carries (what factsFor computes from a request).
+func devKeyOfDER(der []byte) string {
+	c, err := x509.ParseCertificate(der)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(c.RawSubjectPublicKeyInfo)
+	return hex.EncodeToString(sum[:8])
 }
 
 func (s *Server) devicesDir() string { return filepath.Join(s.cfg.StateDir, "devices") }
@@ -395,6 +476,20 @@ func (s *Server) handleRekey(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
+	// one outstanding hand-over per device: a second rekey before the first is confirmed retires
+	// the first's certificate, so a phone cannot stock up on identities
+	if prev, path, ok := s.pendingFrom(deviceKeyFromRequest(r), certID(r)); ok {
+		prevID := prev.NewID
+		if prevID == "" {
+			prevID = strings.TrimSuffix(filepath.Base(path), ".json")
+		}
+		_ = s.retired.addUntil(prevID, prev.NewExp)
+		if prev.NewDev != "" {
+			_ = s.retired.addUntil(prev.NewDev, prev.NewExp)
+		}
+		_ = os.Remove(path)
+		secdLog.Info("device rekey: an unconfirmed earlier hand-over is retired first", "fn", "handleRekey", "device", deviceKeyFromRequest(r))
+	}
 	der, err := issueDeviceCert(ca, caKey, old.Subject.CommonName, pub)
 	if err != nil {
 		secdLog.Warn("device rekey: sign failed", "fn", "handleRekey", "err", err)
@@ -403,7 +498,13 @@ func (s *Server) handleRekey(w http.ResponseWriter, r *http.Request) {
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	newID := derID(der)
-	p, _ := json.Marshal(rekeyPending{OldID: certID(r), OldDev: deviceKeyFromRequest(r), At: time.Now().Unix(), OldExp: old.NotAfter.Unix()})
+	nc, _ := x509.ParseCertificate(der)
+	var newExp int64
+	if nc != nil {
+		newExp = nc.NotAfter.Unix()
+	}
+	p, _ := json.Marshal(rekeyPending{OldID: certID(r), OldDev: deviceKeyFromRequest(r), At: time.Now().Unix(), OldExp: old.NotAfter.Unix(),
+		NewID: newID, NewDev: devKeyOfDER(der), NewExp: newExp})
 	dir := filepath.Join(s.devicesDir(), "pending")
 	if err := os.MkdirAll(dir, 0o700); err == nil {
 		err = os.WriteFile(filepath.Join(dir, newID+".json"), p, 0o600)
@@ -413,7 +514,7 @@ func (s *Server) handleRekey(w http.ResponseWriter, r *http.Request) {
 		s.appearsDown(w)
 		return
 	}
-	prunePending(dir, 7*24*time.Hour)
+	s.prunePending(dir, 7*24*time.Hour)
 	secdLog.Info("device key rotated: new certificate issued, the old one retires when the phone confirms", "fn", "handleRekey",
 		"device", deviceKeyFromRequest(r), "goodFor", debian.DeviceCertLife.String())
 	writeJSON(w, map[string]any{"ok": true, "cert": string(certPEM), "lifeDays": int(debian.DeviceCertLife.Hours() / 24), "renewAfterHours": int(debian.DeviceCertRenewAfter.Hours())})
@@ -480,15 +581,30 @@ func derID(der []byte) string {
 }
 
 // prunePending drops hand-overs never confirmed (the phone died between the two calls and made
-// another key since).
-func prunePending(dir string, older time.Duration) {
+// another key since) and retires the certificates they named: a hand-over nobody confirmed in a
+// week is not a phone that is coming back on that key.
+func (s *Server) prunePending(dir string, older time.Duration) {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range ents {
-		if fi, err := e.Info(); err == nil && time.Since(fi.ModTime()) > older {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+		fi, err := e.Info()
+		if err != nil || time.Since(fi.ModTime()) <= older {
+			continue
 		}
+		path := filepath.Join(dir, e.Name())
+		var p rekeyPending
+		if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &p) == nil {
+			newID := p.NewID
+			if newID == "" {
+				newID = strings.TrimSuffix(e.Name(), ".json")
+			}
+			_ = s.retired.addUntil(newID, p.NewExp)
+			if p.NewDev != "" {
+				_ = s.retired.addUntil(p.NewDev, p.NewExp)
+			}
+		}
+		_ = os.Remove(path)
 	}
 }

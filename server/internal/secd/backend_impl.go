@@ -86,6 +86,14 @@ func newDefaultBackend(cfg Config) UnlockBackend {
 	reg, err := loadRegistry(cfg.StateDir)
 	if err != nil {
 		reg, _ = profile.NewRegistry(nil)
+	} else if reg.Legacy() {
+		// a GREG1 blob (action fields in the clear): written again in the current form, once
+		p := filepath.Join(cfg.StateDir, "registry.blob")
+		if err := reg.Save(p); err != nil {
+			secdLog.Warn("registry not rewritten in the current form", "fn", "newBackend", "err", err)
+		} else {
+			secdLog.Info("registry rewritten: the entries' roles are no longer readable from the file", "fn", "newBackend")
+		}
 	}
 	gate := auth.NewGate(auth.DefaultPolicy(), auth.NewMemoryStore())
 	wiper := wipe.NewWiper(wipe.NewKeyVault(), sealerEraser{sealerAt}, func(slot int) error {

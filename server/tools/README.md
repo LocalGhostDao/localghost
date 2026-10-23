@@ -627,10 +627,13 @@ which any local process on the box can forge. To have secd check the certificate
 forwards the raw TLS stream by name and never sees the plaintext , while the box's other sites move
 to an internal port behind the stream:
 
-    sudo ghost-ctl edge-passthrough --domain <box name>   # backs up nginx, tests, checks, rolls back on failure
-    echo tls | sudo tee /etc/ghost/edge                   # then a plain-HTTP client on :8443 gets the down page
-    # undo, if a site misbehaves behind the stream:
+    sudo ghost-ctl edge-passthrough --domain <box name>   # backs up nginx, tests, checks, rolls back on failure,
+                                                          # and writes tls to /etc/ghost/edge: plain HTTP on :8443 gets the down page
+    # undo, if a site misbehaves behind the stream (puts the http site and the old mode back):
     sudo ghost-ctl edge-passthrough --undo
+
+A plain request without nginx's certificate header gets the down page in either mode, and the
+stream never carries plain bytes to secd (a non-TLS first byte behind the PROXY line is dropped).
 
 `ghost-cli` and `ghost-ctl` are unaffected , they use the box's control sockets, not the TLS port ,
 so everything you run here keeps working. `sudo ./tools/privacy_check.sh` says whether the move is in

@@ -35,6 +35,9 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 	var s Screen
 	add := func(r string) { s.Reasons = append(s.Reasons, r) }
 	m := parseMessage(raw)
+	if m.clipped {
+		add("a header block over 128 KB or 2000 lines, cut there")
+	}
 	// the raw block: a bare CR or LF inside a field is header injection; a line over 998 bytes
 	// breaks parsers that stop there
 	for _, h := range m.headers {
@@ -64,7 +67,7 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 	if count["date"] == 0 {
 		add("no Date")
 	}
-	msg, err := mail.ReadMessage(bytes.NewReader(toCRLF(raw)))
+	msg, err := mail.ReadMessage(bytes.NewReader(m.bounded))
 	if err != nil {
 		add("headers do not parse: " + clip(err.Error(), 60))
 		return s
@@ -92,6 +95,7 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 			if d, err := dec.DecodeHeader(addrs[0].Name); err == nil {
 				s.FromName = d
 			}
+			s.FromName = clip(s.FromName, 256)
 			name := s.FromName
 			if controlRe.MatchString(name) {
 				add("control characters in the display name")
@@ -131,7 +135,7 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 	if d, err := dec.DecodeHeader(subj); err == nil {
 		subj = d
 	}
-	s.Subject = subj
+	s.Subject = clip(subj, 512) // the verdict is stored on the row; the subject's size is the sender's
 	if controlRe.MatchString(subj) {
 		add("control characters in the subject")
 	}

@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
@@ -32,12 +33,12 @@ import (
 // DiskGuard checks the log folder against caps and applies the model's advice. Held by watchd; run on
 // the same midnight tick as the Roller, plus optionally more often if you want tighter control.
 type DiskGuard struct {
-	logDir     string
-	runDir     string // <mount>/run , to reach service sockets and oracled
-	softCapMB  int
-	hardCapMB  int
-	cohort     []string // service names, so the guard can lower a specific one's level
-	log        Slogger
+	logDir    string
+	runDir    string // <mount>/run , to reach service sockets and oracled
+	softCapMB int
+	hardCapMB int
+	cohort    []string // service names, so the guard can lower a specific one's level
+	log       Slogger
 }
 
 // Slogger is the minimal logger the guard needs (watchd's jlog satisfies it).
@@ -128,7 +129,22 @@ func (g *DiskGuard) askOracleAndApply(sizeMB int) {
 			continue
 		}
 		cli := ctlsock.NewClientTimeout(d.Service, g.runDir, 3*time.Second)
-		if _, err := cli.Call("log-level", map[string]any{"level": d.Level}); err != nil {
+		// the model may only make a daemon QUIETER; the prompt says so, and this is where it is
+		// enforced: read the level the daemon has, apply the directive only when it raises the
+		// threshold, never "debug" (the audit found a level=debug reply was applied as asked)
+		cur, err := cli.Call("log-level", nil)
+		if err != nil {
+			g.log.Warn("could not read the current level; directive dropped", "fn", "askOracleAndApply",
+				"svc", d.Service, "err", err)
+			continue
+		}
+		want := strings.ToLower(strings.TrimSpace(d.Level))
+		if !quieter(cur.Text, want) {
+			g.log.Warn("refused oracle level directive: it would not raise the threshold", "fn", "askOracleAndApply",
+				"svc", d.Service, "have", cur.Text, "want", d.Level)
+			continue
+		}
+		if _, err := cli.Call("log-level", map[string]any{"level": want}); err != nil {
 			g.log.Warn("could not apply oracle level directive", "fn", "askOracleAndApply",
 				"svc", d.Service, "level", d.Level, "err", err)
 			continue
@@ -247,4 +263,25 @@ func itoa(n int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// levelRank orders the thresholds; a higher rank is quieter, -1 is a string no daemon knows.
+func levelRank(s string) int {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return 0
+	case "info":
+		return 1
+	case "warn":
+		return 2
+	case "error":
+		return 3
+	}
+	return -1
+}
+
+// quieter reports whether moving a daemon from have to want only RAISES its threshold.
+func quieter(have, want string) bool {
+	h, w := levelRank(have), levelRank(want)
+	return h >= 0 && w > h
 }

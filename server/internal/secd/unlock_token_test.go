@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,4 +89,37 @@ func (r *stringsReader) Read(p []byte) (int, error) {
 	n := copy(p, r.s[r.i:])
 	r.i += n
 	return n, nil
+}
+
+// A rejected PIN revokes the live token the moment the run fails, whether or not anyone polls:
+// the foreground and the notification poller go dark together (session.go's contract; the audit
+// found the only revoke sat under `if u.done`, which a failed unlock never set).
+func TestWrongPinRevokesThePriorToken(t *testing.T) {
+	s := newTestServer(t) // an empty state dir: the default backend rejects every PIN
+	prior, _ := s.session.Issue()
+	if !s.session.Valid(prior) || !s.Status().HasSession {
+		t.Fatal("no live token to start with")
+	}
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, httptest.NewRequest("POST", "/v1/unlock", strings.NewReader(`{"pin":"0000"}`)))
+	if rr.Code != 200 {
+		t.Fatalf("unlock start: %d", rr.Code)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		s.unlock.mu.Lock()
+		failed := s.unlock.failed
+		s.unlock.mu.Unlock()
+		if failed != "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the rejected unlock never reported failure")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	// no poll happened; the token is gone all the same
+	if s.session.Valid(prior) || s.Status().HasSession {
+		t.Fatal("the prior token survived a wrong PIN")
+	}
 }

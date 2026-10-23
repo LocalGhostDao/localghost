@@ -6304,3 +6304,75 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   `MAIL FROM` before TLS is `530` and a plain `nc` probe never reaches the relay question; the
   daemon's own limits listed; an nftables per-source rate on new connections to 25 advised.
 
+
+## 23 October 2026 , a security audit of both trees
+
+- Cloudflare's security-audit-skill, quick profile, over `localghost/server`, `localghost/app`
+  and web `deploy/mail` at main a2007e3 / febaf5c plus the 18 Oct drops: 10 hunters, one
+  coverage critic, 18 verifiers (one per candidate, each one that did not hunt it), source and
+  offline Go tests only, nothing sent to the box, the relay or the mirror. Six confirmed, all
+  with a reproducing test in the run's `agents/<verifier>/artifacts/`: `mailauth.parseMessage`
+  unfolds headers with `+=` (quadratic; 19 s for a 640 KB folded Subject, twice per message,
+  inline in the one mail goroutine, no deadline, re-run after a restart); the relay's
+  `structural()` reads the LAST From and ends the block at CRLFCRLF while receivers read the
+  first and end at the first blank line (a box on the shared domain can send as its
+  neighbour, SPF-aligned DMARC pass); `/v1/device/rekey` mints unlimited unconfirmed spares
+  that `Retire` never covers; the PIN registry blob stores `open`/`wipe` as plaintext int32 so
+  the wipe hash is visible to whoever reads the OS disk; the wrong-PIN `Revoke()` sits under
+  `if u.done`, which a failed unlock never sets (dead code, docs wrong); watchd applies a
+  model `level=debug` directive. Twelve leads need a device, the model, Postgres or nginx to
+  settle (secd's plain fallback reachable from 443 while `/etc/ghost/edge` is absent; relay
+  slot starvation from four addresses; unbounded DKIM signatures, attachments, header fields;
+  MIME type unchecked; poison location file; root chown through run-user symlinks in
+  update.sh; ACTION_SEND notes; picker keeps the shell unlocked; /plan queries; distilled
+  memories from web text). Report, detail and leads: `SECURITY_AUDIT_*.md`, the run zip.
+  Fixes next, in the order they protect the port opening: Judge timeout and buffer unfold and
+  header caps; relay `structural()` via net/mail; `ApplyPassthrough` writes the edge flag and
+  `front()` refuses plain without a header; Retire walks pending hand-overs; registry action
+  mask; revoke in onDone; watchd direction check.
+
+## 23 October 2026 , the audit's findings closed
+
+- mailauth: `parseMessage` joins each field's lines once (linear; it was `+=` per continuation
+  line, quadratic), the header block is cut at 128 KB or 2000 lines with a screen reason, the
+  first eight DKIM signatures are checked (the rest one permerror), an `h=` list past 64 names is
+  a permerror, SPF counts every DNS query against forty (MX hosts and PTR names included), the
+  stored screen Subject and display name are clipped. ghost.noted: `Judge` under a 60 s
+  context, a relay message that fails to store three times is given up on (sealed original kept,
+  relay copy deleted), fifty attachments at most per message, attachment files named
+  `<row>-<part>-<name>`, Subject 998 / From name 256 / a hundred addresses of 254 bytes, the
+  stored MIME type follows the file name, `dangerous()` reads the declared type and opens a PK
+  named as an office or EPUB file (`[Content_Types].xml` or `mimetype`, no dex/class/exe/manifest,
+  no `vbaProject.bin`), OLE VBA stream matched in UTF-16LE. `MailThread` newest 200.
+- Relay (web `deploy/mail`): `structural()` parses with net/mail (first blank line ends the
+  block, exactly one From with one address, no bare CR or LF, more than one Sender refused), the
+  envelope From goes through `parsePath`; limits key by /24 and /64; 40 slots; a session lives
+  ten minutes and answers twenty NOOPs; the PTR goroutine's send is non-blocking; install.sh
+  reads the journal for the certificate instead of a directory it cannot see. README updated.
+- secd edge: `front()` refuses a plain request without `X-Client-Cert` (down page) and folds the
+  plain path's responses; `classify()` drops plain bytes behind a PROXY line; `appearsDown` is
+  the 503 page everywhere (no bare 502); `ApplyPassthrough` writes `tls` to `/etc/ghost/edge`
+  after its check and `--undo` removes it; ghost-ctl's hint is gone. Tests drive the mux with
+  `doorOpenForTests` (an unexported field; no configuration reaches it); handler tests that
+  expected a 400 on the plain path now see the folded 503.
+- secd rekey: the pending hand-over records `newId`, `newDev`, `newExp`; `Retire` walks pending
+  hand-overs whose old side matches and retires what they minted, recursively; a second rekey
+  before the first is confirmed retires the first; `prunePending` retires what it drops;
+  `DevicesView.Pending`. Test `TestRetireCoversUnconfirmedSpares`.
+- profile registry GREG2: entry = HKDF(PinKey, "ghost/registry/id") and the action XOR
+  HKDF(PinKey, "ghost/registry/act"), filler random, real entries at random indices, no count in
+  the file, a loaded registry only resolves; GREG1 read for conversion (the stored key derives
+  both fields) and rewritten by secd at start when `Legacy()`. Tests: the trailing bytes carry
+  no role, with and without a wipe PIN; the legacy conversion.
+- secd unlock: `onDone` revokes the session on a failed unlock; the poll's else branch is on
+  `u.failed`. Test `TestWrongPinRevokesThePriorToken`.
+- watchd: a directive is applied only when `quieter(current, wanted)`; the current level is read
+  first; `debug` and unknown strings are refused. First test of the directive path.
+- poltergres refuses more than 65535 bound parameters (`ErrTooManyParams`); framed
+  `InsertSpooled` in chunks of 5000; `DrainLocations` moves a batch that fails three ticks to
+  `incoming-locations/rejected`; secd validates a location batch as JSON with at most 100000
+  points before spooling.
+- Not done, by choice: the calendar/contacts `device` label from the certificate (the key
+  rotates every fortnight and `MoveDevice` does not yet carry those tables; a sibling phone
+  naming another's label is same-archive); the app-side leads (ACTION_SEND confirmation, the
+  picker guard, planned-query display) wait for the next app round.

@@ -266,3 +266,42 @@ func TestFoldWriter(t *testing.T) {
 		}
 	}
 }
+
+// A plain request with no certificate header gets the down page, not the mux (the audit's edge
+// lead), and plain bytes behind a PROXY line (the stream passthrough) are refused at the door.
+func TestEdgePlainWithoutHeaderIsDown(t *testing.T) {
+	e := newTestEdge(t)
+	served := false
+	capture := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { served = true; w.Write([]byte("in")) })
+	addr := e.serve(t, e.s.front(capture))
+	// the edge file is absent: the old path is still on
+	code, body := get(t, http.DefaultClient, "http://"+addr+"/v1/health", nil)
+	if code != 503 || body != downBody || served {
+		t.Fatalf("header-less plain request: %d %q served=%v", code, body, served)
+	}
+	// with the header, the old path still works and a 404 from the mux is folded
+	nginxHdr := headerFor(e.phoneDER)
+	code, body = get(t, http.DefaultClient, "http://"+addr+"/x", map[string]string{"X-Client-Cert": nginxHdr})
+	if code != 200 || body != "in" {
+		t.Fatalf("the old path with the header: %d %q", code, body)
+	}
+	notFound := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.NotFound(w, r) })
+	addr2 := e.serve(t, e.s.front(notFound))
+	code, body = get(t, http.DefaultClient, "http://"+addr2+"/nothing", map[string]string{"X-Client-Cert": nginxHdr})
+	if code != 503 || body != downBody {
+		t.Fatalf("a 404 on the plain path is not folded: %d %q", code, body)
+	}
+	// plain HTTP behind a PROXY line: the connection is closed without an answer
+	c, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(3 * time.Second))
+	fmt.Fprintf(c, "PROXY TCP4 203.0.113.9 127.0.0.1 51000 443\r\nGET /v1/health HTTP/1.1\r\nHost: x\r\n\r\n")
+	buf := make([]byte, 64)
+	n, err := c.Read(buf)
+	if n != 0 || err == nil {
+		t.Fatalf("plain behind a PROXY line answered: %q %v", buf[:n], err)
+	}
+}

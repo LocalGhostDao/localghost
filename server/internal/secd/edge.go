@@ -385,8 +385,20 @@ func (s *Server) front(next http.Handler) http.Handler {
 			next.ServeHTTP(&foldWriter{ResponseWriter: w}, r)
 			return
 		}
-		// plain HTTP: the old nginx site, until the switch
+		// plain HTTP: the old nginx site, until the switch. That site only ever forwards a request
+		// it verified a client certificate on, so a plain request with no header is nobody's and
+		// gets the same page as everything else that is not a phone (the audit found the old
+		// branch served the mux to it).
 		if s.edgeStrict() {
+			writeDown(w)
+			return
+		}
+		hdr := r.Header.Get("X-Client-Cert")
+		if hdr == "" {
+			if s.doorOpenForTests {
+				next.ServeHTTP(w, r)
+				return
+			}
 			writeDown(w)
 			return
 		}
@@ -394,16 +406,14 @@ func (s *Server) front(next http.Handler) http.Handler {
 			s.appearsDown(w)
 			return
 		}
-		if hdr := r.Header.Get("X-Client-Cert"); hdr != "" {
-			// the dates, the device key's retirement, the move to the key's name: secd's own look,
-			// not nginx's alone (devicekey.go)
-			if !s.admit(w, r) {
-				return
-			}
-			s.learn(hdr)
-			s.noteVerifiedDevice()
+		// the dates, the device key's retirement, the move to the key's name: secd's own look,
+		// not nginx's alone (devicekey.go)
+		if !s.admit(w, r) {
+			return
 		}
-		next.ServeHTTP(w, r)
+		s.learn(hdr)
+		s.noteVerifiedDevice()
+		next.ServeHTTP(&foldWriter{ResponseWriter: w}, r)
 	})
 }
 
@@ -465,6 +475,12 @@ func (l *edgeListener) classify(c net.Conn) {
 	}
 	first, err := br.Peek(1)
 	if err != nil {
+		c.Close()
+		return
+	}
+	if pc.remote != nil && first[0] != 0x16 {
+		// behind nginx's stream (a PROXY line) only TLS arrives from a phone; plain bytes there
+		// are the internet knocking on the http door, and the door is shut
 		c.Close()
 		return
 	}

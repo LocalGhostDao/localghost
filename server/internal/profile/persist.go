@@ -4,21 +4,31 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"os"
+
+	"crypto/rand"
 )
 
-// Registry persistence. The on-disk form contains ALL RegistrySize entries , real ones and random
-// filler , in a fixed layout, so the file is always the same size and an attacker who reads it
-// cannot tell how many real PINs exist (the count-hiding property that gives structural
-// deniability). Each entry is: hashLen bytes of hash, then two int32 (open, wipe). The salt is
-// stored first so the same box salt is used across restarts.
+// Registry persistence. The on-disk form contains ALL RegistrySize entries, real ones and random
+// filler, in a fixed layout: magic, salt length, salt, then for every entry exactly hashLen bytes
+// of PIN-derived identifier and actLen bytes of masked action. No count, no flag, nothing that
+// says which entries are real (see registry.go); the file is the same size and the same shape of
+// random-looking bytes whether the box has a wipe PIN or not.
 //
 // The file lives in the UNENCRYPTED state area (it must be readable before any account is unlocked,
-// since it is what decides which account a PIN opens). It contains only salted PIN HASHES, never
-// PINs or keys, so reading it does not reveal a PIN or open an account , a reader still has to brute
-// force a hash, which is exactly the work the TPM lockout (on the real key) is there to punish.
+// since it is what decides which account a PIN opens). It contains no PIN and no key: a reader
+// still has to brute force Argon2id over the salt to learn anything, which is exactly the work the
+// TPM lockout (on the real key) is there to punish.
+//
+// GREG1 was the first form: the PIN's key itself as the identifier, and open/wipe as two int32 in
+// the clear, real entries first. It is read for conversion only (the stored key is enough to
+// derive the new fields) and never written again.
 
-const registryMagic = "GREG1"
+const (
+	registryMagic       = "GREG2"
+	registryMagicLegacy = "GREG1"
+)
 
 // Save writes the registry to path atomically (write temp, rename), preserving all entries.
 func (r *Registry) Save(path string) error {
@@ -42,22 +52,18 @@ func (r *Registry) Save(path string) error {
 		f.Close()
 		return err
 	}
-	// every entry, fixed order
+	// every entry, fixed order, nothing else
 	for i := range r.entries {
 		e := r.entries[i]
-		if len(e.hash) != hashLen {
+		if len(e.id) != hashLen {
 			f.Close()
-			return fmt.Errorf("entry %d has bad hash length %d", i, len(e.hash))
+			return fmt.Errorf("entry %d has bad id length %d", i, len(e.id))
 		}
-		if _, err := w.Write(e.hash); err != nil {
-			f.Close()
-			return err
-		}
-		if err := binary.Write(w, binary.BigEndian, int32(e.open)); err != nil {
+		if _, err := w.Write(e.id); err != nil {
 			f.Close()
 			return err
 		}
-		if err := binary.Write(w, binary.BigEndian, int32(e.wipe)); err != nil {
+		if _, err := w.Write(e.act[:]); err != nil {
 			f.Close()
 			return err
 		}
@@ -73,12 +79,16 @@ func (r *Registry) Save(path string) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	r.legacy = false
+	return nil
 }
 
-// LoadRegistry reads a registry written by Save. The real-entry count (used) is recovered as the
-// number of entries that are not pure random filler , filler always has open == NoSlot AND
-// wipe == NoSlot , which is all `add` and `Resolve` need (Resolve scans every entry regardless).
+// LoadRegistry reads a registry written by Save. A loaded registry only resolves: the real set is
+// not in the file (by design), so add() refuses. A GREG1 blob is converted in memory; Legacy()
+// then says so and the caller saves it again in the current form.
 func LoadRegistry(path string) (*Registry, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -91,7 +101,12 @@ func LoadRegistry(path string) (*Registry, error) {
 	if _, err := readFull(br, magic); err != nil {
 		return nil, err
 	}
-	if string(magic) != registryMagic {
+	legacy := false
+	switch string(magic) {
+	case registryMagic:
+	case registryMagicLegacy:
+		legacy = true
+	default:
 		return nil, fmt.Errorf("not a registry file")
 	}
 	var saltLen uint16
@@ -103,27 +118,75 @@ func LoadRegistry(path string) (*Registry, error) {
 		return nil, err
 	}
 
-	r := &Registry{salt: salt}
-	used := 0
+	r := &Registry{salt: salt, loaded: true}
+	if legacy {
+		if err := r.loadLegacy(br); err != nil {
+			return nil, err
+		}
+		return r, nil
+	}
 	for i := range r.entries {
+		id := make([]byte, hashLen)
+		if _, err := readFull(br, id); err != nil {
+			return nil, err
+		}
+		var act [actLen]byte
+		if _, err := readFull(br, act[:]); err != nil {
+			return nil, err
+		}
+		r.entries[i] = entry{id: id, act: act}
+	}
+	return r, nil
+}
+
+// loadLegacy converts a GREG1 body: each stored hash IS the PIN's key, so the identifier and the
+// pad derive from it; filler (open and wipe both NoSlot) becomes fresh random bytes; the real
+// entries, packed first in GREG1, are scattered to random indices.
+func (r *Registry) loadLegacy(br *bufio.Reader) error {
+	type legacyEntry struct {
+		hash       []byte
+		open, wipe int32
+	}
+	var real []legacyEntry
+	for i := 0; i < RegistrySize; i++ {
 		h := make([]byte, hashLen)
 		if _, err := readFull(br, h); err != nil {
-			return nil, err
+			return err
 		}
 		var open, wipe int32
 		if err := binary.Read(br, binary.BigEndian, &open); err != nil {
-			return nil, err
+			return err
 		}
 		if err := binary.Read(br, binary.BigEndian, &wipe); err != nil {
-			return nil, err
+			return err
 		}
-		r.entries[i] = entry{hash: h, open: int(open), wipe: int(wipe)}
 		if int(open) != NoSlot || int(wipe) != NoSlot {
-			used = i + 1 // real entries are packed at the front by add()
+			real = append(real, legacyEntry{hash: h, open: open, wipe: wipe})
 		}
 	}
-	r.used = used
-	return r, nil
+	for i := range r.entries {
+		if err := r.entries[i].randomise(); err != nil {
+			return err
+		}
+	}
+	var taken [RegistrySize]bool
+	for _, le := range real {
+		idx := 0
+		for {
+			n, err := rand.Int(rand.Reader, big.NewInt(RegistrySize))
+			if err != nil {
+				return err
+			}
+			idx = int(n.Int64())
+			if !taken[idx] {
+				break
+			}
+		}
+		taken[idx] = true
+		r.entries[idx] = entry{id: deriveID(le.hash), act: encodeAct(int(le.open), int(le.wipe), derivePad(le.hash))}
+	}
+	r.legacy = true
+	return nil
 }
 
 func readFull(r *bufio.Reader, b []byte) (int, error) {

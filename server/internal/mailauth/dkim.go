@@ -41,10 +41,51 @@ type header struct {
 }
 
 // message splits a raw RFC 5322 message into header fields and body, normalising bare LF to
-// CRLF, which is what canonicalisation and hashing need.
+// CRLF, which is what canonicalisation and hashing need. The header block is bounded (see
+// maxHeaderBytes and maxHeaderLines): a sender who folds one field into millions of lines
+// gets a clipped block and a screen reason, not the box's mail goroutine for an hour.
 type message struct {
 	headers []header
 	body    []byte
+	// bounded is the CRLF message with the header block clipped to the caps; clipped says
+	// whether anything was cut.
+	bounded []byte
+	clipped bool
+}
+
+// The header block a box will read: 128 KB and 2000 lines is far above any real message
+// (Postfix stops at 100 KB) and far below what makes the parse slow.
+const (
+	maxHeaderBytes = 128 << 10
+	maxHeaderLines = 2000
+)
+
+// clipHeaderBlock cuts a CRLF header block at the caps, on a line boundary, so what remains
+// still parses. The second value says whether it cut.
+func clipHeaderBlock(hdr []byte) ([]byte, bool) {
+	clipped := false
+	if len(hdr) > maxHeaderBytes {
+		cut := bytes.LastIndex(hdr[:maxHeaderBytes], []byte("\r\n"))
+		if cut < 0 {
+			cut = 0
+		} else {
+			cut += 2
+		}
+		hdr = hdr[:cut]
+		clipped = true
+	}
+	lines := 0
+	for i := 0; i < len(hdr); i++ {
+		if hdr[i] == '\n' {
+			lines++
+			if lines == maxHeaderLines && i+1 < len(hdr) {
+				hdr = hdr[:i+1]
+				clipped = true
+				break
+			}
+		}
+	}
+	return hdr, clipped
 }
 
 func parseMessage(raw []byte) message {
@@ -59,27 +100,45 @@ func parseMessage(raw []byte) message {
 		hdr = raw[:i+2]
 		m.body = raw[i+4:]
 	}
+	hdr, m.clipped = clipHeaderBlock(hdr)
+	if m.clipped {
+		b := make([]byte, 0, len(hdr)+2+len(m.body))
+		b = append(b, hdr...)
+		b = append(b, '\r', '\n')
+		m.bounded = append(b, m.body...)
+	} else {
+		m.bounded = raw
+	}
 	lines := bytes.SplitAfter(hdr, []byte("\r\n"))
-	var cur *header
+	// each field is the slices of its lines, joined once at the end: linear in the block's
+	// size however many continuation lines a field has
+	type acc struct {
+		name  string
+		parts [][]byte
+	}
+	var accs []acc
 	for _, ln := range lines {
 		if len(ln) == 0 {
 			continue
 		}
-		if (ln[0] == ' ' || ln[0] == '\t') && cur != nil {
-			cur.raw += string(ln)
+		if (ln[0] == ' ' || ln[0] == '\t') && len(accs) > 0 {
+			accs[len(accs)-1].parts = append(accs[len(accs)-1].parts, ln)
 			continue
 		}
 		c := bytes.IndexByte(ln, ':')
 		if c < 0 {
 			// a line that is no header and no continuation: keep it attached to the last field
 			// (a verifier must see what the signer saw) or drop it when there is none
-			if cur != nil {
-				cur.raw += string(ln)
+			if len(accs) > 0 {
+				accs[len(accs)-1].parts = append(accs[len(accs)-1].parts, ln)
 			}
 			continue
 		}
-		m.headers = append(m.headers, header{name: string(ln[:c]), raw: string(ln)})
-		cur = &m.headers[len(m.headers)-1]
+		accs = append(accs, acc{name: string(ln[:c]), parts: [][]byte{ln}})
+	}
+	m.headers = make([]header, len(accs))
+	for i, a := range accs {
+		m.headers[i] = header{name: a.name, raw: string(bytes.Join(a.parts, nil))}
 	}
 	return m
 }
@@ -220,16 +279,38 @@ func unfoldTagValue(v string) string {
 	}, v)
 }
 
-// VerifyDKIM checks every DKIM-Signature on the message. now is when the message is judged
-// (for x= expiry); a zero time means "do not check expiry".
+// A message is signed by one or two domains; each signature costs a body hash and a DNS
+// lookup, so the verifier stops after maxSignatures and names the rest in one permerror
+// (RFC 6376 section 6.1 lets a verifier limit the signatures it checks). A signature's h= list
+// is bounded too: each name is a scan of the headers.
+const (
+	maxSignatures  = 8
+	maxSignedNames = 64
+)
+
+// VerifyDKIM checks the DKIM-Signature headers on the message, the first maxSignatures of
+// them. now is when the message is judged (for x= expiry); a zero time means "do not check
+// expiry".
 func VerifyDKIM(ctx context.Context, res Resolver, raw []byte, now time.Time) []DKIMResult {
 	m := parseMessage(raw)
 	var out []DKIMResult
+	extra := 0
 	for idx, h := range m.headers {
 		if !strings.EqualFold(strings.TrimSpace(h.name), "DKIM-Signature") {
 			continue
 		}
+		if len(out) >= maxSignatures {
+			extra++
+			continue
+		}
+		if ctx.Err() != nil {
+			out = append(out, DKIMResult{Result: "temperror", Reason: "judging ran out of time"})
+			break
+		}
 		out = append(out, verifyOne(ctx, res, m, idx, now))
+	}
+	if extra > 0 {
+		out = append(out, DKIMResult{Result: "permerror", Reason: fmt.Sprintf("%d more signatures than the %d a box checks", extra, maxSignatures)})
 	}
 	return out
 }
@@ -270,6 +351,9 @@ func verifyOne(ctx context.Context, res Resolver, m message, idx int, now time.T
 		return perm("unknown canonicalisation " + t["c"])
 	}
 	hnames := strings.Split(unfoldTagValue(t["h"]), ":")
+	if len(hnames) > maxSignedNames {
+		return perm(fmt.Sprintf("h= names %d headers, more than the %d a box reads", len(hnames), maxSignedNames))
+	}
 	r.Headers = hnames
 	hasFrom := false
 	for _, n := range hnames {

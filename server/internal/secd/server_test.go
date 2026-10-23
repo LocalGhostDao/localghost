@@ -14,6 +14,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.doorOpenForTests = true // the tests drive the mux as a phone that passed the door
 	return s
 }
 

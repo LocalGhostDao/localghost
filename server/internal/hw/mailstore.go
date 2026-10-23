@@ -376,7 +376,9 @@ func (s *NotifStore) MailThread(slot int, key string) ([]MailRow, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.Query("SELECT "+mailCols+" FROM mail_messages m WHERE thread_key = $1 ORDER BY id", key)
+	// the newest 200 of a thread: a sender who reuses one References value does not get to make
+	// every message view return everything
+	rows, err := c.Query("SELECT * FROM (SELECT "+mailCols+" FROM mail_messages m WHERE thread_key = $1 ORDER BY id DESC LIMIT 200) t ORDER BY id", key)
 	if err != nil {
 		return nil, err
 	}

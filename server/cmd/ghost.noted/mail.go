@@ -45,6 +45,16 @@ const (
 	mailPullEvery = 2 * time.Minute
 	mailMaxRaw    = 26 << 20
 	burstPerHour  = 5
+	// mailJudgeTimeout bounds the DNS side of judging one message (SPF, DKIM keys, DMARC);
+	// past it the verdicts read temperror and the message is still stored. The parse itself is
+	// linear in the message's size (mailauth bounds the header block).
+	mailJudgeTimeout = 60 * time.Second
+	// mailMaxAttempts is how many times one relay message is fetched and fails to store before
+	// the box gives up on it: the sealed original stays under noted/mail/in, the relay copy is
+	// deleted so the next pass is not the same failure again.
+	mailMaxAttempts = 3
+	// mailMaxAttach is the most attachments one message keeps rows for; the rest are counted.
+	mailMaxAttach = 50
 )
 
 // mailKeys are the box's: the X25519 pair the relay seals to, and the DKIM pair it signs with
@@ -171,6 +181,9 @@ type mailer struct {
 	last   mailStatus
 	force  chan struct{}
 	dnsKey string
+	// failed counts the messages (by relay name) that fetched but did not store, so a message
+	// the box cannot handle is given up on after mailMaxAttempts rather than retried for ever.
+	failed map[string]int
 }
 
 // mailStatus is what `ghost-cli ghost.noted mail` and secd's /v1/mail/status read, written to
@@ -341,9 +354,20 @@ func (m *mailer) pull(ctx context.Context, s mailSettings) (int, int, error) {
 			continue
 		}
 		if err := m.fetchOne(ctx, s, e); err != nil {
-			m.lg.Warn("mail message not stored", "fn", "mailer.pull", "name", e.Name, "err", err)
+			if m.failed == nil {
+				m.failed = map[string]int{}
+			}
+			m.failed[e.Name]++
+			m.lg.Warn("mail message not stored", "fn", "mailer.pull", "name", e.Name, "attempt", m.failed[e.Name], "err", err)
+			if m.failed[e.Name] >= mailMaxAttempts {
+				// the sealed original is on disk (fetchOne writes it before keep); stop fetching it
+				m.lg.Error("mail message given up on after repeated failures; the sealed original is kept under noted/mail/in", "fn", "mailer.pull", "name", e.Name)
+				m.call(ctx, s, http.MethodDelete, "/in/"+e.Name, nil, 1024)
+				delete(m.failed, e.Name)
+			}
 			continue
 		}
+		delete(m.failed, e.Name)
 		stored++
 		if code, _, err := m.call(ctx, s, http.MethodDelete, "/in/"+e.Name, nil, 1024); err != nil || (code != http.StatusNoContent && code != http.StatusNotFound) {
 			m.lg.Warn("relay copy not deleted", "fn", "mailer.pull", "name", e.Name, "code", code, "err", err)
@@ -396,8 +420,10 @@ func (m *mailer) keep(ctx context.Context, s mailSettings, name string, note mai
 	if note.IP != "" {
 		ip = net.ParseIP(note.IP)
 	}
-	v := mailauth.Judge(ctx, res, mailauth.Input{Raw: raw, IP: ip, Helo: note.Helo, MailFrom: note.MailFrom, PTRState: note.PTRState, PTR: note.PTR,
+	jctx, cancel := context.WithTimeout(ctx, mailJudgeTimeout)
+	v := mailauth.Judge(jctx, res, mailauth.Input{Raw: raw, IP: ip, Helo: note.Helo, MailFrom: note.MailFrom, PTRState: note.PTRState, PTR: note.PTR,
 		BoxDomains: []string{s.domain()}, SeenBefore: seen, FirstFromDomain: !domainSeen, Now: time.Now()})
+	cancel()
 	if note.PTRState == "relay" {
 		v.Reverse = "relay"
 		v.Spam, v.SpamReasons = "low", []string{"a delivery report from the relay"}
@@ -436,13 +462,24 @@ func (m *mailer) keep(ctx context.Context, s mailSettings, name string, note mai
 	if err != nil {
 		return fmt.Errorf("row: %w", err)
 	}
-	for _, a := range p.Attach {
+	for i, a := range p.Attach {
+		if i == mailMaxAttach {
+			// one row stands for the rest: a message with hundreds of parts is a message about
+			// its parts, not mail
+			att := hw.MailAttach{MessageID: id, Name: fmt.Sprintf("%d more attachments (not kept: more than %d in one message)", len(p.Attach)-i, mailMaxAttach), Kept: false}
+			if _, err := m.store.MailAttachAdd(m.slot, att); err != nil {
+				m.lg.Warn("attachment row", "fn", "mailer.keep", "err", err)
+			}
+			break
+		}
 		att := hw.MailAttach{MessageID: id, Name: a.Name, Mime: a.Mime, Bytes: int64(len(a.Bytes)), Kept: a.Kept}
 		if !a.Kept {
 			att.Name = a.Name + " (" + a.Why + ")"
 		} else {
 			att.SHA256 = sha256Hex(a.Bytes)
-			att.Path = m.dir("att", fmt.Sprintf("%d-%s", id, a.Name))
+			// the row id in the name, not the attachment's: two parts with the same name are
+			// two files
+			att.Path = m.dir("att", fmt.Sprintf("%d-%d-%s", id, i, a.Name))
 			if err := os.WriteFile(att.Path, a.Bytes, 0o640); err != nil {
 				m.lg.Warn("attachment not written", "fn", "mailer.keep", "err", err)
 				att.Kept, att.Path = false, ""
@@ -624,8 +661,8 @@ func (m *mailer) send(ctx context.Context, s mailSettings, req outboxRequest) er
 	if err != nil {
 		return fmt.Errorf("row: %w", err)
 	}
-	for _, a := range o.Attach {
-		att := hw.MailAttach{MessageID: id, Name: a.Name, Mime: a.Mime, Bytes: int64(len(a.Bytes)), Kept: true, SHA256: sha256Hex(a.Bytes), Path: m.dir("att", fmt.Sprintf("%d-%s", id, a.Name))}
+	for i, a := range o.Attach {
+		att := hw.MailAttach{MessageID: id, Name: a.Name, Mime: a.Mime, Bytes: int64(len(a.Bytes)), Kept: true, SHA256: sha256Hex(a.Bytes), Path: m.dir("att", fmt.Sprintf("%d-%d-%s", id, i, a.Name))}
 		if err := os.WriteFile(att.Path, a.Bytes, 0o640); err == nil {
 			m.store.MailAttachAdd(m.slot, att)
 		}

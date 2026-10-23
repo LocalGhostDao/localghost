@@ -63,8 +63,8 @@ func edgePassthrough(args []string) {
 		return
 	}
 	fmt.Printf("done. %d listen line(s) moved to %s; the old files are in %s\n", res.Moved, *sitesAddr, res.Backup)
-	fmt.Println("the phone's TLS now reaches ghost.secd untouched; turn the door to TLS-only with:")
-	fmt.Println("  echo tls | sudo tee /etc/ghost/edge   # then plain HTTP on :8443 gets the down page")
+	fmt.Println("the phone's TLS now reaches ghost.secd untouched, and /etc/ghost/edge says tls: plain HTTP on :8443 gets the down page")
+	fmt.Println("(ghost-cli ghost.secd edge shows the mode; --undo puts the http site and the old mode back)")
 }
 
 // nginxRunner is setup.EdgeRunner on the box.

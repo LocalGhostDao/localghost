@@ -5,6 +5,7 @@ package main
 // box signs. Standard library: net/mail, mime, mime/multipart, mime/quotedprintable, html.
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
@@ -28,6 +29,12 @@ const (
 	maxAttachment = 20 << 20
 	maxAttachAll  = 25 << 20
 	maxBodyText   = 512 << 10
+	// the header-derived fields the row carries whole and every list page returns: a sender
+	// does not get to make them megabytes (the body has its own clip)
+	maxSubject   = 998
+	maxFromName  = 256
+	maxAddrs     = 100
+	maxAddrBytes = 254
 )
 
 // parsedMail is what a received message becomes.
@@ -73,16 +80,41 @@ func addrList(h mail.Header, key string) []string {
 	if err != nil {
 		// keep what looks like addresses
 		var out []string
-		for _, m := range addrRe.FindAllString(v, -1) {
+		for _, m := range addrRe.FindAllString(v, maxAddrs) {
 			out = append(out, strings.ToLower(m))
 		}
-		return out
+		return clipAddrs(out)
 	}
 	var out []string
 	for _, a := range list {
 		out = append(out, strings.ToLower(a.Address))
 	}
-	return out
+	return clipAddrs(out)
+}
+
+// clipAddrs bounds an address list: at most maxAddrs entries, each at most maxAddrBytes.
+func clipAddrs(in []string) []string {
+	if len(in) > maxAddrs {
+		in = in[:maxAddrs]
+	}
+	for i, a := range in {
+		if len(a) > maxAddrBytes {
+			in[i] = a[:maxAddrBytes]
+		}
+	}
+	return in
+}
+
+// clipField bounds a header-derived string at n bytes on a rune boundary.
+func clipField(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 var addrRe = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
@@ -114,17 +146,17 @@ func parseMail(raw []byte) (parsedMail, error) {
 	}
 	p.References = msgIDs(h.Get("References"))
 	if from, err := mail.ParseAddressList(h.Get("From")); err == nil && len(from) > 0 {
-		p.From = strings.ToLower(from[0].Address)
-		p.FromName = decodeHeader(from[0].Name)
+		p.From = clipField(strings.ToLower(from[0].Address), maxAddrBytes)
+		p.FromName = clipField(decodeHeader(from[0].Name), maxFromName)
 	} else if m := addrRe.FindString(h.Get("From")); m != "" {
-		p.From = strings.ToLower(m)
+		p.From = clipField(strings.ToLower(m), maxAddrBytes)
 	}
 	p.To = addrList(h, "To")
 	p.Cc = addrList(h, "Cc")
 	if rt := addrList(h, "Reply-To"); len(rt) > 0 {
 		p.ReplyTo = rt[0]
 	}
-	p.Subject = strings.TrimSpace(decodeHeader(h.Get("Subject")))
+	p.Subject = clipField(strings.TrimSpace(decodeHeader(h.Get("Subject"))), maxSubject)
 	if d, err := h.Date(); err == nil {
 		p.Date = d
 	}
@@ -211,14 +243,14 @@ func walkPart(ctype, cte, cdisp string, body io.Reader, depth int, texts, htmls 
 }
 
 func addAttach(atts *[]parsedAttach, total *int64, name, mt string, b []byte) {
-	a := parsedAttach{Name: safeName(name), Mime: mt, Kept: true}
+	a := parsedAttach{Name: safeName(name), Mime: storedMime(name, mt), Kept: true}
 	switch {
 	case len(b) > maxAttachment:
 		a.Kept, a.Why = false, "larger than 20 MB"
 	case *total+int64(len(b)) > maxAttachAll:
 		a.Kept, a.Why = false, "attachments over 25 MB in all"
 	default:
-		if why := dangerous(a.Name, b); why != "" {
+		if why := dangerous(a.Name, mt, b); why != "" {
 			a.Kept, a.Why = false, why
 		}
 	}
@@ -231,9 +263,34 @@ func addAttach(atts *[]parsedAttach, total *int64, name, mt string, b []byte) {
 	*atts = append(*atts, a)
 }
 
+// storedMime is the type the row carries and the phone hands to its media store: the one the
+// file name says when the name has a known extension, otherwise the sender's declared type if
+// it looks like one, otherwise octet-stream. The sender does not get to call a .docx a package.
+func storedMime(name, declared string) string {
+	if ext := strings.ToLower(path.Ext(name)); ext != "" {
+		if t := mime.TypeByExtension(ext); t != "" {
+			if i := strings.IndexByte(t, ';'); i >= 0 {
+				t = t[:i]
+			}
+			return t
+		}
+	}
+	declared = strings.ToLower(strings.TrimSpace(declared))
+	if i := strings.IndexByte(declared, ';'); i >= 0 {
+		declared = strings.TrimSpace(declared[:i])
+	}
+	if len(declared) > 100 || !mimeRe.MatchString(declared) {
+		return "application/octet-stream"
+	}
+	return declared
+}
+
+var mimeRe = regexp.MustCompile(`^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$`)
+
 // dangerous names what the box will not keep: things that run, things that hide things that
-// run, and office files with macros. By extension and by the first bytes.
-func dangerous(name string, b []byte) string {
+// run, and office files with macros. By extension, by the declared type, by the first bytes,
+// and for a zip (an office file is one) by what is inside it.
+func dangerous(name, mt string, b []byte) string {
 	ext := strings.ToLower(path.Ext(name))
 	switch ext {
 	case ".exe", ".scr", ".bat", ".cmd", ".com", ".pif", ".js", ".jse", ".vbs", ".vbe", ".wsf", ".wsh", ".ps1", ".msi", ".dll", ".jar", ".apk", ".sh", ".hta", ".cpl", ".reg", ".lnk", ".app", ".dmg", ".deb", ".rpm":
@@ -242,6 +299,20 @@ func dangerous(name string, b []byte) string {
 		return "an archive (" + ext + ") is not kept"
 	case ".docm", ".xlsm", ".pptm", ".dotm", ".xltm", ".potm":
 		return "an office file with macros (" + ext + ") is not kept"
+	}
+	mt = strings.ToLower(strings.TrimSpace(mt))
+	if i := strings.IndexByte(mt, ';'); i >= 0 {
+		mt = strings.TrimSpace(mt[:i])
+	}
+	switch mt {
+	case "application/vnd.android.package-archive", "application/java-archive", "application/x-msdownload", "application/x-dosexec",
+		"application/x-executable", "application/x-sharedlib", "application/x-mach-binary", "application/x-sh", "application/x-shellscript",
+		"application/x-msi", "application/x-ms-installer", "application/vnd.microsoft.portable-executable", "application/x-elf",
+		"application/x-apple-diskimage", "application/vnd.debian.binary-package", "application/x-rpm", "application/hta", "text/javascript", "application/javascript":
+		return "declared as something that runs (" + mt + "), not kept"
+	case "application/zip", "application/x-zip-compressed", "application/x-rar-compressed", "application/vnd.rar", "application/x-7z-compressed",
+		"application/x-tar", "application/gzip", "application/x-gzip", "application/x-bzip2", "application/x-xz", "application/x-iso9660-image":
+		return "declared as an archive (" + mt + "), not kept"
 	}
 	if len(b) >= 4 {
 		if b[0] == 'M' && b[1] == 'Z' {
@@ -253,11 +324,66 @@ func dangerous(name string, b []byte) string {
 		if b[0] == 0xcf && b[1] == 0xfa && b[2] == 0xed && b[3] == 0xfe {
 			return "a Mac executable is not kept"
 		}
-		if b[0] == 'P' && b[1] == 'K' && ext != ".docx" && ext != ".xlsx" && ext != ".pptx" && ext != ".odt" && ext != ".ods" && ext != ".odp" && ext != ".epub" {
+		if b[0] == 'P' && b[1] == 'K' {
+			switch ext {
+			case ".docx", ".xlsx", ".pptx", ".dotx", ".xltx", ".potx", ".odt", ".ods", ".odp", ".epub":
+				return zipLooksLike(ext, b)
+			}
 			return "an archive is not kept"
 		}
-		if b[0] == 0xd0 && b[1] == 0xcf && b[2] == 0x11 && b[3] == 0xe0 && bytes.Contains(b, []byte("_VBA_PROJECT")) {
+		if b[0] == 0xd0 && b[1] == 0xcf && b[2] == 0x11 && b[3] == 0xe0 {
+			// a compound file: directory entry names are UTF-16LE
+			if bytes.Contains(b, []byte("_VBA_PROJECT")) || bytes.Contains(b, utf16le("_VBA_PROJECT")) || bytes.Contains(b, utf16le("VBA")) && bytes.Contains(b, utf16le("Macros")) {
+				return "an office file with macros is not kept"
+			}
+		}
+	}
+	return ""
+}
+
+// utf16le is s as UTF-16LE bytes (ASCII input), the way compound-file directory names are stored.
+func utf16le(s string) []byte {
+	out := make([]byte, 0, 2*len(s))
+	for i := 0; i < len(s); i++ {
+		out = append(out, s[i], 0)
+	}
+	return out
+}
+
+// zipLooksLike opens a zip that claims to be an office or EPUB file and says why it is not one:
+// an OOXML file has [Content_Types].xml and no vbaProject.bin, an ODF or EPUB file has a
+// mimetype entry; nothing inside may be a class, a dex, an executable or an Android manifest.
+func zipLooksLike(ext string, b []byte) string {
+	zr, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		return "a zip that does not open is not kept"
+	}
+	if len(zr.File) > 10000 {
+		return "a zip with more than ten thousand entries is not kept"
+	}
+	hasTypes, hasMime := false, false
+	for _, f := range zr.File {
+		n := strings.ToLower(f.Name)
+		switch {
+		case n == "[content_types].xml":
+			hasTypes = true
+		case n == "mimetype":
+			hasMime = true
+		case n == "androidmanifest.xml", n == "classes.dex", strings.HasSuffix(n, ".dex"), strings.HasSuffix(n, ".class"),
+			strings.HasSuffix(n, ".exe"), strings.HasSuffix(n, ".dll"), strings.HasSuffix(n, ".so"), strings.HasSuffix(n, ".jar"):
+			return "a zip holding something that runs (" + path.Base(f.Name) + ") is not kept"
+		case strings.HasSuffix(n, "vbaproject.bin"), strings.Contains(n, "/vba"):
 			return "an office file with macros is not kept"
+		}
+	}
+	switch ext {
+	case ".odt", ".ods", ".odp", ".epub":
+		if !hasMime {
+			return "a zip named " + ext + " with no mimetype entry is not kept"
+		}
+	default:
+		if !hasTypes {
+			return "a zip named " + ext + " with no [Content_Types].xml is not kept"
 		}
 	}
 	return ""

@@ -98,7 +98,7 @@ func TestDeviceKeyRotation(t *testing.T) {
 	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	badSig, _ := ecdsa.SignASN1(rand.Reader, other, h[:])
 	bad, _ := json.Marshal(map[string]string{"spki": enc(spki), "sig": enc(badSig)})
-	if rr := call("/v1/device/rekey", oldHdr, bad); rr.Code != 400 {
+	if rr := call("/v1/device/rekey", oldHdr, bad); rr.Code != 503 { // the 400 is folded into the down page at the door
 		t.Fatalf("a bad proof: %d", rr.Code)
 	}
 	// no client certificate, no rotation
@@ -189,7 +189,7 @@ func TestDeviceKeyRotation(t *testing.T) {
 	wrong := sha256.Sum256(append([]byte(rekeyMessageV2+derID(qrDER)+"\n"), spki...))
 	sigW, _ := ecdsa.SignASN1(rand.Reader, phoneKey, wrong[:])
 	badBind, _ := json.Marshal(map[string]string{"spki": enc(spki), "sig": enc(sigW)})
-	if rr := call("/v1/device/rekey", newHdr, badBind); rr.Code != 400 {
+	if rr := call("/v1/device/rekey", newHdr, badBind); rr.Code != 503 { // folded at the door
 		t.Fatalf("a proof bound to another certificate: %d", rr.Code)
 	}
 	rr = call("/v1/device/rekey", newHdr, renew)
@@ -353,5 +353,110 @@ func TestRetireByDeviceKey(t *testing.T) {
 	s2.Handler().ServeHTTP(rr, req2)
 	if rr.Code != 200 {
 		t.Fatalf("the other phone: %d", rr.Code)
+	}
+}
+
+// A phone that pre-issues spare certificates through rekey and never confirms them does not
+// outlive its retirement: retire covers what the device minted, a second rekey retires the first
+// unconfirmed one, and a stale hand-over is retired when pruned (the audit's confirmed finding).
+func TestRetireCoversUnconfirmedSpares(t *testing.T) {
+	caDir := t.TempDir()
+	ca, caKey := testCA(t, caDir)
+	s, err := New(Config{StateDir: t.TempDir(), CaDir: caDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	s.mounted = 0
+	s.mu.Unlock()
+	tok, _ := s.session.Issue()
+	phoneKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	phoneDER, _ := issueDeviceCert(ca, caKey, "lent-phone", &phoneKey.PublicKey)
+	phoneHdr := escapedPEM(phoneDER)
+	post := func(path, cert string, body []byte) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", path, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("X-Client-Cert", cert)
+		s.Handler().ServeHTTP(rr, req)
+		return rr
+	}
+	health := func(cert string) int {
+		rr := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/v1/health", nil)
+		req.Header.Set("X-Client-Cert", cert)
+		s.Handler().ServeHTTP(rr, req)
+		return rr.Code
+	}
+	enc := base64.StdEncoding.EncodeToString
+	mint := func(fromDER []byte, fromHdr string) (string, []byte) {
+		k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		spki, _ := x509.MarshalPKIXPublicKey(&k.PublicKey)
+		h := sha256.Sum256(append([]byte(rekeyMessageV2+derID(fromDER)+"\n"), spki...))
+		sig, _ := ecdsa.SignASN1(rand.Reader, k, h[:])
+		body, _ := json.Marshal(map[string]string{"spki": enc(spki), "sig": enc(sig)})
+		rr := post("/v1/device/rekey", fromHdr, body)
+		if rr.Code != 200 {
+			t.Fatalf("rekey: %d %s", rr.Code, rr.Body)
+		}
+		var got struct {
+			Cert string `json:"cert"`
+		}
+		json.Unmarshal(rr.Body.Bytes(), &got)
+		blk, _ := pem.Decode([]byte(got.Cert))
+		return escapedPEM(blk.Bytes), blk.Bytes
+	}
+	// two spares in a row: the first is retired the moment the second is issued
+	spare1Hdr, _ := mint(phoneDER, phoneHdr)
+	if health(spare1Hdr) != 200 {
+		t.Fatal("the first spare does not work before anything happened")
+	}
+	spare2Hdr, spare2DER := mint(phoneDER, phoneHdr)
+	if health(spare1Hdr) == 200 {
+		t.Fatal("two outstanding hand-overs for one device")
+	}
+	if health(spare2Hdr) != 200 {
+		t.Fatal("the second spare does not work")
+	}
+	// a spare minted from the spare: a chain
+	spare3Hdr, _ := mint(spare2DER, spare2Hdr)
+	if v := s.Devices(); v.Pending != 2 {
+		t.Fatalf("pending hand-overs shown: %d", v.Pending)
+	}
+	// the owner retires the lent phone by the key the DEVICES list shows
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-Client-Cert", phoneHdr)
+	if err := s.Retire(deviceKey(req)); err != nil {
+		t.Fatal(err)
+	}
+	if health(phoneHdr) == 200 || health(spare2Hdr) == 200 || health(spare3Hdr) == 200 {
+		t.Fatalf("after retire: phone %d spare2 %d spare3 %d", health(phoneHdr), health(spare2Hdr), health(spare3Hdr))
+	}
+	if v := s.Devices(); v.Pending != 0 {
+		t.Fatalf("pending after retire: %d", v.Pending)
+	}
+	// and it holds across a restart (the retired list is on disk)
+	s2, _ := New(Config{StateDir: s.cfg.StateDir, CaDir: caDir})
+	rr := httptest.NewRecorder()
+	req3 := httptest.NewRequest("GET", "/v1/health", nil)
+	req3.Header.Set("X-Client-Cert", spare3Hdr)
+	s2.Handler().ServeHTTP(rr, req3)
+	if rr.Code == 200 {
+		t.Fatal("a spare forgotten across a restart")
+	}
+	// a hand-over nobody confirms for a week is retired when pruned
+	other, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	otherDER, _ := issueDeviceCert(ca, caKey, "my-phone", &other.PublicKey)
+	otherHdr := escapedPEM(otherDER)
+	staleHdr, staleDER := mint(otherDER, otherHdr)
+	stale := filepath.Join(s.devicesDir(), "pending", derID(staleDER)+".json")
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	os.Chtimes(stale, old, old)
+	s.prunePending(filepath.Join(s.devicesDir(), "pending"), 7*24*time.Hour)
+	if health(staleHdr) == 200 {
+		t.Fatal("a pruned hand-over's certificate still works")
+	}
+	if health(otherHdr) != 200 {
+		t.Fatal("the phone that minted it is affected")
 	}
 }

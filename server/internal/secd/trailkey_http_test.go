@@ -83,7 +83,7 @@ func TestTrailKeyAndSealedUpload(t *testing.T) {
 	// a mismatched pair is refused
 	other, _ := ecdh.X25519().GenerateKey(rand.Reader)
 	bad, _ := json.Marshal(map[string]string{"public": enc(k.PublicKey().Bytes()), "private": enc(other.Bytes())})
-	if rr := do("POST", "/v1/trail/key", bad); rr.Code != 400 {
+	if rr := do("POST", "/v1/trail/key", bad); rr.Code != 503 { // the 400 is folded into the down page at the door
 		t.Fatalf("mismatched pair: %d", rr.Code)
 	}
 }

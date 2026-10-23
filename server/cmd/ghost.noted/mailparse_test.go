@@ -1,11 +1,14 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"net"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -71,11 +74,37 @@ func TestParseHTMLOnlyAndPlain(t *testing.T) {
 	if p.Body != "line one\nline two\n" || p.BodyKind != "text" {
 		t.Fatalf("%q", p.Body)
 	}
-	if dangerous("notes.docx", []byte("PK\x03\x04")) != "" || dangerous("photo.jpg", []byte{0xff, 0xd8, 0xff, 0}) != "" {
+	docx := zipOf(t, map[string]string{"[Content_Types].xml": "<Types/>", "word/document.xml": "<w/>"})
+	if dangerous("notes.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx) != "" || dangerous("photo.jpg", "image/jpeg", []byte{0xff, 0xd8, 0xff, 0}) != "" {
 		t.Fatal("ordinary files refused")
 	}
-	if dangerous("a.zip", []byte("PK\x03\x04")) == "" || dangerous("x", []byte("\x7fELF")) == "" || dangerous("m.docm", nil) == "" {
+	if dangerous("a.zip", "application/zip", []byte("PK\x03\x04")) == "" || dangerous("x", "", []byte("\x7fELF")) == "" || dangerous("m.docm", "", nil) == "" {
 		t.Fatal("dangerous files kept")
+	}
+	// the audit's cases: a package named like a document, by type and by content
+	apk := zipOf(t, map[string]string{"AndroidManifest.xml": "<m/>", "classes.dex": "dex"})
+	if dangerous("report.docx", "application/vnd.android.package-archive", apk) == "" {
+		t.Fatal("a package declared as one, named .docx, kept")
+	}
+	if why := dangerous("report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", apk); !strings.Contains(why, "AndroidManifest.xml") {
+		t.Fatalf("a package inside a .docx kept: %q", why)
+	}
+	if dangerous("report.docx", "", zipOf(t, map[string]string{"word/x.xml": "<w/>"})) == "" {
+		t.Fatal("a zip with no [Content_Types].xml kept as .docx")
+	}
+	if dangerous("macro.docx", "", zipOf(t, map[string]string{"[Content_Types].xml": "<Types/>", "word/vbaProject.bin": "x"})) == "" {
+		t.Fatal("OOXML macros kept")
+	}
+	if dangerous("book.epub", "application/epub+zip", zipOf(t, map[string]string{"mimetype": "application/epub+zip", "OEBPS/a.xhtml": "x"})) != "" {
+		t.Fatal("an epub refused")
+	}
+	ole := append([]byte{0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1}, utf16le("_VBA_PROJECT")...)
+	if dangerous("old.doc", "application/msword", ole) == "" {
+		t.Fatal("a compound file with a UTF-16LE VBA stream kept")
+	}
+	if storedMime("report.docx", "application/vnd.android.package-archive") != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+		storedMime("blob", "weird stuff") != "application/octet-stream" || storedMime("blob", "application/x-foo") != "application/x-foo" {
+		t.Fatal(storedMime("report.docx", "application/vnd.android.package-archive"))
 	}
 	if safeName("../../etc/passwd") != "passwd" || safeName("") != "file" || safeName("a b (1).pdf") != "a b (1).pdf" {
 		t.Fatal(safeName("../../etc/passwd"))
@@ -159,3 +188,23 @@ func (d dnsMap) LookupAddr(context.Context, string) ([]string, error) { return n
 type notFoundErr struct{}
 
 func (*notFoundErr) Error() string { return "not found" }
+
+// zipOf is a small zip with the given entries.
+func zipOf(t *testing.T, entries map[string]string) []byte {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	names := make([]string, 0, len(entries))
+	for n := range entries {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		w, err := zw.Create(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Write([]byte(entries[n]))
+	}
+	zw.Close()
+	return buf.Bytes()
+}

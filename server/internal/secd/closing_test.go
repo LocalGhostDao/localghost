@@ -86,7 +86,7 @@ func TestCloseDoorsCutsUploads(t *testing.T) {
 				t.Fatal("the upload still holds the volume 5 s after the doors closed")
 			}
 			finish()
-			if a.err == nil && a.code != http.StatusBadGateway {
+			if a.err == nil && a.code != http.StatusServiceUnavailable {
 				t.Fatalf("answered %d, want appears-down", a.code)
 			}
 			if d := time.Since(t0); d > 2*time.Second {
@@ -114,7 +114,7 @@ func TestClosedDoorsRefuseNewUploads(t *testing.T) {
 		s.handleFrameUpload(w, r)
 		return w.Code
 	}
-	if c := post(); c != http.StatusBadGateway {
+	if c := post(); c != http.StatusServiceUnavailable {
 		t.Fatalf("closing: %d", c)
 	}
 	if _, err := os.Stat(filepath.Join(state, "mnt", "slot0", "frames", "incoming")); err == nil {

@@ -238,9 +238,23 @@ func ViaName(via string) string {
 	return via
 }
 
+// spoolChunk is the most points one INSERT carries (five parameters each, well under the wire
+// protocol's 65535), the way timeline flushes in chunks too.
+const spoolChunk = 5000
+
 // InsertSpooled stores a location batch's points with how each was taken; a point already stored
-// (same second, same source) is left as it is.
+// (same second, same source) is left as it is. Big batches go in chunks.
 func (s *Store) InsertSpooled(source string, pts []SpooledPoint) error {
+	for len(pts) > spoolChunk {
+		if err := s.insertSpooled(source, pts[:spoolChunk]); err != nil {
+			return err
+		}
+		pts = pts[spoolChunk:]
+	}
+	return s.insertSpooled(source, pts)
+}
+
+func (s *Store) insertSpooled(source string, pts []SpooledPoint) error {
 	if len(pts) == 0 {
 		return nil
 	}

@@ -412,6 +412,14 @@ func ApplyPassthrough(root string, p Passthrough, run EdgeRunner, dryRun bool) (
 	if err := run.Check(p, res.OtherName); err != nil {
 		return restore(fmt.Errorf("after the reload: %w", err))
 	}
+	// the switch is one step: once the stream carries the phone's TLS, secd stops trusting plain
+	// HTTP (the flag file edgeStrict reads). Left to a printed hint, the box sat fail-open until
+	// someone typed it (the audit's edge lead).
+	if err := writeAtomic(at(EdgeFlagPath), []byte("tls\n"), 0o644); err != nil {
+		res.Warnings = append(res.Warnings, "could not write "+EdgeFlagPath+" ("+err.Error()+"); run: echo tls | sudo tee "+EdgeFlagPath)
+	} else {
+		res.Changed = append(res.Changed, EdgeFlagPath)
+	}
 	return res, nil
 }
 
@@ -442,6 +450,8 @@ func UndoPassthrough(root, backup string, run EdgeRunner) (string, error) {
 	if err := restoreBackup(root, backup, paths); err != nil {
 		return backup, err
 	}
+	// back on the http site, plain HTTP with nginx's header is the path again
+	_ = os.Remove(filepath.Join(root, EdgeFlagPath))
 	if err := run.TestNginx(); err != nil {
 		return backup, fmt.Errorf("the old files are back but nginx -t refuses them: %w", err)
 	}
