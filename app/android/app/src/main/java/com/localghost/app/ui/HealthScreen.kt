@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -139,11 +140,19 @@ private fun HealthDashboard(series: List<BoxClient.HealthSeries>?, failed: Boole
                 item(key = "week") {
                     val lines = all.map { HealthText.weekCompare(it.metric, it.days, it.values, today()) }.filter { it.isNotEmpty() }
                     if (lines.isNotEmpty()) {
+                        // folded: one line of changes at a glance, the twelve lines behind a tap
+                        // (open, they took the screen before the first tile)
+                        var open by rememberSaveable { mutableStateOf(false) }
                         Spacer(Modifier.height(4.dp))
                         SectionLabel("THIS WEEK")
                         Spacer(Modifier.height(4.dp))
-                        Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(Void).padding(10.dp)) {
-                            lines.forEach { Text(it, color = GhostText, style = MaterialTheme.typography.labelMedium) }
+                        Text(HealthText.weekGlance(lines), color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                        Text(if (open) "[ − against last week ]" else "[ + against last week ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.clickable { open = !open }.padding(vertical = 4.dp))
+                        Column(Modifier.animateContentSize()) {
+                            if (open) Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).background(Void).padding(10.dp)) {
+                                lines.forEach { Text(it, color = GhostText, style = MaterialTheme.typography.labelSmall) }
+                            }
                         }
                     }
                 }

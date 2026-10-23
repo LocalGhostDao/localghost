@@ -6415,3 +6415,7 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   with the next three days ("sat 12/7 rain 60% · sun 13/6 partly cloudy · mon 11/5 clear",
   `HomeBriefText.weatherDays`), `w_more` already took two lines.
 - Not compiled here (no Kotlin toolchain in this container since the reclaim); Vlad builds.
+- HEALTH: THIS WEEK folds. The twelve compare lines took the screen before the first tile
+  (Vlad: "a bit big in text, maybe behind an info"); the section now shows one glance line
+  (`HealthText.weekGlance`: the first four kinds' changes, "steps −70% · deep sleep +13% …") and
+  "[ + against last week ]" opens the full block, in the small label size.

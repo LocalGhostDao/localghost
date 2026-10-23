@@ -220,6 +220,16 @@ object HealthText {
         return "${label(key)} ${fmt(key, x)} this week$what · ${fmt(key, y)} last week$pct"
     }
 
+    /** The week against last in one glance: each kind's change as "steps −70%", the first [n]
+     *  of the compare lines that carry a change, for the folded THIS WEEK line. */
+    fun weekGlance(lines: List<String>, n: Int = 4): String = lines.mapNotNull { l ->
+        val pct = l.substringAfterLast(" · ", "").trim()
+        if (!pct.endsWith("%")) return@mapNotNull null
+        val digit = l.indexOfFirst { it.isDigit() }
+        if (digit <= 0) return@mapNotNull null
+        l.substring(0, digit).trim() + " " + pct
+    }.take(n).joinToString(" · ")
+
     /** The mean per month, oldest first, the last [months] months that have a day: "2026-10" to 1,234. */
     fun monthMeans(days: List<String>, values: List<Double>, months: Int): List<Pair<String, Double>> {
         val sums = java.util.TreeMap<String, DoubleArray>()

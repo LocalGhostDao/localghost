@@ -87,6 +87,9 @@ class HealthTextTest {
         assertEquals("steps 69,909 this week · 8,000 last week · +774%", HealthText.weekCompare("steps", days, steps, LocalDate.of(2026, 10, 10)))
         assertTrue(HealthText.weekCompare("resting_hr", days, steps, LocalDate.of(2026, 10, 10)).contains("this week (mean)"))
         assertEquals("", HealthText.weekCompare("steps", days.drop(1), steps.drop(1), LocalDate.of(2026, 10, 10)))
+        assertEquals("steps −70% · deep sleep +13% · heart rate (avg) −3%", HealthText.weekGlance(listOf(
+            "steps 42,600 this week · 140,546 last week · −70%", "deep sleep 1h30m this week (mean) · 1h19m last week · +13%",
+            "heart rate (avg) 93 bpm this week (mean) · 97 bpm last week · −3%", "sleep 7h40m this week (mean) · 7h21m last week")))
         val mm = HealthText.monthMeans(listOf("2026-09-30", "2026-10-01", "2026-10-02"), listOf(1.0, 2.0, 4.0), 12)
         assertEquals(listOf("2026-09" to 1.0, "2026-10" to 3.0), mm)
         assertEquals(listOf("2026-10" to 3.0), HealthText.monthMeans(listOf("2026-09-30", "2026-10-01", "2026-10-02"), listOf(1.0, 2.0, 4.0), 1))
