@@ -1,2 +1,0 @@
-# server/tools/maild/install.sh was removed on 12 Oct 2026: the mail relay lives in the web repository (deploy/mail/).
-# left empty so a tree a drop was copied over matches; tools/apply_removed.sh deletes it.
