@@ -6376,3 +6376,15 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   rotates every fortnight and `MoveDevice` does not yet carry those tables; a sibling phone
   naming another's label is same-archive); the app-side leads (ACTION_SEND confirmation, the
   picker guard, planned-query display) wait for the next app round.
+
+## 23 October 2026 , wisp 0.0.7 cut
+
+- The cut edits: `releases/0.0.7.md` "Cut on 23 October 2026" with the paragraph for a box and
+  a phone on 0.0.6 (registry rewritten, water tiles cut again, a wrong PIN logs the phone out,
+  check the edge flag, the relay from the web repo); `RELEASES.md` row; `CITATION.cff` 0.0.7 /
+  2026-10-23; `README.md` status at 0.0.7 with the seventh cut's link, "about 88,000 lines of
+  Go with 200 test files, the app about 37,000 lines of Kotlin" (main sources, tests apart), and
+  the "what works" paragraph naming the forecast, HEALTH, the calendar, the contacts, the water,
+  the trips, the mail and the audit. `release.names` already had 0.0.7 and the app 0.0.7 / 7.
+- After the tag, the next drop opens 0.0.8 (`release.names`, the app 0.0.8 / 8,
+  `releases/0.0.8.md` "In progress"), so the tag's tree says 0.0.7 everywhere.

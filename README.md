@@ -23,21 +23,26 @@ Read [why we build](https://www.localghost.ai/manifesto), or the
 
 ## Status
 
-**wisp**, the first release, was cut on 2 October 2026 and is at 0.0.6:
+**wisp**, the first release, was cut on 2 October 2026 and is at 0.0.7:
 [the release](https://github.com/LocalGhostDao/localghost/releases/latest),
 [what is in it and how it works](server/releases/0.0.1.md), and what the
 [second](server/releases/0.0.2.md), [third](server/releases/0.0.3.md),
-[fourth](server/releases/0.0.4.md), [fifth](server/releases/0.0.5.md) and
-[sixth](server/releases/0.0.6.md) cuts changed. One box runs it with one phone. The server is
-about 76,000 lines of Go with 180 test files, the app about 36,000 lines of Kotlin.
+[fourth](server/releases/0.0.4.md), [fifth](server/releases/0.0.5.md),
+[sixth](server/releases/0.0.6.md) and [seventh](server/releases/0.0.7.md) cuts changed. One box
+runs it with one phone. The server is about 88,000 lines of Go with 200 test files, the app
+about 37,000 lines of Kotlin.
 
 What works, as of wisp: the encrypted volume and its unlock from the phone, the photo archive
 with captions, tags and search, the trail on a map drawn from the box's own data, the heights
 under it, a story for every day, memories of several kinds, the news and the prices, the
 check-ins, the voice notes, the health sync, the chat with the person's own context, the
-notifications, the weather and Wikipedia from the box's own tables, the integrations with their
-sources listed and fetched from the mirror, phone certificates that renew while the phone is in
-use, and releases that the phone hands to the box with a trial and a rollback.
+notifications, the weather and Wikipedia from the box's own tables and a forecast the box
+computes itself, the health pages, the calendar and the contacts kept on the box, the water on
+the map and the trips told by country, mail at an address of the box's own through a relay
+that can read none of it, the integrations with their sources listed and fetched from the
+mirror, phone certificates that renew while the phone is in use, releases that the phone hands
+to the box with a trial and a rollback, and a security audit of the whole with its findings
+closed.
 
 What is not built: the decoy volume and the duress PINs, the Mist (peer-to-peer backup), mail, an
 offline release key, a hardware product. The [release notes](server/releases/0.0.1.md#known-gaps-at-wisp)
