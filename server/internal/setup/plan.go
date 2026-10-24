@@ -86,7 +86,7 @@ func DefaultPlan(sys System, withDomain bool, dnsCheck func() error, nginxConf s
 		{
 			Name:     "ghost user",
 			Check:    sys.GhostUserExists,
-			Describe: func() (string, error) { return "create unprivileged system user 'ghost'", nil },
+			Describe: func() (string, error) { return "create the daemons' unprivileged system user (--user; no home, no shell)", nil },
 			Do:       sys.CreateGhostUser,
 		},
 		{

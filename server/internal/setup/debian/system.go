@@ -403,12 +403,21 @@ func (s *System) WriteRegistry() error {
 	return reg.Save(filepath.Join(s.StateDir, "registry.blob"))
 }
 
+// the daemons' user is SvcUser (ghostd from tools/setup.sh); "ghost" only when nothing was
+// chosen. The step used to make a user named ghost whatever was chosen, and left it unused.
+func (s *System) svcUser() string {
+	if s.SvcUser == "" {
+		return "ghost"
+	}
+	return s.SvcUser
+}
+
 func (s *System) GhostUserExists() (bool, error) {
-	return run("id", "ghost") == nil, nil
+	return run("id", s.svcUser()) == nil, nil
 }
 
 func (s *System) CreateGhostUser() error {
-	return run("useradd", "--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "ghost")
+	return run("useradd", "--system", "--user-group", "--no-create-home", "--home-dir", "/nonexistent", "--shell", "/usr/sbin/nologin", "--comment", "LocalGhost daemons", s.svcUser())
 }
 
 // --- PKI (native) ---

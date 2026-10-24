@@ -1,5 +1,11 @@
 # LocalGhost Connectivity & Device Trust
 
+> The design note from before the build, kept for the reasoning. What is in place, and how it is
+> set up and checked, is in `tools/README.md` (the setup, 8d for the edge's two shapes, 8e for
+> `ghost-ctl doctor`); paths and names below (`/etc/localghost`, Let's Encrypt for the phone's
+> port, a CRL, fail2ban) are not how the box ended up. The box CA signs the phone's certificate;
+> a wrong PIN revokes the session; the firewall table is `tools/nft/localghost.nft`.
+
 How the app reaches the NAS, and how the NAS knows it is really your device. No tunnel,
 no VpnService, no NDK. Just HTTPS to a public endpoint, gated by a client certificate
 the NAS issued to that specific device, with each request additionally signed.

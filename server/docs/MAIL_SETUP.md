@@ -69,6 +69,9 @@ Within two minutes the box asks the relay for its queue. SETTINGS › MAIL says 
 now"; on the box, `ghost-cli ghost.noted mail` or `./tools/health.sh` (the mail line under
 ghost.noted). "the relay refuses the token" means the line is not on the relay yet or the box
 id differs; "relay unreachable" means the box cannot reach `mx.localghost.ai` on 443.
+`sudo ./bin/ghost-ctl doctor` then looks every record up (MX, SPF, both DKIM keys, DMARC, the
+relay's reverse name) and says which is missing or differs, so the DNS step is checked rather
+than trusted.
 
 ## 5. Send yourself something
 

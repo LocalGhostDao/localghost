@@ -53,6 +53,8 @@ func main() {
 		daemonStatus(os.Args[2:])
 	case "edge-passthrough":
 		edgePassthrough(os.Args[2:])
+	case "doctor":
+		doctor(os.Args[2:])
 	default:
 		usage()
 	}
@@ -67,6 +69,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "  daemon-status [flags]         show the supervised cohort's state from watchd")
 	fmt.Fprintln(os.Stderr, "  edge-passthrough --domain X   nginx forwards the phone's raw TLS to ghost.secd by name; other sites move to :4443")
 	fmt.Fprintln(os.Stderr, "  edge-passthrough --undo       put the nginx config back the way it was")
+	fmt.Fprintln(os.Stderr, "  doctor [--no-net]             check the box: open ports and their owners, firewall tables, edge, certificates, ssh, updates, mail DNS, reachability")
 	fmt.Fprintln(os.Stderr, "migration never touches the disk , the LUKS key is re-wrapped, not changed")
 	os.Exit(2)
 }

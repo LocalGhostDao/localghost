@@ -57,7 +57,9 @@ that builds its own code (`redeploy.sh`) is set up.
 
 - fTPM enabled in the BIOS (Intel PTT here). Verify: `ls /dev/tpm*` shows `/dev/tpmrm0`.
 - If you want remote access: the domain's A record at your public IP, and the router forwarding
-  TCP 443 to this box. LAN-only works without either.
+  TCP 443 to this box (and TCP 25 only if this box also runs the mail relay). Nothing else of the
+  box's is ever forwarded; `ghost-ctl doctor` (8e) lists what is open and by which process. While
+  in the router: UPnP off, remote management off. LAN-only works without any of it.
 - The repo on the box, readable by both users.
 - llama.cpp's `llama-server` built for this box at `/usr/local/bin/llama-server` (ghost.oracled and
   ghost.searchd both spawn it as a private loopback child; the path is a conf key if yours lives
@@ -638,6 +640,33 @@ stream never carries plain bytes to secd (a non-TLS first byte behind the PROXY 
 `ghost-cli` and `ghost-ctl` are unaffected , they use the box's control sockets, not the TLS port ,
 so everything you run here keeps working. `sudo ./tools/privacy_check.sh` says whether the move is in
 place. DEV_UPDATE.md, "The phone's TLS is checked by secd itself", has the design.
+
+## 8e. Check the box, any time , root
+
+    sudo ./bin/ghost-ctl doctor            # --no-net on a box without internet
+
+One screen, PASS/WARN/FAIL with the fix on the next line: every port open to the network and the
+process and user holding it (anything of the box's on a public address other than nginx's 80/443
+and the relay's 25 is a FAIL: secd's plain port, the vault's Postgres and Redis, a node's RPC,
+the model server, code-server); the firewall tables (the box's `inet localghost`, which keeps
+secd's plain loopback port to root and nginx, and the relay's `inet ghostmail`, which
+rate-limits 25 per source); nginx parsing and the edge's two shapes agreeing with
+`/etc/ghost/edge`; the box's certificates and any Let's Encrypt ones by expiry; ssh (keys only,
+no root); unattended security updates and a pending reboot; the mail records the box needs,
+looked up (MX, SPF, both DKIM keys, DMARC, the relay's PTR, a greeting on 25); and whether the
+box's own name answers on 443 from here (from inside the house that is often the router not
+hairpinning, which the line says).
+
+The firewall table is installed by `tools/firewall.sh` (root, idempotent; `server_setup_root.sh`
+and `redeploy.sh` run it, so a box set up before it existed gets it at the next redeploy) from
+`tools/nft/localghost.nft` into `/etc/nftables.d/`, with `/etc/nftables.conf` including that
+directory so it survives a reboot. It is a table of its own; the machine's other rules are not
+read or changed. The relay's table is the web repo's (`deploy/mail/scripts/firewall.sh`, run by
+its `root-once.sh`).
+
+What the doctor cannot see: the router's forwards (test from mobile data: the phone reaching the
+box, `openssl s_client -starttls smtp -connect mx.localghost.ai:25` for the relay) and the
+other services on a shared machine, which it lists for you to judge.
 
 ## Undo
 

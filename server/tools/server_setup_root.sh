@@ -7,7 +7,8 @@
 # Detect-driven and NON-DESTRUCTIVE: this box already runs other sites/APIs, so the script only
 # installs what's missing, never reconfigures what's there, and does NOT touch existing nginx config
 # (the chosen user is assumed to already have its own nginx deploy path). It:
-#   - detects + installs missing packages (cryptsetup, postgres, redis, tpm2-tools, go if absent)
+#   - detects + installs missing packages (cryptsetup, tpm2-tools, nftables, unattended-upgrades, go if absent)
+#   - loads the box's own nftables table (tools/firewall.sh) and turns unattended security updates on
 #   - puts the postgres server binaries on PATH (Debian hides them)
 #   - loads dm_crypt (now + on boot)
 #   - grants the chosen user TPM access (tss group) and scoped sudo for ghost.* services
@@ -77,6 +78,8 @@ ensure() {  # ensure <binary> <apt-pkg> <label>
 }
 ensure cryptsetup   cryptsetup    "cryptsetup (LUKS)"
 ensure tpm2_getcap  tpm2-tools    "tpm2-tools (TPM debug)"
+ensure nft          nftables      "nftables (the box's own firewall table, tools/firewall.sh)"
+ensure unattended-upgrade unattended-upgrades "unattended-upgrades (security patches for what faces the internet)"
 # nginx is assumed already installed + configured on this shared box; we don't touch it.
 command -v nginx >/dev/null 2>&1 && echo "  nginx: present (not modifying its config)" \
     || echo "  nginx: NOT present , install + configure it yourself (this box's nginx is shared)"
@@ -264,6 +267,23 @@ EOF
         echo "  wrote /etc/ghost/ghost.env  (GHOST_HOST=$BOX_HOST)"
     else
         echo "  wrote /etc/ghost/ghost.env  (set GHOST_HOST to the box IP/hostname before provisioning)"
+    fi
+fi
+
+# --- the firewall table: its own nftables table, loaded now and at boot (tools/firewall.sh) ---
+echo "> Firewall table..."
+if [ "$DRY" = 1 ]; then
+    "$(dirname "$0")/firewall.sh" --dry-run || true
+else
+    "$(dirname "$0")/firewall.sh" || echo "  firewall: NOT applied (see above); ghost-ctl doctor will keep saying so"
+fi
+# --- security updates on their own, if the package arrived ---
+if command -v unattended-upgrade >/dev/null 2>&1 && ! grep -q 'Unattended-Upgrade "1"' /etc/apt/apt.conf.d/20auto-upgrades 2>/dev/null; then
+    if [ "$DRY" = 1 ]; then
+        echo "  [would] write /etc/apt/apt.conf.d/20auto-upgrades (daily update + unattended upgrade)"
+    else
+        printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' > /etc/apt/apt.conf.d/20auto-upgrades
+        echo "  unattended security updates: on (/etc/apt/apt.conf.d/20auto-upgrades)"
     fi
 fi
 

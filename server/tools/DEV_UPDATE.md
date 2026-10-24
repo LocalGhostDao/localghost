@@ -6444,3 +6444,60 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   now dials receivers over IPv4 first and IPv6 only for a host with no A record (`dialMail`).
   The Ed25519 signature came back "neutral (no key)" although `vlad-ed._domainkey` resolves
   (k=ed25519, 32-byte key): Gmail does not verify RFC 8463 signatures; the RSA one carries DMARC.
+
+## 24 October 2026 , mail status in seconds; an OpenPGP of the box's own
+- Vlad: "it takes a while for my app to realise the email was sent". Relay: `outbound.wake`,
+  kicked by `accept()`, so the delivery loop runs at once (`outTick` stays the fallback). noted:
+  `mailer.nudge()` forces passes at 4, 10, 25 and 60 s after a post. App: `MailList` reloads
+  every 4 s while a row is `out`/`queued`. Gmail's own timing for the second message was
+  "Delivered after 23 seconds", most of it the old tick.
+- `internal/pgp` (packet.go, armor.go, keys.go, ownkey.go, message.go; 1,900 lines): RFC 4880
+  with RFC 6637's curves on stdlib primitives only. `Generate`/`Marshal`/`Unmarshal` (the box's
+  Ed25519 + Curve25519 key, seeds in the vault's own JSON, public half as a transferable key
+  with self-signature and binding), `ParsePublicKey` (validates self-signatures, bindings,
+  back-signatures on signing subkeys, expiry, revocation; RSA, ECDSA/ECDH on P-256/384/521,
+  EdDSA, Curve25519; refuses v5/v6 keys, DSA/ElGamal, SHA-1 signatures, keys under 2048 bits),
+  `Encrypt` (session key, PKESK per recipient: RSA PKCS#1 or ECDH with the RFC 6637 KDF and
+  RFC 3394 key wrap, one-pass signature, SEIPD v1 AES-256 CFB with the MDC), `Open` (PKESK by
+  our subkey, MDC check, ZIP/ZLIB/BZip2, signature verification by issuer), `Sign`,
+  `DetachedSignature`, `VerifyDetached`, `Armor`/`Dearmor` with CRC-24. Tests: round trips, the
+  RFC 3394 vectors, tamper → ErrIntegrity, and `TestGnuPGInterop` (skipped without gpg): gpg's
+  ed25519/cv25519 and rsa3072 keys parsed; gpg → box with none/zlib/zip/bzip2 and both signers;
+  box → gpg decrypts with GOODSIG/VALIDSIG; detached both ways; a signing subkey (gpg keeps the
+  back-signature in the unhashed area, now read from there); nistp256 both ways; an expired key
+  refused. First run passed except the subkey case.
+- Not yet: WKD on the relay, Autocrypt, PGP/MIME in noted, the app's lock line. Next round.
+
+## 24 October 2026 , the setup checked, and a doctor for it
+- Vlad: "make sure the setup is still correct, we've added a lot of steps, automate as much as
+  possible", then "make sure there is no way through any of the ports we have open for anyone
+  to get in". A survey of the tree found: no nftables anywhere (the SMTP meter and the lo-8443
+  skuid rule lived only in xyntai's /etc/nftables.conf, typed by hand); no check of ports,
+  certificates, DNS or the edge flag (health.sh pings daemons; privacy_check reports nft as
+  INFO); redeploy.sh re-rendering the ghost-secd site regardless of the passthrough; the plan
+  making a `ghost` user that `--user ghostd` never used; the relay README's intro describing
+  the user-unit install; CONECTIVITY.md from before the build.
+- `cmd/ghost-ctl/doctor.go` (≈600 lines, stdlib + nsreach): services; listeners from
+  /proc/net/{tcp,tcp6,udp,udp6} with owners from /proc/*/fd socket inodes and users from
+  /proc/*/status (public address = not loopback; expected 80/443 nginx, 25 ghost.maild; never
+  public: 8443, 6000-6199, 5432/6379, 8332/8545/8546/8551/9090, llama, code-server, ghost.*;
+  22 and the node peer ports as INFO; the rest WARN "yours to judge"); `nft list table inet
+  localghost|ghostmail`; nginx -t and the four edge states; x509 expiry of box-server, box-ca
+  and every /etc/letsencrypt/live/*; `sshd -T` for passwords and root; 20auto-upgrades and
+  /var/run/reboot-required; dns.json through nsreach, every record looked up (MX host, TXT
+  compared without spaces so Cloudflare's 255-byte split reads the same), the shared domain's
+  MX/SPF/DMARC, the relay's A → PTR, a 220 on 25; the box name's A and a TLS dial to 443
+  reporting the certificate's subject and issuer. Exit 1 on any FAIL.
+- `tools/nft/localghost.nft` + `tools/firewall.sh` (idempotent, --dry-run; parses the fragment
+  and the whole /etc/nftables.conf after the include before touching the unit); called from
+  `server_setup_root.sh` (which now also installs nftables and unattended-upgrades and writes
+  20auto-upgrades) and from `redeploy.sh` before the secd restart. Relay: `nft/ghost-mail.nft`
+  + `scripts/firewall.sh`, run by `root-once.sh` step 6; README intro and map rewritten.
+- `redeploy.sh`: `render_site()` skips the ghost-secd site (and removes a stray one) when
+  /etc/ghost/edge says tls and the stream conf exists. `debian/system.go`: `svcUser()`.
+- Docs: tools/README.md 0 (the router: 443, 25 only with the relay, UPnP and remote
+  management off) and 8e (the doctor, the firewall, what it cannot see); MAIL_SETUP 4;
+  CONECTIVITY.md marked as the pre-build design note.
+- On xyntai after this drop: `sudo ./tools/firewall.sh` once (or the next redeploy), then
+  `sudo ./bin/ghost-ctl doctor`. The hand-typed smtp rules in /etc/nftables.conf's inet filter
+  duplicate the relay's table and can go, leaving the file as flush ruleset + the include.

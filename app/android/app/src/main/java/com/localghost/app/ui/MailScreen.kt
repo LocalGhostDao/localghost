@@ -21,6 +21,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.localghost.app.net.BoxClient
 import com.localghost.app.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -97,6 +98,14 @@ private fun MailList(folder: String, q: String, tick: Int, onFolder: (String) ->
         more = (page?.rows?.size ?: 0) >= 50
         asked = true
         loading = false
+    }
+    // a message still on its way: ask again every few seconds until it is delivered or not, so
+    // "waiting at the relay" turns into "delivered" while the person is looking
+    val onItsWay = page?.rows?.any { it.direction == "out" && it.state == "queued" } == true
+    LaunchedEffect(page, onItsWay) {
+        if (!onItsWay) return@LaunchedEffect
+        delay(4_000)
+        page = BoxClient.mailList(ctx, folder, q)
     }
     val nowS = System.currentTimeMillis() / 1000
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {

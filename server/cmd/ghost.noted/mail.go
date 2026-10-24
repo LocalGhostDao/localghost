@@ -702,7 +702,23 @@ func (m *mailer) send(ctx context.Context, s mailSettings, req outboxRequest) er
 		m.store.MailSetRelayName(m.slot, id, ans.Name)
 	}
 	m.lg.Info("mail posted to the relay", "fn", "mailer.send", "id", id, "rcpts", len(rcpts), "bytes", len(signed))
+	m.nudge()
 	return nil
+}
+
+// nudge asks for a few quick passes after a post, so "delivered" reaches the phone seconds after
+// the relay hands the message on instead of at the next two-minute pull. The relay delivers at
+// once when posted to; most of the wait is the receiver's SMTP session.
+func (m *mailer) nudge() {
+	go func() {
+		for _, d := range []time.Duration{4 * time.Second, 10 * time.Second, 25 * time.Second, 60 * time.Second} {
+			time.Sleep(d)
+			select {
+			case m.force <- struct{}{}:
+			default:
+			}
+		}
+	}()
 }
 
 func cleanAddrs(in []string) []string {

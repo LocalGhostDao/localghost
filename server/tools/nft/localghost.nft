@@ -1,0 +1,17 @@
+#!/usr/sbin/nft -f
+# LocalGhost's own nftables table, kept by tools/firewall.sh. It is a table of its own
+# (inet localghost) so the box's other rules, whatever they are, are never read or rewritten;
+# the two lines below make it idempotent to load again.
+table inet localghost {}
+flush table inet localghost
+
+table inet localghost {
+	chain output {
+		type filter hook output priority filter; policy accept;
+
+		# ghost.secd's plain port on loopback is for nginx alone (root and www-data), which
+		# terminates the phone's TLS and passes a header. Any other local user reaching it
+		# could forge that header; the kernel refuses them before secd has to.
+		oif "lo" tcp dport 8443 meta skuid != { 0, "www-data" } drop
+	}
+}

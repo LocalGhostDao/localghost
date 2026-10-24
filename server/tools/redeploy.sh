@@ -69,11 +69,28 @@ for f in "$REPO"/tools/*.sh; do
     [ -x "$f" ] || { chmod +x "$f"; echo "tools: made $(basename "$f") executable"; }
 done
 
+# The edge has two shapes (tools/README.md 8d). With the stream passthrough, nginx hands the
+# phone's TLS to ghost.secd by name and there is NO ghost-secd site: rendering one would put a
+# second listen 443 beside the stream's and nginx -t would refuse the lot. So the site is
+# rendered only on the header path, and the passthrough is left as ghost-ctl made it.
+PASSTHROUGH=0
+if [ "$(cat /etc/ghost/edge 2>/dev/null)" = tls ] && [ -f /etc/nginx/localghost-stream.conf ]; then
+    PASSTHROUGH=1
+fi
+render_site() {
+    if [ "$PASSTHROUGH" = 1 ]; then
+        echo "edge: stream passthrough in place; the ghost-secd site is not rendered (ghost-ctl edge-passthrough owns nginx's 443)"
+        rm -f /etc/nginx/sites-enabled/ghost-secd
+        return 0
+    fi
+    su - "$SVC_USER" -c "cd '$REPO' && ./bin/ghost-qr --ca /etc/ghost/ca --host \"\$(sed -n 's/^GHOST_HOST=//p' /etc/ghost/ghost.env | cut -d: -f1)\" --nginx-out /tmp/ghost-secd.conf"
+    cp /tmp/ghost-secd.conf /etc/nginx/sites-enabled/ghost-secd
+}
+
 # nginx-only fast path , config change, no binary, no restart, no re-unlock.
 if [ "$NGINX_ONLY" = 1 ]; then
     say "nginx config only"
-    su - "$SVC_USER" -c "cd '$REPO' && ./bin/ghost-qr --ca /etc/ghost/ca --host \"\$(sed -n 's/^GHOST_HOST=//p' /etc/ghost/ghost.env | cut -d: -f1)\" --nginx-out /tmp/ghost-secd.conf"
-    cp /tmp/ghost-secd.conf /etc/nginx/sites-enabled/ghost-secd
+    render_site
     nginx -t && systemctl reload nginx
     echo "nginx reloaded , no secd restart, box stays in whatever state it was."
     exit 0
@@ -137,14 +154,19 @@ say "3/4  re-render + reload nginx"
 # that let a new client_max_body_size (needed for photo/video uploads) never reach disk while every
 # other part of the redeploy succeeded. Rendering here means a full redeploy can never leave the edge
 # running an old config again.
-su - "$SVC_USER" -c "cd '$REPO' && ./bin/ghost-qr --ca /etc/ghost/ca --host \"\$(sed -n 's/^GHOST_HOST=//p' /etc/ghost/ghost.env | cut -d: -f1)\" --nginx-out /tmp/ghost-secd.conf"
-cp /tmp/ghost-secd.conf /etc/nginx/sites-enabled/ghost-secd
+render_site
 if nginx -t >/dev/null 2>&1; then
     systemctl reload nginx
     echo "nginx re-rendered and reloaded"
 else
     echo "WARNING: nginx -t failed on the new config; NOT reloading. Check /etc/nginx/sites-enabled/ghost-secd"
     nginx -t
+fi
+
+# the firewall table, every time: the rules file is part of the tree, so a change to it lands
+# with the redeploy, and a box set up before the table existed gets it here
+if [ -x "$REPO/tools/firewall.sh" ]; then
+    "$REPO/tools/firewall.sh" || echo "WARNING: tools/firewall.sh failed; the loopback rule for ghost.secd's plain port may be missing (ghost-ctl doctor says)"
 fi
 
 say "4/4  restart ghost.secd"
