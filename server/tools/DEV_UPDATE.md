@@ -6523,3 +6523,9 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   `galleryFrame()` parses `duration` and `tagsByCategory` for both the list and the search.
   `VideoPlayer` and `MediaSlideshow` (while playing) set `LocalView.keepScreenOn` for the dialog
   window; `ThumbStrip`'s clips wear the frame too. Not compiled here; Vlad builds.
+- CI #74 (the server job): `TestStockTakeAgainstPostgres` and `TestTagPassesFollowTheirCaptions`
+  failed with `column "duration_ms" of relation "frames" does not exist`. The column had gone
+  into datastore.go's legacy SQL blob, which the pg tests do not run; the declarative registry
+  in `hw/schemadef.go` is the source of truth (its own header says so) and the harness converges
+  from it. Moved there (`{"duration_ms", "BIGINT", true, "0"}`), the blob line removed. The whole
+  suite run here against a scratch Postgres 16 (`GHOST_PG_SOCKET_DIR`, as CI sets it): green.

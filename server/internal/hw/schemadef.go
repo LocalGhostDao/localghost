@@ -97,6 +97,9 @@ var schemaRegistry = []SchemaTable{
 		{"place", "TEXT", true, "''"},
 		{"description", "TEXT", true, "''"},
 		{"display_name", "TEXT", true, "''"},
+		// A clip's running time in milliseconds, from its mvhd; 0 for a still or a clip whose
+		// header does not say. The gallery shows it on the cell; framed fills older rows at start.
+		{"duration_ms", "BIGINT", true, "0"},
 		// PIPELINE VERSION , which framed pipeline last converged this row (framed.PipelineVersion).
 		// 0 is "before anyone counted". A row below the running version is re-read from its
 		// original at start; that is how a parser fix reaches photos archived years earlier
