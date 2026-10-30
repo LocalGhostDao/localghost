@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"math"
 	"testing"
+	"time"
 )
 
 func box(typ string, body ...[]byte) []byte {
@@ -45,6 +46,33 @@ func androidClip() []byte {
 	f.Write(box("mdat", make([]byte, 100_000)))
 	f.Write(moov)
 	return f.Bytes()
+}
+
+func TestMvhdDuration(t *testing.T) {
+	// version 0: timescale 1000, duration 12345 → 12.345 s
+	v0 := append([]byte{0, 0, 0, 0}, be32(0)...)
+	v0 = append(v0, be32(0)...)
+	v0 = append(v0, be32(1000)...)
+	v0 = append(v0, be32(12345)...)
+	if d := mvhdDuration(v0); d != 12345*time.Millisecond {
+		t.Fatalf("v0: %v", d)
+	}
+	// version 1: 64-bit times, timescale 90000, duration 90000*61
+	v1 := []byte{1, 0, 0, 0}
+	v1 = append(v1, make([]byte, 16)...) // creation, modification
+	v1 = append(v1, be32(90000)...)
+	v1 = append(v1, be32(0)...)
+	v1 = append(v1, be32(5490000)...)
+	if d := mvhdDuration(v1); d != 61*time.Second {
+		t.Fatalf("v1: %v", d)
+	}
+	if mvhdDuration(nil) != 0 || mvhdDuration([]byte{0, 0, 0, 0}) != 0 {
+		t.Fatal("short bodies")
+	}
+	// the whole clip: the test fixture's mvhd has duration 0, so none
+	if m := ParseISOBMFF(bytes.NewReader(androidClip())); m.Duration != 0 {
+		t.Fatalf("fixture duration %v", m.Duration)
+	}
 }
 
 func TestParseISOBMFFAndroidXYZ(t *testing.T) {

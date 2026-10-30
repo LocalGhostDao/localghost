@@ -451,7 +451,7 @@ func (p *Pipeline) processOne(path string) (string, error) {
 		Lat: meta.Lat, Lon: meta.Lon, HasGPS: meta.HasGPS,
 		ArchivePath: archPath, PreviewPath: prevPath, ThumbPath: thumbPath,
 		Bytes: fileBytes, Source: "phone", ReceivedAt: time.Now().UTC().Unix(),
-		Kind: kindStr, MIME: sniff.MIME, TakenSrc: takenSrc,
+		Kind: kindStr, MIME: sniff.MIME, TakenSrc: takenSrc, DurationMs: meta.Duration.Milliseconds(),
 	}
 
 	// The JOURNAL ENTRY , framed's line in the shared ingestion diary synthd distills from. Written
@@ -1106,7 +1106,7 @@ func (p *Pipeline) derive(path string, forcePreviews bool) (Frame, bool, error) 
 		Lat: meta.Lat, Lon: meta.Lon, HasGPS: meta.HasGPS,
 		ArchivePath: path, PreviewPath: prevPath, ThumbPath: thumbPath,
 		Bytes: fi.Size(), Source: "reprocess", ReceivedAt: time.Now().UTC().Unix(),
-		Kind: kindStr, MIME: sn.MIME, TakenSrc: takenSrc,
+		Kind: kindStr, MIME: sn.MIME, TakenSrc: takenSrc, DurationMs: meta.Duration.Milliseconds(),
 	}
 	if err := p.store.InsertFrame(frame); err != nil {
 		return frame, previewed, fmt.Errorf("frame record: %w", err)
@@ -1161,6 +1161,33 @@ func renderFor(kind, archivePath, previewPath string) string {
 
 // videoMeta reads a clip's container metadata (moov: mvhd creation time, ©xyz / Apple ISO6709 fix).
 // Zero Meta on any trouble , a video without a readable moov is still a video, just an unplaced one.
+// FillDurations records the running time of every clip that has none yet (rows from before the
+// column), reading each clip's moov once. Run at start; cheap, since it is headers only.
+func (p *Pipeline) FillDurations() (filled, left int) {
+	hashes, paths, err := p.store.VideosWithoutDuration()
+	if err != nil {
+		p.log.Warn("durations: query failed", "fn", "FillDurations", "err", err)
+		return 0, 0
+	}
+	for i, h := range hashes {
+		d := p.videoMeta(paths[i]).Duration
+		if d <= 0 {
+			left++
+			continue
+		}
+		if err := p.store.SetDuration(h, d.Milliseconds()); err != nil {
+			p.log.Warn("durations: update failed", "fn", "FillDurations", "hash", h, "err", err)
+			left++
+			continue
+		}
+		filled++
+	}
+	if filled > 0 || left > 0 {
+		p.log.Info("clip durations filled in", "fn", "FillDurations", "filled", filled, "without", left)
+	}
+	return filled, left
+}
+
 func (p *Pipeline) videoMeta(path string) exif.Meta {
 	f, err := os.Open(path)
 	if err != nil {

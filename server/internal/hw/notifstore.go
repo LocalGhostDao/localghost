@@ -132,6 +132,7 @@ type FrameRow struct {
 	Tags        []string `json:"tags,omitempty"`        // model + user tags; tombstoned removals excluded
 	Place       string   `json:"place,omitempty"`       // reverse-geocoded hierarchy, "" until geo data lands
 	Description string   `json:"description,omitempty"` // the caption's SCENE section
+	Duration    float64  `json:"duration,omitempty"`    // a clip's running time in seconds; 0 for a still
 	// The same tags grouped by category (people, place, object, activity, food, animal, vehicle,
 	// nature, event, text, style; "other" for not-yet-categorised) , what the viewer groups by.
 	TagsByCategory map[string][]string `json:"tagsByCategory,omitempty"`
@@ -152,13 +153,22 @@ func (s *NotifStore) FramesList(slot int, beforeTs int64, limit int) ([]FrameRow
 		limit = 60
 	}
 	rows, err := c.Query(
-		"SELECT hash, taken_at, kind, bytes, display_name, place, description FROM frames WHERE taken_at < $1 ORDER BY taken_at DESC LIMIT "+strconv.Itoa(limit),
+		"SELECT "+frameCols+" FROM frames WHERE taken_at < $1 ORDER BY taken_at DESC LIMIT "+strconv.Itoa(limit),
 		strconv.FormatInt(beforeTs, 10))
 	if err != nil {
 		return nil, err
 	}
-	out := make([]FrameRow, 0, len(rows.Vals))
-	for _, v := range rows.Vals {
+	out := scanFrameRows(rows.Vals)
+	attachTags(c, out)
+	return out, nil
+}
+
+// frameCols is what a gallery row reads, in the order scanFrameRows expects.
+const frameCols = "hash, taken_at, kind, bytes, display_name, place, description, duration_ms"
+
+func scanFrameRows(vals [][]*string) []FrameRow {
+	out := make([]FrameRow, 0, len(vals))
+	for _, v := range vals {
 		if len(v) < 4 || v[0] == nil {
 			continue
 		}
@@ -181,34 +191,44 @@ func (s *NotifStore) FramesList(slot int, beforeTs int64, limit int) ([]FrameRow
 		if len(v) > 6 && v[6] != nil {
 			r.Description = *v[6]
 		}
+		if len(v) > 7 && v[7] != nil {
+			if ms, err := strconv.ParseInt(*v[7], 10, 64); err == nil && ms > 0 {
+				r.Duration = float64(ms) / 1000
+			}
+		}
 		out = append(out, r)
 	}
-	// One query attaches every page row's tags , per-row queries would be 60x the round trips for
-	// the same data. Tombstones ('user_removed') are how a correction outranks the model: excluded
-	// here, and the tag worker's NOT EXISTS keeps them from being re-inserted.
-	if len(out) > 0 {
-		in := "'" + out[0].Hash + "'"
-		idx := map[string]int{out[0].Hash: 0}
-		for i := 1; i < len(out); i++ {
-			in += ",'" + out[i].Hash + "'" // hashes are our own validated hex , no quoting risk
-			idx[out[i].Hash] = i
-		}
-		trows, terr := c.Query("SELECT hash, tag, coalesce(nullif(category, ''), 'other') FROM frame_tags WHERE source != 'user_removed' AND hash IN (" + in + ") ORDER BY created_at")
-		if terr == nil {
-			for _, v := range trows.Vals {
-				if len(v) >= 3 && v[0] != nil && v[1] != nil && v[2] != nil {
-					if i, ok := idx[*v[0]]; ok {
-						out[i].Tags = append(out[i].Tags, *v[1])
-						if out[i].TagsByCategory == nil {
-							out[i].TagsByCategory = map[string][]string{}
-						}
-						out[i].TagsByCategory[*v[2]] = append(out[i].TagsByCategory[*v[2]], *v[1])
-					}
+	return out
+}
+
+// attachTags adds every row's tags in one query , per-row queries would be 60x the round trips
+// for the same data. Tombstones ('user_removed') are how a correction outranks the model:
+// excluded here, and the tag worker's NOT EXISTS keeps them from being re-inserted.
+func attachTags(c *poltergres.ReadWrite, out []FrameRow) {
+	if len(out) == 0 {
+		return
+	}
+	in := "'" + out[0].Hash + "'"
+	idx := map[string]int{out[0].Hash: 0}
+	for i := 1; i < len(out); i++ {
+		in += ",'" + out[i].Hash + "'" // hashes are our own validated hex , no quoting risk
+		idx[out[i].Hash] = i
+	}
+	trows, terr := c.Query("SELECT hash, tag, coalesce(nullif(category, ''), 'other') FROM frame_tags WHERE source != 'user_removed' AND hash IN (" + in + ") ORDER BY created_at")
+	if terr != nil {
+		return
+	}
+	for _, v := range trows.Vals {
+		if len(v) >= 3 && v[0] != nil && v[1] != nil && v[2] != nil {
+			if i, ok := idx[*v[0]]; ok {
+				out[i].Tags = append(out[i].Tags, *v[1])
+				if out[i].TagsByCategory == nil {
+					out[i].TagsByCategory = map[string][]string{}
 				}
+				out[i].TagsByCategory[*v[2]] = append(out[i].TagsByCategory[*v[2]], *v[1])
 			}
 		}
 	}
-	return out, nil
 }
 
 // TagSet applies a user's tag correction. add: source 'user' (upsert over any tombstone , the user
@@ -1188,7 +1208,7 @@ func (s *NotifStore) FramesSearch(slot int, q string, limit int) ([]FrameRow, er
 	if len(terms) == 0 {
 		return nil, nil
 	}
-	sql := `SELECT f.hash, f.taken_at, f.kind, f.bytes, f.display_name FROM frames f WHERE true`
+	sql := `SELECT f.hash, f.taken_at, f.kind, f.bytes, f.display_name, f.place, f.description, f.duration_ms FROM frames f WHERE true`
 	args := []any{}
 	for i, t := range terms {
 		sql += ` AND (f.place ILIKE $` + strconv.Itoa(i+1) +
@@ -1201,26 +1221,10 @@ func (s *NotifStore) FramesSearch(slot int, q string, limit int) ([]FrameRow, er
 	if err != nil {
 		return nil, err
 	}
-	out := make([]FrameRow, 0, len(rows.Vals))
-	for _, v := range rows.Vals {
-		if len(v) < 5 || v[0] == nil {
-			continue
-		}
-		r := FrameRow{Hash: *v[0]}
-		if v[1] != nil {
-			r.TakenAt, _ = strconv.ParseInt(*v[1], 10, 64)
-		}
-		if v[2] != nil {
-			r.Kind = *v[2]
-		}
-		if v[3] != nil {
-			r.Bytes, _ = strconv.ParseInt(*v[3], 10, 64)
-		}
-		if v[4] != nil {
-			r.Name = *v[4]
-		}
-		out = append(out, r)
-	}
+	// the same row as the paged list, tags included: a result opened from the search used to
+	// show "none yet" for tags it plainly matched on
+	out := scanFrameRows(rows.Vals)
+	attachTags(c, out)
 	return out, nil
 }
 

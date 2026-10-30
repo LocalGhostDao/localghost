@@ -174,6 +174,7 @@ func main() {
 		waitForSearch(ctx, searchCli, 2*time.Minute, lg)
 		rep := pipe.Converge()
 		categorize(searchCli, rep, lg)
+		pipe.FillDurations() // clips from before the duration column: their running time, once
 		t := time.NewTicker(time.Duration(cfg.PollSeconds) * time.Second)
 		defer t.Stop()
 		// THE STOCK-TAKE, AGAIN, EVERY SIX HOURS. It ran at start only, so a frame that fell

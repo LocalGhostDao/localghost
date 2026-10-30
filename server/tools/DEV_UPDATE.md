@@ -6501,3 +6501,25 @@ Anchor Terminal's second pass, after wisp 0.0.2:
 - On xyntai after this drop: `sudo ./tools/firewall.sh` once (or the next redeploy), then
   `sudo ./bin/ghost-ctl doctor`. The hand-typed smtp rules in /etc/nftables.conf's inet filter
   duplicate the relay's table and can go, leaving the file as flush ruleset + the include.
+
+## 30 October 2026 , the gallery refreshed; clips framed and timed; the screen stays on
+- Vlad: "highlight videos better, maybe a frame; the tags and everything when I open them to
+  look better; a proper refresh; the screen should not dim and the phone not lock while playing
+  a video".
+- Box: `exif.Meta.Duration` from mvhd (timescale/duration, v0 and v1; a day-long or "unknown"
+  value is 0); `frames.duration_ms` (migration in datastore.go); `Frame.DurationMs` set at both
+  insert sites and merged once (0 → value); `Pipeline.FillDurations()` at framed start reads the
+  moov of every clip without one (`Store.VideosWithoutDuration`, `SetDuration`); `FrameRow.Duration`
+  (seconds) in the list and the search. The list and the search now share `frameCols`,
+  `scanFrameRows` and `attachTags`: the search used to return hash/when/kind/bytes/name only, so a
+  result's card showed no tags, place or description.
+- App: `GalleryText` (duration 0:07 / 1:42 / 1:03:05, size, heading, the when line, the group
+  order people → place → event → activity → animal → food → nature → object → vehicle → text →
+  style → other, `groups`, `regroup` after an edit; tests). `GalleryScreen`: `GalleryCell` (a
+  video: 1.5 dp TerminalGreen border, a gradient strip with ▶ and the time), the videos switch,
+  the count line; `FrameDetailDialog` full width, the picture at its own ratio clamped to
+  4:5..16:9, "[ ▶ PLAY ]" on a clip, the heading, `[ ✕ ]`, tags as `TagChips` (FlowRow) under
+  their group labels, a terminal-styled add line with Done on the keyboard. `BoxClient`:
+  `galleryFrame()` parses `duration` and `tagsByCategory` for both the list and the search.
+  `VideoPlayer` and `MediaSlideshow` (while playing) set `LocalView.keepScreenOn` for the dialog
+  window; `ThumbStrip`'s clips wear the frame too. Not compiled here; Vlad builds.

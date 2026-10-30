@@ -586,6 +586,9 @@ CREATE TABLE IF NOT EXISTS reports (
 -- only ever set when empty , a user rename wins forever. Archive files stay hash-named: bytes are
 -- the identity, names are decoration.
 ALTER TABLE frames ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT '';
+-- a clip's running time in milliseconds, from its mvhd (0 for a still, or a clip that does not
+-- say); the gallery shows it on the cell, and framed fills older rows in at start
+ALTER TABLE frames ADD COLUMN IF NOT EXISTS duration_ms BIGINT NOT NULL DEFAULT 0;
 CREATE TABLE IF NOT EXISTS frame_tags (
     hash       TEXT NOT NULL,
     tag        TEXT NOT NULL,

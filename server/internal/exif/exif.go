@@ -25,6 +25,9 @@ type Meta struct {
 	// gallery: every viewer that looked right (Samsung Gallery) was applying this tag, and our
 	// preview derivation was not.
 	Orientation int
+	// Duration is a clip's running time from its mvhd (timescale and duration); zero for a still
+	// or a clip that does not say.
+	Duration time.Duration
 }
 
 var errNoExif = errors.New("no exif")

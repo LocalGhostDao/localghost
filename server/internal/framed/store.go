@@ -41,6 +41,8 @@ type Frame struct {
 	TakenSrc    string // "exif" | "hint" | "mtime" , how TakenAt was determined; mtime is NOT trusted for sync resume
 	// Which phone uploaded this , empty for older rows and local imports (unknown, not guessed).
 	Device string
+	// DurationMs is a clip's running time; 0 for a still or a clip whose header does not say.
+	DurationMs int64
 }
 
 // Store wraps a ghost_rw poltergres connection for one slot's database.
@@ -73,8 +75,8 @@ func (s *Store) Ping() error { return s.db.Ping() }
 // the authority (a HEIC the old sniff called a video is a photo, and is renamed to .heic).
 func (s *Store) InsertFrame(f Frame) error {
 	return s.db.Exec(
-		`INSERT INTO frames (hash, taken_at, lat, lon, has_gps, archive_path, preview_path, thumb_path, bytes, source, received_at, kind, mime, taken_src, place, device, pipe_ver)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+		`INSERT INTO frames (hash, taken_at, lat, lon, has_gps, archive_path, preview_path, thumb_path, bytes, source, received_at, kind, mime, taken_src, place, device, pipe_ver, duration_ms)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		 ON CONFLICT (hash) DO UPDATE SET
 		   pipe_ver = GREATEST(frames.pipe_ver, EXCLUDED.pipe_ver),
 		   place = CASE WHEN frames.place = '' AND EXCLUDED.place <> '' THEN EXCLUDED.place ELSE frames.place END,
@@ -88,7 +90,8 @@ func (s *Store) InsertFrame(f Frame) error {
 		   kind = CASE WHEN EXCLUDED.kind <> 'unknown' THEN EXCLUDED.kind ELSE frames.kind END,
 		   mime = CASE WHEN EXCLUDED.mime <> '' THEN EXCLUDED.mime ELSE frames.mime END,
 		   archive_path = CASE WHEN EXCLUDED.archive_path <> '' THEN EXCLUDED.archive_path ELSE frames.archive_path END,
-		   device = CASE WHEN frames.device = '' AND EXCLUDED.device <> '' THEN EXCLUDED.device ELSE frames.device END
+		   device = CASE WHEN frames.device = '' AND EXCLUDED.device <> '' THEN EXCLUDED.device ELSE frames.device END,
+		   duration_ms = CASE WHEN frames.duration_ms = 0 AND EXCLUDED.duration_ms > 0 THEN EXCLUDED.duration_ms ELSE frames.duration_ms END
 		 WHERE (frames.place = '' AND EXCLUDED.place <> '')
 		    OR (NOT frames.has_gps AND EXCLUDED.has_gps)
 		    OR (`+takenRank("EXCLUDED")+` > `+takenRank("frames")+`)
@@ -98,9 +101,31 @@ func (s *Store) InsertFrame(f Frame) error {
 		    OR (frames.mime <> EXCLUDED.mime AND EXCLUDED.mime <> '')
 		    OR (frames.archive_path <> EXCLUDED.archive_path AND EXCLUDED.archive_path <> '')
 		    OR (frames.device = '' AND EXCLUDED.device <> '')
+		    OR (frames.duration_ms = 0 AND EXCLUDED.duration_ms > 0)
 		    OR (frames.pipe_ver < EXCLUDED.pipe_ver)`,
 		f.Hash, f.TakenAt, f.Lat, f.Lon, f.HasGPS,
-		f.ArchivePath, f.PreviewPath, f.ThumbPath, f.Bytes, f.Source, f.ReceivedAt, f.Kind, f.MIME, f.TakenSrc, f.Place, f.Device, PipelineVersion)
+		f.ArchivePath, f.PreviewPath, f.ThumbPath, f.Bytes, f.Source, f.ReceivedAt, f.Kind, f.MIME, f.TakenSrc, f.Place, f.Device, PipelineVersion, f.DurationMs)
+}
+
+// VideosWithoutDuration lists the clips whose running time is not recorded yet (rows from before
+// the column, or a clip whose header said nothing), for the fill at start.
+func (s *Store) VideosWithoutDuration() (hashes, paths []string, err error) {
+	rows, err := s.db.Query(`SELECT hash, archive_path FROM frames WHERE kind = 'video' AND duration_ms = 0 AND archive_path <> ''`)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, r := range rows.Vals {
+		if len(r) >= 2 && r[0] != nil && r[1] != nil {
+			hashes = append(hashes, *r[0])
+			paths = append(paths, *r[1])
+		}
+	}
+	return hashes, paths, nil
+}
+
+// SetDuration records a clip's running time once; a value already there stays.
+func (s *Store) SetDuration(hash string, ms int64) error {
+	return s.db.Exec(`UPDATE frames SET duration_ms = $2 WHERE hash = $1 AND duration_ms = 0`, hash, ms)
 }
 
 // ForgetFrame removes every row the box keeps for a frame: searchd's original (its chunks go with

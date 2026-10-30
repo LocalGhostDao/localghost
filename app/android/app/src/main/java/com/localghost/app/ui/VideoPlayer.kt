@@ -61,8 +61,17 @@ fun VideoPlayer(hash: String, onDismiss: () -> Unit) {
     DisposableEffect(hash) {
         onDispose { runCatching { exo.release() }; file?.delete() }
     }
+    // The screen stays on and the phone does not lock while the player is open: a clip is watched
+    // without a touch, and the shell's one-minute hold after the last touch (MainActivity) would
+    // let the phone's own timeout dim and lock it mid-clip. The flag is the dialog window's (the
+    // view below is in it) and goes with the dialog.
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val view = androidx.compose.ui.platform.LocalView.current
+        DisposableEffect(view) {
+            view.keepScreenOn = true
+            onDispose { view.keepScreenOn = false }
+        }
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
             when {
                 !fallingBack && !failed -> AndroidView(

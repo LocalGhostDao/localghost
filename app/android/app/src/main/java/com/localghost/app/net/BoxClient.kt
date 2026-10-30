@@ -828,7 +828,30 @@ object BoxClient {
         val tags: List<String> = emptyList(),
         val place: String = "",          // reverse-geocoded hierarchy; "" until geo data lands
         val description: String = "",    // the caption's SCENE section
+        val duration: Double = 0.0,      // a clip's running time in seconds; 0 for a photo or an unknown
+        val tagsByCategory: Map<String, List<String>> = emptyMap(), // the same tags grouped (people, place, object, …)
     )
+
+    /** One gallery row from the box's JSON (the list and the search send the same shape). */
+    private fun galleryFrame(o: org.json.JSONObject): GalleryFrame {
+        val tagsArr = o.optJSONArray("tags")
+        val cats = o.optJSONObject("tagsByCategory")
+        val byCat = linkedMapOf<String, List<String>>()
+        if (cats != null) for (k in cats.keys()) {
+            val a = cats.optJSONArray(k) ?: continue
+            byCat[k] = (0 until a.length()).mapNotNull { t -> a.optString(t).takeIf { it.isNotBlank() } }
+        }
+        return GalleryFrame(
+            o.optString("hash"), o.optLong("takenAt"), o.optString("kind"), o.optLong("bytes"),
+            name = o.optString("name", ""),
+            place = o.optString("place", ""),
+            description = o.optString("description", ""),
+            tags = if (tagsArr == null) emptyList()
+                   else (0 until tagsArr.length()).mapNotNull { t -> tagsArr.optString(t).takeIf { it.isNotBlank() } },
+            duration = o.optDouble("duration", 0.0),
+            tagsByCategory = byCat,
+        )
+    }
 
     /** Page the archive newest-first. before=0 for the first page; pass the last row's takenAt to
      *  continue. Empty list on failure or end of archive. */
@@ -836,18 +859,7 @@ object BoxClient {
     suspend fun framesList(ctx: Context, before: Long = 0, limit: Int = 60): List<GalleryFrame>? = try {
         val r = BoxHttp.getJson(ctx, "/v1/frames/list?before=$before&limit=$limit")
         val arr = r.optJSONArray("frames") ?: return emptyList()
-        (0 until arr.length()).mapNotNull { i ->
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            val tagsArr = o.optJSONArray("tags")
-            GalleryFrame(
-                o.optString("hash"), o.optLong("takenAt"), o.optString("kind"), o.optLong("bytes"),
-                name = o.optString("name", ""),
-                place = o.optString("place", ""),
-                description = o.optString("description", ""),
-                tags = if (tagsArr == null) emptyList()
-                       else (0 until tagsArr.length()).mapNotNull { t -> tagsArr.optString(t).takeIf { it.isNotBlank() } },
-            )
-        }
+        (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { galleryFrame(it) } }
     } catch (e: Exception) {
         android.util.Log.w("LocalGhost", "frames/list failed: ${e.message}")
         null
@@ -897,12 +909,7 @@ object BoxClient {
     suspend fun framesSearch(ctx: Context, q: String): List<GalleryFrame>? = try {
         val r = BoxHttp.getJson(ctx, "/v1/frames/search?q=" + java.net.URLEncoder.encode(q, "UTF-8"))
         val a = r.optJSONArray("frames") ?: return emptyList()
-        (0 until a.length()).mapNotNull { i ->
-            val o = a.optJSONObject(i) ?: return@mapNotNull null
-            GalleryFrame(o.optString("hash"), o.optLong("takenAt"), o.optString("kind"),
-                bytes = o.optLong("bytes"), name = o.optString("name"),
-                place = o.optString("place"))
-        }
+        (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { galleryFrame(it) } }
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "frames search: ${e.message}"); null }
 
     /** Ship day-batched health metrics to the box (tallyd ingests). */

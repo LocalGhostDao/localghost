@@ -90,6 +90,9 @@ func parseMoov(b []byte) Meta {
 			if ts := mvhdCreation(body); !ts.IsZero() {
 				m.TakenAt = ts
 			}
+			if d := mvhdDuration(body); d > 0 {
+				m.Duration = d
+			}
 		case "udta":
 			walkBoxes(body, func(t string, bb []byte) {
 				if t == "\xa9xyz" && len(bb) >= 4 {
@@ -151,6 +154,45 @@ func walkBoxes(b []byte, fn func(typ string, body []byte)) {
 		fn(typ, b[pos+hdr:pos+boxSize])
 		pos += boxSize
 	}
+}
+
+// mvhdDuration reads timescale and duration (after creation and modification times: 32-bit each
+// in version 0, 64-bit times with a 32-bit timescale in version 1). Zero when absent or absurd.
+func mvhdDuration(b []byte) time.Duration {
+	if len(b) < 4 {
+		return 0
+	}
+	var scale, dur uint64
+	switch b[0] {
+	case 0:
+		if len(b) < 20 {
+			return 0
+		}
+		scale = uint64(binary.BigEndian.Uint32(b[12:16]))
+		dur = uint64(binary.BigEndian.Uint32(b[16:20]))
+		if dur == 0xFFFFFFFF {
+			return 0 // "unknown"
+		}
+	case 1:
+		if len(b) < 32 {
+			return 0
+		}
+		scale = uint64(binary.BigEndian.Uint32(b[20:24]))
+		dur = binary.BigEndian.Uint64(b[24:32])
+		if dur == 0xFFFFFFFFFFFFFFFF {
+			return 0
+		}
+	default:
+		return 0
+	}
+	if scale == 0 || dur == 0 {
+		return 0
+	}
+	secs := float64(dur) / float64(scale)
+	if secs > 24*3600 {
+		return 0 // a day-long clip is a broken header, not a recording
+	}
+	return time.Duration(secs * float64(time.Second))
 }
 
 // mvhdCreation reads creation_time: version 0 = 32-bit, version 1 = 64-bit, both in seconds since

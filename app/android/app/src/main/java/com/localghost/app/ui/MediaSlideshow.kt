@@ -54,6 +54,13 @@ fun MediaSlideshow(hashes: List<String>, start: Int, title: String = "", onDismi
     }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // the strip runs itself, so while it plays the screen stays on (the flag is the dialog
+        // window's and goes with it); paused, the phone's own timeout applies again
+        val view = androidx.compose.ui.platform.LocalView.current
+        DisposableEffect(view, playing) {
+            view.keepScreenOn = playing
+            onDispose { view.keepScreenOn = false }
+        }
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), key = { hashes[it] }) { i ->
                 val h = hashes[i]
@@ -137,15 +144,17 @@ fun ThumbStrip(hashes: List<String>, title: String = "", size: androidx.compose.
                     withContext(Dispatchers.Default) { android.graphics.BitmapFactory.decodeByteArray(b, 0, b.size) }
                 }
             }
-            Box(Modifier.size(size).border(1.dp, GhostBorder, androidx.compose.ui.graphics.RectangleShape)
+            // a video wears the same green frame as in the gallery, and its ▶ sits at the foot
+            val video = kinds[hash] == "video"
+            Box(Modifier.size(size).border(if (video) 1.5.dp else 1.dp, if (video) TerminalGreen else GhostBorder, androidx.compose.ui.graphics.RectangleShape)
                 .clickable { open = i }, contentAlignment = Alignment.Center) {
                 bmp?.let {
                     Image(bitmap = it.asImageBitmap(), contentDescription = null,
                         contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
                 }
-                if (kinds[hash] == "video") {
-                    Text("▶", color = TerminalGreen, style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.background(Color(0x99000000)).padding(horizontal = 6.dp))
+                if (video) {
+                    Text("▶", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.align(Alignment.BottomStart).background(Color(0xCC000000)).padding(horizontal = 6.dp, vertical = 2.dp))
                 }
             }
         }
