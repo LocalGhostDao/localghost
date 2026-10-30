@@ -6529,3 +6529,9 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   in `hw/schemadef.go` is the source of truth (its own header says so) and the harness converges
   from it. Moved there (`{"duration_ms", "BIGINT", true, "0"}`), the blob line removed. The whole
   suite run here against a scratch Postgres 16 (`GHOST_PG_SOCKET_DIR`, as CI sets it): green.
+- CI #75: `TestGateTreatsTheWipePinAsWrong` (internal/profile) failed on timing alone, "after
+  wipe 117 ms, after wrong 69 ms", the 1.6× ratio between two Argon2 medians on a shared runner.
+  The tell it guards against is a guess answered without the KDF, a hundred times quicker, not
+  twice; the test now measures one `PinKey` run on the machine first and requires each path to
+  take at least 0.4 of that, with the ratio loosened to 4× and five interleaved runs per path,
+  median kept. Passed here twice under four CPU hogs.
