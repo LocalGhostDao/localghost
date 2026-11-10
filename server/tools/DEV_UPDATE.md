@@ -6535,3 +6535,34 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   twice; the test now measures one `PinKey` run on the machine first and requires each path to
   take at least 0.4 of that, with the ratio loosened to 4× and five interleaved runs per path,
   median kept. Passed here twice under four CPU hogs.
+
+## 9 November 2026 , the box reads its memories again
+- Vlad pasted a summary of Anthropic's "dreaming" piece (four layers, background consolidation,
+  going back to the evidence to correct a note) and asked how far LocalGhost is from it; the gap
+  on the correction loop was the one that mattered (a distilled fact was written once and
+  believed forever; days and outings self-correct because they are rebuilt from rows). "Close the
+  loop please."
+- `cmd/ghost.synthd/verify.go`: `readAgainPass` (once a day on the GPU, `verifyPer` 6 a pass,
+  the day marked only when a pass finds nothing so a backlog drains): distilled memories with a
+  `source_ref` and no `verified_at` (or updated since), then people's facts with a `ref` and no
+  `v`; `recordFor` fetches the journal entry by ref; `readAgain` asks YES/NO/PARTLY and one
+  sentence of what the record says; `parseVerdict` keeps the sentence only when its capitalised
+  words (not sentence-initial) and numbers are in the record. Meta: `verified_at`, `doubt {at,
+  found, ref}` on a distilled memory; `v`, `doubt` on a `personFact`. `personBody` and
+  `personFacts` leave doubted facts out (so the model's telling and the rendered body do not carry
+  them); `memoriesSource` excludes memories with a doubt from the chat's grounding; user-edited
+  rows are never read. A gone record is a doubt with no words. ctl `read-again` (`run=1`); Box
+  Status "read again" row; `synthDid` names. Tests: `TestParseVerdict`,
+  `TestReadAgainPromptAndBody`, `TestReadAgainPG` (stub oracled on the GPU: confirmed, doubted
+  with the record's words, gone record, a person's fact out of the body, hand-edited untouched,
+  the second pass marks the day).
+- App: `MemRow.doubt`, `verifiedAt`, `doubtedFacts`, `inDoubt`; "?" before a doubted memory in
+  the list; the page says what the box found (`MemoryText.doubtLine`, `factDoubt`,
+  `confirmedLine`, `recordName`; tests) with "NOT SURE OF THESE ANY MORE" for a person. Not
+  compiled here; Vlad builds.
+- synthd's main.go header still said the index "does not exist yet"; rewritten to what the daemon
+  does now.
+- Found on the way: `TestFeedsRetiredAndGivenUp` used a fixed 1 October story and the recount
+  after a retirement covers thirty days by the clock, so the test fails from 31 October on (CI
+  #75 ran on the 30th and passed by hours); the story is now two hours old. Would have been the
+  next red CI.

@@ -464,6 +464,18 @@ backfilled a slice per pass. `tools/health.sh` shows the count and where the bac
 `ghost-cli ghost.synthd days` the same with detail, `days day=2026-09-25 rewrite=true` to have one
 day written again. "On this day" and the memories feed read these rows.
 
+## 1b''''''. The memories read again , nothing to run
+
+A memory distilled from a chat or a note, and each fact about one of your people, is checked once
+against the record it was made from: once a day while the GPU is up, a few per ten-minute pass,
+ghost.synthd fetches the journal entry the memory names and asks the model whether the record says
+this. YES stamps it; NO or PARTLY puts it in DOUBT with the record's own words beside it, and a
+doubted memory leaves the chat's grounding and a person's written body until you decide (MEMORIES
+shows "?" before it and the page says what was found; edit, delete or leave it). Your own edits
+are never read again. `ghost-cli ghost.synthd read-again` lists what stands in doubt;
+`read-again run=1` runs a pass now. Box Status shows how many were read again and how many are
+in doubt.
+
 ## 1b'''''. The weather, forecast by the box , nothing to run
 
 ghost.tallyd forecasts the world's larger places itself: the world cut into half-degree cells

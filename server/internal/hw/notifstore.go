@@ -2263,6 +2263,15 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 			}
 			add("consolidation", line)
 		}
+		// READ AGAIN: memories checked against the records they came from (verify.go)
+		{
+			doubtedFacts := one("SELECT coalesce(sum((SELECT count(*) FROM jsonb_array_elements(meta->'facts') f WHERE coalesce(f->>'doubt','') <> '')), 0) FROM memories WHERE kind = 'person' AND NOT tombstoned AND meta IS NOT NULL AND jsonb_typeof(meta->'facts') = 'array'")
+			line := "distilled memories read again " + one("SELECT count(*) FROM memories WHERE kind = 'distilled' AND NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'verified_at')") +
+				" of " + one("SELECT count(*) FROM memories WHERE kind = 'distilled' AND NOT tombstoned") +
+				" · in doubt " + one("SELECT count(*) FROM memories WHERE kind = 'distilled' AND NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'doubt')") +
+				" · people's facts in doubt " + doubtedFacts
+			add("read again", line)
+		}
 		// WIKIPEDIA, in the database once imported: a key row while it is importing, downloading or failed
 		if hasStatus {
 			wk := st.Wiki
@@ -2763,9 +2772,10 @@ func leftText(secs int64) string {
 
 // synthDid is a pass's work in a line: "distilled 3 · outings 1 · trips 1", "" when it did nothing.
 func synthDid(pass map[string]int) string {
-	order := []string{"about", "checkins", "named", "distilled", "outings", "folded", "trips", "people", "places", "insights", "prose", "days", "daysByModel"}
+	order := []string{"about", "checkins", "named", "distilled", "outings", "folded", "trips", "people", "places", "insights", "prose", "confirmed", "doubted", "days", "daysByModel"}
 	names := map[string]string{"about": "note", "checkins": "check-in facts", "named": "renamed", "distilled": "distilled", "outings": "outings",
-		"folded": "people merged", "trips": "trips", "people": "people written", "places": "places", "insights": "noticed", "prose": "written", "days": "days", "daysByModel": "days by the model"}
+		"folded": "people merged", "trips": "trips", "people": "people written", "places": "places", "insights": "noticed", "prose": "written",
+		"confirmed": "read again, confirmed", "doubted": "read again, in doubt", "days": "days", "daysByModel": "days by the model"}
 	var parts []string
 	for _, k := range order {
 		if n := pass[k]; n > 0 {

@@ -339,6 +339,8 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
                 onCancel = { editing = false })
         } else {
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                // "?" before a memory the box read again and could not stand behind; its page says what it found
+                if (m.inDoubt) Text("? ", color = Warning, style = MaterialTheme.typography.bodyMedium)
                 Text(m.title + " ›", color = GhostText, style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f).clickable { onOpen() })
                 Text("✎", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,

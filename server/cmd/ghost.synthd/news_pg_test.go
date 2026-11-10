@@ -215,7 +215,9 @@ func TestArticlesRead(t *testing.T) {
 // it); a feed that has never once given a feed is switched off after six tries, and only then.
 func TestFeedsRetiredAndGivenUp(t *testing.T) {
 	db := pgFresh(t, "lgtest_synthd_feedsretired")
-	now := time.Date(2026, 10, 1, 8, 30, 0, 0, time.UTC)
+	// a recent story: the recount after a retirement covers the last thirty days by the clock
+	// (a fixed 1 October here went stale on 31 October and failed from then on)
+	now := time.Now().UTC().Add(-2 * time.Hour)
 	// a box seeded by the earlier list: the FT among its feeds, an entry of it in a story
 	_ = db.Exec("INSERT INTO settings (key, value) VALUES ('news_seeded','1')")
 	_ = db.Exec("INSERT INTO news_feeds (id, name, url, added_at) VALUES ('ft','Financial Times','https://www.ft.com/rss/home',1), ('bbc','BBC','https://feeds.bbci.co.uk/news/rss.xml',1), ('dead','Dead','https://dead.example/feed',1)")

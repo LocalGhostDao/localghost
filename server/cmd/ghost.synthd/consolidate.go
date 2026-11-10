@@ -50,10 +50,14 @@ const (
 
 // --- people ---
 
-// personFact is one thing the box learnt about a person, and where.
+// personFact is one thing the box learnt about a person, and where. V is when the box read the
+// record again (verify.go) and Doubt what it found when the record did not say this: a doubted
+// fact stays here for the person to judge, out of the rendered body and the model's telling.
 type personFact struct {
-	T   string `json:"t"`
-	Ref string `json:"ref,omitempty"`
+	T     string `json:"t"`
+	Ref   string `json:"ref,omitempty"`
+	V     int64  `json:"v,omitempty"`
+	Doubt string `json:"doubt,omitempty"`
 }
 
 // personMeta is what a person's memory is made of; the body is rendered from it.
@@ -119,7 +123,9 @@ func personBody(m personMeta) string {
 			covered = 0
 		}
 		for i := covered; i < len(m.Facts); i++ {
-			parts = append(parts, m.Facts[i].T)
+			if m.Facts[i].Doubt == "" {
+				parts = append(parts, m.Facts[i].T)
+			}
 		}
 		return strings.TrimSpace(strings.Join(parts, " "))
 	}
@@ -127,7 +133,9 @@ func personBody(m personMeta) string {
 		parts = append(parts, m.Note)
 	}
 	for _, f := range m.Facts {
-		parts = append(parts, f.T)
+		if f.Doubt == "" {
+			parts = append(parts, f.T)
+		}
 	}
 	return strings.TrimSpace(strings.Join(parts, " "))
 }
@@ -633,7 +641,9 @@ func personFacts(p personRow) []string {
 		f = append(f, p.meta.Note)
 	}
 	for _, x := range p.meta.Facts {
-		f = append(f, x.T)
+		if x.Doubt == "" { // a doubted fact is the person's to judge, not the model's to retell
+			f = append(f, x.T)
+		}
 	}
 	return f
 }

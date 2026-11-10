@@ -90,6 +90,29 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                     Spacer(Modifier.height(14.dp))
                     Text(row.body, color = GhostText, style = MaterialTheme.typography.bodyMedium)
                 }
+                // READ AGAIN: what the box found when it checked this against the record it was
+                // made from. A doubt is the person's to settle: edit, delete, or leave it.
+                val day = { ms: Long -> java.text.SimpleDateFormat("d MMMM", java.util.Locale.UK).format(java.util.Date(ms)) }
+                row.doubt?.let { d ->
+                    Spacer(Modifier.height(12.dp))
+                    Text(MemoryText.doubtLine(d.optString("ref", ""), d.optString("found", ""), d.optLong("at", 0L), day),
+                        color = Warning, style = MaterialTheme.typography.labelMedium)
+                }
+                if (row.doubtedFacts.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    SectionLabel("NOT SURE OF THESE ANY MORE")
+                    Spacer(Modifier.height(4.dp))
+                    row.doubtedFacts.forEach { (fact, found) ->
+                        Text("? " + MemoryText.factDoubt(fact, found), color = Warning, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(vertical = 2.dp))
+                    }
+                    Text("left out of what the box tells of them until you decide; ✎ to rewrite, or delete the memory",
+                        color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                }
+                if (row.doubt == null && row.doubtedFacts.isEmpty()) MemoryText.confirmedLine(row.verifiedAt, day)?.let { line ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(line, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                }
                 // what it was made from: an outing's or a day's facts, as synthd kept them
                 row.meta?.let { meta ->
                     val facts = ArrayList<String>()

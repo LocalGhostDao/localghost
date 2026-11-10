@@ -3,11 +3,15 @@
 // candidates for ghost.cued to gate. synthd decides WHAT is a candidate; cued decides WHEN and
 // WHETHER anything reaches the user.
 //
-// HONEST STATE. The INDEX , embeddings, vector store, the memory corpus , is the next few months of
-// work and does not exist yet. So synthd runs the real query PIPELINE over an EMPTY index: the "prime"
-// command executes the whole path and returns nothing, because nothing is indexed. synthd is
-// running-but-blind. When the corpus is built behind the Index interface, synthd starts returning
-// candidates with no change to cued or to the pipeline.
+// It is also the memory-MAKING daemon (distillLoop, every ten minutes while unlocked): the journal
+// distilled into memories (the chats, the notes, the voice notes), one memory per person with
+// every fact and where it came from (aboutme.go, consolidate.go), the outings and the trips from
+// the photos and the days from everything (outings.go, consolidate.go, days.go), the places and
+// the insights (places.go), the model's telling of each written from a fact sheet and kept only
+// when it stays inside the facts (prose.go), and, once a day, every distilled memory and every
+// fact about a person READ AGAIN against the record it was made from and put in doubt when the
+// record does not say it (verify.go). The memory index below is rebuilt from the memories at
+// each start; "prime" ranks over it for cued.
 //
 // It exposes its work over the same control socket everything uses: base commands (ping/status/reload/
 // log-level) plus its own , prime (the hot path cued calls), ready, and index-stats. So ghost-cli can
@@ -985,6 +989,46 @@ func main() {
 		// consolidate: what belongs together, together (consolidate.go). Without arguments, the
 		// people and the trips as they stand; run=true merges the people and folds the trips now;
 		// write=true also has the model write the people whose facts grew (the GPU, minutes).
+		// read-again: the memories checked against their records now (one pass's budget; the
+		// GPU must be up), and what stands in doubt. `ghost-cli ghost.synthd read-again run=1`.
+		ctl.Handle("read-again", func(args json.RawMessage) (ctlsock.Response, error) {
+			var a struct {
+				Run bool `json:"run"`
+			}
+			if len(args) > 0 {
+				_ = json.Unmarshal(args, &a)
+			}
+			db := chatStore(mount)
+			if db == nil {
+				return ctlsock.Response{OK: false, Err: "no database (box locked?)"}, nil
+			}
+			out := map[string]any{}
+			if a.Run {
+				_ = setSetting(db, verifyDayKey, "")
+				oc := oracle.NewClient(runDir, 3*time.Minute)
+				ok, nope, err := readAgainPass(db, oc, lg)
+				if err != nil {
+					return ctlsock.Response{OK: false, Err: err.Error()}, nil
+				}
+				out["confirmed"], out["doubted"] = ok, nope
+			}
+			rows, err := db.Query(`SELECT id, kind, title, coalesce(meta->'doubt'->>'found', ''), coalesce(meta->'doubt'->>'ref', '') FROM memories
+				WHERE NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'doubt') ORDER BY (meta->'doubt'->>'at')::bigint DESC LIMIT 50`)
+			if err != nil {
+				return ctlsock.Response{OK: false, Err: err.Error()}, nil
+			}
+			var doubts []map[string]any
+			for _, v := range rows.Vals {
+				if len(v) < 5 || v[0] == nil {
+					continue
+				}
+				doubts = append(doubts, map[string]any{"id": str(v[0]), "kind": str(v[1]), "title": str(v[2]), "found": str(v[3]), "ref": str(v[4])})
+			}
+			out["inDoubt"] = doubts
+			out["verified"] = setting(db, verifyDayKey)
+			data, _ := json.Marshal(out)
+			return ctlsock.Response{OK: true, Data: data}, nil
+		})
 		ctl.Handle("consolidate", func(args json.RawMessage) (ctlsock.Response, error) {
 			var a struct {
 				Run   bool `json:"run"`
@@ -1768,6 +1812,13 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 			lg.Info("memories written by the model", "fn", "distillLoop", "memories", pn)
 			did["prose"] = pn
 		}
+		// READ AGAIN (verify.go): the distilled memories and the people's facts checked against
+		// the records they were made from, a few a pass, on the GPU
+		if ok, nope, verr := readAgainPass(db, oc, lg); verr != nil {
+			lg.Warn("read-again pass failed", "fn", "distillLoop", "err", verr)
+		} else if ok+nope > 0 {
+			did["confirmed"], did["doubted"] = ok, nope
+		}
 		// THE DAYS, after the outings (a day's sheet names the outing it belongs to)
 		if built, wrote, derr := daySummaryPass(db, oc, mount, lg); derr != nil {
 			lg.Warn("day summary pass failed", "fn", "distillLoop", "err", derr)
@@ -1910,7 +1961,7 @@ func memoriesSource(runDir, prompt string) []ctxItem {
 	}
 	var sb strings.Builder
 	args := make([]any, 0, len(terms))
-	sb.WriteString("SELECT title, body, created_at FROM memories WHERE NOT tombstoned AND (")
+	sb.WriteString("SELECT title, body, created_at FROM memories WHERE NOT tombstoned AND (meta IS NULL OR NOT jsonb_exists(meta, 'doubt')) AND (")
 	for i, t := range terms {
 		if i > 0 {
 			sb.WriteString(" OR ")

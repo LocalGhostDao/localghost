@@ -30,4 +30,16 @@ class MemoryTextTest {
         assertEquals("a day, from your trail and photos · home → Greenwich → home", MemoryText.origin("day", null, "home → Greenwich → home"))
         assertEquals("a day, from your trail and photos", MemoryText.origin("day", null, ""))
     }
+
+    @Test fun readAgainLines() {
+        val day = { _: Long -> "9 November" }
+        assertEquals("the box read the conversation again on 9 November and is not sure of this. It says: the boat sleeps four",
+            MemoryText.doubtLine("chat:2", "the boat sleeps four", 1L, day))
+        assertEquals("the box read the note again and could not find this in it", MemoryText.doubtLine("note:x", "", 0L, day))
+        assertEquals("the voice note", MemoryText.recordName("voice:12"))
+        assertEquals("read again on 9 November, as written", MemoryText.confirmedLine(1L, day))
+        assertEquals(null, MemoryText.confirmedLine(0L, day))
+        assertEquals("Cristina owns the boat. , the record says: it is Vlad's", MemoryText.factDoubt("Cristina owns the boat.", "it is Vlad's"))
+        assertEquals("Cristina owns the boat. , not found in the record it came from", MemoryText.factDoubt("Cristina owns the boat.", "the record does not say this"))
+    }
 }

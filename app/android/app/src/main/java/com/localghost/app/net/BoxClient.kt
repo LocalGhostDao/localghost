@@ -1305,6 +1305,22 @@ object BoxClient {
         /** The trip or the outing this memory is a part of ("trip:2026-09-12", "outing:2026-10-02"), "" for none:
          *  the list shows the whole in its place, and the whole's page lists its parts. */
         val partOf: String get() = meta?.optString("part_of") ?: ""
+        /** The box read this memory's record again and did not find it there (synthd's verify.go):
+         *  the doubt's {at, found, ref}, or null. For a person, [doubtedFacts] carries the facts. */
+        val doubt: org.json.JSONObject? get() = meta?.optJSONObject("doubt")
+        /** When the box last read the record again (unix ms), 0 for never. */
+        val verifiedAt: Long get() = meta?.optLong("verified_at", 0L) ?: 0L
+        /** A person's facts the box could not find in their records: (fact, what the record says). */
+        val doubtedFacts: List<Pair<String, String>> get() {
+            val a = meta?.optJSONArray("facts") ?: return emptyList()
+            return (0 until a.length()).mapNotNull { i ->
+                val f = a.optJSONObject(i) ?: return@mapNotNull null
+                val d = f.optString("doubt", "")
+                if (d.isBlank()) null else f.optString("t", "") to d
+            }
+        }
+        /** Anything about this memory the box is not sure of any more. */
+        val inDoubt: Boolean get() = doubt != null || doubtedFacts.isNotEmpty()
         /** A trip's line: "8 days · 160 photos · 53 km"; null for anything but a trip. */
         val tripLine: String? get() = if (kind != "trip") null else meta?.let { m ->
             val parts = ArrayList<String>()

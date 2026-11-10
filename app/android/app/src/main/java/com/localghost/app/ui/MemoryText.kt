@@ -32,6 +32,37 @@ object MemoryText {
         else -> kind
     }
 
+    /** READ AGAIN. The box checks a distilled memory, and each fact about a person, against the
+     *  record it was made from (synthd's verify.go) and keeps what it found in the meta: a
+     *  "doubt" on the memory ({at, found, ref}) or on a fact ({t, ref, v, doubt}). These say it
+     *  in words for the page and the list. */
+
+    /** The record a ref names, in words: "the conversation", "the note", "the voice note". */
+    fun recordName(ref: String): String = when {
+        ref.startsWith("chat:") -> "the conversation"
+        ref.startsWith("voice:") -> "the voice note"
+        ref.startsWith("checkin:") -> "the check-in"
+        ref.isEmpty() -> "the record"
+        else -> "the note"
+    }
+
+    /** The line a doubted memory shows under its body; null when the memory is not in doubt.
+     *  [found] is what the record says instead ("" when the record is gone), [at] unix ms. */
+    fun doubtLine(ref: String, found: String, at: Long, day: (Long) -> String): String {
+        val when_ = if (at > 0) " on " + day(at) else ""
+        return if (found.isBlank()) "the box read ${recordName(ref)} again$when_ and could not find this in it"
+        else "the box read ${recordName(ref)} again$when_ and is not sure of this. It says: $found"
+    }
+
+    /** The line a confirmed memory shows; null when never read again. */
+    fun confirmedLine(at: Long, day: (Long) -> String): String? =
+        if (at > 0) "read again on " + day(at) + ", as written" else null
+
+    /** A doubted fact of a person, for the list under their memory: "fact , the record says …". */
+    fun factDoubt(fact: String, found: String): String =
+        if (found.isBlank() || found == "the record does not say this") "$fact , not found in the record it came from"
+        else "$fact , the record says: $found"
+
     /** What the page says of a kind, for the line under the title: "A MEMORY", "AN OUTING", "A DAY",
      *  "ONE OF MY PEOPLE", "A PLACE", "NOTICED", "ABOUT ME", "WRITTEN BY ME". */
     fun kindLabel(kind: String): String = when (kind) {
