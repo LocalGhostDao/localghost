@@ -411,6 +411,10 @@ func (m *mailer) fetchOne(ctx context.Context, s mailSettings, e mailwire.Entry)
 // keep judges, parses, writes the row and the attachments, and raises the notification.
 func (m *mailer) keep(ctx context.Context, s mailSettings, name string, note mailwire.Note, raw []byte, sealPath string) error {
 	p, perr := parseMail(raw)
+	// who the message says it is from, as the row and the notification will show it, is the
+	// screen's reading and no other: the verdicts below are about exactly this address
+	// (mailauth/text.go). An address that is not plain is shown as none.
+	p.From, p.FromName, p.ReplyTo, p.Subject = mailauth.ScreenHeaders(raw, []string{s.domain()}).Shown()
 	seen, domainSeen, _ := m.store.MailSenderHistory(m.slot, p.From)
 	var res mailauth.Resolver = mailauth.NetResolver{Timeout: 5 * time.Second}
 	if !s.DNSChecks {
@@ -500,7 +504,9 @@ func (m *mailer) notify(id int64, p parsedMail, v mailauth.Verdicts, note mailwi
 	if from == "" {
 		from = "an address the box could not read"
 	}
-	recent, _ := m.store.MailRecentFrom(m.slot, p.From, time.Now().Add(-time.Hour).Unix())
+	// the hour's count is of messages judged as this one was: a flood under someone's address
+	// that fails its checks must not use up the real sender's notifications
+	recent, _ := m.store.MailRecentFrom(m.slot, p.From, v.Spam, time.Now().Add(-time.Hour).Unix())
 	if recent > burstPerHour {
 		return
 	}

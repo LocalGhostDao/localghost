@@ -27,7 +27,7 @@ var (
 // Sections is the article's sections after the lead, each cut to maxPer characters of text; the
 // bookkeeping sections (references, see also, external links) are left out.
 func Sections(page string, maxPer int) []Section {
-	if i := strings.Index(strings.ToLower(page), "<body"); i >= 0 {
+	if i := strings.Index(lowerASCII(page), "<body"); i >= 0 {
 		page = page[i:]
 	}
 	page = reStyle.ReplaceAllString(page, " ")

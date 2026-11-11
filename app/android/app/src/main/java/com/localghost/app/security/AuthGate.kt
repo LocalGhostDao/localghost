@@ -30,16 +30,53 @@ class AuthGate {
      *   else if (crash showing) keep crash
      *   else lock + tearDown
      */
-    fun onStop(keepCurrentScreen: Boolean): Boolean {
-        if (expectingResult) return false
+    fun onStop(keepCurrentScreen: Boolean, nowMs: Long = 0L): Boolean {
+        if (expectingResult) {
+            // the first stop a picker excused starts the clock: see staleOnStart
+            if (excusedAtMs == 0L) excusedAtMs = nowMs
+            return false
+        }
         if (keepCurrentScreen) return false
         return true
+    }
+
+    /** When the first stop excused by a picker happened (elapsed-realtime ms), 0 when none is. */
+    private var excusedAtMs: Long = 0L
+
+    /**
+     * The app is coming back. True when it was away under a picker's excuse for longer than the
+     * grace: the caller locks as onStop would have. A picker is a minute's errand; the excuse
+     * used to last until the process died, so a phone put down inside the file picker came back
+     * unlocked hours later (the audit's first run found it, the second found it still there).
+     * The excuse's clock is cleared either way.
+     */
+    fun staleOnStart(nowMs: Long, graceMs: Long = PICKER_GRACE_MS): Boolean {
+        val since = excusedAtMs
+        excusedAtMs = 0L
+        if (since == 0L) return false
+        if (nowMs - since <= graceMs) return false
+        expectingResult = false
+        return true
+    }
+
+    /**
+     * The screen went dark. Whatever was excused is no longer: a phone whose screen is off is a
+     * phone put down. Returns true when the caller must lock (the same exceptions as onStop for
+     * the screens that are kept).
+     */
+    fun onScreenOff(keepCurrentScreen: Boolean): Boolean {
+        expectingResult = false
+        excusedAtMs = 0L
+        return !keepCurrentScreen
     }
 
     /** App returned to the foreground. The picker guard is consumed here (one-shot). */
     fun onResume() { expectingResult = false }
 
     companion object {
+        /** How long a picker or the camera may keep the app away before coming back means the gate. */
+        const val PICKER_GRACE_MS = 120_000L
+
         /**
          * Whether the current screen must survive backgrounding rather than being replaced by the
          * lock. Two reasons a screen is kept: it is PRE-ENROLMENT (setup or the QR scan that feeds it,

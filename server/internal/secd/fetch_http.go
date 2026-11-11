@@ -11,8 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -107,26 +105,21 @@ func (s *Server) handleFetchList(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(doc)
 }
 
-// spool writes a body whole under dir and names it into place, owned by the daemons' user.
+// spool writes a body whole under dir and names it into place, owned by the daemons' user. Every
+// step is beneath the volume and by descriptor or Lchown (vaultfs.go): the directory is the
+// daemons' own and may be anything by the time this runs.
 func (s *Server) spool(dir, prefix string, body []byte) error {
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	uid, gid := s.spoolCred()
+	st := s.cfg.StateDir
+	if err := vaultMkdirAll(st, dir, 0o750, uid, gid); err != nil {
 		return err
 	}
 	path := filepath.Join(dir, fmt.Sprintf("%s-%d.json", prefix, time.Now().UnixNano()))
-	if err := os.WriteFile(path+".part", body, 0o640); err != nil {
+	if err := vaultWrite(st, path+".part", body, 0o640, uid, gid); err != nil {
 		return err
 	}
-	if s.cfg.RunUser != "" {
-		if u, uerr := user.Lookup(s.cfg.RunUser); uerr == nil {
-			uid, _ := strconv.Atoi(u.Uid)
-			gid, _ := strconv.Atoi(u.Gid)
-			_ = os.Chown(path+".part", uid, gid)
-			_ = os.Chown(dir, uid, gid)
-			_ = os.Chown(filepath.Dir(dir), uid, gid)
-		}
-	}
-	if err := os.Rename(path+".part", path); err != nil {
-		_ = os.Remove(path + ".part")
+	if err := vaultRename(st, path+".part", path); err != nil {
+		vaultRemove(st, path+".part")
 		return err
 	}
 	return nil

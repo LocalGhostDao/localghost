@@ -169,4 +169,33 @@ class WebSearchTest {
         val m = WebSearch.merge(listOf(a, b), listOf(b2, c))
         assertEquals(listOf("A", "B", "C"), m.map { it.title })
     }
+
+    @Test fun the_planner_is_asked_for_more_than_the_fresh_words() {
+        // these never reached the planner in auto mode: no "today", no "price"
+        for (q in listOf("who built hagia sophia", "is tungsten magnetic", "that greek island with the venetian fortress",
+            "difference between a sloop and a cutter", "how do heat pumps work?")) {
+            assertTrue(q, WebSearch.shouldAskPlan("auto", q))
+        }
+        // small talk and the person's own life are not offered to it
+        for (q in listOf("hi", "thanks!", "ok", "good morning", "what did I do last tuesday", "show me my photos from the harbour",
+            "who is my dentist")) assertFalse(q, WebSearch.shouldAskPlan("auto", q))
+        // a question about the person that also asks about now still goes to the planner, which
+        // is told to keep their details out of the searches
+        assertTrue(WebSearch.shouldAskPlan("auto", "what's the weather where I am today?"))
+        assertTrue(WebSearch.shouldAskPlan("on", "hi"))
+        assertFalse(WebSearch.shouldAskPlan("off", "who built hagia sophia"))
+        assertTrue(WebSearch.looksChatter("  Thank you. "))
+        assertFalse(WebSearch.looksChatter("thanks, and who built it?"))
+    }
+
+    @Test fun the_plans_subject_is_a_wikipedia_lookup_when_it_is_a_name() {
+        assertTrue(WebSearch.Tools.subjectFits("Hagia Sophia"))
+        assertTrue(WebSearch.Tools.subjectFits("Corfu"))
+        assertFalse(WebSearch.Tools.subjectFits(""))
+        assertFalse(WebSearch.Tools.subjectFits("weather Corfu"))
+        assertFalse(WebSearch.Tools.subjectFits("my dentist"))
+        assertFalse(WebSearch.Tools.subjectFits("the best way to descale a kettle with vinegar"))
+        assertEquals(1, WebSearch.Tools.forSubject("Hagia Sophia?").size)
+        assertEquals(0, WebSearch.Tools.forSubject("").size)
+    }
 }

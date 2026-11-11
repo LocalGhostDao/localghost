@@ -78,6 +78,10 @@ const (
 // well below it by the caller.
 const maxPacket = 64 << 20
 
+// maxPackets is how many packets one stream may hold: a message is a handful, a key with every
+// certification it ever collected a few thousand.
+const maxPackets = 8192
+
 var (
 	ErrNoKey       = errors.New("no usable key")
 	ErrNotForUs    = errors.New("the message is not encrypted to this key")
@@ -99,6 +103,10 @@ func readPackets(data []byte) ([]packet, error) {
 		p, err := readPacket(r)
 		if err != nil {
 			return nil, err
+		}
+		if len(out) == maxPackets {
+			// megabytes of two-byte empty packets were gigabytes of these (audit run 2)
+			return nil, fmt.Errorf("%w: more than %d packets", ErrUnsupported, maxPackets)
 		}
 		out = append(out, p)
 	}
@@ -126,6 +134,11 @@ func readPacket(r *bytes.Reader) (packet, error) {
 			}
 			if n > maxPacket || buf.Len()+int(n) > maxPacket {
 				return packet{}, fmt.Errorf("%w: packet over %d bytes", ErrUnsupported, maxPacket)
+			}
+			if n > int64(r.Len()) {
+				// the length a packet claims is checked against what is there before any of
+				// it is set aside: six bytes used to reserve 64 MB
+				return packet{}, fmt.Errorf("truncated packet (tag %d)", tag)
 			}
 			chunk := make([]byte, n)
 			if _, err := io.ReadFull(r, chunk); err != nil {
@@ -164,6 +177,9 @@ func readPacket(r *bytes.Reader) (packet, error) {
 		}
 		if n > maxPacket {
 			return packet{}, fmt.Errorf("%w: packet over %d bytes", ErrUnsupported, maxPacket)
+		}
+		if n > int64(r.Len()) {
+			return packet{}, fmt.Errorf("truncated packet (tag %d)", tag)
 		}
 		body = make([]byte, n)
 		if _, err := io.ReadFull(r, body); err != nil {

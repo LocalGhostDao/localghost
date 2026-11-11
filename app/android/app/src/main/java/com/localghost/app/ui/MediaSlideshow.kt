@@ -47,9 +47,16 @@ fun MediaSlideshow(hashes: List<String>, start: Int, title: String = "", onDismi
     // a swipe by hand takes over from the slideshow
     val dragged by pager.interactionSource.collectIsDraggedAsState()
     LaunchedEffect(dragged) { if (dragged) playing = false }
+    // The strip plays through once and stops on its last picture: looping for ever kept the
+    // screen on and the app unlocked for as long as the phone lay there (audit run 2). A tap
+    // plays it again.
+    var shown by remember { mutableStateOf(0) }
+    LaunchedEffect(playing) { if (playing) shown = 0 }
     LaunchedEffect(playing, pager.currentPage, zoom, video) {
         if (!playing || zoom != null || video != null || hashes.size < 2) return@LaunchedEffect
         kotlinx.coroutines.delay(SLIDE_MS)
+        if (shown >= hashes.size - 1) { playing = false; return@LaunchedEffect }
+        shown++
         pager.animateScrollToPage((pager.currentPage + 1) % hashes.size)
     }
 

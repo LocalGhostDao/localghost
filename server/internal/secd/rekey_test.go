@@ -36,6 +36,9 @@ func testCA(t *testing.T, dir string) (*x509.Certificate, *ecdsa.PrivateKey) {
 	}
 	kder, _ := x509.MarshalECPrivateKey(key)
 	os.WriteFile(filepath.Join(dir, "box-ca.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	// the device CA bundle, as setup writes it beside the CA: the front door checks the
+	// certificate in nginx's header against it
+	os.WriteFile(filepath.Join(dir, "devices-ca.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
 	os.WriteFile(filepath.Join(dir, "box-ca-key.pem"), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: kder}), 0o600)
 	ca, _ := x509.ParseCertificate(der)
 	return ca, key

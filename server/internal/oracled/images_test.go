@@ -218,3 +218,32 @@ func TestStrikesStopAPoisonImage(t *testing.T) {
 		t.Fatal("a strike file for a live engine")
 	}
 }
+
+// A chat attachment is prepared like a captioned image: decoded, fitted, re-encoded; what does
+// not decode never reaches the engine.
+func TestChatImageIsPreparedOrRefused(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 3000, 2000))
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 80}); err != nil {
+		t.Fatal(err)
+	}
+	uri, err := chatImage(base64.StdEncoding.EncodeToString(buf.Bytes()))
+	if err != nil || !strings.HasPrefix(uri, "data:image/jpeg;base64,") {
+		t.Fatalf("a JPEG: %v", err)
+	}
+	fitted, _ := base64.StdEncoding.DecodeString(strings.TrimPrefix(uri, "data:image/jpeg;base64,"))
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(fitted))
+	if err != nil || cfg.Width > ImageMaxSide || cfg.Height > ImageMaxSide {
+		t.Fatalf("not fitted: %dx%d %v", cfg.Width, cfg.Height, err)
+	}
+	for name, b64 := range map[string]string{
+		"not base64":    "!!!not base64!!!",
+		"not an image":  base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\necho hi\n")),
+		"a cut JPEG":    base64.StdEncoding.EncodeToString(buf.Bytes()[:200]),
+		"an empty body": base64.StdEncoding.EncodeToString(nil),
+	} {
+		if _, err := chatImage(b64); err == nil {
+			t.Errorf("%s was passed on", name)
+		}
+	}
+}

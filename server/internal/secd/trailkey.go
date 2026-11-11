@@ -81,20 +81,21 @@ func trailKeyFrom(pub64, priv64 string) (*ecdh.PrivateKey, error) {
 }
 
 func saveTrailKey(mount, dev string, k *ecdh.PrivateKey) error {
-	dir := filepath.Dir(trailKeyPath(mount, dev))
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// <mount>/secd is secd's, not the daemons', but the volume's root is theirs: the way down is
+	// walked without following a link (vaultfs.go), so the key lands on the volume or nowhere
+	d, err := dirUnder(mount, filepath.Join("secd", "trail"), true, 0o700, 0, 0)
+	if err != nil {
 		return err
 	}
-	_ = os.Chmod(filepath.Dir(dir), 0o700) // <mount>/secd is secd's, not the daemons'
+	defer d.Close()
 	b, _ := json.Marshal(trailKeyFile{
 		Public:  base64.StdEncoding.EncodeToString(k.PublicKey().Bytes()),
 		Private: base64.StdEncoding.EncodeToString(k.Bytes()),
 	})
-	tmp := trailKeyPath(mount, dev) + ".part"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := writeIn(d, dev+".json.part", b, 0o600, 0, 0); err != nil {
 		return err
 	}
-	return os.Rename(tmp, trailKeyPath(mount, dev))
+	return d.Rename(dev+".json.part", dev+".json")
 }
 
 // moveTrailKey follows a device to its new certificate (device/rekey): same key, new name.
@@ -102,7 +103,15 @@ func moveTrailKey(mount, from, to string) error {
 	if from == "" || to == "" || from == to {
 		return nil
 	}
-	err := os.Rename(trailKeyPath(mount, from), trailKeyPath(mount, to))
+	d, err := dirUnder(mount, filepath.Join("secd", "trail"), false, 0, 0, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	err = d.Rename(from+".json", to+".json")
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}

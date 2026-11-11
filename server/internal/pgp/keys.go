@@ -110,6 +110,9 @@ func parsePubKey(body []byte) (*pubKey, error) {
 		if len(n) < 256 { // 2048 bits
 			return nil, fmt.Errorf("%w: an RSA key under 2048 bits", ErrUnsupported)
 		}
+		if len(n) > 1024 { // 8192 bits: past this a verification is a sender's way to spend the box's time
+			return nil, fmt.Errorf("%w: an RSA key over 8192 bits", ErrUnsupported)
+		}
 		eb := new(big.Int).SetBytes(e)
 		if !eb.IsInt64() || eb.Int64() < 3 || eb.Int64() > 1<<31 {
 			return nil, fmt.Errorf("%w: RSA exponent", ErrUnsupported)
@@ -307,6 +310,11 @@ func parseSignature(body []byte) (*signature, error) {
 		return nil, err
 	}
 	for _, sp := range s.subs {
+		if sp.critical && !knownSubpacket[sp.typ] {
+			// "critical" is the signer saying: do not rely on this signature unless you
+			// understand this part. The bit was read and never looked at (audit run 2).
+			return nil, fmt.Errorf("%w: a critical signature subpacket (type %d) the box does not know", ErrUnsupported, sp.typ)
+		}
 		s.apply(sp, true)
 	}
 	for _, sp := range s.unhashed {
@@ -355,6 +363,11 @@ func parseSubpackets(b []byte) ([]subpacket, error) {
 	}
 	return out, nil
 }
+
+// knownSubpacket is the hashed subpackets apply acts on, plus the ones whose meaning the box
+// honours by ignoring (preferences, the key server and policy notes, the signer's user ID).
+var knownSubpacket = map[byte]bool{2: true, 3: true, 9: true, 11: true, 16: true, 21: true, 22: true, 23: true, 24: true, 25: true,
+	26: true, 27: true, 28: true, 30: true, 32: true, 33: true, 34: true}
 
 // apply reads the subpackets the box cares about. Only the issuer and the embedded back-signature
 // may come from the unhashed area; everything else is believed only when signed.
@@ -497,12 +510,53 @@ type PublicKey struct {
 	packets     []byte
 }
 
+// Bounds on a key block. A key is a stranger's bytes (from a mail, from a key server): what it
+// may cost the box to read is bounded here, and a block past a bound is refused whole rather
+// than read in part, because the part left out could be the revocation.
+const (
+	maxKeyBlock  = 256 << 10 // bytes
+	maxKeySigs   = 200       // self-signatures verified in one block
+	maxSigsPer   = 16        // on one user ID or one subkey
+	maxUserIDs   = 32
+	maxSubkeys   = 16
+	maxUserIDLen = 2048
+)
+
+// uidPart and subPart collect what a block says about one user ID or one subkey; nothing is
+// decided until the whole block has been read.
+type uidPart struct {
+	id    []byte
+	certs []*signature // verified self-certifications, not expired as signatures
+	revs  []*signature // verified revocations
+	seen  int
+}
+
+type subPart struct {
+	key     *pubKey
+	binds   []*signature // verified bindings, not expired as signatures
+	revoked bool
+	seen    int
+}
+
 // ParsePublicKey reads one transferable public key, armored or binary, and validates its
 // self-signatures at time now.
+//
+// The block is read in two steps. First every self-signature is verified and filed under what
+// it speaks about; then each part is decided from everything said about it. Acting on packets
+// as they came was wrong in two ways the second audit found (10 Nov 2026): GnuPG writes a
+// revocation BEFORE the signature it revokes, so a revoked subkey or user ID was revoked and
+// then put back by the next packet; and the newest binding did not decide, so a subkey that had
+// been given an expiry stayed usable on the strength of an older binding without one.
 func ParsePublicKey(data []byte, now time.Time) (*PublicKey, error) {
+	if len(data) > 2*maxKeyBlock {
+		return nil, fmt.Errorf("%w: a key block over %d KB", ErrUnsupported, maxKeyBlock>>10)
+	}
 	raw, err := unwrap(data)
 	if err != nil {
 		return nil, err
+	}
+	if len(raw) > maxKeyBlock {
+		return nil, fmt.Errorf("%w: a key block over %d KB", ErrUnsupported, maxKeyBlock>>10)
 	}
 	pk, err := readPackets(raw)
 	if err != nil {
@@ -517,108 +571,142 @@ func ParsePublicKey(data []byte, now time.Time) (*PublicKey, error) {
 	}
 	k := &PublicKey{Fingerprint: primary.fingerprint, KeyID: primary.keyID, Created: primary.created, primary: primary, packets: raw}
 	var (
-		uid       []byte
-		sub       *pubKey
-		primFlags byte
-		gotFlags  bool
-		primExp   time.Duration
-		latestUID time.Time
+		uids   []*uidPart
+		subs   []*subPart
+		uid    *uidPart
+		sub    *subPart
+		direct []*signature // verified direct-key signatures (0x1F)
+		sigs   int
 	)
+	verified := func(sig *signature, subKey *pubKey, id []byte) bool {
+		d, h, err := sig.digest(primary, subKey, id, nil)
+		return err == nil && sig.verifyWith(primary, d, h) == nil
+	}
+	live := func(sig *signature) bool {
+		return !(sig.sigExpires > 0 && now.After(sig.created.Add(sig.sigExpires)))
+	}
 	for _, p := range pk[1:] {
 		switch p.tag {
 		case tagUserID:
-			uid, sub = p.body, nil
+			uid, sub = nil, nil
+			if len(p.body) > maxUserIDLen {
+				continue // not a name a person would read; ignored with its signatures
+			}
+			if len(uids) == maxUserIDs {
+				return nil, fmt.Errorf("%w: a key with more than %d user IDs", ErrUnsupported, maxUserIDs)
+			}
+			uid = &uidPart{id: p.body}
+			uids = append(uids, uid)
 		case tagUserAttr:
 			uid, sub = nil, nil // photos and such: ignored, with their signatures
 		case tagPublicSub:
-			uid = nil
-			sub, err = parsePubKey(p.body)
+			uid, sub = nil, nil
+			sk, err := parsePubKey(p.body)
 			if err != nil {
-				sub = nil // an unsupported subkey is skipped, not fatal
-				continue
+				continue // an unsupported subkey is skipped, not fatal
 			}
+			if len(subs) == maxSubkeys {
+				return nil, fmt.Errorf("%w: a key with more than %d subkeys", ErrUnsupported, maxSubkeys)
+			}
+			sub = &subPart{key: sk}
+			subs = append(subs, sub)
+		case tagPublicKey, tagSecretKey, tagSecretSub:
+			return nil, fmt.Errorf("%w: more than one key in the block", ErrUnsupported)
 		case tagSignature:
 			sig, err := parseSignature(p.body)
 			if err != nil {
 				continue // a signature the box cannot read is skipped
 			}
-			if sig.issuer != 0 && sig.issuer != primary.keyID && sig.typ != 0x19 {
-				continue // a third party's certification: not ours to judge
+			if sig.issuer != 0 && sig.issuer != primary.keyID {
+				continue // a third party's certification: not ours to judge, and not verified
+			}
+			if sigs++; sigs > maxKeySigs {
+				return nil, fmt.Errorf("%w: a key with more than %d self-signatures", ErrUnsupported, maxKeySigs)
 			}
 			switch {
-			case uid != nil && (sig.typ >= 0x10 && sig.typ <= 0x13):
-				d, h, err := sig.digest(primary, nil, uid, nil)
-				if err != nil || sig.verifyWith(primary, d, h) != nil {
-					continue
-				}
-				if sig.sigExpires > 0 && now.After(sig.created.Add(sig.sigExpires)) {
-					continue
-				}
-				if sig.created.After(latestUID) {
-					latestUID = sig.created
-					if sig.hasFlags {
-						primFlags, gotFlags = sig.flags, true
-					}
-					primExp = sig.keyExpires
-				}
-				if !contains(k.UserIDs, string(uid)) {
-					k.UserIDs = append(k.UserIDs, string(uid))
-				}
-			case uid != nil && sig.typ == 0x30:
-				d, h, err := sig.digest(primary, nil, uid, nil)
-				if err == nil && sig.verifyWith(primary, d, h) == nil {
-					k.UserIDs = remove(k.UserIDs, string(uid))
-				}
-			case sub != nil && sig.typ == 0x18:
-				d, h, err := sig.digest(primary, sub, nil, nil)
-				if err != nil || sig.verifyWith(primary, d, h) != nil {
-					continue
-				}
-				if sig.sigExpires > 0 && now.After(sig.created.Add(sig.sigExpires)) {
-					continue
-				}
-				sub.flags = sig.flags
-				if sig.keyExpires > 0 {
-					sub.expires = sub.created.Add(sig.keyExpires)
-					if now.After(sub.expires) {
-						continue
-					}
-				}
-				if sig.flags&0x0C != 0 && sub.canEncrypt() {
-					k.encrypters = append([]*pubKey{sub}, k.encrypters...)
-				}
-				if sig.flags&0x02 != 0 && sub.canSign() && sig.embedded != nil {
-					// a signing subkey must sign back (the primary's word alone would let anyone
-					// attach a signing key they hold to someone else's certificate)
-					back, err := parseSignature(sig.embedded)
-					if err == nil && back.typ == 0x19 {
-						bd, bh, err := back.digest(primary, sub, nil, nil)
-						if err == nil && back.verifyWith(sub, bd, bh) == nil {
-							k.signers = append(k.signers, sub)
-						}
-					}
-				}
-			case sub != nil && sig.typ == 0x28:
-				d, h, err := sig.digest(primary, sub, nil, nil)
-				if err == nil && sig.verifyWith(primary, d, h) == nil {
-					k.encrypters = removeKey(k.encrypters, sub)
-					k.signers = removeKey(k.signers, sub)
-				}
-			case uid == nil && sub == nil && sig.typ == 0x20:
-				d, h, err := sig.digest(primary, nil, nil, nil)
-				if err == nil && sig.verifyWith(primary, d, h) == nil {
+			case sig.typ == 0x20:
+				// the key's own revocation, wherever in the block it stands
+				if verified(sig, nil, nil) {
 					k.Revoked = true
 				}
+			case uid != nil && ((sig.typ >= 0x10 && sig.typ <= 0x13) || sig.typ == 0x30):
+				if uid.seen++; uid.seen > maxSigsPer {
+					return nil, fmt.Errorf("%w: more than %d self-signatures on one user ID", ErrUnsupported, maxSigsPer)
+				}
+				if !verified(sig, nil, uid.id) {
+					continue
+				}
+				if sig.typ == 0x30 {
+					uid.revs = append(uid.revs, sig)
+				} else if live(sig) {
+					uid.certs = append(uid.certs, sig)
+				}
+			case sub != nil && (sig.typ == 0x18 || sig.typ == 0x28):
+				if sub.seen++; sub.seen > maxSigsPer {
+					return nil, fmt.Errorf("%w: more than %d signatures on one subkey", ErrUnsupported, maxSigsPer)
+				}
+				if !verified(sig, sub.key, nil) {
+					continue
+				}
+				if sig.typ == 0x28 {
+					sub.revoked = true
+				} else if live(sig) {
+					sub.binds = append(sub.binds, sig)
+				}
 			case uid == nil && sub == nil && sig.typ == 0x1F:
-				d, h, err := sig.digest(primary, nil, nil, nil)
-				if err == nil && sig.verifyWith(primary, d, h) == nil && sig.hasFlags && !gotFlags {
-					primFlags, gotFlags = sig.flags, true
+				if verified(sig, nil, nil) && live(sig) {
+					direct = append(direct, sig)
 				}
 			}
 		}
 	}
+
+	// the user IDs: one stands when its newest word is a certification, not a revocation
+	newest := func(xs []*signature) *signature {
+		var best *signature
+		for _, x := range xs {
+			if best == nil || x.created.After(best.created) {
+				best = x
+			}
+		}
+		return best
+	}
+	var (
+		primFlags byte
+		gotFlags  bool
+		primExp   time.Duration
+		latest    *signature
+	)
+	for _, u := range uids {
+		cert, rev := newest(u.certs), newest(u.revs)
+		if cert == nil || (rev != nil && !cert.created.After(rev.created)) {
+			continue
+		}
+		if !contains(k.UserIDs, string(u.id)) {
+			k.UserIDs = append(k.UserIDs, string(u.id))
+		}
+		if latest == nil || cert.created.After(latest.created) {
+			latest = cert
+		}
+	}
+	if k.Revoked {
+		return nil, fmt.Errorf("the key is revoked")
+	}
 	if len(k.UserIDs) == 0 {
 		return nil, fmt.Errorf("the key certifies no user ID")
+	}
+	// the primary's flags and expiry: the newest certification of a standing user ID says
+	if latest.hasFlags {
+		primFlags, gotFlags = latest.flags, true
+	}
+	primExp = latest.keyExpires
+	if d := newest(direct); d != nil {
+		if !gotFlags && d.hasFlags {
+			primFlags, gotFlags = d.flags, true
+		}
+		if primExp == 0 {
+			primExp = d.keyExpires
+		}
 	}
 	if primExp > 0 {
 		k.Expires = primary.created.Add(primExp)
@@ -626,10 +714,42 @@ func ParsePublicKey(data []byte, now time.Time) (*PublicKey, error) {
 			return nil, fmt.Errorf("the key expired on %s", k.Expires.Format("2 January 2006"))
 		}
 	}
-	if k.Revoked {
-		return nil, fmt.Errorf("the key is revoked")
-	}
 	primary.flags = primFlags
+	primary.expires = k.Expires
+
+	// the subkeys: a revoked one is out; otherwise its NEWEST binding decides flags, expiry and
+	// the back-signature, and nothing an older binding said survives it
+	for _, sp := range subs {
+		if sp.revoked {
+			continue
+		}
+		bind := newest(sp.binds)
+		if bind == nil {
+			continue
+		}
+		sk := sp.key
+		sk.flags = bind.flags
+		if bind.keyExpires > 0 {
+			sk.expires = sk.created.Add(bind.keyExpires)
+			if now.After(sk.expires) {
+				continue
+			}
+		}
+		if bind.flags&0x0C != 0 && sk.canEncrypt() {
+			k.encrypters = append([]*pubKey{sk}, k.encrypters...)
+		}
+		if bind.flags&0x02 != 0 && sk.canSign() && bind.embedded != nil {
+			// a signing subkey must sign back (the primary's word alone would let anyone
+			// attach a signing key they hold to someone else's certificate)
+			back, err := parseSignature(bind.embedded)
+			if err == nil && back.typ == 0x19 {
+				bd, bh, err := back.digest(primary, sk, nil, nil)
+				if err == nil && back.verifyWith(sk, bd, bh) == nil {
+					k.signers = append(k.signers, sk)
+				}
+			}
+		}
+	}
 	if (!gotFlags || primFlags&0x02 != 0) && primary.canSign() {
 		k.signers = append([]*pubKey{primary}, k.signers...)
 	}
@@ -660,24 +780,4 @@ func contains(xs []string, s string) bool {
 		}
 	}
 	return false
-}
-
-func remove(xs []string, s string) []string {
-	var out []string
-	for _, x := range xs {
-		if x != s {
-			out = append(out, x)
-		}
-	}
-	return out
-}
-
-func removeKey(ks []*pubKey, k *pubKey) []*pubKey {
-	var out []*pubKey
-	for _, x := range ks {
-		if x != k {
-			out = append(out, x)
-		}
-	}
-	return out
 }

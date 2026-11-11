@@ -43,6 +43,11 @@ class MailTextTest {
         assertEquals("DMARC: aligned with the From address (dkim+spf)", lines[2])
         assertEquals("reverse DNS ok, matches the server's name", lines[3])
         assertEquals("looks genuine", MailText.spamLine(v))
+        // low with nothing that ties the message to its From domain is not called genuine
+        val unproven = MailText.Verdicts("pass", "other.example", "pass", "none", "", "", "ok", true, emptyList(), "low", emptyList())
+        assertEquals("no signs of spam, sender not proven", MailText.spamLine(unproven))
+        val alignedNoPolicy = MailText.Verdicts("pass", "example.org", "pass", "none", "", "dkim", "ok", true, emptyList(), "low", emptyList())
+        assertEquals("looks genuine", MailText.spamLine(alignedNoPolicy))
         val bad = MailText.Verdicts("fail", "", "none", "fail", "reject", "", "none", false, listOf("the display name pretends to be this box"), "high", listOf("SPF fail", "no DKIM signature"))
         val bl = MailText.verdictLines(bad)
         assertEquals("DMARC: NOT aligned with the From address, and the domain asks for reject", bl[2])

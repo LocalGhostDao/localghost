@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/LocalGhostDao/localghost/server/internal/egress"
 	"github.com/LocalGhostDao/localghost/server/internal/feedstat"
@@ -50,7 +51,11 @@ var (
 // the page's own word that the article is not free.
 func articleText(page string) (text string, paywalled bool) {
 	paywalled = rePaywall.MatchString(page)
-	low := strings.ToLower(page)
+	// A-Z only, byte for byte: strings.ToLower writes U+FFFD for every byte that is not UTF-8 and
+	// changes the length of a few letters, and the indices below are used on the page itself. A
+	// page in another encoding made the copy longer and the slice panicked, every pass, with the
+	// row never marked (audit run 2).
+	low := lowerASCII(page)
 	span := page
 	for _, tag := range []string{"article", "main"} {
 		if i := strings.Index(low, "<"+tag); i >= 0 {
@@ -96,10 +101,44 @@ func articleText(page string) (text string, paywalled bool) {
 			text = body
 		}
 	}
+	// what is kept is text the database will take: valid UTF-8, no NUL, cut on a character
+	text = strings.ReplaceAll(strings.ToValidUTF8(text, ""), "\x00", "")
 	if len(text) > articleKeep {
-		text = text[:articleKeep]
+		cut := articleKeep
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut]
 	}
 	return text, paywalled
+}
+
+// lowerASCII lowers A-Z and nothing else, so an index into the result is an index into s.
+func lowerASCII(s string) string {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 'A' && c <= 'Z' {
+			b := []byte(s)
+			for ; i < len(b); i++ {
+				if b[i] >= 'A' && b[i] <= 'Z' {
+					b[i] += 'a' - 'A'
+				}
+			}
+			return string(b)
+		}
+	}
+	return s
+}
+
+// readArticle is articleText that cannot take the daemon down: a page is a stranger's bytes, and
+// a fault in reading one costs that page ("unreadable"), not the pass.
+func readArticle(page string) (text string, paywalled, ok bool) {
+	defer func() {
+		if recover() != nil {
+			text, paywalled, ok = "", false, false
+		}
+	}()
+	text, paywalled = articleText(page)
+	return text, paywalled, true
 }
 
 // ldArticleBody is the longest articleBody in a page's schema.org blocks, "" when none.
@@ -160,8 +199,16 @@ func articlePass(ctx context.Context, db *poltergres.ReadWrite, client *egress.C
 		if perStory[story] >= articlesPerStory {
 			continue
 		}
-		perStory[story]++
 		id, link := *v[0], *v[1]
+		if client.Allows(link) != nil {
+			// a link the box will never follow (plain http, a bare or private address, a local
+			// name): set aside once, without a request and without a place in the pass
+			if err := db.Exec("UPDATE news_items SET body_at = $2, body_status = 'not followed' WHERE id = $1", id, now.Unix()); err != nil {
+				return read, err
+			}
+			continue
+		}
+		perStory[story]++
 		f, ferr := client.GetPage(ctx, "article:"+str(v[3]), link)
 		if ferr != nil {
 			return read, nil // the context ended
@@ -174,9 +221,11 @@ func articlePass(ctx context.Context, db *poltergres.ReadWrite, client *egress.C
 		case f.Status < 200 || f.Status > 299:
 			status = "HTTP " + strconv.Itoa(f.Status)
 		default:
-			text, paywalled := articleText(f.Body)
+			text, paywalled, readable := readArticle(f.Body)
 			body = text
 			switch {
+			case !readable:
+				status = "unreadable"
 			case paywalled:
 				status = "paywalled"
 			case len(text) < articleShort:

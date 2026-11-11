@@ -83,8 +83,10 @@ first; the card has nothing to show past three days and the pull stays small.
 
 `ghost.tallyd`'s weather loop changes from "pull a hundred places from Open-Meteo every two
 minutes" to "pull each model's new run and reduce it to the cells", through the box's
-outbound client (`internal/egress`, the centres' hosts on its allowlist, TLS only, no
-redirect off the list). Four times a day, as each run appears (a run is published some hours
+outbound rule (`internal/egress/guard.go`: https only, to public addresses only, checked
+again where the connection is made; five redirects at most, and the Met Office key never
+follows one to another host). There is no list of hosts: the centres' addresses are in the
+code, and the rule is about where a connection may not go. Four times a day, as each run appears (a run is published some hours
 after its time; the loop checks hourly and takes what is new):
 
 1. **Fetch** the fields above for the run, by byte range where the centre offers an index

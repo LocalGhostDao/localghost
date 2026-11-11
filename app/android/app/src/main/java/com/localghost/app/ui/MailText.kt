@@ -110,7 +110,15 @@ object MailText {
 
     /** The one-line spam verdict with its reasons. */
     fun spamLine(v: Verdicts): String {
-        val head = when (v.spam) { "high" -> "likely spam"; "medium" -> "possibly spam"; "low" -> "looks genuine"; else -> "not judged" }
+        // "low" is the absence of signs against the message, not proof of who sent it: only a
+        // message whose From domain was proven (DMARC passed, or something that passed is that
+        // domain's) is called genuine (audit run 2)
+        val proven = v.dmarc == "pass" || v.dmarcAligned.isNotEmpty()
+        val head = when (v.spam) {
+            "high" -> "likely spam"; "medium" -> "possibly spam"
+            "low" -> if (proven) "looks genuine" else "no signs of spam, sender not proven"
+            else -> "not judged"
+        }
         return if (v.spamReasons.isEmpty()) head else head + " · " + v.spamReasons.joinToString(", ")
     }
 

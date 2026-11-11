@@ -403,32 +403,141 @@ func wikiFind(s *wiki.Store, prompt string) (wiki.Hit, bool) {
 	if db := chatStore(wikiMount); db != nil {
 		owner, people = setting(db, ownerKey), peopleNames(db)
 	}
-	for _, n := range wikiNames(prompt, owner, people) {
+	sure := func(n string) (wiki.Hit, bool) {
 		hits, err := s.Lookup(n, 3, wikiChatLead)
 		if err != nil {
-			break
+			return wiki.Hit{}, false
 		}
 		for _, h := range hits {
 			if !h.Disamb && (h.How == "exact" || h.How == "redirect" || h.How == "qualified") {
 				return h, true
 			}
 		}
+		return wiki.Hit{}, false
+	}
+	for _, n := range wikiNames(prompt, owner, people) {
+		if h, ok := sure(n); ok {
+			return h, true
+		}
+	}
+	// A question typed without capitals ("corfu population", "who built hagia sophia") names
+	// nothing by wikiNames' rule, and the box's Wikipedia was never asked: a phone keyboard
+	// does not capitalise a name in mid-sentence. The question's own phrases are tried as
+	// titles, longest first, by the same sure ways and no looser (wikiPhrases).
+	for _, n := range wikiPhrases(prompt, owner, people) {
+		if h, ok := sure(n); ok {
+			return h, true
+		}
 	}
 	return wiki.Hit{}, false
 }
 
+// wikiPhrases are the runs of a question's own words worth trying as titles when it has no
+// capitalised name: three words, then two, then a single word, in the order they stand, at most
+// eight in all. Never from a question about the person's own things; never a stopword, the
+// owner's name or their people's; a single word only when it has five letters or more and the
+// question is a short one (in a long question a lone common noun is the topic of nothing).
+// Pure, for the tests.
+func wikiPhrases(prompt, owner string, people []string) []string {
+	if reMine.MatchString(prompt) || strings.Contains(prompt, "\n") || len(prompt) > 160 {
+		return nil
+	}
+	skip := map[string]bool{}
+	for _, p := range append(people, owner) {
+		for _, w := range strings.Fields(strings.ToLower(p)) {
+			skip[w] = true
+		}
+	}
+	var words []string
+	for _, w := range strings.Fields(strings.ToLower(prompt)) {
+		w = strings.Trim(w, ".,!?\"'()[]:;“”‘’")
+		if w == "" {
+			continue
+		}
+		words = append(words, w)
+	}
+	plain := func(w string) bool { return !stopwords[w] && !askWords[w] && !skip[w] && len([]rune(w)) >= 3 }
+	var out []string
+	seen := map[string]bool{}
+	add := func(run []string) {
+		// a phrase starts and ends on a word of its own ("tower of london", not "of london")
+		if len(out) == 8 || !plain(run[0]) || !plain(run[len(run)-1]) {
+			return
+		}
+		ph := strings.Join(run, " ")
+		if !seen[ph] {
+			seen[ph] = true
+			out = append(out, ph)
+		}
+	}
+	for n := 3; n >= 2; n-- {
+		for i := 0; i+n <= len(words); i++ {
+			add(words[i : i+n])
+		}
+	}
+	content := 0
+	for _, w := range words {
+		if plain(w) {
+			content++
+		}
+	}
+	// a single word: only in a short question that asks about a thing (a question mark, a
+	// question word first, or one or two words in all), so "write a poem about autumn" and
+	// "good morning" look nothing up
+	asks := strings.Contains(prompt, "?") || len(words) <= 2 || (len(words) > 0 && questionWords[strings.TrimSuffix(strings.TrimSuffix(words[0], "'s"), "’s")])
+	if asks && len(words) <= 6 && content <= 3 {
+		for _, w := range words {
+			if len([]rune(w)) >= 5 && !chatterWords[w] {
+				add([]string{w})
+			}
+		}
+	}
+	return out
+}
+
+var questionWords = map[string]bool{"who": true, "what": true, "where": true, "when": true, "why": true, "how": true, "which": true,
+	"is": true, "are": true, "was": true, "were": true, "did": true, "does": true, "can": true}
+
+// chatterWords are the words of small talk, which are also titles.
+var chatterWords = map[string]bool{"morning": true, "evening": true, "afternoon": true, "night": true, "hello": true, "thanks": true,
+	"thank": true, "sorry": true, "please": true, "great": true, "okay": true, "right": true, "sure": true, "cheers": true, "there": true,
+	"going": true, "doing": true, "again": true, "really": true, "maybe": true, "never": true, "always": true, "about": true, "write": true,
+	"think": true, "there's": true, "weather": true, "today": true, "tonight": true, "tomorrow": true, "yesterday": true}
+
+// askWords are the words of asking, which name nothing.
+var askWords = map[string]bool{"tell": true, "explain": true, "describe": true, "built": true, "build": true, "wrote": true, "founded": true,
+	"invented": true, "population": true, "capital": true, "history": true, "meaning": true, "define": true, "definition": true,
+	"big": true, "tall": true, "old": true, "long": true, "far": true, "high": true, "deep": true, "many": true, "much": true,
+	"happened": true, "born": true, "died": true, "mean": true, "means": true, "called": true, "name": true, "named": true,
+	"difference": true, "between": true, "work": true, "works": true, "use": true, "used": true, "does": true, "best": true, "good": true}
+
 // wikiSource brings the article's lead when a question asks what or who something is, or names
 // something the box's Wikipedia has, and the section the question points at when it points at one.
 func wikiSource(runDir, prompt string) []ctxItem {
+	return wikiSourceFor(prompt, "")
+}
+
+// wikiSourceFor is wikiSource with a second way in: when the question itself names nothing the
+// box's Wikipedia has, what the plan said the question NEEDS is tried (the model wrote that
+// sentence with the follow-up resolved and the names spelt out: "and how tall is it?" after a
+// question about a tower becomes "the height of the Eiffel Tower"). The section is still chosen
+// by the question.
+func wikiSourceFor(prompt, need string) []ctxItem {
 	s, edition, ready := wikiReady()
 	if !ready {
 		return nil
 	}
 	h, ok := wikiFind(s, prompt)
+	via := ""
+	if (!ok || h.Lead == "") && strings.TrimSpace(need) != "" {
+		if h, ok = wikiFind(s, need); ok {
+			via = " , found by what the question needs"
+		}
+	}
 	if !ok || h.Lead == "" {
 		return nil
 	}
-	why := "Wikipedia on the box (" + edition + "): " + h.Title
+	why := "Wikipedia on the box (" + edition + "): " + h.Title + via
 	if h.Disamb {
 		why += " , a page of meanings; say which one is meant"
 	}

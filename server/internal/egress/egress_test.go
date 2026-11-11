@@ -52,7 +52,7 @@ func TestClientFetchesAndCaps(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	c := New()
+	c := NewUnguarded() // the test serves from loopback over plain http
 	f, err := c.Get(context.Background(), "a", srv.URL+"/ok")
 	if err != nil || f.Status != 200 || f.Body != `{"price":"1"}` || f.ID != "a" {
 		t.Fatalf("%+v %v", f, err)

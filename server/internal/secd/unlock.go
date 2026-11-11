@@ -20,7 +20,7 @@ import (
 // The stage sequence is identical for every unlock, so a wipe looks the same as a real
 // one. This wires profile.StreamUnlock (the validated stage logic) to a poll-able state.
 type unlockService struct {
-	backend  UnlockBackend
+	backend UnlockBackend
 	// onDone, when set, hears how each unlock ended: ok, or the step it failed at (a release on
 	// trial is rolled back when the first unlock onto it fails past checking the PIN, update_http.go)
 	onDone   func(ok bool, failedAt profile.Stage)
@@ -46,6 +46,11 @@ type unlockService struct {
 	runID  string
 	token  string
 	doneAt time.Time
+	// runBy is the device that started the running (or last) unlock: its certificate's key name
+	// (devicekey.go), "" when the request had none. The PIN limiter counts per device, a wrong
+	// PIN ends the session only when it came from the device that holds it, and only the same
+	// device may join its own running unlock.
+	runBy string
 	// timesPath is where the last cold unlocks' step times are kept, on the encrypted volume
 	// (replay.go); "" keeps nothing and a warm unlock replays the built-in profile.
 	timesPath string
@@ -53,6 +58,23 @@ type unlockService struct {
 
 // tokenWindow: how long after a finished unlock its run may collect the session token.
 const tokenWindow = 2 * time.Minute
+
+// A PIN posted while another unlock runs waits this long for it to end before it is answered
+// like a down box; a cold unlock takes well under a minute.
+var (
+	unlockQueueWait = 90 * time.Second
+	unlockQueuePoll = 150 * time.Millisecond
+)
+
+// deviceOf names the device a request came from: the name of its certificate's key (the same
+// name across the fortnightly re-key's two certificates is not needed here: a re-key needs a
+// session, so a phone without the PIN keeps one name). "" when there is no certificate.
+func deviceOf(r *http.Request) string {
+	if f, ok := factsFor(r); ok {
+		return f.dev
+	}
+	return certID(r)
+}
 
 func newRunID() string {
 	b := make([]byte, 24)
@@ -162,24 +184,37 @@ func (s *Server) handleUnlockStart(w http.ResponseWriter, r *http.Request) {
 
 	u := s.unlock
 	sum := sha256.Sum256([]byte(req.Pin))
-	u.mu.Lock()
+	by := deviceOf(r)
 	// ONE unlock at a time. A second POST while one runs (a second tap on OK while "starting
 	// database" sat behind a busy table) used to start a second run over the same state: two
 	// schema converges at once, which deadlocked each other on 29 Sep 2026 and failed the unlock.
-	// The same PIN again joins the running unlock (the app just polls it); a different one is told
-	// to wait, and is not tried.
-	if u.running {
-		same := subtle.ConstantTimeCompare(sum[:], u.runSum[:]) == 1
-		run := u.runID
-		u.mu.Unlock()
-		if same {
+	//
+	// The same DEVICE with the same PIN joins its own running unlock (the app just polls it).
+	// Anyone else waits for the running unlock to end and is then tried in the ordinary way,
+	// through the limiter. Before the second audit (10 Nov 2026) any caller's PIN was compared
+	// with the running one right here: equal got 200 and the run id (which collects the session
+	// token), different got 409, and neither was counted, so during every unlock of the owner's
+	// a second caller could test PINs at request speed and walk away with the session.
+	deadline := time.Now().Add(unlockQueueWait)
+	for {
+		u.mu.Lock()
+		if !u.running {
+			break // the lock is kept: this request starts the next run
+		}
+		if by != "" && by == u.runBy && subtle.ConstantTimeCompare(sum[:], u.runSum[:]) == 1 {
+			run := u.runID
+			u.mu.Unlock()
 			writeJSON(w, map[string]any{"started": true, "run": run})
 			return
 		}
-		writeErr(w, http.StatusConflict, "an unlock is already running")
-		return
+		u.mu.Unlock()
+		if time.Now().After(deadline) || r.Context().Err() != nil {
+			s.appearsDown(w)
+			return
+		}
+		time.Sleep(unlockQueuePoll)
 	}
-	u.running, u.runSum = true, sum
+	u.running, u.runSum, u.runBy = true, sum, by
 	run := newRunID()
 	u.runID, u.token, u.doneAt = run, "", time.Time{}
 	// reset for a fresh unlock
@@ -234,7 +269,10 @@ func (u *unlockService) run(pin string) {
 	if warm {
 		publish(profile.Progress{Stage: profile.StageResolve, State: profile.Running})
 	}
-	slot, err := runUnlock(u.backend, pin, emit)
+	u.mu.Lock()
+	by := u.runBy
+	u.mu.Unlock()
+	slot, err := runUnlockBy(u.backend, by, pin, emit)
 	if err != nil || slot == profile.NoSlot {
 		// a failure shows as it is, when it happens (a reject has already waited out the common
 		// reject time in runUnlock, warm or cold)
@@ -376,7 +414,7 @@ func (s *Server) handleUnlockPoll(w http.ResponseWriter, r *http.Request) {
 			mine := run != "" && u.runID != "" && subtle.ConstantTimeCompare([]byte(run), []byte(u.runID)) == 1
 			if mine && time.Since(u.doneAt) < tokenWindow {
 				if u.token == "" {
-					if tok, err := s.session.Issue(); err == nil {
+					if tok, err := s.session.IssueTo(u.runBy); err == nil {
 						u.token = tok
 					}
 				}
@@ -393,8 +431,8 @@ func (s *Server) handleUnlockPoll(w http.ResponseWriter, r *http.Request) {
 	} else if u.failed != "" {
 		// wrong PIN (or failed unlock): the token was revoked by onDone the moment the run
 		// failed; revoking again here is idempotent and covers a server restarted mid-run. The
-		// mount is NOT touched.
-		s.session.Revoke()
+		// mount is NOT touched. Only the session of the device that failed goes (session.go).
+		s.session.RevokeHeldBy(u.runBy)
 	}
 	writeJSON(w, resp)
 }

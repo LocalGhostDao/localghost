@@ -6566,3 +6566,118 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   after a retirement covers thirty days by the clock, so the test fails from 31 October on (CI
   #75 ran on the 30th and passed by hours); the story is now two hours old. Would have been the
   next red CI.
+
+## 10 to 11 November 2026 , security audit run 2, the fixes
+- Vlad: "on new model, let's run a security check and see what else we need to do ... security
+  first and then better chat and tool usage". Thirteen hunters over the delta since run 1, the
+  deferred units and the open leads, each with its own build copy and a shared brief; ten came
+  back (about 57 candidates), three were stopped by the model's cyber safeguards before they
+  finished (relay, local-root, media-parsers) and their areas were not hunted by hand either:
+  NOT COVERED, said so to Vlad and in the release's known gaps.
+- secd unlock (S1-S3): `unlock.go` `runBy`, the queue (`unlockQueueWait` 90 s, poll 150 ms),
+  only the same device with the same PIN joins a running unlock; `backend.go` `runUnlockBy`,
+  `deviceResolver.ResolveFor`; limiter bucket `dev:<id>`; `session.go` `IssueTo`,
+  `RevokeHeldBy`; `edge.go` `devicePool`, `headerCertVerifies` (ClientAuth EKU, clock slack at
+  NotBefore), plain branch answers down when the header's certificate does not verify (warned
+  once a minute); `devicekey.go admit()` a header that does not parse is down. Tests
+  `audit2_edge_test.go` (header issuer, routes without bearer, second device during a running
+  unlock, the wrong PIN is the device's own).
+- secd root writes (E2): `vaultfs.go` (`vaultSplit`, `descend` with Lstat + OpenRoot +
+  SameFile, `dirUnder`, `createIn` remove-then-O_EXCL, `writeIn`, `vaultDir`, `vaultMkdirAll`,
+  `vaultCreate`, `vaultWrite`, `vaultRename`, `vaultRemove`); converted: `fetch_http.go spool`,
+  `chats_http.go`, `mail_http.go`, `voice_http.go` (ask, upload, sidecar), `frames_http.go`
+  (`spoolBody`/`spoolFrom` take the state dir; health batch; health diag), `trailkey.go`
+  (`saveTrailKey`, `moveTrailKey`), `backend_impl.go` (`healVolume`, `ingestStagedModels`,
+  `ingestStagedBinaries`, `copyInto`; `copyFileSync` gone). A directory is chowned only when
+  this walk made it, through its descriptor. Found while converting: the binary ingest wrote
+  `<name>.ingest` by path with O_TRUNC then chmod and chown by path, the same class.
+  `vaultfs_test.go` (linked inbox, linked parent, link inside the volume, linked .part name,
+  frames spool, ingest and heal, trail key).
+- synthd (E1, E4, E6): `lowerASCII` in articles.go and wiki (indices from `strings.ToLower`
+  were used on the page; invalid bytes become three and a few letters change length);
+  `readArticle` (recover, "unreadable"); text kept is valid UTF-8, no NUL, cut on a rune;
+  `clipText` on a rune; `guarded`/`guardedArg`/`faultSite`/`ingestGuarded` around the news
+  loop's passes (a faulting batch is dropped); `feeds.MaxItems` 300. Tests
+  `articles_fault_test.go`, `wiki/lower_test.go`, `TestFeedEntriesAreCapped`.
+- egress (E3): `guard.go` (`PublicAddr`, `isOwn`, `guardDial` as the Dialer's Control,
+  `CheckURL`, `checkRedirect` with `keyHeaders`, `guarded` RoundTripper, `Transport`, `Wrap`);
+  `New` guarded, no proxy from the environment; `NewUnguarded` for tests
+  (`TestNothingShipsUnguarded` walks the tree); `Client.Allows`; `articlePass` sets aside a
+  link the client will never follow ("not followed") without a request; `nwp.NewFetcher`
+  through `egress.Transport`/`Wrap`. docs/WEATHER.md no longer claims a host allowlist.
+- mail (MP1-MP4, MP6, M1-M7): `mailauth/text.go` (`PlainAddress`, `HasHidden`, `OneLine`,
+  `ParseAddressList`/`ParseAddress` with the package's word decoder, `DecodeHeader`, `ToUTF8`);
+  `Screen.Unsure`, `Screen.Shown()`; reasons "the From address is not a plain address" (4),
+  "hidden characters in …" (3), duplicate Content-Type (2); an unparsed From guesses the LAST
+  address and is not shown; `OrgDomain` category labels under a two-letter TLD;
+  `DKIMResult.Partial` (l=) is not a pass; Judge's stages have their own time (`stageSPF`,
+  `stageDKIM`, `stageDMARC`); score: SPF temperror 1, DMARC temperror/permerror 2, "nothing
+  proves the From domain" 2. noted: `keep` takes From/name/Reply-To/subject from
+  `ScreenHeaders(...).Shown()`; `addrList` keeps plain addresses only; `msgIDs` bounded;
+  `pgText`; `unwrap`/`unflow` with builders and the last physical line's length; `clipText` on
+  a rune; `storedMime` by the kept name; web pages and SVG refused; `runs` shared with
+  `zipLooksLike`. hw: `MailSenderHistory` counts spam='low' rows; `MailRecentFrom` takes the
+  spam level. App `MailText.spamLine`. Tests `mailshown_test.go`, `mailauth/audit2_test.go`.
+- backups (B1, B2, part of B4): `framed.BackupRoots` (frames/archive, framed), `RunBackup`
+  over roots with member names relative to the mount, `changedAt` (mtime or ctime),
+  `MANIFEST.txt`, O_EXCL|O_NOFOLLOW temp removed on failure, `framed.Unseal` (shared with
+  ghost.restore; refuses trailing bytes); `ghost.restore unseal <file> [out.tar]`. docs/DATA.md
+  rewritten for what a backup is and is not. `backup_test.go`.
+- deletes (D1-D4, D6): `days.go` `wordsTakenBack`, `dropEmptyDay`, the stored signature stays
+  the one the model's text was written from; `hw.ChatDelete` removes the journal entry and the
+  quoted `found`, `unquoteFacts`; `framed.RebuildDay` removes the day's files when nothing is
+  left; `aboutPass` keeps tombstoned rows and skips their titles; insights skip a tombstoned
+  title; noted and verify log ids and sizes at INFO. Tests `deletes_pg_test.go`,
+  `chatdelete_pg_test.go`.
+- read-again (C3, part of C2): `recordFor` returns found/gone/not-journal and reads
+  `checkin:<id>` by id; non-journal memories are stamped unread, facts without a record are
+  left; `supported` (the owner's name exempt) turns an unsupported YES into PARTLY.
+- oracled (C5): `chatImage` (decode, fit, re-encode; refused otherwise) in `StreamChat`.
+- pgp (P1-P8): `readInner` grammar (a compressed packet alone, one layer, inflation bounded),
+  `maxDocSigs`, candidates before hashing, signer judged at use; `ParsePublicKey` as
+  collect-then-decide with bounds; critical subpackets; RSA to 8192 bits; `readPackets` count
+  and claimed-length checks; `Encrypt` skips expired keys. `audit2_test.go`.
+- app (A1-A6): `enterLocalOnly` clears the session; `reenrollFromGate`; `AuthGate.staleOnStart`
+  (120 s), `onScreenOff`, the screen-off receiver, `lockToGate`, `lockableScreen`; `shareAsk`
+  with `ShareText.preview`, cleared on lock; `BoxClient.lock` returns null when the box did not
+  answer and clears the session in a finally; `VideoPlayer` holds the screen while playing;
+  `MediaSlideshow` stops after one pass. Tests `AuthGateTest` additions, `ShareTextTest`,
+  `MailTextTest`. Not compiled here; Vlad builds.
+- `tools/redeploy.sh render_site` renders into a mktemp directory only the service user can
+  write and installs a plain file (S5).
+- Not fixed, reported with the fix each needs: S4 (nginx `$ssl_client_verify` per connection),
+  A7, E5, MP5, MP7, B3, the rest of B4, D5, C1, C2's journal side, C4, U1-U7.
+- The whole suite against a scratch Postgres 16: 55 packages ok.
+
+## 11 November 2026 , the chat tries things
+- Vlad: "i'm not the most pleased with the tool usage, it does not try things and does not try
+  to search and if i'm unclear it does not try wikipedia either". From the chat hunter's map:
+  (1) auto mode asked /plan only when `WebSearch.looksFresh` matched, one regex of words;
+  (2) /plan's 8 s deadline lapsed behind a running background inference (only a streamed chat
+  paused the broker); (3) the box's Wikipedia was found only by a "what is X" shape or a
+  capitalised exact title; (4) the code-decided second round needs a spare query, and the plan
+  rarely wrote a third.
+- Phone: `WebSearch.shouldAskPlan` (auto: not `looksChatter`, and not personal unless also
+  fresh); the plan decides `wantWeb` in auto, `looksFresh` only without a plan;
+  `net/QueryGuard.kt` (first person, e-mail, seven digits) applied in `BoxClient.chatPlan`;
+  `Plan.withheld`; "searches: a · b" in the status line and the trail before they run;
+  `Tools.forSubject` (the plan's third query as a Wikipedia summary when the question has no
+  "what is" shape); `search(..., subject)`. Tests `QueryGuardTest`, `WebSearchTest` additions.
+  Not compiled here.
+- Box: `planPrompt` (search when unsure, two readings of an unclear question, the name a
+  follow-up refers to, exactly three queries with the subject's name last); `guardQueries`
+  (first person, e-mail, digit runs, the person's own names from `peopleNames` and the owner
+  unless typed by the person in this conversation; an earlier version withheld any capitalised
+  word seen only in an assistant turn, which would have stopped "how old is he?" after an
+  answer naming a public figure, so it was narrowed to the names the box knows as private);
+  a plan whose queries are all withheld answers search false with `withheld`; `wikiPhrases`
+  (three, two, one word runs of an uncapitalised question, sure matches only, eight lookups at
+  most, single words only in a short question that asks) in `wikiFind`; `wikiSourceFor(prompt,
+  need)` and its use in /chat when no Wikipedia item came from the question; `Broker.Submit`
+  preempts a running background inference for an interactive request and holds background work
+  for the grace, waking the queue after it. Tests `TestGuardQueries`,
+  `TestPlanPromptAsksForAnEagerPlan`, `TestWikiPhrases`, `TestInteractiveRequestClearsTheWay`.
+- Kept as it was, on purpose: the model still never chooses a search after reading a page (the
+  second round is decided by code from the ranking), and the plan still sees no archive context.
+- Cost: one short model call before most answers (the plan), a second or two on the GPU.
+

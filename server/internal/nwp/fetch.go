@@ -107,16 +107,15 @@ type Fetcher struct {
 	MetOffice *MetOffice
 }
 
+// NewFetcher asks the centres through the box's one outbound rule (egress/guard.go): https to
+// public addresses only, and the Met Office key never follows a redirect to another host.
 func NewFetcher() *Fetcher {
-	tr := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		TLSHandshakeTimeout:   15 * time.Second,
-		ResponseHeaderTimeout: 60 * time.Second,
-		MaxIdleConns:          4,
-		MaxIdleConnsPerHost:   2,
-		IdleConnTimeout:       90 * time.Second,
-	}
-	return &Fetcher{hc: &http.Client{Transport: tr, Timeout: 10 * time.Minute}, pause: 600 * time.Millisecond}
+	tr := egress.Transport()
+	tr.TLSHandshakeTimeout = 15 * time.Second
+	tr.ResponseHeaderTimeout = 60 * time.Second
+	tr.MaxIdleConnsPerHost = 2
+	tr.IdleConnTimeout = 90 * time.Second
+	return &Fetcher{hc: egress.Wrap(tr, 10*time.Minute), pause: 600 * time.Millisecond}
 }
 
 // Progress is what a pull reports as it goes.

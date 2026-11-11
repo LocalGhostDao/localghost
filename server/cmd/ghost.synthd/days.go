@@ -155,6 +155,12 @@ func daySummaryPass(db *poltergres.ReadWrite, oc *oracle.Client, mount string, l
 	for _, day := range days {
 		f := gatherDayFacts(db, mount, day)
 		if f.empty() {
+			// everything the day was told from is gone (forgotten fixes, a deleted voice note):
+			// the telling goes with it, unless the person rewrote it by hand. It used to stay as
+			// written, with the deleted words in it (audit run 2).
+			if err := dropEmptyDay(db, day); err != nil {
+				return built, written, err
+			}
 			continue
 		}
 		sig := f.signature()
@@ -166,10 +172,11 @@ func daySummaryPass(db *poltergres.ReadWrite, oc *oracle.Client, mount string, l
 			modelAt   int64
 			tries     int
 			triesSig  string
+			facts     string
 		}
-		if rows, qerr := db.Query("SELECT signature, summary, written_by, model_at, prose_tries, tries_sig FROM day_summaries WHERE day = $1", day); qerr != nil {
+		if rows, qerr := db.Query("SELECT signature, summary, written_by, model_at, prose_tries, tries_sig, coalesce(facts::text, '') FROM day_summaries WHERE day = $1", day); qerr != nil {
 			return built, written, qerr
-		} else if len(rows.Vals) == 1 && len(rows.Vals[0]) >= 6 {
+		} else if len(rows.Vals) == 1 && len(rows.Vals[0]) >= 7 {
 			v := rows.Vals[0]
 			have.ok = true
 			have.signature = str(v[0])
@@ -178,7 +185,14 @@ func daySummaryPass(db *poltergres.ReadWrite, oc *oracle.Client, mount string, l
 			have.modelAt, _ = strconv.ParseInt(str(v[3]), 10, 64)
 			have.tries, _ = strconv.Atoi(str(v[4]))
 			have.triesSig = str(v[5])
+			have.facts = str(v[6])
 		}
+		// Words of the person's own that the last telling was written from and that are no
+		// longer there were taken back: a deleted voice note, chat, note, a forgotten calendar
+		// or contact. The model's text may quote them, so it does not outlive them: the day
+		// falls back to the template now and the model writes again when it can, whatever the
+		// rewrite gap says.
+		takenBack := have.ok && wordsTakenBack(have.facts, f)
 		tries := 0
 		if have.triesSig == sig {
 			tries = have.tries
@@ -190,21 +204,26 @@ func daySummaryPass(db *poltergres.ReadWrite, oc *oracle.Client, mount string, l
 		// day asked for by name is written now
 		over := day != today || f.CheckedIn || len(only) > 0
 		wantModel := modelOK && over && f.hasSignal() && modelCalls < dayModelPerPass && tries < dayModelMaxTries &&
-			(have.writtenBy != "model" || have.summary == "" || (have.signature != sig && time.Since(time.UnixMilli(have.modelAt)) > dayModelRewriteGap) || len(only) > 0)
+			(have.writtenBy != "model" || have.summary == "" || takenBack || (have.signature != sig && time.Since(time.UnixMilli(have.modelAt)) > dayModelRewriteGap) || len(only) > 0)
 		if have.ok && have.signature == sig && have.summary != "" && !wantModel {
 			continue // nothing new to say, and nothing better to say it with
 		}
 		template := dayTemplate(f)
 		title := dayTitle(f)
 		summary, by := template, "template"
-		if have.ok && have.writtenBy == "model" && have.summary != "" {
+		storeSig := sig
+		if have.ok && have.writtenBy == "model" && have.summary != "" && !takenBack {
 			summary, by = have.summary, "model" // keep the model's text until it writes again
+			// and keep the signature it was written from: stored with the new one, the old text
+			// looked current for ever and the rewrite below never came
+			storeSig = have.signature
 		}
 		modelAt := have.modelAt
 		if wantModel {
 			modelCalls++
 			if prose, ok := writeMemory(oc, f.sheet(), "a day"); ok {
 				summary, by = prose, "model"
+				storeSig = sig
 				modelAt = time.Now().UnixMilli()
 				written++
 				lg.Info("day summary written by the model", "fn", "daySummaryPass", "day", day, "title", title, "chars", len(prose))
@@ -219,7 +238,7 @@ func daySummaryPass(db *poltergres.ReadWrite, oc *oracle.Client, mount string, l
 			ON CONFLICT (day) DO UPDATE SET built_at = EXCLUDED.built_at, version = EXCLUDED.version, signature = EXCLUDED.signature, title = EXCLUDED.title,
 			  template = EXCLUDED.template, summary = EXCLUDED.summary, written_by = EXCLUDED.written_by, model_at = EXCLUDED.model_at,
 			  prose_tries = EXCLUDED.prose_tries, tries_sig = EXCLUDED.tries_sig, facts = EXCLUDED.facts`,
-			day, time.Now().UnixMilli(), daySummaryVersion, sig, title, template, summary, by, modelAt, tries, sig, string(fb)); err != nil {
+			day, time.Now().UnixMilli(), daySummaryVersion, storeSig, title, template, summary, by, modelAt, tries, sig, string(fb)); err != nil {
 			return built, written, err
 		}
 		built++
@@ -747,6 +766,41 @@ func projectDayMemory(db *poltergres.ReadWrite, day, title, summary, by string, 
 	t, _ := time.Parse("2006-01-02", day)
 	return db.Exec("INSERT INTO memories (title, body, kind, source_ref, meta, created_at, updated_at) VALUES ($1,$2,'day',$3,$4::jsonb,$5,$6)",
 		title, summary, ref, string(mb), t.Add(24*time.Hour-time.Second).UnixMilli(), now)
+}
+
+// wordsTakenBack reports whether the facts a day was last told from (the row's JSON) held words
+// of the person's own that the day's facts no longer hold.
+func wordsTakenBack(oldJSON string, now *dayFacts) bool {
+	if oldJSON == "" {
+		return false
+	}
+	var old dayFacts
+	if json.Unmarshal([]byte(oldJSON), &old) != nil {
+		return false
+	}
+	gone := func(was, is []string) bool {
+		have := map[string]bool{}
+		for _, s := range is {
+			have[s] = true
+		}
+		for _, s := range was {
+			if !have[s] {
+				return true
+			}
+		}
+		return false
+	}
+	return gone(old.Notes, now.Notes) || gone(old.Spoken, now.Spoken) || gone(old.Chats, now.Chats) ||
+		gone(old.Events, now.Events) || gone(old.Birthdays, now.Birthdays) || (old.Why != "" && old.Why != now.Why)
+}
+
+// dropEmptyDay removes the telling of a day that has nothing left to be told from: the
+// day_summaries row and the day's memory, unless the person edited that memory by hand.
+func dropEmptyDay(db *poltergres.ReadWrite, day string) error {
+	if err := db.Exec("DELETE FROM day_summaries WHERE day = $1", day); err != nil {
+		return err
+	}
+	return db.Exec("DELETE FROM memories WHERE kind = 'day' AND source_ref = $1 AND NOT user_edited", "day:"+day)
 }
 
 // --- small words ---

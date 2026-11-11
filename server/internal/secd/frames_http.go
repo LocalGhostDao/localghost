@@ -84,7 +84,7 @@ func (s *Server) handleFrameUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.streaming(w)()
-	n, err := spoolBody(dir, r, uploadMaxBytes, uid, gid, &s.closing)
+	n, err := spoolBody(s.cfg.StateDir, dir, r, uploadMaxBytes, uid, gid, &s.closing)
 	if err != nil {
 		if s.closing.Load() {
 			secdLog.Info("frame upload cut: the box is locking", "fn", "handleFrameUpload")
@@ -656,7 +656,7 @@ func (s *Server) handleLocations(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many points in one batch", http.StatusRequestEntityTooLarge)
 		return
 	}
-	n, err := spoolFrom(dir, r, bytes.NewReader(body), uid, gid)
+	n, err := spoolFrom(s.cfg.StateDir, dir, r, bytes.NewReader(body), uid, gid)
 	if err != nil {
 		secdLog.Warn("location spool failed", "fn", "handleLocations", "dir", dir, "err", err)
 		http.Error(w, "upload failed", http.StatusInsufficientStorage)
@@ -692,15 +692,19 @@ func (g gateReader) Read(p []byte) (int, error) {
 // spoolBody streams the request body to a fresh .part file in dir, fsyncs, and renames it live. The
 // name is arrival-ordered (nanosecond timestamp) plus random hex so concurrent uploads never collide.
 // stop is the box's closing flag: once it is set the copy fails and the .part is removed.
-func spoolBody(dir string, r *http.Request, maxBytes int64, uid, gid int, stop *atomic.Bool) (int64, error) {
-	return spoolFrom(dir, r, gateReader{r: http.MaxBytesReader(nil, r.Body, maxBytes), stop: stop}, uid, gid)
+func spoolBody(stateDir, dir string, r *http.Request, maxBytes int64, uid, gid int, stop *atomic.Bool) (int64, error) {
+	return spoolFrom(stateDir, dir, r, gateReader{r: http.MaxBytesReader(nil, r.Body, maxBytes), stop: stop}, uid, gid)
 }
 
-// spoolFrom is [spoolBody] from a reader already bounded (and gated) by the caller.
-func spoolFrom(dir string, r *http.Request, body io.Reader, uid, gid int) (int64, error) {
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+// spoolFrom is [spoolBody] from a reader already bounded (and gated) by the caller. The spool is
+// the daemons' directory and root is the one writing: every step is beneath the volume, by bare
+// name in a directory opened without following a link (vaultfs.go).
+func spoolFrom(stateDir, dir string, r *http.Request, body io.Reader, uid, gid int) (int64, error) {
+	d, err := vaultDir(stateDir, dir, true, 0o750, uid, gid)
+	if err != nil {
 		return 0, fmt.Errorf("create spool dir: %w", err)
 	}
+	defer d.Close()
 	var rb [6]byte
 	_, _ = rand.Read(rb[:])
 	name := fmt.Sprintf("%d-%s", time.Now().UnixNano(), hex.EncodeToString(rb[:]))
@@ -727,39 +731,38 @@ func spoolFrom(dir string, r *http.Request, body io.Reader, uid, gid int) (int64
 	if dev := deviceKeyFromRequest(r); dev != "" {
 		name += "-d" + dev
 	}
-	part := filepath.Join(dir, name+".part")
-	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	part := name + ".part"
+	f, err := createIn(d, part, 0o640)
 	if err != nil {
 		return 0, fmt.Errorf("create .part: %w", err)
 	}
 	n, err := io.Copy(f, body)
 	if err != nil {
 		_ = f.Close()
-		_ = os.Remove(part)
+		_ = d.Remove(part)
 		return 0, fmt.Errorf("stream body (after %d bytes): %w", n, err)
 	}
 	if err := f.Sync(); err != nil { // the bytes are the photo; make sure they hit the disk
 		_ = f.Close()
-		_ = os.Remove(part)
+		_ = d.Remove(part)
 		return 0, fmt.Errorf("fsync: %w", err)
 	}
+	// Hand the file to the run user BEFORE the commit, through its descriptor. secd runs as ROOT;
+	// without this every spool file lands root:root 0640 and framed (the run user) cannot read a
+	// single one , the drain then retries the whole backlog every tick, flooding its log while
+	// archiving nothing (observed: 35GB stuck, 7.3GB of permission-denied lines).
+	if uid > 0 {
+		if err := f.Chown(uid, gid); err != nil {
+			secdLog.Warn("spool chown failed , framed cannot read this file", "fn", "spoolBody", "name", name, "err", err)
+		}
+	}
 	if err := f.Close(); err != nil {
-		_ = os.Remove(part)
+		_ = d.Remove(part)
 		return 0, fmt.Errorf("close: %w", err)
 	}
-	final := filepath.Join(dir, name)
-	if err := os.Rename(part, final); err != nil { // the commit
+	if err := d.Rename(part, name); err != nil { // the commit
+		_ = d.Remove(part)
 		return 0, fmt.Errorf("commit rename: %w", err)
-	}
-	// Hand the file to the run user AT COMMIT. secd runs as ROOT; without this every spool file lands
-	// root:root 0640 and framed (the run user) cannot read a single one , the drain then retries the
-	// whole backlog every tick, flooding its log while archiving nothing (observed: 35GB stuck, 7.3GB
-	// of permission-denied lines). Root writes it, the cohort consumes it: ownership crosses here.
-	if uid > 0 {
-		if err := os.Chown(final, uid, gid); err != nil {
-			secdLog.Warn("spool chown failed , framed cannot read this file", "fn", "spoolBody", "path", final, "err", err)
-		}
-		_ = os.Chown(dir, uid, gid)
 	}
 	return n, nil
 }
@@ -1239,7 +1242,8 @@ func (s *Server) handleHealthUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inbox := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "tallyd", "inbox")
-	if err := os.MkdirAll(inbox, 0o750); err != nil {
+	uid, gid := s.spoolCred()
+	if err := vaultMkdirAll(s.cfg.StateDir, inbox, 0o750, uid, gid); err != nil {
 		s.appearsDown(w)
 		return
 	}
@@ -1252,20 +1256,12 @@ func (s *Server) handleHealthUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	// written whole, then named into place: tallyd's drain never sees half a file
 	path := filepath.Join(inbox, fmt.Sprintf("health-%d.json", time.Now().UnixNano()))
-	if err := os.WriteFile(path+".part", body, 0o640); err != nil {
+	if err := vaultWrite(s.cfg.StateDir, path+".part", body, 0o640, uid, gid); err != nil {
 		s.appearsDown(w)
 		return
 	}
-	if s.cfg.RunUser != "" {
-		if u, uerr := user.Lookup(s.cfg.RunUser); uerr == nil {
-			uid, _ := strconv.Atoi(u.Uid)
-			gid, _ := strconv.Atoi(u.Gid)
-			_ = os.Chown(path+".part", uid, gid)
-			_ = os.Chown(inbox, uid, gid)
-		}
-	}
-	if err := os.Rename(path+".part", path); err != nil {
-		_ = os.Remove(path + ".part")
+	if err := vaultRename(s.cfg.StateDir, path+".part", path); err != nil {
+		vaultRemove(s.cfg.StateDir, path+".part")
 		s.appearsDown(w)
 		return
 	}
@@ -1319,26 +1315,20 @@ func (s *Server) handleHealthDiag(w http.ResponseWriter, r *http.Request) {
 		Steps   string   `json:"steps"` // yesterday's steps four ways, when the phone counted them
 	}
 	_ = json.Unmarshal(body, &d)
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		s.appearsDown(w)
-		return
-	}
-	if err := os.WriteFile(path+".part", body, 0o640); err != nil {
-		s.appearsDown(w)
-		return
-	}
 	// secd runs as root; tallyd runs as the run user and reads this for `ghost-cli ghost.tallyd
 	// health`, so the file is handed over like the inbox is (the first drop forgot, and the
 	// phone's account never showed in the readout)
-	if s.cfg.RunUser != "" {
-		if u, uerr := user.Lookup(s.cfg.RunUser); uerr == nil {
-			uid, _ := strconv.Atoi(u.Uid)
-			gid, _ := strconv.Atoi(u.Gid)
-			_ = os.Chown(path+".part", uid, gid)
-		}
+	uid, gid := s.spoolCred()
+	if err := vaultMkdirAll(s.cfg.StateDir, filepath.Dir(path), 0o750, uid, gid); err != nil {
+		s.appearsDown(w)
+		return
 	}
-	if err := os.Rename(path+".part", path); err != nil {
-		_ = os.Remove(path + ".part")
+	if err := vaultWrite(s.cfg.StateDir, path+".part", body, 0o640, uid, gid); err != nil {
+		s.appearsDown(w)
+		return
+	}
+	if err := vaultRename(s.cfg.StateDir, path+".part", path); err != nil {
+		vaultRemove(s.cfg.StateDir, path+".part")
 		s.appearsDown(w)
 		return
 	}

@@ -252,7 +252,9 @@ func ingestOne(db *poltergres.ReadWrite, path, archive string, lg *slog.Logger) 
 	if err := os.Remove(path); err != nil {
 		return err
 	}
-	lg.Info("ingested", "fn", "ingestOne", "ref", ref[:12], "title", title)
+	// the ref and the size at INFO; the note's first line is the person's and stays at DEBUG
+	lg.Info("ingested", "fn", "ingestOne", "ref", ref[:12], "titleChars", len(title))
+	lg.Debug("ingested", "fn", "ingestOne", "ref", ref[:12], "title", title)
 	return nil
 }
 

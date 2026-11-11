@@ -13,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -231,27 +230,20 @@ func (s *Server) handleMailSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	outbox := filepath.Join(s.mailMount(mounted), "noted", "outbox")
-	if err := os.MkdirAll(outbox, 0o750); err != nil {
+	// secd runs as root; noted runs as the run user and reads its own outbox (vaultfs.go)
+	uid, gid := s.spoolCred()
+	if err := vaultMkdirAll(s.cfg.StateDir, outbox, 0o750, uid, gid); err != nil {
 		s.appearsDown(w)
 		return
 	}
 	name := fmt.Sprintf("%d.json", time.Now().UnixNano())
 	path := filepath.Join(outbox, name)
-	if err := os.WriteFile(path+".part", body, 0o640); err != nil {
+	if err := vaultWrite(s.cfg.StateDir, path+".part", body, 0o640, uid, gid); err != nil {
 		s.appearsDown(w)
 		return
 	}
-	// secd runs as root; noted runs as the run user and reads its own outbox
-	if s.cfg.RunUser != "" {
-		if u, uerr := user.Lookup(s.cfg.RunUser); uerr == nil {
-			uid, _ := strconv.Atoi(u.Uid)
-			gid, _ := strconv.Atoi(u.Gid)
-			_ = os.Chown(path+".part", uid, gid)
-			_ = os.Chown(outbox, uid, gid)
-		}
-	}
-	if err := os.Rename(path+".part", path); err != nil {
-		_ = os.Remove(path + ".part")
+	if err := vaultRename(s.cfg.StateDir, path+".part", path); err != nil {
+		vaultRemove(s.cfg.StateDir, path+".part")
 		s.appearsDown(w)
 		return
 	}

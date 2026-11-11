@@ -18,6 +18,12 @@ package main
 // the person decides (edit, delete, or leave it). A memory the person edited by hand is never
 // read again: their words are theirs. Nothing is deleted by this pass, ever.
 //
+// What the pass does not judge: a memory or a fact that was not made from a journal entry (the
+// about note, a hand edit) has nothing to be read against and is left as it is; a person's fact
+// whose record is gone (a deleted chat) is left too, since nothing contradicts it. A distilled
+// memory whose record is gone IS put in doubt, with nothing quoted: it can no longer be shown
+// to be so. A YES stands only when the memory's own names and numbers are in the record.
+//
 // A memory is read again once; again if it changes after that (updated_at past verified_at).
 // The record is immutable (journal entries are written once), so one reading per version of the
 // memory is the whole job.
@@ -90,7 +96,19 @@ func readAgainPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger)
 		if v[4] != nil && *v[4] != "" {
 			_ = json.Unmarshal([]byte(*v[4]), &meta)
 		}
-		record := recordFor(db, ref)
+		record, kind := recordFor(db, ref)
+		if kind == recordNotJournal {
+			// made from something that is not a journal entry (the about note, a hand
+			// edit): there is nothing to read it against, and that is not a doubt. Stamped
+			// so the pass does not come back to it; no verdict either way.
+			meta["verified_at"] = now
+			meta["unread"] = "not made from a record"
+			mb, _ := json.Marshal(meta)
+			if err := db.Exec("UPDATE memories SET meta = $2::jsonb WHERE id = $1", id, string(mb)); err != nil {
+				return confirmed, doubted, err
+			}
+			continue
+		}
 		vd, rerr := readAgain(oc, owner, record, title+" | "+body)
 		if rerr != nil {
 			lg.Warn("read again: inference failed, left for a later pass", "fn", "readAgainPass", "id", id, "err", rerr)
@@ -98,13 +116,16 @@ func readAgainPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger)
 		}
 		budget--
 		meta["verified_at"] = now
+		delete(meta, "unread")
 		if vd.Word == "YES" {
 			delete(meta, "doubt")
 			confirmed++
 		} else {
 			meta["doubt"] = doubt{At: now, Found: vd.Found, Ref: ref}
 			doubted++
-			lg.Info("read again: a memory in doubt", "fn", "readAgainPass", "id", id, "title", title, "found", vd.Found)
+			// the id and sizes at INFO; the words are the person's and go no further than DEBUG
+			lg.Info("read again: a memory in doubt", "fn", "readAgainPass", "id", id, "verdict", vd.Word, "foundChars", len(vd.Found))
+			lg.Debug("read again: a memory in doubt", "fn", "readAgainPass", "id", id, "title", title, "found", vd.Found)
 		}
 		mb, _ := json.Marshal(meta)
 		if err := db.Exec("UPDATE memories SET meta = $2::jsonb WHERE id = $1", id, string(mb)); err != nil {
@@ -134,10 +155,18 @@ func readAgainPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger)
 				if f.Ref == "" || f.V > 0 {
 					continue
 				}
-				record := recordFor(db, f.Ref)
+				record, kind := recordFor(db, f.Ref)
+				if kind != recordFound {
+					// a fact folded from the about note or a hand edit ("about", "edited",
+					// "memory") has no record to be read against, and a record that is gone
+					// (a deleted chat) cannot contradict anything: neither is a doubt. The
+					// audit of this pass found it doubting every fact learnt from a check-in
+					// without asking the model. The fact stays as it is, unread.
+					continue
+				}
 				vd, rerr := readAgain(oc, owner, record, p.title+" | "+f.T)
 				if rerr != nil {
-					lg.Warn("read again: inference failed, left for a later pass", "fn", "readAgainPass", "person", p.title, "err", rerr)
+					lg.Warn("read again: inference failed, left for a later pass", "fn", "readAgainPass", "personId", p.id, "err", rerr)
 					continue
 				}
 				budget--
@@ -151,7 +180,8 @@ func readAgainPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger)
 						f.Doubt = "the record does not say this"
 					}
 					doubted++
-					lg.Info("read again: a fact in doubt", "fn", "readAgainPass", "person", p.title, "fact", f.T, "found", vd.Found)
+					lg.Info("read again: a fact in doubt", "fn", "readAgainPass", "personId", p.id, "fact", i, "verdict", vd.Word, "foundChars", len(vd.Found))
+					lg.Debug("read again: a fact in doubt", "fn", "readAgainPass", "person", p.title, "fact", f.T, "found", vd.Found)
 				}
 				changed = true
 			}
@@ -171,18 +201,43 @@ func readAgainPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger)
 	return confirmed, doubted, nil
 }
 
-// recordFor fetches the journal entry a memory was made from, by its ref; "" when it is gone.
-func recordFor(db *poltergres.ReadWrite, ref string) string {
-	rows, err := db.Query("SELECT title, body FROM journal_entries WHERE ref = $1 ORDER BY id DESC LIMIT 1", ref)
-	if err != nil || len(rows.Vals) == 0 || len(rows.Vals[0]) < 2 {
-		return ""
+// What recordFor found.
+const (
+	recordFound      = iota // the entry, with words in it
+	recordGone              // a journal ref whose entry is no longer there (a deleted chat)
+	recordNotJournal        // a ref that never named a journal entry ("about", "edited", "memory")
+)
+
+// recordFor fetches the journal entry a memory or a fact was made from, by its ref: an entry's
+// own ref ("chat:12", "note:…") or "checkin:<id>", the entry's row id (a check-in's facts
+// carry that). A ref with no kind before a colon was never a journal ref.
+func recordFor(db *poltergres.ReadWrite, ref string) (string, int) {
+	kind, rest, ok := strings.Cut(ref, ":")
+	if !ok || kind == "" || rest == "" || kind == "person" {
+		return "", recordNotJournal
 	}
-	t, b := str(rows.Vals[0][0]), str(rows.Vals[0][1])
-	s := strings.TrimSpace(t + "\n" + b)
+	var rows *poltergres.Rows
+	var err error
+	if kind == "checkin" {
+		id, perr := strconv.ParseInt(rest, 10, 64)
+		if perr != nil {
+			return "", recordNotJournal
+		}
+		rows, err = db.Query("SELECT title, body FROM journal_entries WHERE id = $1", id)
+	} else {
+		rows, err = db.Query("SELECT title, body FROM journal_entries WHERE ref = $1 ORDER BY id DESC LIMIT 1", ref)
+	}
+	if err != nil || len(rows.Vals) == 0 || len(rows.Vals[0]) < 2 {
+		return "", recordGone
+	}
+	s := strings.TrimSpace(str(rows.Vals[0][0]) + "\n" + str(rows.Vals[0][1]))
+	if s == "" {
+		return "", recordGone
+	}
 	if r := []rune(s); len(r) > recordMax {
 		s = string(r[:recordMax])
 	}
-	return s
+	return s, recordFound
 }
 
 // readAgain asks the model whether the record says what the memory says. A record that is gone
@@ -202,7 +257,44 @@ func readAgain(oc *oracle.Client, owner, record, memory string) (verdict, error)
 	if err != nil {
 		return verdict{}, err
 	}
-	return parseVerdict(resp.Output, record), nil
+	v := parseVerdict(resp.Output, record)
+	if v.Word == "YES" && !supported(memory, record, owner) {
+		// a bare YES is the model's word alone. The memory's own names and numbers must be in
+		// the record, the same test the "found" sentence has to pass; one that is not there
+		// makes it PARTLY, with nothing quoted
+		v = verdict{Word: "PARTLY"}
+	}
+	return v, nil
+}
+
+// supported reports whether every number and every capitalised word of the memory (after its
+// title) is somewhere in the record. It cannot say the memory is right; it can say a YES is
+// not contradicted by a name or a figure the record never had. The owner's own name is not
+// looked for: a note or a check-in is written in the first person and never has it.
+func supported(memory, record, owner string) bool {
+	_, body, ok := strings.Cut(memory, " | ")
+	if !ok {
+		body = memory
+	}
+	low := strings.ToLower(record)
+	for _, loc := range capWordRe.FindAllStringIndex(body, -1) {
+		if loc[0] == 0 || strings.HasSuffix(strings.TrimRight(body[:loc[0]], " "), ".") {
+			continue // the first word of a sentence is capitalised for that alone
+		}
+		w := strings.ToLower(strings.TrimSuffix(strings.TrimSuffix(body[loc[0]:loc[1]], "'s"), "’s"))
+		if owner != "" && w == strings.ToLower(owner) {
+			continue
+		}
+		if !strings.Contains(low, w) {
+			return false
+		}
+	}
+	for _, n := range numberRe.FindAllString(body, -1) {
+		if !strings.Contains(record, n) {
+			return false
+		}
+	}
+	return true
 }
 
 // readAgainPrompt is the one question (pure, for the tests).

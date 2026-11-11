@@ -722,6 +722,14 @@ func (p *Pipeline) RebuildDay(day string) {
 		return
 	}
 	if len(pts) == 0 && len(photos) == 0 {
+		// nothing is left of the day (its fixes were forgotten, its photos deleted): the path
+		// and the route drawn from them go too. They used to stay, and the map and the day's
+		// story went on showing where the person had asked the box to forget (audit run 2).
+		for _, name := range []string{day + ".geojson", day + ".route.json"} {
+			if err := os.Remove(filepath.Join(p.dirs.Paths, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				p.log.Warn("day path not removed", "fn", "rebuildDay", "day", day, "err", err)
+			}
+		}
 		return
 	}
 	// the stretches worth a "were you there?", named, minus the ones already said yes to

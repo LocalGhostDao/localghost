@@ -36,6 +36,8 @@ fun VideoPlayer(hash: String, onDismiss: () -> Unit) {
     var failed by remember(hash) { mutableStateOf(false) }
     var fetched by remember(hash) { mutableStateOf(0L) }
     var fallingBack by remember(hash) { mutableStateOf(false) }
+    // whether a clip is actually playing: the screen is held on for that and nothing else
+    var playing by remember(hash) { mutableStateOf(true) }
     val exo = remember(hash) {
         androidx.media3.exoplayer.ExoPlayer.Builder(ctx).build().apply {
             setMediaSource(
@@ -46,6 +48,16 @@ fun VideoPlayer(hash: String, onDismiss: () -> Unit) {
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                     fallingBack = true
                 }
+                // playing, or about to (buffering with play asked for); paused, ended or stopped
+                // on an error, the phone's own timeout applies again
+                private fun held() {
+                    if (fallingBack) return
+                    playing = this@apply.isPlaying ||
+                        (this@apply.playbackState == androidx.media3.common.Player.STATE_BUFFERING && this@apply.playWhenReady)
+                }
+                override fun onIsPlayingChanged(isPlaying: Boolean) { held() }
+                override fun onPlaybackStateChanged(playbackState: Int) { held() }
+                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { held() }
             })
             prepare()
             playWhenReady = true
@@ -61,15 +73,17 @@ fun VideoPlayer(hash: String, onDismiss: () -> Unit) {
     DisposableEffect(hash) {
         onDispose { runCatching { exo.release() }; file?.delete() }
     }
-    // The screen stays on and the phone does not lock while the player is open: a clip is watched
-    // without a touch, and the shell's one-minute hold after the last touch (MainActivity) would
-    // let the phone's own timeout dim and lock it mid-clip. The flag is the dialog window's (the
-    // view below is in it) and goes with the dialog.
+    // The screen stays on and the phone does not lock while a clip PLAYS: it is watched without
+    // a touch, and the shell's one-minute hold after the last touch (MainActivity) would let the
+    // phone's own timeout dim and lock it mid-clip. Once the clip has ended, is paused or could
+    // not play, the hold goes: held for as long as the dialog was open, a finished clip kept the
+    // phone awake and the app unlocked for good (audit run 2). The flag is the dialog window's
+    // (the view below is in it) and goes with the dialog.
     Dialog(onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)) {
         val view = androidx.compose.ui.platform.LocalView.current
-        DisposableEffect(view) {
-            view.keepScreenOn = true
+        DisposableEffect(view, playing, failed) {
+            view.keepScreenOn = playing && !failed
             onDispose { view.keepScreenOn = false }
         }
         Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
@@ -87,8 +101,9 @@ fun VideoPlayer(hash: String, onDismiss: () -> Unit) {
                         android.widget.VideoView(c).apply {
                             setVideoPath(file!!.absolutePath)
                             setMediaController(android.widget.MediaController(c).also { it.setAnchorView(this) })
-                            setOnPreparedListener { mp -> mp.isLooping = false; start() }
-                            setOnErrorListener { _, _, _ -> failed = true; true }
+                            setOnPreparedListener { mp -> mp.isLooping = false; playing = true; start() }
+                            setOnCompletionListener { playing = false }
+                            setOnErrorListener { _, _, _ -> failed = true; playing = false; true }
                         }
                     },
                     modifier = Modifier.fillMaxSize())

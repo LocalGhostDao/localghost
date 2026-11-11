@@ -81,7 +81,10 @@ object WebSearch {
     class Plan(val search: Boolean, val need: String, val shape: String, val fresh: Boolean, val queries: List<String>, val box: BoxSpeed? = null,
                /** What the box keeps that answers this (its prices, the rank list, the ECB, the day's
                 *  news); "" when the web may help. Final in every web mode: the box's number is fresher. */
-               val boxHas: String = "") {
+               val boxHas: String = "",
+               /** Why the box planned no search although one would have helped: every search it
+                *  would take carried the person's own details. "" otherwise. */
+               val withheld: String = "") {
         /** The searches run in the first round: the first two. */
         val first: List<String> get() = queries.take(2)
         /** The rest, kept for a second round the box may ask for when the first read thin. */
@@ -111,6 +114,28 @@ object WebSearch {
         "auto" -> looksFresh(question)
         else -> false
     }
+
+    /**
+     * Whether the box's model is ASKED what this question needs from the web. In auto mode that
+     * used to be [looksFresh] too: one list of words (today, price, latest …) stood between every
+     * question and the planner, so "who built hagia sophia" or "is tungsten magnetic" was never
+     * offered to it and the chat answered from what the model remembered. Now the planner is
+     * asked for every question that is not small talk and not plainly about the person's own
+     * life; the planner says search or not, and the searches it writes are held to a rule on the
+     * box and again on the phone ([QueryGuard]). Without the box's plan the old rule stands.
+     */
+    fun shouldAskPlan(mode: String, question: String): Boolean = when (mode) {
+        "on" -> true
+        "auto" -> !looksChatter(question) && !(FollowUp.looksPersonal(question) && !looksFresh(question))
+        else -> false
+    }
+
+    private val chatter = Regex(
+        "^(hi|hello|hey|yo|thanks|thank you|thx|ty|ok|okay|cool|nice|great|good (morning|evening|night|afternoon)|bye|goodbye|" +
+        "lol|haha|yes|no|yep|nope|sure|please|sorry|never mind|nevermind|got it|i see)[\\s!.,]*$", RegexOption.IGNORE_CASE)
+
+    /** Small talk: a greeting, a thank-you, a word of agreement. Nothing to look up. */
+    fun looksChatter(q: String): Boolean { val t = q.trim(); return t.length < 3 || chatter.matches(t) }
 
     private val fresh = Regex(
         "\\b(today|tonight|tomorrow|yesterday|latest|news|price|prices|cost|costs|weather|forecast|score|scores|results?|" +
@@ -182,10 +207,11 @@ object WebSearch {
      *  the first came back thin, or all of them when [runAll]. [need] steers which paragraphs of a
      *  page are worth sending: the box's one sentence beats the question's words. */
     suspend fun search(question: String, engine: Engine = Engine(), queries: List<String>? = null,
-                       need: String = "", runAll: Boolean = false): List<Hit> = withContext(Dispatchers.IO) {
-        val key = cacheKey(question) + (if (engine.brave) "#b" else "") + (queries?.joinToString("|", prefix = "#") ?: "") + (if (runAll) "#all" else "")
+                       need: String = "", runAll: Boolean = false, subject: String = ""): List<Hit> = withContext(Dispatchers.IO) {
+        val key = cacheKey(question) + (if (engine.brave) "#b" else "") + (queries?.joinToString("|", prefix = "#") ?: "") + (if (runAll) "#all" else "") +
+            (if (subject.isNotBlank()) "#s$subject" else "")
         synchronized(cache) { cache[key]?.let { (at, hits) -> if (System.currentTimeMillis() - at < CACHE_TTL_MS) return@withContext hits } }
-        val out = run(question, engine, queries, need, runAll)
+        val out = run(question, engine, queries, need, runAll, subject)
         if (out.isNotEmpty()) synchronized(cache) { cache[key] = System.currentTimeMillis() to out }
         out
     }
@@ -198,13 +224,18 @@ object WebSearch {
         return out
     }
 
-    private fun run(question: String, engine: Engine = Engine(), planned: List<String>? = null, need: String = "", runAll: Boolean = false): List<Hit> {
+    private fun run(question: String, engine: Engine = Engine(), planned: List<String>? = null, need: String = "", runAll: Boolean = false, subject: String = ""): List<Hit> {
         val pool = Executors.newFixedThreadPool(FETCH_TOP + 2)
         try {
             // Tools and the first search leave together; the extra queries only when the first
             // came back thin. Every future is bounded on its own, so one slow host costs its own
             // seconds and nobody else's.
-            val toolFutures: List<Future<Hit?>> = Tools.forQuestion(question).map { t -> pool.submit(Callable { runCatching { t.call() }.getOrNull() }) }
+            // Wikipedia's summary by the question's own shape ("what is X") or, when the question
+            // has no such shape, by the subject the box's plan named: a question asked loosely
+            // ("that greek island with the venetian fortress") still gets the encyclopedia's
+            // paragraph beside the search results
+            val toolList = Tools.forQuestion(question).ifEmpty { Tools.forSubject(subject) }
+            val toolFutures: List<Future<Hit?>> = toolList.map { t -> pool.submit(Callable { runCatching { t.call() }.getOrNull() }) }
             val queries = if (planned != null && planned.isNotEmpty()) planned.mapIndexed { i, q -> Query(q, runAll || i == 0) } else plan(question)
             val pages = ArrayList<Hit>()
             val agree = HashMap<String, Int>()
@@ -621,6 +652,17 @@ object WebSearch {
             }
             return out
         }
+
+        /** The plan's subject as a Wikipedia lookup: a name of at most five words that may leave
+         *  the phone ([QueryGuard]) and is not the weather's. */
+        fun forSubject(subject: String): List<Callable<Hit?>> {
+            val s = subject.trim().trimEnd('?', '.', '!')
+            if (!subjectFits(s)) return emptyList()
+            return listOf(Callable { wikipediaHit(s) })
+        }
+
+        internal fun subjectFits(s: String): Boolean =
+            s.length in 2..60 && s.split(' ').size <= 5 && QueryGuard.ok(s) && !weatherQ.containsMatchIn(s)
 
         // Wikipedia's REST summary: the lead paragraph, clean, with a timestamp.
         class Summary(val title: String, val url: String, val excerpt: String, val published: String)

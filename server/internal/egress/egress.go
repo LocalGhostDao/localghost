@@ -11,10 +11,13 @@ package egress
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -36,34 +39,53 @@ type Fetched struct {
 	TookMs int    `json:"tookMs,omitempty"` // from asking to the last byte, for the fetch log
 }
 
-// Client fetches with a fixed agent, no cookies, short deadlines and a body cap.
+// Client fetches with a fixed agent, no cookies, short deadlines, a body cap, and the
+// destination rule of guard.go.
 type Client struct {
-	hc *http.Client
+	hc   *http.Client
+	tr   *http.Transport
+	open bool // NewUnguarded: tests only
+}
+
+// Allows says whether this client would ask for an address at all, so a caller can set aside
+// a link it will never fetch instead of spending a request's place on the refusal.
+func (c *Client) Allows(raw string) error {
+	if c.open {
+		return nil
+	}
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("%w: not an address", ErrRefused)
+	}
+	return CheckURL(u)
 }
 
 // New is a client with sensible limits. One per daemon.
 func New() *Client {
+	tr := Transport()
+	return &Client{hc: Wrap(tr, 40*time.Second), tr: tr}
+}
+
+// NewUnguarded is New without the destination rule, for tests that serve from loopback over
+// plain http. Nothing that ships calls it (TestNothingShipsUnguarded).
+func NewUnguarded() *Client {
 	tr := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
 		MaxIdleConns:          4,
 		IdleConnTimeout:       30 * time.Second,
-		DisableCompression:    false,
 	}
-	return &Client{hc: &http.Client{Transport: tr, Timeout: 40 * time.Second}}
+	return &Client{hc: &http.Client{Transport: tr, Timeout: 40 * time.Second}, tr: tr, open: true}
 }
 
 // NewKeepAlive is New holding more connections open, for a caller that asks the same hosts every
 // few seconds (tallyd's fast lane): no new TLS handshake each time.
 func NewKeepAlive(perHost int) *Client {
 	c := New()
-	if tr, ok := c.hc.Transport.(*http.Transport); ok {
-		tr.MaxIdleConns = perHost * 8
-		tr.MaxIdleConnsPerHost = perHost
-		tr.IdleConnTimeout = 90 * time.Second
-	}
+	c.tr.MaxIdleConns = perHost * 8
+	c.tr.MaxIdleConnsPerHost = perHost
+	c.tr.IdleConnTimeout = 90 * time.Second
 	return c
 }
 

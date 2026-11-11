@@ -503,7 +503,8 @@ func insightPass(db *poltergres.ReadWrite, oc *oracle.Client, mount string, lg *
 	ms := now.UnixMilli()
 	for i, tb := range parseInsights(resp.Output, owner, facts) {
 		// the same title within a month is the same thing noticed again
-		rows, err := db.Query("SELECT 1 FROM memories WHERE kind = 'insight' AND lower(title) = lower($1) AND created_at > $2 LIMIT 1",
+		// and one the person deleted is not noticed again at all, however long ago
+		rows, err := db.Query("SELECT 1 FROM memories WHERE kind = 'insight' AND lower(title) = lower($1) AND (created_at > $2 OR tombstoned) LIMIT 1",
 			tb[0], now.AddDate(0, 0, -30).UnixMilli())
 		if err != nil {
 			return kept, err

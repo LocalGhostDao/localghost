@@ -136,6 +136,7 @@ func TestPullsEveryLayout(t *testing.T) {
 	cells := []Cell{{ID: 1, Lat: 46.1, Lon: -5.3}, {ID: 2, Lat: 49.9, Lon: -9.9}, {ID: 3, Lat: 55, Lon: 2}}
 	fix := &Fix{Lat: 46.1, Lon: -5.3}
 	f := NewFetcher()
+	f.hc = &http.Client{Timeout: time.Minute} // the test serves from loopback over plain http
 	f.pause = 0
 	ctx := context.Background()
 	var pulled []*Run
@@ -298,6 +299,7 @@ func TestMetOfficePullsTheOrdersLatestRun(t *testing.T) {
 	m.Steps = []int{0, 1, 2}
 	m.Domain = nil
 	f := NewFetcher()
+	f.hc = &http.Client{Timeout: time.Minute} // the test serves from loopback over plain http
 	f.pause = 0
 	ctx := context.Background()
 	cells := []Cell{{ID: 1, Lat: 46.1, Lon: -5.3}}

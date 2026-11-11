@@ -615,9 +615,17 @@ func (b *llamaBackend) StreamChat(ctx context.Context, history []Turn, prompt, t
 	// SAME shape inferMultimodal uses for captions, so the projector path is already proven.
 	var content any = p
 	if imageB64 != "" {
+		// A photo attached to a chat goes through the same preparation as every captioned
+		// image: decoded here, turned upright, fitted to ImageMaxSide and re-encoded. It used
+		// to reach llama-server as the phone sent it (audit run 2), and the pinned engine is on
+		// record aborting on a full-size photo; what does not decode is refused, not passed on.
+		uri, err := chatImage(imageB64)
+		if err != nil {
+			return nil, "", err
+		}
 		content = []map[string]any{
 			{"type": "text", "text": p},
-			{"type": "image_url", "image_url": map[string]string{"url": "data:image/jpeg;base64," + imageB64}},
+			{"type": "image_url", "image_url": map[string]string{"url": uri}},
 		}
 	}
 	messages := make([]map[string]any, 0, len(history)+1)

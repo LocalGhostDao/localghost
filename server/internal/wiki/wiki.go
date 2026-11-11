@@ -111,7 +111,7 @@ var (
 // stop when it can be): the paragraphs before the first section, without tables, references, the
 // footnote marks or anything empty.
 func Lead(page string, max int) string {
-	if i := strings.Index(strings.ToLower(page), "<body"); i >= 0 {
+	if i := strings.Index(lowerASCII(page), "<body"); i >= 0 {
 		page = page[i:]
 	}
 	if loc := reCut.FindStringIndex(page); loc != nil {
@@ -155,7 +155,7 @@ func Lead(page string, max int) string {
 
 // dropElement takes out every <tag …>…</tag>, nested ones counted (an infobox holds tables).
 func dropElement(s, tag string) string {
-	low := strings.ToLower(s)
+	low := lowerASCII(s) // same length as s: the indices below are used on both
 	open, closeTag := "<"+tag, "</"+tag+">"
 	var b strings.Builder
 	i := 0
@@ -215,4 +215,22 @@ func Body(page string, max int) string {
 		out = cutAt(out, max)
 	}
 	return out
+}
+
+// lowerASCII lowers A-Z and nothing else, so an index into the result is an index into s.
+// strings.ToLower is not that: it writes U+FFFD for bytes that are not UTF-8 and a few letters
+// change length, and a page sliced by the copy's indices panicked (audit run 2).
+func lowerASCII(s string) string {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 'A' && c <= 'Z' {
+			b := []byte(s)
+			for ; i < len(b); i++ {
+				if b[i] >= 'A' && b[i] <= 'Z' {
+					b[i] += 'a' - 'A'
+				}
+			}
+			return string(b)
+		}
+	}
+	return s
 }

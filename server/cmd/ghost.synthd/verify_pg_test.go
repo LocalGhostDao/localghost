@@ -41,6 +41,13 @@ func TestReadAgainPG(t *testing.T) {
 	pm := personMeta{Note: "Cristina is Vlad's wife.", Facts: []personFact{{T: "Cristina was in Corfu with Vlad in October.", Ref: "chat:1"}, {T: "Cristina owns the boat.", Ref: "chat:2"}}}
 	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at, meta) VALUES ('Cristina', $2, 'person', 'person:cristina', $1, $1, $3::jsonb)", now, personBody(pm), pm.json()))
 
+	// a second person, whose facts come from a check-in (read by the entry's id), from the about
+	// note (nothing to read against) and from a chat that is gone (nothing contradicts it)
+	ck, err := db.Query("INSERT INTO journal_entries (source, ref, ts, title, body, created_at, distilled) VALUES ('ghost.noted', 'note:ck', $1, 'Daily check-in', 'Ran with Dan on Sunday morning, ten kilometres.', $1, TRUE) RETURNING id", now/1000)
+	must(err)
+	dm := personMeta{Facts: []personFact{{T: "Dan ran ten kilometres with Vlad on Sunday.", Ref: "checkin:" + *ck.Vals[0][0]}, {T: "Dan is Vlad's brother.", Ref: "about"}, {T: "Dan lives in Leeds.", Ref: "chat:999"}}}
+	must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at, meta) VALUES ('Dan', $2, 'person', 'person:dan', $1, $1, $3::jsonb)", now+1, personBody(dm), dm.json()))
+
 	// a stub oracled on the GPU that reads the record like a careful clerk
 	dir, err := os.MkdirTemp("/tmp", "lgor")
 	if err != nil {
@@ -64,6 +71,10 @@ func TestReadAgainPG(t *testing.T) {
 			out = "NO\nThe record says the boat is called Wisp; it does not say whose it is."
 		case strings.Contains(req.Input, "MEMORY: Mine |"):
 			t.Error("a hand-edited memory was read again")
+		case strings.Contains(req.Input, "Dan is Vlad's brother") || strings.Contains(req.Input, "Dan lives in Leeds"):
+			t.Error("a fact with no record to read against was sent to the model")
+		case strings.Contains(req.Input, "MEMORY: Dan |") && !strings.Contains(req.Input, "Ran with Dan on Sunday morning"):
+			t.Error("the check-in's fact was not read against the check-in")
 		}
 		data, _ := json.Marshal(oracle.Response{Output: out})
 		return ctlsock.Response{OK: true, Data: data}, nil
@@ -79,7 +90,7 @@ func TestReadAgainPG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ok != 2 || nope != 3 {
+	if ok != 3 || nope != 3 {
 		t.Fatalf("confirmed %d, doubted %d (asked %d)", ok, nope, asked)
 	}
 	rows := memRows(t, db, "kind = 'distilled'")
@@ -100,12 +111,32 @@ func TestReadAgainPG(t *testing.T) {
 		t.Fatalf("hand-edited touched: %s", byTitle["Mine"])
 	}
 	// the person: the wrong fact out of the body, in the meta with its doubt
-	prow := memRows(t, db, "kind = 'person'")
+	prow := memRows(t, db, "kind = 'person' AND title = 'Cristina'")
 	if len(prow) != 1 || strings.Contains(prow[0][3], "owns the boat") || !strings.Contains(prow[0][3], "in Corfu") {
 		t.Fatalf("person body: %q", prow[0][3])
 	}
 	if !strings.Contains(prow[0][4], `The record says the boat is called Wisp; it does not say whose it is.`) || !strings.Contains(prow[0][4], `"doubt"`) {
 		t.Fatalf("person meta: %s", prow[0][4])
+	}
+	// Dan: the check-in's fact was read and stands; the other two were never judged and are
+	// not in doubt (the first build of this pass doubted all three without asking the model)
+	drow := memRows(t, db, "kind = 'person' AND title = 'Dan'")
+	var dgot personMeta
+	if len(drow) != 1 || json.Unmarshal([]byte(drow[0][4]), &dgot) != nil || len(dgot.Facts) != 3 {
+		t.Fatalf("Dan: %v", drow)
+	}
+	if dgot.Facts[0].V == 0 || dgot.Facts[0].Doubt != "" {
+		t.Fatalf("the check-in's fact: %+v", dgot.Facts[0])
+	}
+	for _, f := range dgot.Facts[1:] {
+		if f.V != 0 || f.Doubt != "" {
+			t.Fatalf("a fact with no record was judged: %+v", f)
+		}
+	}
+	for _, want := range []string{"brother", "Leeds", "ten kilometres"} {
+		if !strings.Contains(drow[0][3], want) {
+			t.Fatalf("Dan's body lost %q: %q", want, drow[0][3])
+		}
 	}
 	// the doubted memory is out of the chat's grounding query
 	g, err := db.Query("SELECT title FROM memories WHERE NOT tombstoned AND (meta IS NULL OR NOT jsonb_exists(meta, 'doubt')) AND (title ILIKE '%boat%' OR body ILIKE '%boat%')")

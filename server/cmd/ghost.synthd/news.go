@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -661,6 +662,52 @@ func newsFetchByBox(ctx context.Context, db *poltergres.ReadWrite, client *egres
 	return fmt.Sprintf("fetched %d feeds (%d answered, %d new entries): %s", res.Feeds, res.OK, res.NewItems, why), nil
 }
 
+// guarded wraps one of the news loop's passes so a fault in it is logged and the loop goes on.
+// The log carries where it happened and never what was being read.
+func guarded(name string, lg *slog.Logger, fn func()) func() {
+	return func() {
+		defer func() {
+			if p := recover(); p != nil {
+				lg.Error("a news pass faulted and was abandoned", "fn", "newsLoop", "pass", name, "fault", fmt.Sprint(p), "at", faultSite())
+			}
+		}()
+		fn()
+	}
+}
+
+func guardedArg(name string, lg *slog.Logger, fn func(bool)) func(bool) {
+	return func(b bool) { guarded(name, lg, func() { fn(b) })() }
+}
+
+// faultSite is the first frames under the panic, file and line only.
+func faultSite() string {
+	pc := make([]uintptr, 12)
+	n := runtime.Callers(4, pc)
+	frames := runtime.CallersFrames(pc[:n])
+	var out []string
+	for len(out) < 4 {
+		f, more := frames.Next()
+		if strings.Contains(f.File, "/localghost/") || strings.Contains(f.File, "/server/") {
+			out = append(out, filepath.Base(f.File)+":"+strconv.Itoa(f.Line))
+		}
+		if !more {
+			break
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+// ingestGuarded is ingestFetched with a fault turned into an error and marked as one.
+func ingestGuarded(db *poltergres.ReadWrite, raw []byte, now time.Time) (res newsResult, err error, fault bool) {
+	defer func() {
+		if p := recover(); p != nil {
+			err, fault = fmt.Errorf("fault: %v (%s)", p, faultSite()), true
+		}
+	}()
+	res, err = ingestFetched(db, raw, now)
+	return res, err, false
+}
+
 // newsLoop: drain the inbox every 30 s; summaries and the digest check every 5 min; the box's own
 // fetch every 10 min when the phone is not on Wi-Fi.
 func newsLoop(ctx context.Context, mount, runDir string, produce func(hw.Notification) error, lg *slog.Logger) {
@@ -690,7 +737,9 @@ func newsLoop(ctx context.Context, mount, runDir string, produce func(hw.Notific
 			putHotNews(db, mount, lg)
 		}
 	}
-	drain := func() {
+	var drain, slow func()
+	var fetch func(bool)
+	drain = func() {
 		if !connect() {
 			return
 		}
@@ -721,7 +770,13 @@ func newsLoop(ctx context.Context, mount, runDir string, produce func(hw.Notific
 			if err != nil {
 				continue
 			}
-			res, err := ingestFetched(db, raw, time.Now())
+			res, err, fault := ingestGuarded(db, raw, time.Now())
+			if fault {
+				// a batch that faults the reader would fault it again every thirty seconds: it goes
+				lg.Warn("news batch could not be read and was dropped", "fn", "newsLoop", "file", e.Name(), "err", err)
+				_ = os.Remove(path)
+				continue
+			}
 			if err != nil {
 				lg.Warn("news batch failed, will retry", "fn", "newsLoop", "file", e.Name(), "err", err)
 				db = nil
@@ -736,7 +791,7 @@ func newsLoop(ctx context.Context, mount, runDir string, produce func(hw.Notific
 		}
 	}
 	client := egress.New()
-	slow := func() {
+	slow = func() {
 		if !connect() {
 			return
 		}
@@ -774,7 +829,7 @@ func newsLoop(ctx context.Context, mount, runDir string, produce func(hw.Notific
 			}
 		}
 	}
-	fetch := func(forced bool) {
+	fetch = func(forced bool) {
 		if !connect() {
 			return
 		}
@@ -789,6 +844,10 @@ func newsLoop(ctx context.Context, mount, runDir string, produce func(hw.Notific
 		lg.Debug("news fetch by the box", "fn", "newsLoop", "what", what)
 		putHot()
 	}
+	// Everything these passes read came from outside (feeds, pages, the phone's batches). A
+	// fault in reading it costs the pass, not the daemon: synthd also writes the days, the
+	// memories and the brief, and a crash loop here took all of that with it (audit run 2).
+	drain, slow, fetch = guarded("drain", lg, drain), guarded("slow", lg, slow), guardedArg("fetch", lg, fetch)
 	drain()
 	fast := time.NewTicker(30 * time.Second)
 	defer fast.Stop()

@@ -552,7 +552,7 @@ func main() {
 		pipe.SetFFmpeg(ffb, filepath.Join(*mount, "runtime", "ffmpeg", "lib"))
 		lg.Info("using bundled ffmpeg from the volume", "fn", "main")
 	}
-	framedRoot := filepath.Join(*mount, "framed")
+	backupRoots := framed.BackupRoots(*mount) // the originals: frames/archive, and the Timeline folders
 	runBackup := func(force bool) string {
 		full := force || time.Now().Weekday() == time.Sunday
 		var since time.Time
@@ -566,7 +566,7 @@ func main() {
 			full = true // no watermark = first run = full
 		}
 		start := time.Now()
-		out, files, bytes, err := framed.RunBackup(backupCfg, framedRoot, full, since, lg)
+		out, files, bytes, err := framed.RunBackup(backupCfg, backupRoots, full, since, lg)
 		if err != nil {
 			lg.Warn("backup failed", "fn", "main", "err", err)
 			return "backup failed: " + err.Error()

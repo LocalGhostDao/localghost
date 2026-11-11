@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
-	"os"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -393,24 +391,23 @@ func (s *Server) handleNoteAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inbox := filepath.Join(s.cfg.StateDir, "mnt", fmt.Sprintf("slot%d", mounted), "noted", "inbox")
-	if err := os.MkdirAll(inbox, 0o750); err != nil {
+	// secd runs as root; noted runs as the run user and reads its own inbox: the directory and
+	// the file are handed over beneath the volume, never by a path a link could redirect
+	uid, gid := s.spoolCred()
+	if err := vaultMkdirAll(s.cfg.StateDir, inbox, 0o750, uid, gid); err != nil {
 		s.appearsDown(w)
 		return
 	}
 	name := fmt.Sprintf("app-%d.txt", time.Now().UnixNano())
 	path := filepath.Join(inbox, name)
-	if err := os.WriteFile(path, []byte(strings.TrimSpace(req.Text)+"\n"), 0o640); err != nil {
+	if err := vaultWrite(s.cfg.StateDir, path+".part", []byte(strings.TrimSpace(req.Text)+"\n"), 0o640, uid, gid); err != nil {
 		s.appearsDown(w)
 		return
 	}
-	// secd runs as root; noted runs as the run user , chown so the ingest can read its own inbox.
-	if s.cfg.RunUser != "" {
-		if u, uerr := user.Lookup(s.cfg.RunUser); uerr == nil {
-			uid, _ := strconv.Atoi(u.Uid)
-			gid, _ := strconv.Atoi(u.Gid)
-			_ = os.Chown(path, uid, gid)
-			_ = os.Chown(inbox, uid, gid)
-		}
+	if err := vaultRename(s.cfg.StateDir, path+".part", path); err != nil {
+		vaultRemove(s.cfg.StateDir, path+".part")
+		s.appearsDown(w)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})

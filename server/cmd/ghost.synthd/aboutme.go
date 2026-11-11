@@ -170,12 +170,26 @@ func aboutPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (in
 	// the note's own memories about me go and are made again; the people's are ONE memory each
 	// (consolidate.go), where the note's line is one part and the chats' and check-ins' facts the
 	// rest, so a rewrite of the note replaces its part and leaves the rest standing
-	if err := db.Exec("DELETE FROM memories WHERE source_ref LIKE 'about:%' AND NOT user_edited"); err != nil {
+	// A memory the person deleted stays deleted. The delete above used to take the tombstoned
+	// rows with the rest and the loop below wrote them all again, live (audit run 2); the refs
+	// are positional, so a deleted line is known by its title.
+	gone := map[string]bool{}
+	if trows, terr := db.Query("SELECT lower(title) FROM memories WHERE source_ref LIKE 'about:%' AND tombstoned"); terr == nil {
+		for _, v := range trows.Vals {
+			if len(v) > 0 && v[0] != nil {
+				gone[*v[0]] = true
+			}
+		}
+	}
+	if err := db.Exec("DELETE FROM memories WHERE source_ref LIKE 'about:%' AND NOT user_edited AND NOT tombstoned"); err != nil {
 		return 0, err
 	}
 	now := time.Now().UnixMilli()
 	written := 0
 	for i, m := range f.Me {
+		if gone[strings.ToLower(m[0])] {
+			continue
+		}
 		if err := db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ($1,$2,'me',$3,$4,$4)",
 			m[0], m[1], "about:me:"+strconv.Itoa(i), now); err != nil {
 			return written, err

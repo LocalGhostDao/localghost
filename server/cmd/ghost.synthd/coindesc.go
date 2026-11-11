@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/LocalGhostDao/localghost/server/internal/egress"
 	"github.com/LocalGhostDao/localghost/server/internal/oracle"
@@ -129,8 +130,8 @@ func siteText(page string) string {
 			}
 		}
 	}
-	body, _ := articleText(page)
-	text := strings.TrimSpace(desc + "\n" + body)
+	body, _, _ := readArticle(page)
+	text := strings.TrimSpace(strings.ToValidUTF8(desc, "") + "\n" + body)
 	return clipText(text, coinSourceKeep)
 }
 
@@ -151,6 +152,9 @@ func publicSite(raw string) (string, bool) {
 func clipText(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n-- // on a character, never inside one
 	}
 	s = s[:n]
 	if i := strings.LastIndexAny(s, ".\n"); i > n/2 {

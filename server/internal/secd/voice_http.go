@@ -60,24 +60,24 @@ func (s *Server) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.streaming(w)()
 	dir := voiced.AskDir(mount)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	uid, gid := s.spoolCred()
+	st := s.cfg.StateDir
+	if err := vaultMkdirAll(st, dir, 0o750, uid, gid); err != nil {
 		s.appearsDown(w)
 		return
-	}
-	uid, gid := s.spoolCred()
-	if uid > 0 {
-		_ = os.Chown(filepath.Join(mount, "voiced"), uid, gid)
-		_ = os.Chown(dir, uid, gid)
 	}
 	var rb [8]byte
 	_, _ = rand.Read(rb[:])
 	path := filepath.Join(dir, hex.EncodeToString(rb[:])+".wav")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	f, err := vaultCreate(st, path, 0o640)
 	if err != nil {
 		s.appearsDown(w)
 		return
 	}
 	n, err := io.Copy(f, gateReader{r: http.MaxBytesReader(w, r.Body, askMaxBytes), stop: &s.closing})
+	if err == nil && uid > 0 {
+		_ = f.Chown(uid, gid) // by descriptor: the name is the daemons' to change
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -85,16 +85,13 @@ func (s *Server) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 		err = wavMagic(path)
 	}
 	if err != nil {
-		_ = os.Remove(path)
+		vaultRemove(st, path)
 		if s.closing.Load() {
 			s.appearsDown(w)
 			return
 		}
 		http.Error(w, "not a WAV", http.StatusBadRequest)
 		return
-	}
-	if uid > 0 {
-		_ = os.Chown(path, uid, gid)
 	}
 	runDir := filepath.Join(mount, "run")
 	text, lang, err := hearAsk(runDir, path)
@@ -174,18 +171,15 @@ func (s *Server) handleVoiceUpload(w http.ResponseWriter, r *http.Request) {
 	if t, err := strconv.ParseInt(r.Header.Get("X-Ghost-Taken"), 10, 64); err == nil && t > 0 {
 		m.Taken = t
 	}
-	if err := os.MkdirAll(inbox, 0o750); err != nil {
+	uid, gid := s.spoolCred()
+	st := s.cfg.StateDir
+	if err := vaultMkdirAll(st, inbox, 0o750, uid, gid); err != nil {
 		secdLog.Warn("voice upload: inbox", "fn", "handleVoiceUpload", "err", err)
 		s.appearsDown(w)
 		return
 	}
-	uid, gid := s.spoolCred()
-	if uid > 0 {
-		_ = os.Chown(filepath.Join(mount, "voiced"), uid, gid)
-		_ = os.Chown(inbox, uid, gid)
-	}
 	part := wav + ".part"
-	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	f, err := vaultCreate(st, part, 0o640)
 	if err != nil {
 		secdLog.Warn("voice upload: create", "fn", "handleVoiceUpload", "err", err)
 		s.appearsDown(w)
@@ -195,6 +189,9 @@ func (s *Server) handleVoiceUpload(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		err = f.Sync()
 	}
+	if err == nil && uid > 0 {
+		_ = f.Chown(uid, gid) // by descriptor: the name is the daemons' to change
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -202,7 +199,7 @@ func (s *Server) handleVoiceUpload(w http.ResponseWriter, r *http.Request) {
 		err = wavMagic(part)
 	}
 	if err != nil {
-		_ = os.Remove(part)
+		vaultRemove(st, part)
 		if s.closing.Load() {
 			s.appearsDown(w) // cut by a lock: the phone keeps the note and sends it again
 			return
@@ -212,20 +209,16 @@ func (s *Server) handleVoiceUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mb, _ := json.Marshal(m)
-	err = os.Rename(part, wav)
+	err = vaultRename(st, part, wav)
 	if err == nil {
-		err = os.WriteFile(side+".part", mb, 0o640)
+		err = vaultWrite(st, side+".part", mb, 0o640, uid, gid)
 	}
 	if err == nil {
-		if uid > 0 {
-			_ = os.Chown(wav, uid, gid)
-			_ = os.Chown(side+".part", uid, gid)
-		}
-		err = os.Rename(side+".part", side) // the sidecar last: voiced takes a pair only once both are whole
+		err = vaultRename(st, side+".part", side) // the sidecar last: voiced takes a pair only once both are whole
 	}
 	if err != nil {
-		_ = os.Remove(part)
-		_ = os.Remove(side + ".part")
+		vaultRemove(st, part)
+		vaultRemove(st, side+".part")
 		secdLog.Warn("voice upload: commit", "fn", "handleVoiceUpload", "id", id[:8], "err", err)
 		s.appearsDown(w)
 		return

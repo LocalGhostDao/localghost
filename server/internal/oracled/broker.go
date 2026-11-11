@@ -96,7 +96,28 @@ func (b *Broker) Submit(req oracle.Request) (<-chan oracle.Response, bool) {
 	if req.Class == "" {
 		req.Class = oracle.ClassLocalSmall
 	}
-	return b.queue.Submit(req)
+	ch, ok := b.queue.Submit(req)
+	if ok && req.Priority >= oracle.PriorityInteractive {
+		// A person is waiting for this one (the web plan before a chat, a spoken question). It
+		// used to queue behind whatever background inference was running, and the plan's eight
+		// seconds lapsed behind a caption: the phone then planned by itself, or did not search.
+		// The running background work steps aside as it does for a streamed chat (cancelled,
+		// retried later without losing an attempt), and none starts for the grace, so the chat
+		// that follows the plan finds the model free.
+		b.runMu.Lock()
+		if b.running != nil && b.running.req.Priority < oracle.PriorityInteractive && b.runCancel != nil && !b.preempted {
+			b.preempted = true
+			b.runCancel()
+		}
+		if hold := time.Now().Add(resumeGrace); hold.After(b.holdUntil) {
+			b.holdUntil = hold
+		}
+		b.runMu.Unlock()
+		// and the queue is looked at again when the grace is over, or what was held would wait
+		// for the next submission to wake the worker
+		time.AfterFunc(resumeGrace+50*time.Millisecond, b.queue.signal)
+	}
+	return ch, ok
 }
 
 // Run starts the single worker. It blocks until Stop.

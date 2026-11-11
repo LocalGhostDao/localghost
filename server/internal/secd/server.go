@@ -226,8 +226,11 @@ func New(cfg Config) (*Server, error) {
 			// a wrong PIN (or any failed unlock) revokes the live token the moment it fails, whether
 			// or not anyone polls: the foreground and the notification poller go dark together, as
 			// session.go promises (the audit found the only revoke sat on a path a failed unlock
-			// never reached)
-			s.session.Revoke()
+			// never reached). Only when the wrong PIN came from the device that holds the token.
+			s.unlock.mu.Lock()
+			by := s.unlock.runBy
+			s.unlock.mu.Unlock()
+			s.session.RevokeHeldBy(by)
 		}
 		s.trialOnUnlock(ok, failedAt) // a release on trial is judged by its first unlocks
 	}

@@ -301,13 +301,18 @@ func (s *NotifStore) MailHave(slot int, direction, relayName string) (bool, erro
 }
 
 // MailSenderHistory is how many messages the box holds from an address, and whether the
-// domain has written before, for the spam score.
+// domain has written before, for the spam score. Only messages the box judged low count: the
+// From line is the sender's to write, and a message that failed its checks under someone's
+// address is not that someone having written before.
 func (s *NotifStore) MailSenderHistory(slot int, from string) (count int, domainSeen bool, err error) {
 	c, err := s.pg(slot)
 	if err != nil {
 		return 0, false, err
 	}
-	rows, err := c.Query("SELECT count(*) FROM mail_messages WHERE direction = 'in' AND from_addr = $1", strings.ToLower(from))
+	if from == "" {
+		return 0, false, nil
+	}
+	rows, err := c.Query("SELECT count(*) FROM mail_messages WHERE direction = 'in' AND spam = 'low' AND from_addr = $1", strings.ToLower(from))
 	if err != nil {
 		return 0, false, err
 	}
@@ -315,7 +320,7 @@ func (s *NotifStore) MailSenderHistory(slot int, from string) (count int, domain
 		count = int(i64(rows.Vals[0][0]))
 	}
 	if at := strings.LastIndexByte(from, '@'); at >= 0 {
-		rows, err = c.Query("SELECT 1 FROM mail_messages WHERE direction = 'in' AND from_addr LIKE $1 LIMIT 1", "%@"+strings.ToLower(from[at+1:]))
+		rows, err = c.Query("SELECT 1 FROM mail_messages WHERE direction = 'in' AND spam = 'low' AND right(from_addr, $2) = $1 LIMIT 1", "@"+strings.ToLower(from[at+1:]), len(from)-at)
 		if err != nil {
 			return count, false, err
 		}
@@ -324,13 +329,14 @@ func (s *NotifStore) MailSenderHistory(slot int, from string) (count int, domain
 	return count, domainSeen, nil
 }
 
-// MailRecentFrom counts messages from an address in the last hour, for the burst line.
-func (s *NotifStore) MailRecentFrom(slot int, from string, since int64) (int, error) {
+// MailRecentFrom counts messages from an address in the last hour that were judged the same
+// (spam: low, medium, high), for the burst line.
+func (s *NotifStore) MailRecentFrom(slot int, from, spam string, since int64) (int, error) {
 	c, err := s.pg(slot)
 	if err != nil {
 		return 0, err
 	}
-	rows, err := c.Query("SELECT count(*) FROM mail_messages WHERE direction = 'in' AND from_addr = $1 AND received_at >= $2", strings.ToLower(from), since)
+	rows, err := c.Query("SELECT count(*) FROM mail_messages WHERE direction = 'in' AND from_addr = $1 AND spam = $3 AND received_at >= $2", strings.ToLower(from), since, spam)
 	if err != nil || len(rows.Vals) == 0 {
 		return 0, err
 	}

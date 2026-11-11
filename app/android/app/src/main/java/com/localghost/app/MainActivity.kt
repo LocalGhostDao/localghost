@@ -318,6 +318,7 @@ class MainActivity : ComponentActivity() {
         sync = sync.copy(paused = AppSettings.syncPaused(this))
         thinkLevelState = AppSettings.thinkLevel(this)
         AppLock.ensureKey(this)
+        ContextCompat.registerReceiver(this, screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
         Notifications.ensureChannel(this)
         // ghost.phrased: redraw the lock-screen card and widget for this hour (no-op when both are
         // off) and arm the next refresh. Runs outside the security gate on purpose , a phrase on the
@@ -383,6 +384,14 @@ class MainActivity : ComponentActivity() {
                 // looking at. The holder keeps the shell's saved state while the gate is up; the data
                 // behind it is still torn down and read again.
                 val shellState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+                shareAsk?.let { shared ->
+                    if (screen is Screen.Shell) com.localghost.app.ui.AskDialog(
+                        title = "Add this to your journal?",
+                        body = com.localghost.app.ui.ShareText.preview(shared),
+                        confirmLabel = "ADD TO JOURNAL",
+                        onConfirm = { sendShare(shared) },
+                        onDismiss = { shareAsk = null })
+                }
                 when (val s = screen) {
                     is Screen.Crash -> CrashScreen(s.report) { CrashHandler.clear(this); screen = Screen.Gate }
                     Screen.Welcome -> {
@@ -422,7 +431,7 @@ class MainActivity : ComponentActivity() {
                         onCancel = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Setup },
                         enrolOutcome = scanEnrolOk,
                     )
-                    Screen.Gate -> LockScreen(error, unlocking = lockProgress != null, progress = lockProgress, onLocalOnly = ::enterLocalOnly, onReenroll = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Scan }, closing = vaultClosing) { passBiometric() }
+                    Screen.Gate -> LockScreen(error, unlocking = lockProgress != null, progress = lockProgress, onLocalOnly = ::enterLocalOnly, onReenroll = ::reenrollFromGate, closing = vaultClosing) { passBiometric() }
                     Screen.Pin -> PinScreen(busy, error, unlockProgress, opening = vaultOpening) { submit(it) }
                     Screen.Shell -> shellState.SaveableStateProvider("shell") { MainShell(
                 genStats = lastGenStats,
@@ -512,6 +521,9 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         sync = sync.copy(notificationsMuted = NotifyState.isMuted(this))
+        // back from a picker or the camera after more than its grace: the gate, as if the stop
+        // had not been excused (AuthGate.staleOnStart)
+        if (authGate.staleOnStart(android.os.SystemClock.elapsedRealtime()) && lockableScreen()) lockToGate()
         maybeAutoPrompt() // back from background on the gate: fire the fingerprint, no tap needed
     }
 
@@ -525,14 +537,33 @@ class MainActivity : ComponentActivity() {
         // for a fingerprint they have not even set up against a box yet. The rule lives in AuthGate so
         // it is unit-tested (see AuthGateTest.keepForScreen_*).
         // Welcome too: its permission dialogs background the activity one after another.
+        val mustTearDown = authGate.onStop(keepCurrentScreen = !lockableScreen(), nowMs = android.os.SystemClock.elapsedRealtime())
+        if (mustTearDown) lockToGate()
+    }
+
+    /** Whether the screen showing is one the lock replaces (not setup, the scan, welcome or a crash). */
+    private fun lockableScreen(): Boolean {
         val preEnrolment = screen is Screen.Setup || screen is Screen.Scan || screen is Screen.Welcome
-        val mustTearDown = authGate.onStop(
-            keepCurrentScreen = AuthGate.keepForScreen(preEnrolment, crashShowing = screen is Screen.Crash)
-        )
-        if (mustTearDown) {
-            screen = Screen.Gate; busy = false; error = null; autoSyncTried = false
-            tearDownCache()
+        return !AuthGate.keepForScreen(preEnrolment, crashShowing = screen is Screen.Crash)
+    }
+
+    private fun lockToGate() {
+        screen = Screen.Gate; busy = false; error = null; autoSyncTried = false
+        tearDownCache()
+    }
+
+    // The screen going dark locks at once, picker or no picker: onStop does not come while a
+    // picker we launched is in front, and a dark screen is a phone that was put down.
+    private val screenOff = object : android.content.BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            if (i?.action != Intent.ACTION_SCREEN_OFF) return
+            if (authGate.onScreenOff(keepCurrentScreen = !lockableScreen()) && screen !is Screen.Gate) lockToGate()
         }
+    }
+
+    override fun onDestroy() {
+        runCatching { unregisterReceiver(screenOff) }
+        super.onDestroy()
     }
 
     // --- chat ---
@@ -603,14 +634,23 @@ class MainActivity : ComponentActivity() {
         // THE MODEL LOADS AFTER THE UNLOCK: a question asked in the first seconds after a cold one
         // waits here, with the load shown in the answer's place, and goes once the model answers
         waitForBoxModel(::status)
-        var wantWeb = com.localghost.app.net.WebSearch.shouldSearch(mode, text)
-        val planAnswer: BoxClient.PlanAnswer? = if (wantWeb) {
+        // WHO DECIDES WHETHER TO LOOK. The box's model is asked for nearly every question now
+        // (WebSearch.shouldAskPlan), not only for the ones that hold a word like "today" or
+        // "price": it says whether the outside world would help and which searches would find
+        // it. With its plan, the plan decides (auto); without one (the box on its CPU, no answer
+        // in time) the old rule stands, the question's own words.
+        val planAnswer: BoxClient.PlanAnswer? = if (com.localghost.app.net.WebSearch.shouldAskPlan(mode, text)) {
             status("asking your box what to look for…")
             BoxClient.chatPlan(this, text, messages.toList())
         } else null
         val plan = planAnswer?.plan
-        // in auto mode the model's "this needs nothing from outside" is final; "on" searches anyway
-        if (plan != null && !plan.search && mode != "on") wantWeb = false
+        var wantWeb = when {
+            mode == "on" -> true
+            mode != "auto" -> false
+            plan != null -> plan.search // "this needs nothing from outside" is final in auto
+            else -> com.localghost.app.net.WebSearch.looksFresh(text)
+        }
+        if (plan != null && plan.withheld.isNotBlank() && mode != "off") status("no web search , ${plan.withheld}")
         // WHAT THE BOX KEEPS is never searched for, in any mode: a coin's price, the top coins,
         // crypto as a whole, a rate between currencies, the day's headlines. The box puts its own
         // numbers in the answer. Without the box's word (no plan in time) the phone judges alone.
@@ -634,7 +674,10 @@ class MainActivity : ComponentActivity() {
         if (wantWeb) {
             status("searching the web on this phone" + (if (engine.brave) " (Brave)" else "") +
                 ((plan?.need?.takeIf { it.isNotBlank() } ?: ownNeed.takeIf { it.isNotBlank() })?.let { " for: $it" } ?: "") + "…")
-            webHits = com.localghost.app.net.WebSearch.search(searchText, engine, plan?.first, plan?.need ?: ownNeed)
+            // the searches are shown before they leave (and stay in the trail under the answer)
+            plan?.first?.takeIf { it.isNotEmpty() }?.let { status("searches: " + it.joinToString("  ·  ")) }
+            webHits = com.localghost.app.net.WebSearch.search(searchText, engine, plan?.first?.takeIf { it.isNotEmpty() }, plan?.need ?: ownNeed,
+                subject = plan?.queries?.getOrNull(2) ?: "")
             // WHO READS THE PAGES: the box on its GPU reads them in seconds and gets the
             // paragraphs; a box on its CPU (or one that did not answer the plan in time) gets the
             // phone's model's notes instead, checked against the pages, with a verbatim quote each.
@@ -1089,11 +1132,35 @@ class MainActivity : ComponentActivity() {
         forceLocalMode = true
         localOnly = true
         error = null
+        // NO BOX means no box. This is reached from the lock gate without a fingerprint and
+        // without the PIN, and the shell it opens used to carry the stored session (good for
+        // two days): every screen in it read and wrote the archive (audit run 2). The session
+        // goes here; the next PIN unlock makes a new one, and the background sync waits for it.
+        if (BoxConfig.isConfigured(this)) com.localghost.app.security.SessionStore.clear(this)
         tearDownCache()          // no history , clean local slate
         openTrailOnPhone()       // a phone with no box: its own trail, behind its own unlock
         localModeActive = true
         localModelPresent = LocalModel.isModelPresent(this)
         screen = Screen.Shell
+    }
+
+    /**
+     * "Re-scan the box QR" on the lock gate replaces this phone's enrolment, so it is the owner's
+     * to do: the phone's own unlock first (the same window the gate uses), then the scanner. It
+     * used to open the scanner for whoever held the phone (audit run 2). A phone whose key ran
+     * out cannot pass the box's door anyway and goes straight to the scanner, as its message says.
+     */
+    private fun reenrollFromGate() {
+        val go = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Scan }
+        if (!AppLock.deviceAuthAvailable(this) || AppLock.tryGateCipher() != null) { go(); return }
+        BiometricPrompt.Builder(this)
+            .setTitle("Enrol this phone again").setSubtitle("Authenticate to scan a box's QR")
+            .setAllowedAuthenticators(BIOMETRIC_STRONG or DEVICE_CREDENTIAL).build()
+            .authenticate(CancellationSignal(), mainExecutor,
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(r: BiometricPrompt.AuthenticationResult) { go() }
+                    override fun onAuthenticationError(code: Int, msg: CharSequence) { error = msg.toString() }
+                })
     }
 
     private fun lockBox() {
@@ -1103,10 +1170,11 @@ class MainActivity : ComponentActivity() {
             // ring from the inside; then the monitor switches off and the gate is back.
             screen = Screen.Gate
             lockProgress = UnlockSnapshot.teardown(emptyMap()) // every ring lit: the iris closes in
-            val call = async { try { BoxClient.lock(this@MainActivity) } catch (_: Exception) { emptyList() } }
+            val call = async { try { BoxClient.lock(this@MainActivity) } catch (_: Exception) { null } }
             kotlinx.coroutines.delay(com.localghost.app.ui.VAULT_ARRIVE_MS.toLong())
             if (!call.isCompleted) lockProgress = UnlockSnapshot.teardown(mapOf(UnlockStage.STOP_SERVICES to StageState.RUNNING))
-            val steps = call.await()
+            val answered = call.await()
+            val steps = answered ?: emptyList()
             if (steps.isNotEmpty()) {
                 val acc = mutableMapOf<UnlockStage, StageState>()
                 for (s in steps) {
@@ -1122,6 +1190,9 @@ class MainActivity : ComponentActivity() {
             lockProgress = null
             vaultClosing = false
             tearDownCache()
+            // the phone is locked either way; the box is locked only if it answered, and the
+            // gate says so instead of looking the same (audit run 2)
+            if (answered == null) error = "the box did not answer: this phone is locked, the box stays open until its session runs out. Lock it again when it is in reach"
         }
     }
 
@@ -1136,6 +1207,8 @@ class MainActivity : ComponentActivity() {
         com.localghost.app.ui.SourcesMemory.last = null
         messages.clear()
         pendingAttachments = emptyList()
+        pendingShare = null // a share never outlives the lock it arrived under
+        shareAsk = null
         lifeContext = null
         memories = Loadable.Loading
         daemons = Loadable.Loading
@@ -1274,10 +1347,19 @@ class MainActivity : ComponentActivity() {
         flushShare()
     }
 
+    // Shared text is shown and asked about, never filed on its own: ACTION_SEND is open to every
+    // app on the phone, and a note is the person's own words to the box (audit runs 1 and 2).
+    private var shareAsk by mutableStateOf<String?>(null)
+
     private fun flushShare() {
         val text = pendingShare ?: return
         if (screen !is Screen.Shell) return // gate first; retried after unlock
         pendingShare = null
+        shareAsk = text
+    }
+
+    private fun sendShare(text: String) {
+        shareAsk = null
         lifecycleScope.launch {
             val ok = BoxClient.noteAdd(this@MainActivity, text)
             android.widget.Toast.makeText(this@MainActivity,

@@ -45,6 +45,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -157,6 +158,13 @@ type edgeState struct {
 	pool      *x509.CertPool
 	tlsErr    error
 	tlsLoaded bool
+	// the device CA alone, for checking the certificate in nginx's header: read once, and kept
+	// apart from the TLS material above so a box whose server key will not load still knows
+	// its own phones
+	devPool    *x509.CertPool
+	devPoolErr error
+	devLoaded  bool
+	refusedAt  atomic.Int64 // unix seconds of the last "header does not verify" log line
 }
 
 func (s *Server) idsPath() string { return filepath.Join(s.cfg.StateDir, "devices", "ids") }
@@ -360,6 +368,51 @@ func (s *Server) verifiedPeer(st *tls.ConnectionState) ([]byte, bool) {
 	return leaf.Raw, true
 }
 
+// devicePool reads the device CA once.
+func (s *Server) devicePool() (*x509.CertPool, error) {
+	e := &s.edge
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.devLoaded {
+		return e.devPool, e.devPoolErr
+	}
+	e.devLoaded = true
+	caPEM, err := os.ReadFile(filepath.Join(s.caDir(), "devices-ca.pem"))
+	if err != nil {
+		e.devPoolErr = fmt.Errorf("device CA: %w", err)
+		return nil, e.devPoolErr
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		e.devPoolErr = errors.New("device CA: no certificate in devices-ca.pem")
+		return nil, e.devPoolErr
+	}
+	e.devPool = pool
+	return pool, nil
+}
+
+// headerCertVerifies checks the certificate in nginx's header against the device CA, the same
+// check verifiedPeer makes on a certificate presented over secd's own TLS. False when the header
+// is not a certificate, when the CA cannot be read, or when the chain does not hold.
+func (s *Server) headerCertVerifies(r *http.Request) bool {
+	c, err := clientCert(r)
+	if err != nil {
+		return false
+	}
+	pool, err := s.devicePool()
+	if err != nil || pool == nil {
+		return false
+	}
+	// the dates are admit's to judge, with its clock slack; a certificate that starts a few
+	// minutes from now is verified at its own start so the slack still holds
+	at := time.Now()
+	if at.Before(c.NotBefore) && c.NotBefore.Sub(at) <= certClockSlack {
+		at = c.NotBefore
+	}
+	_, err = c.Verify(x509.VerifyOptions{Roots: pool, CurrentTime: at, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	return err == nil
+}
+
 // front is the door every request goes through before the routes.
 func (s *Server) front(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +451,24 @@ func (s *Server) front(next http.Handler) http.Handler {
 			if s.doorOpenForTests {
 				next.ServeHTTP(w, r)
 				return
+			}
+			writeDown(w)
+			return
+		}
+		// The header is nginx's word that it verified a client certificate. secd checks the
+		// certificate itself against the device CA all the same: without this, any process that
+		// can reach the loopback port (the firewall leaves root and www-data) was let in with
+		// whatever it wrote in the header, a certificate from another CA, a self-signed one, or
+		// text that is no certificate at all (second audit, 10 Nov 2026). What a header cannot
+		// prove is that the caller holds the key; only the passthrough shape proves that to
+		// secd (ghost-ctl edge-passthrough), and the certificate itself never leaves the phone
+		// and nginx.
+		if !s.doorOpenForTests && !s.headerCertVerifies(r) {
+			// said once a minute at most, so a box whose own phone is turned away (a device CA
+			// file that is not the one nginx uses) says why in its log
+			if now := time.Now().Unix(); now-s.edge.refusedAt.Load() >= 60 {
+				s.edge.refusedAt.Store(now)
+				secdLog.Warn("a request's certificate header does not verify against the device CA; answered as down", "fn", "front", "ca", filepath.Join(s.caDir(), "devices-ca.pem"))
 			}
 			writeDown(w)
 			return

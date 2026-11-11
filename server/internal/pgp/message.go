@@ -44,10 +44,22 @@ func Encrypt(plain []byte, filename string, now time.Time, to []*PublicKey, sign
 	}
 	var out bytes.Buffer
 	for _, r := range to {
-		if len(r.encrypters) == 0 {
-			return nil, fmt.Errorf("%w: %s has no encryption key", ErrNoKey, first(r.UserIDs))
+		// the key is judged at the time of use, not only when it was read: one held since last
+		// year may have run out since
+		if !r.Expires.IsZero() && now.After(r.Expires) {
+			return nil, fmt.Errorf("%w: %s's key expired on %s", ErrNoKey, first(r.UserIDs), r.Expires.Format("2 January 2006"))
 		}
-		body, err := pkesk(r.encrypters[0], sessionKey)
+		var enc *pubKey
+		for _, e := range r.encrypters {
+			if e.expires.IsZero() || !now.After(e.expires) {
+				enc = e
+				break
+			}
+		}
+		if enc == nil {
+			return nil, fmt.Errorf("%w: %s has no encryption key that is still good", ErrNoKey, first(r.UserIDs))
+		}
+		body, err := pkesk(enc, sessionKey)
 		if err != nil {
 			return nil, err
 		}
@@ -505,20 +517,44 @@ func openSEIPD(key, body []byte) ([]byte, error) {
 	return plain[bs+2 : mdcAt], nil
 }
 
-// readInner walks the packets inside: compression, one-pass signatures, the literal data, the
-// signatures after it.
+// Bounds on what a message may make the box do.
+const (
+	maxInflated  = 64 << 20 // bytes out of a compressed packet
+	maxInflation = 200      // times its compressed size (text reaches 20; zeros reach 1000)
+	maxDocSigs   = 8        // signature packets checked on one message
+)
+
+// readInner walks the packets inside. The grammar is the one GnuPG holds a message to, and no
+// wider:
+//
+//	one compressed packet, alone (markers aside), holding a message one level down; or
+//	one-pass signatures, ONE literal data packet, the signatures after it.
+//
+// Until the second audit (10 Nov 2026) a compressed packet was followed wherever it stood, and
+// its return left the outer level unread. A genuine signed message with a compressed packet
+// appended, holding another literal, came back with the appended data and the first data's
+// "verified": someone's real signature on words they never wrote. A compressed packet now
+// stands alone or the message is refused, and a verdict never outlives the bytes it was about.
 func (m *Message) readInner(data []byte, now time.Time, from []*PublicKey, depth int) (*Message, error) {
-	if depth > 2 {
-		return nil, fmt.Errorf("%w: nesting", ErrUnsupported)
-	}
 	pk, err := readPackets(data)
 	if err != nil {
 		return nil, err
 	}
-	gotLiteral := false
+	gotLiteral, sawSig, sawCompressed := false, false, false
+	checked := 0
+	var inner []byte
 	for _, p := range pk {
+		if sawCompressed && p.tag != tagMarker && p.tag != tagPadding {
+			return nil, fmt.Errorf("%w: packets after a compressed packet", ErrUnsupported)
+		}
 		switch p.tag {
 		case tagCompressed:
+			if gotLiteral || sawSig {
+				return nil, fmt.Errorf("%w: a compressed packet beside other data", ErrUnsupported)
+			}
+			if depth >= 1 {
+				return nil, fmt.Errorf("%w: compression inside compression", ErrUnsupported)
+			}
 			if len(p.body) < 1 {
 				return nil, fmt.Errorf("empty compressed packet")
 			}
@@ -538,21 +574,33 @@ func (m *Message) readInner(data []byte, now time.Time, from []*PublicKey, depth
 			default:
 				return nil, fmt.Errorf("%w: compression %d", ErrUnsupported, p.body[0])
 			}
-			inner, err := io.ReadAll(io.LimitReader(zr, maxPacket+1))
+			// what comes out is bounded by what went in: a few hundred bytes cannot become
+			// gigabytes
+			limit := int64(len(p.body))*maxInflation + 4096
+			if limit > maxInflated {
+				limit = maxInflated
+			}
+			inner, err = io.ReadAll(io.LimitReader(zr, limit+1))
 			if err != nil {
 				return nil, fmt.Errorf("decompress: %v", err)
 			}
-			if len(inner) > maxPacket {
-				return nil, fmt.Errorf("%w: decompressed over %d bytes", ErrUnsupported, maxPacket)
+			if int64(len(inner)) > limit {
+				return nil, fmt.Errorf("%w: decompresses to more than %d bytes", ErrUnsupported, limit)
 			}
-			return m.readInner(inner, now, from, depth+1)
+			sawCompressed = true
 		case tagOnePass:
+			if gotLiteral {
+				return nil, fmt.Errorf("%w: a one-pass signature after the data", ErrUnsupported)
+			}
+			sawSig = true
 			m.Signed = true
 		case tagLiteral:
 			if gotLiteral {
 				return nil, fmt.Errorf("%w: two literal packets", ErrUnsupported)
 			}
 			gotLiteral = true
+			// whatever was concluded so far was not about these bytes
+			m.Verified, m.SignedBy, m.SigReason = false, [20]byte{}, ""
 			r := bytes.NewReader(p.body)
 			if _, err := r.ReadByte(); err != nil {
 				return nil, err
@@ -572,9 +620,13 @@ func (m *Message) readInner(data []byte, now time.Time, from []*PublicKey, depth
 			m.Filename = string(name)
 			m.Data, _ = io.ReadAll(r)
 		case tagSignature:
+			sawSig = true
 			s, err := parseSignature(p.body)
 			if err != nil {
-				m.Signed, m.SigReason = true, err.Error()
+				m.Signed = true
+				if !m.Verified {
+					m.SigReason = err.Error()
+				}
 				continue
 			}
 			if !gotLiteral {
@@ -583,11 +635,19 @@ func (m *Message) readInner(data []byte, now time.Time, from []*PublicKey, depth
 			if m.Verified {
 				continue // one good signature is enough
 			}
+			if checked++; checked > maxDocSigs {
+				// each check hashes the whole message: a sender does not get to ask for thousands
+				m.Signed, m.SigReason = true, fmt.Sprintf("more than %d signatures on the message; the rest were not checked", maxDocSigs)
+				continue
+			}
 			m.check(s, m.Data, now, from)
 		case tagMarker, tagPadding, tagTrust:
 		default:
 			return nil, fmt.Errorf("%w: packet tag %d inside the message", ErrUnsupported, p.tag)
 		}
+	}
+	if sawCompressed {
+		return m.readInner(inner, now, from, depth+1)
 	}
 	if !gotLiteral {
 		return nil, fmt.Errorf("no data in the message")
@@ -595,7 +655,8 @@ func (m *Message) readInner(data []byte, now time.Time, from []*PublicKey, depth
 	return m, nil
 }
 
-// check verifies one document signature against the candidate keys.
+// check verifies one document signature against the candidate keys. The message is hashed only
+// when the box holds a key that could have made the signature.
 func (m *Message) check(s *signature, data []byte, now time.Time, from []*PublicKey) {
 	m.Signed = true
 	m.SignerID = s.issuer
@@ -615,8 +676,12 @@ func (m *Message) check(s *signature, data []byte, now time.Time, from []*Public
 		m.SigReason = "the signature has expired"
 		return
 	}
-	data = canonical(s.typ, data)
-	var tried bool
+	type candidate struct {
+		key    *PublicKey
+		signer *pubKey
+	}
+	var cands []candidate
+	stale := ""
 	for _, k := range from {
 		for _, signer := range k.signers {
 			if s.issuer != 0 && s.issuer != signer.keyID {
@@ -625,23 +690,38 @@ func (m *Message) check(s *signature, data []byte, now time.Time, from []*Public
 			if s.hasIssFP && s.issuerFP != signer.fingerprint {
 				continue
 			}
-			tried = true
-			d, h, err := s.digest(nil, nil, nil, data)
-			if err != nil {
-				m.SigReason = err.Error()
-				return
+			// the key as it stands now and as it stood when the signature says it was made
+			switch {
+			case !k.Expires.IsZero() && now.After(k.Expires), !signer.expires.IsZero() && now.After(signer.expires):
+				stale = "signed by a key that has since expired"
+				continue
+			case s.created.Before(signer.created.Add(-24 * time.Hour)):
+				stale = "the signature is dated before its key was made"
+				continue
 			}
-			if err := s.verifyWith(signer, d, h); err == nil {
-				m.Verified = true
-				m.SignedBy = k.Fingerprint
-				m.SigReason = ""
-				return
-			}
+			cands = append(cands, candidate{k, signer})
 		}
 	}
-	if !tried {
-		m.SigReason = "signed by a key the box does not have"
+	if len(cands) == 0 {
+		if stale != "" {
+			m.SigReason = stale
+		} else {
+			m.SigReason = "signed by a key the box does not have"
+		}
 		return
+	}
+	d, h, err := s.digest(nil, nil, nil, canonical(s.typ, data))
+	if err != nil {
+		m.SigReason = err.Error()
+		return
+	}
+	for _, c := range cands {
+		if err := s.verifyWith(c.signer, d, h); err == nil {
+			m.Verified = true
+			m.SignedBy = c.key.Fingerprint
+			m.SigReason = ""
+			return
+		}
 	}
 	m.SigReason = "the signature does not match the message"
 }

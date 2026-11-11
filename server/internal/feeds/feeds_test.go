@@ -1,6 +1,8 @@
 package feeds
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,5 +105,19 @@ func TestDefaultSourcesAreWellFormed(t *testing.T) {
 		if !seen[a.ID] {
 			t.Fatalf("%s is added later but not in the list", a.ID)
 		}
+	}
+}
+
+// One answer of tiny entries is kept to the first MaxItems.
+func TestFeedEntriesAreCapped(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(`<rss version="2.0"><channel><title>x</title>`)
+	for i := 0; i < MaxItems*3; i++ {
+		b.WriteString(`<item><title>t` + strconv.Itoa(i) + `</title><link>https://x/` + strconv.Itoa(i) + `</link></item>`)
+	}
+	b.WriteString(`</channel></rss>`)
+	f, err := Parse([]byte(b.String()))
+	if err != nil || len(f.Items) != MaxItems || f.Items[0].Title != "t0" {
+		t.Fatalf("%d items, %v", len(f.Items), err)
 	}
 }

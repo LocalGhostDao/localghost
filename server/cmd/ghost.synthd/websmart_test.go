@@ -185,3 +185,43 @@ func TestPhoneNotesArePresentedAsNotesWithTheirQuote(t *testing.T) {
 		t.Fatalf("planBox GPU: %v", b)
 	}
 }
+
+// The planned searches are held to a rule before the phone hears them.
+func TestGuardQueries(t *testing.T) {
+	history := []chatTurn{
+		{Role: "user", Content: "who should I ask about the boat survey?"},
+		{Role: "assistant", Content: "Cristina arranged the last survey with Nikos Papadakis in Lefkada, on 0030 2645 022 911."},
+	}
+	private := []string{"Cristina", "Nikos Papadakis", "Vlad"}
+	kept, withheld := guardQueries([]string{
+		"boat survey cost Greece",          // public: kept
+		"Nikos Papadakis surveyor Lefkada", // a person of theirs, named by the box and not typed by the person
+		"marine surveyors Lefkada",         // Lefkada is a place, not one of their people: kept
+		"my boat survey Lefkada",           // first person
+		"call 0030 2645 022 911",           // a phone number
+		"email nikos@example.gr surveyor",  // an address
+		"how much did I pay for a survey",  // first person
+	}, "what would a survey cost now?", history, private)
+	if len(kept) != 2 || kept[0] != "boat survey cost Greece" || kept[1] != "marine surveyors Lefkada" || withheld != 5 {
+		t.Fatalf("kept %q, withheld %d", kept, withheld)
+	}
+	// a name the person typed themselves is theirs to search for, friend of the same name or not
+	kept, withheld = guardQueries([]string{"Cristina Scuccia latest album", "Maria Callas biography"}, "what is cristina scuccia's latest album?", nil, []string{"Cristina", "Maria"})
+	if len(kept) != 1 || kept[0] != "Cristina Scuccia latest album" || withheld != 1 {
+		t.Fatalf("typed names: kept %q, withheld %d", kept, withheld)
+	}
+	// ordinary searches pass: years, short numbers, "US", the first world war
+	kept, withheld = guardQueries([]string{"US election results 2024", "World War I causes", "iPhone 16 price", "flight BA 2490 status", "we are the champions lyrics"}, "x", nil, private)
+	if len(kept) != 4 || withheld != 1 { // the last reads as first person: the cost of the rule
+		t.Fatalf("ordinary searches: kept %q, withheld %d", kept, withheld)
+	}
+}
+
+func TestPlanPromptAsksForAnEagerPlan(t *testing.T) {
+	p := planPrompt("what's that greek island with the venetian fortress", nil, time.Date(2026, 11, 11, 0, 0, 0, 0, time.UTC))
+	for _, want := range []string{"also when you believe you know the answer", "unclear", "exactly three", "the subject's own name alone", "Never put the person's own details"} {
+		if !strings.Contains(p, want) {
+			t.Fatalf("the plan prompt lacks %q", want)
+		}
+	}
+}

@@ -29,10 +29,15 @@ type DKIMResult struct {
 	Reason string `json:"reason,omitempty"`
 	// Headers lists the signed header names, so a reader can see Subject or Date were not covered.
 	Headers []string `json:"headers,omitempty"`
+	// Partial: the signature's l= covers only the first part of the body; what follows is
+	// anyone's. Such a signature verifies and proves nothing about the message as shown.
+	Partial bool `json:"partial,omitempty"`
 }
 
-// Pass is true for a passing signature.
-func (r DKIMResult) Pass() bool { return r.Result == "pass" }
+// Pass is true for a passing signature over the whole body. A signature that covers only part
+// of it (l=) is not a pass for alignment or for the score: text appended after the signed part
+// would ride on the signer's name.
+func (r DKIMResult) Pass() bool { return r.Result == "pass" && !r.Partial }
 
 // header is one raw header field, name and the original text (with its CRLF folding).
 type header struct {
@@ -391,6 +396,7 @@ func verifyOne(ctx context.Context, res Resolver, m message, idx int, now time.T
 		}
 		if n < len(body) {
 			body = body[:n]
+			r.Partial = true
 		}
 	}
 	bh := sha256.Sum256(body)

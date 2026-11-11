@@ -82,4 +82,36 @@ class AuthGateTest {
         assertFalse("a normal screen must lock",
             AuthGate.keepForScreen(preEnrolment = false, crashShowing = false))
     }
+
+    @Test fun a_picker_that_comes_back_within_its_grace_keeps_the_session() {
+        val g = AuthGate()
+        g.expectResult()
+        assertFalse(g.onStop(keepCurrentScreen = false, nowMs = 1_000))
+        assertFalse(g.staleOnStart(nowMs = 1_000 + AuthGate.PICKER_GRACE_MS))
+    }
+
+    @Test fun a_picker_left_open_past_its_grace_means_the_gate() {
+        // the phone put down inside the file picker: hours later the app comes back locked
+        val g = AuthGate()
+        g.expectResult()
+        assertFalse(g.onStop(keepCurrentScreen = false, nowMs = 1_000))
+        assertFalse(g.onStop(keepCurrentScreen = false, nowMs = 50_000)) // the clock runs from the first stop
+        assertTrue(g.staleOnStart(nowMs = 1_001 + AuthGate.PICKER_GRACE_MS))
+        assertFalse("the excuse is spent", g.expectingResult)
+        assertFalse("and asked once", g.staleOnStart(nowMs = 9_999_999))
+    }
+
+    @Test fun no_excuse_no_stale_start() {
+        val g = AuthGate()
+        assertTrue(g.onStop(keepCurrentScreen = false, nowMs = 1_000))
+        assertFalse(g.staleOnStart(nowMs = 9_999_999))
+    }
+
+    @Test fun the_screen_going_dark_locks_even_under_a_picker() {
+        val g = AuthGate()
+        g.expectResult()
+        assertTrue(g.onScreenOff(keepCurrentScreen = false))
+        assertFalse(g.expectingResult)
+        assertFalse("setup, the scan and a crash screen are kept", g.onScreenOff(keepCurrentScreen = true))
+    }
 }

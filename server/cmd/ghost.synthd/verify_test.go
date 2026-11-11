@@ -56,3 +56,22 @@ func TestReadAgainPromptAndBody(t *testing.T) {
 		t.Fatalf("meta: %s", s)
 	}
 }
+
+// A YES stands only when the memory's own names and numbers are in the record.
+func TestSupported(t *testing.T) {
+	record := "Vlad: we went to Corfu in October with Cristina, five days.\nghost: noted."
+	if !supported("Dan | Dan ran ten kilometres with Vlad on Sunday.", "Ran with Dan on Sunday morning, ten kilometres.", "Vlad") {
+		t.Fatal("the owner's name is looked for in a first-person record")
+	}
+	for memory, want := range map[string]bool{
+		"Corfu trip | Vlad went to Corfu in October with Cristina.": true,
+		"Corfu trip | Vlad's trip to Corfu was in October.":         true,
+		"Corfu trip | Vlad went to Crete in October.":               false, // a name the record never had
+		"Corfu trip | Vlad went to Corfu for 6 days.":               false, // a figure the record never had
+		"Trip | They went away in the autumn.":                      true,  // nothing to check: the model's word stands
+	} {
+		if got := supported(memory, record, "Vlad"); got != want {
+			t.Errorf("supported(%q) = %v", memory, got)
+		}
+	}
+}

@@ -126,7 +126,7 @@ func TestNewsFetchedByTheBoxWhenThePhoneIsAway(t *testing.T) {
 	// two feeds of our own, the defaults off
 	_ = db.Exec("INSERT INTO settings (key, value) VALUES ('news_seeded','1')")
 	_ = db.Exec("INSERT INTO news_feeds (id, name, url, added_at) VALUES ('a','A',$1,1),('b','B',$2,1)", srv.URL+"/a", srv.URL+"/b")
-	client := egress.New()
+	client := egress.NewUnguarded()
 	// the phone on Wi-Fi five minutes ago: left to the phone
 	_ = db.Exec("INSERT INTO settings (key, value) VALUES ('phone_net','wifi'),('phone_seen',$1)", strconv.FormatInt(now.Add(-5*time.Minute).Unix(), 10))
 	what, err := newsFetchByBox(context.Background(), db, client, now, false, lg)
@@ -182,7 +182,7 @@ func TestArticlesRead(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n, err := articlePass(context.Background(), db, egress.New(), now, lg); err != nil || n != 2 {
+	if n, err := articlePass(context.Background(), db, egress.NewUnguarded(), now, lg); err != nil || n != 2 {
 		t.Fatalf("read: %d %v", n, err)
 	}
 	status := func(guid string) (string, int) {
@@ -200,7 +200,7 @@ func TestArticlesRead(t *testing.T) {
 		t.Fatalf("the story's article is the free whole one: %.80q", a)
 	}
 	// a day on, unsummarised: the article is let go, what was learnt of it stays
-	if _, err := articlePass(context.Background(), db, egress.New(), now.Add(25*time.Hour), lg); err != nil {
+	if _, err := articlePass(context.Background(), db, egress.NewUnguarded(), now.Add(25*time.Hour), lg); err != nil {
 		t.Fatal(err)
 	}
 	if a := storyArticle(db, 7); a != "" {
@@ -281,14 +281,14 @@ func TestRefusedOutletLeftAlone(t *testing.T) {
 	}
 	_ = db.Exec("INSERT INTO news_items (feed_id, guid, link, title, published, fetched, story_id) VALUES ('tg','t1',$1,'Storms',$2,$2,9), ('bbc','b1',$3,'Storms',$2,$2,9)",
 		srv.URL+"/tg", now.Add(-time.Hour).Unix(), srv.URL+"/bbc")
-	if _, err := articlePass(context.Background(), db, egress.New(), now, lg); err != nil {
+	if _, err := articlePass(context.Background(), db, egress.NewUnguarded(), now, lg); err != nil {
 		t.Fatal(err)
 	}
 	if asked["/tg"] != 0 || asked["/bbc"] != 1 {
 		t.Fatalf("asked: %v", asked)
 	}
 	// a day on, the Telegraph is asked again
-	if _, err := articlePass(context.Background(), db, egress.New(), now.Add(25*time.Hour), lg); err != nil {
+	if _, err := articlePass(context.Background(), db, egress.NewUnguarded(), now.Add(25*time.Hour), lg); err != nil {
 		t.Fatal(err)
 	}
 	if asked["/tg"] != 1 {

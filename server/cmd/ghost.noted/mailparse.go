@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"github.com/LocalGhostDao/localghost/server/internal/mailauth"
 	"html"
 	"io"
 	"mime"
@@ -62,47 +63,33 @@ type parsedAttach struct {
 	Why   string // why not kept
 }
 
-var wordDec = mime.WordDecoder{CharsetReader: charsetReader}
+// decodeHeader is mailauth's decoder: the screen judges what it returns and the row shows the
+// same (mailauth/text.go).
+func decodeHeader(s string) string { return mailauth.DecodeHeader(s) }
 
-func decodeHeader(s string) string {
-	if d, err := wordDec.DecodeHeader(s); err == nil {
-		return d
-	}
-	return s
-}
-
+// addrList is a header's addresses, the plain ones only. An address that is not plain (a quoted
+// local part, spaces, something over 254 bytes) is left out rather than clipped: a clipped
+// address is a different address, and REPLY ALL would write to it.
 func addrList(h mail.Header, key string) []string {
 	v := h.Get(key)
 	if v == "" {
 		return nil
 	}
-	list, err := mail.ParseAddressList(v)
-	if err != nil {
-		// keep what looks like addresses
-		var out []string
-		for _, m := range addrRe.FindAllString(v, maxAddrs) {
-			out = append(out, strings.ToLower(m))
+	var found []string
+	if list, err := mailauth.ParseAddressList(v); err == nil {
+		for _, a := range list {
+			found = append(found, a.Address)
 		}
-		return clipAddrs(out)
+	} else {
+		found = addrRe.FindAllString(v, maxAddrs) // keep what looks like addresses
 	}
 	var out []string
-	for _, a := range list {
-		out = append(out, strings.ToLower(a.Address))
-	}
-	return clipAddrs(out)
-}
-
-// clipAddrs bounds an address list: at most maxAddrs entries, each at most maxAddrBytes.
-func clipAddrs(in []string) []string {
-	if len(in) > maxAddrs {
-		in = in[:maxAddrs]
-	}
-	for i, a := range in {
-		if len(a) > maxAddrBytes {
-			in[i] = a[:maxAddrBytes]
+	for _, a := range found {
+		if a = strings.ToLower(a); mailauth.PlainAddress(a) && len(out) < maxAddrs {
+			out = append(out, a)
 		}
 	}
-	return in
+	return out
 }
 
 // clipField bounds a header-derived string at n bytes on a rune boundary.
@@ -119,15 +106,26 @@ func clipField(s string, n int) string {
 
 var addrRe = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 
+// msgIDs is a header's message ids: text the database takes (no NUL, valid UTF-8), each at
+// most 998 bytes, at most a hundred of them. The sender chooses these; the row keeps them.
 func msgIDs(s string) []string {
 	var out []string
-	for _, f := range strings.Fields(s) {
-		f = strings.Trim(f, "<>")
-		if f != "" {
+	for _, f := range strings.Fields(pgText(s)) {
+		f = clipField(strings.Trim(f, "<>"), 998)
+		if f != "" && len(out) < 100 {
 			out = append(out, f)
 		}
 	}
 	return out
+}
+
+// pgText is s as Postgres will take it: valid UTF-8 and no NUL. A field that was neither made
+// the insert fail, and the message was dropped without a row (audit run 2).
+func pgText(s string) string {
+	if utf8.ValidString(s) && strings.IndexByte(s, 0) < 0 {
+		return s
+	}
+	return strings.ReplaceAll(strings.ToValidUTF8(s, "\uFFFD"), "\x00", "")
 }
 
 // parseMail takes the raw bytes apart. It never fetches anything and never runs anything.
@@ -145,18 +143,22 @@ func parseMail(raw []byte) (parsedMail, error) {
 		p.InReplyTo = ids[0]
 	}
 	p.References = msgIDs(h.Get("References"))
-	if from, err := mail.ParseAddressList(h.Get("From")); err == nil && len(from) > 0 {
-		p.From = clipField(strings.ToLower(from[0].Address), maxAddrBytes)
-		p.FromName = clipField(decodeHeader(from[0].Name), maxFromName)
-	} else if m := addrRe.FindString(h.Get("From")); m != "" {
-		p.From = clipField(strings.ToLower(m), maxAddrBytes)
+	// The sender, the reply address and the subject of a RECEIVED message are not taken from
+	// here: mailer.keep takes them from the screen that judged the message (Screen.Shown), so
+	// what is shown is what was judged. These are for a message parsed on its own (the tests,
+	// a quoted original) and follow the same rules: a plain address or none, one line.
+	if from, err := mailauth.ParseAddressList(h.Get("From")); err == nil && len(from) > 0 {
+		if a := strings.ToLower(from[0].Address); mailauth.PlainAddress(a) {
+			p.From = a
+		}
+		p.FromName = clipField(mailauth.OneLine(decodeHeader(from[0].Name)), maxFromName)
 	}
 	p.To = addrList(h, "To")
 	p.Cc = addrList(h, "Cc")
 	if rt := addrList(h, "Reply-To"); len(rt) > 0 {
 		p.ReplyTo = rt[0]
 	}
-	p.Subject = clipField(strings.TrimSpace(decodeHeader(h.Get("Subject"))), maxSubject)
+	p.Subject = clipField(mailauth.OneLine(decodeHeader(h.Get("Subject"))), maxSubject)
 	if d, err := h.Date(); err == nil {
 		p.Date = d
 	}
@@ -165,9 +167,9 @@ func parseMail(raw []byte) (parsedMail, error) {
 	walkPart(h.Get("Content-Type"), h.Get("Content-Transfer-Encoding"), h.Get("Content-Disposition"), m.Body, 0, &texts, &htmls, &p.Attach, &total)
 	switch {
 	case len(texts) > 0:
-		p.Body, p.BodyKind = clipText(strings.Join(texts, "\n\n")), "text"
+		p.Body, p.BodyKind = clipText(pgText(strings.Join(texts, "\n\n"))), "text"
 	case len(htmls) > 0:
-		p.Body, p.BodyKind = clipText(htmlToText(strings.Join(htmls, "\n"))), "html-reduced"
+		p.Body, p.BodyKind = clipText(pgText(htmlToText(strings.Join(htmls, "\n")))), "html-reduced"
 	default:
 		p.BodyKind = "none"
 	}
@@ -220,34 +222,40 @@ func listStart(s string) bool {
 // space goes too. The signature separator "-- " is a hard break.
 func unflow(s string, delsp bool) string {
 	lines := strings.Split(s, "\n")
-	var out []string
-	cur, curDepth, open := "", 0, false
+	out := make([]string, 0, len(lines))
+	// cur is the paragraph being joined: a builder, so a message of one long flowed paragraph
+	// costs its length once (it was copied whole at every line; 1.4 MB took minutes, audit run 2)
+	var cur strings.Builder
+	curDepth, open := 0, false
+	flush := func() {
+		out = append(out, quoted(curDepth, strings.TrimRight(cur.String(), " ")))
+		cur.Reset()
+	}
 	for _, l := range lines {
 		d, t := quoteDepth(l)
 		if d == 0 && strings.HasPrefix(t, " ") {
 			t = t[1:] // space-stuffed
 		}
 		soft := strings.HasSuffix(t, " ") && t != "-- "
-		if open && d == curDepth {
-			cur += t
-		} else {
-			if open {
-				out = append(out, quoted(curDepth, strings.TrimRight(cur, " ")))
-			}
-			cur, curDepth = t, d
+		if open && d != curDepth {
+			flush()
 		}
+		if !open || d != curDepth {
+			curDepth = d
+		}
+		if soft && delsp {
+			t = strings.TrimSuffix(t, " ")
+		}
+		cur.WriteString(t)
 		if soft {
-			if delsp {
-				cur = strings.TrimSuffix(cur, " ")
-			}
 			open = true
 		} else {
-			out = append(out, quoted(curDepth, strings.TrimRight(cur, " ")))
+			flush()
 			open = false
 		}
 	}
 	if open {
-		out = append(out, quoted(curDepth, strings.TrimRight(cur, " ")))
+		flush()
 	}
 	return strings.Join(out, "\n")
 }
@@ -280,7 +288,8 @@ func unwrap(s string) string {
 	if width < 50 || width > 100 {
 		return collapseBlank(lines)
 	}
-	var out []string
+	out := make([]string, 0, len(lines))
+	var para strings.Builder
 	for i := 0; i < len(lines); i++ {
 		l := strings.TrimRight(lines[i], " ")
 		if lines[i] == "-- " {
@@ -291,20 +300,28 @@ func unwrap(s string) string {
 			out = append(out, l)
 			continue
 		}
+		// last is the length of the line the wrapper actually broke, the last one joined, not
+		// of the paragraph so far: with the paragraph's length the rule was true for ever after
+		// the first join, and a short line the author ended on purpose was pulled up too. The
+		// paragraph is a builder, so the cost is the text's length, once.
+		para.Reset()
+		para.WriteString(t)
+		last := utf8.RuneCountInString(t)
 		for i+1 < len(lines) {
 			n := strings.TrimRight(lines[i+1], " ")
 			nd, nt := quoteDepth(n)
 			if nd != d || nt == "" || nt == "--" || lines[i+1] == "-- " || listStart(nt) {
 				break
 			}
-			cur := utf8.RuneCountInString(t)
-			if cur < width*2/3 || cur+1+utf8.RuneCountInString(firstWord(nt)) <= width {
+			if last < width*2/3 || last+1+utf8.RuneCountInString(firstWord(nt)) <= width {
 				break
 			}
-			t += " " + nt
+			para.WriteByte(' ')
+			para.WriteString(nt)
+			last = utf8.RuneCountInString(nt)
 			i++
 		}
-		out = append(out, quoted(d, t))
+		out = append(out, quoted(d, para.String()))
 	}
 	return collapseBlank(out)
 }
@@ -330,7 +347,7 @@ func collapseBlank(lines []string) string {
 
 func clipText(s string) string {
 	if len(s) > maxBodyText {
-		return s[:maxBodyText] + "\n[cut at 512 KB]"
+		return clipField(s, maxBodyText) + "\n[cut at 512 KB]" // on a character, never inside one
 	}
 	return s
 }
@@ -403,7 +420,10 @@ func walkPart(ctype, cte, cdisp string, body io.Reader, depth int, texts, htmls 
 }
 
 func addAttach(atts *[]parsedAttach, total *int64, name, mt string, b []byte) {
-	a := parsedAttach{Name: safeName(name), Mime: storedMime(name, mt), Kept: true}
+	// the type follows the name the file is KEPT under, not the one the sender wrote: the two
+	// differed ("report.pdf/" is kept as report.pdf and was typed by its declared text/html)
+	a := parsedAttach{Name: safeName(name), Kept: true}
+	a.Mime = storedMime(a.Name, mt)
 	switch {
 	case len(b) > maxAttachment:
 		a.Kept, a.Why = false, "larger than 20 MB"
@@ -452,9 +472,14 @@ var mimeRe = regexp.MustCompile(`^[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+$`)
 // and for a zip (an office file is one) by what is inside it.
 func dangerous(name, mt string, b []byte) string {
 	ext := strings.ToLower(path.Ext(name))
-	switch ext {
-	case ".exe", ".scr", ".bat", ".cmd", ".com", ".pif", ".js", ".jse", ".vbs", ".vbe", ".wsf", ".wsh", ".ps1", ".msi", ".dll", ".jar", ".apk", ".sh", ".hta", ".cpl", ".reg", ".lnk", ".app", ".dmg", ".deb", ".rpm":
+	if runs[ext] {
 		return "an executable (" + ext + ") is not kept"
+	}
+	switch ext {
+	case ".html", ".htm", ".xhtml", ".xht", ".shtml", ".mht", ".mhtml", ".svg", ".svgz":
+		// a page opened from a file runs its script in the phone's browser, with the sender's
+		// form on it; the message's own HTML is already reduced to text
+		return "a web page (" + ext + ") is not kept"
 	case ".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".iso", ".img", ".cab", ".ace", ".arj":
 		return "an archive (" + ext + ") is not kept"
 	case ".docm", ".xlsm", ".pptm", ".dotm", ".xltm", ".potm":
@@ -465,6 +490,8 @@ func dangerous(name, mt string, b []byte) string {
 		mt = strings.TrimSpace(mt[:i])
 	}
 	switch mt {
+	case "text/html", "application/xhtml+xml", "image/svg+xml":
+		return "declared as a web page (" + mt + "), not kept"
 	case "application/vnd.android.package-archive", "application/java-archive", "application/x-msdownload", "application/x-dosexec",
 		"application/x-executable", "application/x-sharedlib", "application/x-mach-binary", "application/x-sh", "application/x-shellscript",
 		"application/x-msi", "application/x-ms-installer", "application/vnd.microsoft.portable-executable", "application/x-elf",
@@ -501,6 +528,11 @@ func dangerous(name, mt string, b []byte) string {
 	return ""
 }
 
+// runs is the extensions of things that run, for an attachment and for what an office zip holds.
+var runs = map[string]bool{".exe": true, ".scr": true, ".bat": true, ".cmd": true, ".com": true, ".pif": true, ".js": true, ".jse": true,
+	".vbs": true, ".vbe": true, ".wsf": true, ".wsh": true, ".ps1": true, ".msi": true, ".dll": true, ".jar": true, ".apk": true, ".sh": true,
+	".hta": true, ".cpl": true, ".reg": true, ".lnk": true, ".app": true, ".dmg": true, ".deb": true, ".rpm": true}
+
 // utf16le is s as UTF-16LE bytes (ASCII input), the way compound-file directory names are stored.
 func utf16le(s string) []byte {
 	out := make([]byte, 0, 2*len(s))
@@ -530,7 +562,7 @@ func zipLooksLike(ext string, b []byte) string {
 		case n == "mimetype":
 			hasMime = true
 		case n == "androidmanifest.xml", n == "classes.dex", strings.HasSuffix(n, ".dex"), strings.HasSuffix(n, ".class"),
-			strings.HasSuffix(n, ".exe"), strings.HasSuffix(n, ".dll"), strings.HasSuffix(n, ".so"), strings.HasSuffix(n, ".jar"):
+			strings.HasSuffix(n, ".so"), runs[path.Ext(n)]:
 			return "a zip holding something that runs (" + path.Base(f.Name) + ") is not kept"
 		case strings.HasSuffix(n, "vbaproject.bin"), strings.Contains(n, "/vba"):
 			return "an office file with macros is not kept"
@@ -616,45 +648,8 @@ func (c *b64Clean) Read(p []byte) (int, error) {
 	}
 }
 
-// charsetReader covers the charsets mail still arrives in without a table package.
-func charsetReader(charset string, input io.Reader) (io.Reader, error) {
-	b, err := io.ReadAll(input)
-	if err != nil {
-		return nil, err
-	}
-	return strings.NewReader(toUTF8(b, charset)), nil
-}
-
-func toUTF8(b []byte, charset string) string {
-	cs := strings.ToLower(strings.TrimSpace(charset))
-	switch cs {
-	case "", "utf-8", "utf8", "us-ascii", "ascii":
-		if utf8.Valid(b) {
-			return string(b)
-		}
-		return latin1(b)
-	case "iso-8859-1", "latin1", "iso8859-1", "iso-8859-15", "windows-1252", "cp1252":
-		return latin1(b)
-	}
-	if utf8.Valid(b) {
-		return string(b)
-	}
-	return latin1(b)
-}
-
-var cp1252 = map[byte]rune{0x80: '€', 0x82: '‚', 0x83: 'ƒ', 0x84: '„', 0x85: '…', 0x86: '†', 0x87: '‡', 0x88: 'ˆ', 0x89: '‰', 0x8a: 'Š', 0x8b: '‹', 0x8c: 'Œ', 0x8e: 'Ž', 0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x95: '•', 0x96: '–', 0x97: '—', 0x98: '˜', 0x99: '™', 0x9a: 'š', 0x9b: '›', 0x9c: 'œ', 0x9e: 'ž', 0x9f: 'Ÿ'}
-
-func latin1(b []byte) string {
-	var sb strings.Builder
-	for _, c := range b {
-		if r, ok := cp1252[c]; ok {
-			sb.WriteRune(r)
-		} else {
-			sb.WriteRune(rune(c))
-		}
-	}
-	return sb.String()
-}
+// toUTF8 is mailauth's charset reading (one for headers and bodies).
+func toUTF8(b []byte, charset string) string { return mailauth.ToUTF8(b, charset) }
 
 var (
 	scriptRe = regexp.MustCompile(`(?is)<(script|style|head)[^>]*>.*?</(script|style|head)>`)

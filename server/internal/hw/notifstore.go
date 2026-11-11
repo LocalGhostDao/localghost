@@ -1138,8 +1138,68 @@ func (s *NotifStore) ChatDelete(slot int, chatID int64) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// The transcript's copy in the journal goes too. It used to stay: the next distil pass made
+	// memories from the deleted chat, and the read-again pass quoted it (audit run 2). What was
+	// already made from it stays, as with a deleted voice note: a memory is the person's to
+	// keep or delete on MEMORIES, and one whose record is gone is marked as such there. The
+	// sentences the read-again pass copied out of this transcript are removed.
+	ref := "chat:" + strconv.FormatInt(chatID, 10)
+	if err := db.Exec("DELETE FROM journal_entries WHERE source = 'ghost.noted' AND ref = $1", ref); err != nil {
+		return len(rows.Vals) > 0, err
+	}
+	if err := db.Exec(`UPDATE memories SET meta = jsonb_set(meta, '{doubt}', (meta->'doubt') - 'found')
+		WHERE meta IS NOT NULL AND jsonb_exists(meta, 'doubt') AND meta->'doubt'->>'ref' = $1`, ref); err != nil {
+		return len(rows.Vals) > 0, err
+	}
+	if err := unquoteFacts(db, ref); err != nil {
+		return len(rows.Vals) > 0, err
+	}
+	// the days that named this chat are told again without it (synthd's pass sees the words
+	// taken back and drops the model's text)
 	return len(rows.Vals) > 0, nil
 }
+
+// unquoteFacts removes, from every person's facts made from ref, the sentence the read-again
+// pass copied out of that record. The doubt stays, in the box's own words.
+func unquoteFacts(db *poltergres.ReadWrite, ref string) error {
+	rows, err := db.Query("SELECT id, meta::text FROM memories WHERE kind = 'person' AND meta IS NOT NULL AND position($1 in meta::text) > 0", ref)
+	if err != nil {
+		return err
+	}
+	for _, v := range rows.Vals {
+		if len(v) < 2 || v[0] == nil || v[1] == nil {
+			continue
+		}
+		var meta map[string]any
+		if json.Unmarshal([]byte(*v[1]), &meta) != nil {
+			continue
+		}
+		facts, _ := meta["facts"].([]any)
+		changed := false
+		for _, f := range facts {
+			fm, ok := f.(map[string]any)
+			if !ok || fm["ref"] != ref {
+				continue
+			}
+			if d, _ := fm["doubt"].(string); d != "" && d != factDoubtPlain {
+				fm["doubt"] = factDoubtPlain
+				changed = true
+			}
+		}
+		if !changed {
+			continue
+		}
+		mb, _ := json.Marshal(meta)
+		if err := db.Exec("UPDATE memories SET meta = $2::jsonb WHERE id = $1", *v[0], string(mb)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// factDoubtPlain is a fact's doubt with nothing quoted (ghost.synthd writes the same words
+// when the model gave no sentence).
+const factDoubtPlain = "the record does not say this"
 
 // GeoPoint is one photo location for the map overlay.
 type GeoPoint struct {

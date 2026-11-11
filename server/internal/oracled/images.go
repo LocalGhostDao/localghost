@@ -192,6 +192,30 @@ func imageForModel(ctx context.Context, path string) (string, error) {
 	return "", fmt.Errorf("image is %s and could not be decoded to fit the model (%s) , install the webp package (dwebp) or ffmpeg; it is not sent whole, a full-size photo crashes llama-server", kind, strings.Join(tried, "; "))
 }
 
+// chatImageMax is the largest attachment a chat turn may carry, before decoding.
+const chatImageMax = 32 << 20
+
+// chatImage is a chat attachment (base64 from the phone) as the model is shown it: a data URI
+// of the decoded, fitted, re-encoded picture. Only what the standard library decodes is taken;
+// anything else is an error the chat shows.
+func chatImage(b64 string) (string, error) {
+	if base64.StdEncoding.DecodedLen(len(b64)) > chatImageMax {
+		return "", fmt.Errorf("the attached image is over %d MB", chatImageMax>>20)
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
+	if err != nil {
+		return "", fmt.Errorf("the attached image is not readable (base64)")
+	}
+	if kind := imageKind(raw); !modelReads(kind) {
+		return "", fmt.Errorf("the attached image is %s, which the chat cannot show the model; send a JPEG or PNG", kind)
+	}
+	fitted, err := fitDecoded(raw, ImageMaxSide)
+	if err != nil {
+		return "", fmt.Errorf("the attached image could not be decoded: %v", err)
+	}
+	return dataURI(fitted), nil
+}
+
 // fitDecoded decodes raw (JPEG, PNG or GIF), applies a JPEG's EXIF orientation, scales it so its
 // long side is at most maxSide, and encodes a baseline JPEG.
 func fitDecoded(raw []byte, maxSide int) ([]byte, error) {

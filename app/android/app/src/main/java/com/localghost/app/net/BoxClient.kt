@@ -369,11 +369,11 @@ object BoxClient {
     /** Lock the box: ask ghost.secd to spin the account down , stop its Postgres/Redis, unmount and
      *  luksClose the volume (the key leaves the kernel), and revoke the session. After this every call
      *  appears down until the next PIN unlock. Returns the ordered teardown steps the box reported (so
-     *  the app can show the spin-down), or an empty list on any error , the caller still locks the app. */
-    suspend fun lock(ctx: Context): List<StageProgress> = try {
+     *  the app can show the spin-down), or null when the box did not answer. The phone's copy of the
+     *  session goes either way: the person asked to lock, and a token kept because the box was out
+     *  of reach was a token still good on the box (audit run 2). */
+    suspend fun lock(ctx: Context): List<StageProgress>? = try {
         val resp = BoxHttp.postJson(ctx, "/v1/lock", org.json.JSONObject())
-        // The box revoked the session server-side; drop the local copy so nothing carries a dead token.
-        SessionStore.clear(ctx)
         val arr = resp.optJSONArray("steps") ?: org.json.JSONArray()
         val out = mutableListOf<StageProgress>()
         for (i in 0 until arr.length()) {
@@ -383,7 +383,9 @@ object BoxClient {
         }
         out
     } catch (e: Exception) {
-        emptyList()
+        null
+    } finally {
+        SessionStore.clear(ctx)
     }
 
     // --- CHAT (RAG over the life-model) ---
@@ -1861,9 +1863,15 @@ object BoxClient {
                 }
                 if (!r.optBoolean("ok", false)) PlanAnswer(null, box)
                 else {
-                    val qs = r.optJSONArray("queries")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
-                    PlanAnswer(WebSearch.Plan(r.optBoolean("search", true), r.optString("need", ""), r.optString("shape", "prose"), r.optBoolean("fresh", false), qs, box,
-                        r.optString("boxHas", "")), box)
+                    val all = r.optJSONArray("queries")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotBlank() } } ?: emptyList()
+                    // the box held these to its rule; the phone, which makes the request, does again
+                    val qs = QueryGuard.filter(all)
+                    val search = r.optBoolean("search", true)
+                    val withheld = r.optString("withheld", "").ifBlank {
+                        if (search && all.isNotEmpty() && qs.isEmpty()) "the searches it would take carry your own details" else ""
+                    }
+                    PlanAnswer(WebSearch.Plan(search && qs.isNotEmpty(), r.optString("need", ""), r.optString("shape", "prose"), r.optBoolean("fresh", false), qs, box,
+                        r.optString("boxHas", ""), withheld), box)
                 }
             } catch (e: Exception) {
                 android.util.Log.w("LocalGhost", "chat plan: ${e.message}"); PlanAnswer(null, null)

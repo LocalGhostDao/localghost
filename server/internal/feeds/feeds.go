@@ -197,11 +197,19 @@ func Parse(body []byte) (Feed, error) {
 	return Feed{}, errors.New("not a feed (root <" + root + ">)")
 }
 
+// MaxItems is how many entries of one feed are kept, the first ones (feeds list newest first).
+// A real feed carries 20 to 100; a 3 MB answer of tiny entries parsed to forty thousand, each
+// its own story row, every two hours (audit run 2).
+const MaxItems = 300
+
 func finish(f Feed) (Feed, error) {
 	kept := f.Items[:0]
 	for _, it := range f.Items {
 		if it.Title == "" || (it.Link == "" && it.GUID == "") {
 			continue
+		}
+		if len(kept) == MaxItems {
+			break
 		}
 		kept = append(kept, it)
 	}

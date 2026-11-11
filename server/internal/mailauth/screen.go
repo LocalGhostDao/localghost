@@ -2,7 +2,6 @@ package mailauth
 
 import (
 	"bytes"
-	"mime"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -10,13 +9,33 @@ import (
 
 // Screen is the structural look at a message's headers: the ways a message lies about where it
 // came from, or is built to break a reader, each as one reason. An empty list is "clean".
+//
+// It is also the one reading of who the message says it is from (text.go): the row the phone
+// shows takes From, FromName, ReplyTo and Subject from here, through Shown.
 type Screen struct {
 	Reasons []string `json:"reasons,omitempty"`
 	// From is the one address in From, once the screen has decided which it is ("" when none).
+	// It is what DMARC was asked about, as written: it may not be fit to show (Shown).
 	From     string `json:"from"`
 	FromName string `json:"fromName,omitempty"`
 	ReplyTo  string `json:"replyTo,omitempty"`
 	Subject  string `json:"subject"`
+	// Unsure: From did not parse and the address is a guess (the last thing in the header that
+	// looks like one), good enough to ask DMARC about and not good enough to show.
+	Unsure bool `json:"unsure,omitempty"`
+}
+
+// Shown is the sender as a row may show it: the address only when it is a plain one, "" when
+// it is not (the phone then says "an unreadable sender", and the reason is in Reasons); the
+// name, the reply address and the subject on one line with nothing hidden in them.
+func (s Screen) Shown() (from, name, replyTo, subject string) {
+	if PlainAddress(s.From) && !s.Unsure {
+		from = s.From
+	}
+	if PlainAddress(s.ReplyTo) {
+		replyTo = s.ReplyTo
+	}
+	return from, s.FromName, replyTo, s.Subject
 }
 
 // Clean is true when the screen found nothing.
@@ -26,8 +45,6 @@ var (
 	controlRe = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]`)
 	addrLike  = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 )
-
-var dec = mime.WordDecoder{}
 
 // ScreenHeaders judges the raw message's header block. boxDomains are the addresses' domains the
 // box answers at, so a stranger's display name that reads as one of them is named.
@@ -56,7 +73,7 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 	for _, h := range m.headers {
 		count[strings.ToLower(strings.TrimSpace(h.name))]++
 	}
-	for _, n := range []string{"from", "date", "subject", "sender", "reply-to", "to", "message-id"} {
+	for _, n := range []string{"from", "date", "subject", "sender", "reply-to", "to", "message-id", "content-type"} {
 		if count[n] > 1 {
 			add("more than one " + strings.ToUpper(n[:1]) + n[1:] + " header")
 		}
@@ -77,12 +94,14 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 	if fromRaw == "" {
 		add("no From")
 	} else {
-		addrs, err := mail.ParseAddressList(fromRaw)
+		addrs, err := ParseAddressList(fromRaw)
 		switch {
 		case err != nil:
 			add("From does not parse")
-			if m := addrLike.FindString(fromRaw); m != "" {
-				s.From = strings.ToLower(m)
+			// the last address-like thing, where an address stands in a From line; the first
+			// was the sender's to place (a name written to look like someone's address)
+			if all := addrLike.FindAllString(fromRaw, 50); len(all) > 0 {
+				s.From, s.Unsure = strings.ToLower(all[len(all)-1]), true
 			}
 		case len(addrs) == 0:
 			add("From has no address")
@@ -91,15 +110,20 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 				add("From has more than one address")
 			}
 			s.From = strings.ToLower(addrs[0].Address)
-			s.FromName = addrs[0].Name
-			if d, err := dec.DecodeHeader(addrs[0].Name); err == nil {
-				s.FromName = d
+			if !PlainAddress(s.From) {
+				// judged as written (the domain after the last @ is what DMARC is asked about),
+				// never shown: see Shown
+				add("the From address is not a plain address")
 			}
-			s.FromName = clip(s.FromName, 256)
-			name := s.FromName
-			if controlRe.MatchString(name) {
+			raw := DecodeHeader(addrs[0].Name)
+			if controlRe.MatchString(raw) || strings.ContainsAny(raw, "\r\n") {
 				add("control characters in the display name")
 			}
+			if HasHidden(raw) {
+				add("hidden characters in the display name")
+			}
+			s.FromName = clipRunes(OneLine(raw), 256)
+			name := s.FromName
 			if m := addrLike.FindString(name); m != "" {
 				md := strings.ToLower(m[strings.LastIndexByte(m, '@')+1:])
 				fd := s.From[strings.LastIndexByte(s.From, '@')+1:]
@@ -117,8 +141,11 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 	}
 	// Reply-To on another domain than From
 	if rt := msg.Header.Get("Reply-To"); rt != "" {
-		if a, err := mail.ParseAddress(rt); err == nil {
+		if a, err := ParseAddress(rt); err == nil {
 			s.ReplyTo = strings.ToLower(a.Address)
+			if !PlainAddress(s.ReplyTo) {
+				add("Reply-To is not a plain address")
+			}
 			if s.From != "" {
 				fd := s.From[strings.LastIndexByte(s.From, '@')+1:]
 				rd := s.ReplyTo[strings.LastIndexByte(s.ReplyTo, '@')+1:]
@@ -131,14 +158,14 @@ func ScreenHeaders(raw []byte, boxDomains []string) Screen {
 		}
 	}
 	// Subject
-	subj := msg.Header.Get("Subject")
-	if d, err := dec.DecodeHeader(subj); err == nil {
-		subj = d
-	}
-	s.Subject = clip(subj, 512) // the verdict is stored on the row; the subject's size is the sender's
-	if controlRe.MatchString(subj) {
+	subj := DecodeHeader(msg.Header.Get("Subject"))
+	if controlRe.MatchString(subj) || strings.ContainsAny(subj, "\r\n") {
 		add("control characters in the subject")
 	}
+	if HasHidden(subj) {
+		add("hidden characters in the subject")
+	}
+	s.Subject = clipRunes(OneLine(subj), MaxSubject) // one line, nothing hidden: this is what the row shows
 	if letters, upper := countCase(subj); letters >= 12 && upper == letters {
 		add("subject all in capitals")
 	}
@@ -168,9 +195,12 @@ func countCase(s string) (letters, upper int) {
 	return
 }
 
+// MaxSubject is the longest subject kept, in bytes (RFC 5322's line limit).
+const MaxSubject = 998
+
 func clip(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return clipRunes(s, n) + "…"
 }

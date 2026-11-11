@@ -122,21 +122,34 @@ func lowerDomain(d string) string {
 
 // OrgDomain is the organisational domain DMARC aligns on: the registrable part under the public
 // suffix. The standard library has no public suffix list, so this is the common two-label
-// suffixes by hand; a rarer one aligns strictly, which errs toward "not aligned".
+// suffixes by hand, and a rule for the ones not listed: under a country's two-letter domain, a
+// second label that is one of the registries' category words (co, com, org, gov, ac …) is part
+// of the suffix. Without the rule, two strangers under an unlisted com.xx shared the
+// organisational domain "com.xx" and each aligned with the other's From (audit run 2). What
+// neither covers aligns on the last two labels, as before.
 func OrgDomain(d string) string {
 	d = lowerDomain(d)
 	labels := strings.Split(d, ".")
 	if len(labels) <= 2 {
 		return d
 	}
-	last2 := labels[len(labels)-2] + "." + labels[len(labels)-1]
-	if twoLabelSuffix[last2] {
+	tld, sld := labels[len(labels)-1], labels[len(labels)-2]
+	last2 := sld + "." + tld
+	if twoLabelSuffix[last2] || (len(tld) == 2 && categoryLabel[sld]) {
 		if len(labels) == 3 {
 			return d
 		}
 		return strings.Join(labels[len(labels)-3:], ".")
 	}
 	return last2
+}
+
+// categoryLabel is the second-level words country registries sell names under.
+var categoryLabel = map[string]bool{
+	"co": true, "com": true, "net": true, "org": true, "gov": true, "gob": true, "gouv": true, "govt": true, "go": true, "gv": true,
+	"ac": true, "edu": true, "sch": true, "mil": true, "or": true, "ne": true, "nom": true, "ltd": true, "plc": true, "info": true,
+	"biz": true, "web": true, "art": true, "firm": true, "ind": true, "int": true, "name": true, "pro": true, "tv": true, "k12": true,
+	"me": true, "id": true, "nhs": true, "police": true, "priv": true, "res": true, "school": true, "store": true, "gen": true,
 }
 
 var twoLabelSuffix = map[string]bool{

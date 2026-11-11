@@ -83,8 +83,18 @@ render_site() {
         rm -f /etc/nginx/sites-enabled/ghost-secd
         return 0
     fi
-    su - "$SVC_USER" -c "cd '$REPO' && ./bin/ghost-qr --ca /etc/ghost/ca --host \"\$(sed -n 's/^GHOST_HOST=//p' /etc/ghost/ghost.env | cut -d: -f1)\" --nginx-out /tmp/ghost-secd.conf"
-    cp /tmp/ghost-secd.conf /etc/nginx/sites-enabled/ghost-secd
+    # rendered into a directory made for this run that only the service user can write, and
+    # installed only when it is a plain file: /tmp/ghost-secd.conf was a name anyone on the
+    # machine could have put there first, and root copied it into nginx (audit run 2)
+    site_tmp=$(mktemp -d /tmp/ghost-site.XXXXXX) || return 1
+    chown "$SVC_USER" "$site_tmp" && chmod 700 "$site_tmp"
+    su - "$SVC_USER" -c "cd '$REPO' && ./bin/ghost-qr --ca /etc/ghost/ca --host \"\$(sed -n 's/^GHOST_HOST=//p' /etc/ghost/ghost.env | cut -d: -f1)\" --nginx-out '$site_tmp/ghost-secd.conf'"
+    if [ -f "$site_tmp/ghost-secd.conf" ] && [ ! -L "$site_tmp/ghost-secd.conf" ]; then
+        install -m 0644 -o root -g root "$site_tmp/ghost-secd.conf" /etc/nginx/sites-enabled/ghost-secd
+    else
+        echo "WARNING: the nginx site was not rendered; the one in place is kept" >&2
+    fi
+    rm -rf "$site_tmp"
 }
 
 # nginx-only fast path , config change, no binary, no restart, no re-unlock.

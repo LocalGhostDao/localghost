@@ -97,14 +97,30 @@ INGESTION (each daemon writes its own tables, nobody else's)
 
 ## Backups (the second copy)
 
-framed backs its own tree up nightly at 03:00 box time into /var/lib/ghost/backup , Sunday full,
-other nights incremental since the watermark, four fulls retained. OPT-IN BY KEY: no
-/var/lib/ghost/backup.pub, no backups. The seal is asymmetric (X25519 + HKDF-SHA256 +
-ChaCha20-Poly1305 chunked STREAM, "GHSTBK1"): the box holds only the public key and can write
-backups it can never read; `ghost.restore keygen` makes the pair (private stays OFFLINE with the
-human), `ghost.restore unseal <file> < key.hex | tar -x` is the whole restore. The app has no
-route anywhere near the backup directory. Manual trigger: ghost-cli ghost.framed backup
-(full=true forces a full).
+framed backs the originals up nightly at 03:00 box time into /var/lib/ghost/backup , Sunday full,
+other nights incremental since the watermark, four fulls retained. What goes in is
+`frames/archive` (every photo and video as it arrived) and `framed` (the Timeline import
+folders); previews, thumbs and day paths are rebuilt from the originals. Until 10 Nov 2026 the
+job sealed `framed` alone and no original was in any backup: a box with backups switched on
+before that date should run `ghost-cli ghost.framed backup full=true` once.
+
+OPT-IN BY KEY: no /var/lib/ghost/backup.pub, no backups. The seal is asymmetric (X25519 +
+HKDF-SHA256 + ChaCha20-Poly1305 chunked STREAM, "GHSTBK1"): the box holds only the public key
+and can write backups it can never read; `ghost.restore keygen` makes the pair (private stays
+OFFLINE with the human). The app has no route anywhere near the backup directory. Manual
+trigger: ghost-cli ghost.framed backup (full=true forces a full).
+
+Restore: `ghost.restore unseal <file> out.tar < key.hex` writes out.tar only when the whole
+file authenticated, then `tar -x -C <mount> -f out.tar`. The newest full first, then each
+incremental after it in order.
+
+What a backup is and is not. It is secret (nobody without the private key reads it) and it
+does not open if a byte changed or the end is missing. It is not proof of who wrote it:
+anyone holding backup.pub can make a file that opens, so the backup disk should be writable
+by the box alone. An incremental holds what was added, never what was deleted: restoring a
+full and its incrementals brings back photos deleted in between. Every backup ends with
+`MANIFEST.txt`, the list of what the box held that night, which is how to tell them apart.
+The database is not in the backup; reprocess rebuilds the rows from the files.
 
 ## Reimport and restore (images)
 
@@ -112,8 +128,8 @@ Two idempotent commands cover every "get my images back into the pipeline" case:
 ghost-cli ghost.framed reprocess rebuilds frame records/previews/places from the FILES (after a
 backup restore, after a purge); ghost-cli ghost.searchd reingest enqueues captions for exactly the
 image originals that have no chunks and no queued job (after a chunk purge, after a restore, after
-doubt). A healthy library reingest-s zero. Full disaster flow: ghost.restore unseal | tar -x into
-<mount>/framed, then reprocess, then reingest, then wait for the model to re-describe the gap.
+doubt). A healthy library reingest-s zero. Full disaster flow: ghost.restore unseal to a tar,
+tar -x -C <mount>, then reprocess, then reingest, then wait for the model to re-describe the gap.
 
 ## pgvector (leaving FTS-only mode)
 

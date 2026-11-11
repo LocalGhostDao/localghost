@@ -63,7 +63,13 @@ const certClockSlack = 5 * time.Minute
 func (s *Server) admit(w http.ResponseWriter, r *http.Request) bool {
 	f, ok := factsFor(r)
 	if !ok {
-		return true // no certificate (the edge takes care of that), or one that will not parse: nothing to judge here
+		// no certificate at all is the edge's to refuse (it does, before this). A header that is
+		// there and is not a certificate is nobody's phone.
+		if r.Header.Get("X-Client-Cert") != "" && !s.doorOpenForTests {
+			s.appearsDown(w)
+			return false
+		}
+		return true
 	}
 	now := time.Now().Unix()
 	if now > f.notAfter || now+int64(certClockSlack/time.Second) < f.notBefore {

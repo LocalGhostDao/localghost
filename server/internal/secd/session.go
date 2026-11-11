@@ -14,7 +14,7 @@ import (
 //
 // Lifecycle:
 //   - correct PIN  -> Issue() mints a fresh token (any previous one is dropped)
-//   - any wrong PIN -> Revoke() invalidates the current token
+//   - a wrong PIN from the device that holds the token -> RevokeHeldBy() invalidates it
 //   - the app re-enters the PIN every open (~20-30x/day), so a fresh token per open is expected
 //
 // A token does NOT unmount or re-lock anything; it is an authorisation credential only. The mount
@@ -35,6 +35,11 @@ type sessionManager struct {
 	token   string    // the one live token; empty = no session
 	expires time.Time // self-expiry safety net
 	ttl     time.Duration
+	// dev is the device the token was issued to (its certificate's key name, "" unknown). A wrong
+	// PIN ends the session when it comes from that device (someone holding the phone, guessing),
+	// not when it comes from another: before 10 Nov 2026 any enrolled device, or any process
+	// past the door, could log the owner out with one wrong PIN.
+	dev string
 }
 
 func newSessionManager(ttl time.Duration) *sessionManager {
@@ -56,7 +61,10 @@ func (m *sessionManager) ExpiresAt() time.Time {
 }
 
 // Issue mints a fresh token, replacing any previous one. Called on a correct-PIN unlock.
-func (m *sessionManager) Issue() (string, error) {
+func (m *sessionManager) Issue() (string, error) { return m.IssueTo("") }
+
+// IssueTo mints a fresh token for the device that unlocked.
+func (m *sessionManager) IssueTo(dev string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -65,16 +73,36 @@ func (m *sessionManager) Issue() (string, error) {
 	m.mu.Lock()
 	m.token = tok
 	m.expires = time.Now().Add(m.ttl)
+	m.dev = dev
 	m.mu.Unlock()
 	return tok, nil
 }
 
-// Revoke invalidates the current token. Called on ANY wrong PIN. Idempotent.
+// Revoke invalidates the current token (lock, off, retire, wipe). Idempotent.
 func (m *sessionManager) Revoke() {
 	m.mu.Lock()
 	m.token = ""
 	m.expires = time.Time{}
+	m.dev = ""
 	m.mu.Unlock()
+}
+
+// RevokeHeldBy invalidates the current token after a wrong PIN from dev, when dev is the device
+// that holds it, or when either is unknown (a box of one phone behaves as before). Reports
+// whether a token was revoked.
+func (m *sessionManager) RevokeHeldBy(dev string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.token == "" {
+		return false
+	}
+	if dev != "" && m.dev != "" && dev != m.dev {
+		return false
+	}
+	m.token = ""
+	m.expires = time.Time{}
+	m.dev = ""
+	return true
 }
 
 // Valid reports whether the presented token is the current, unexpired one. Empty/expired/mismatched

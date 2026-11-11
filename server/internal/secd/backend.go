@@ -70,12 +70,30 @@ type UnlockBackend interface {
 // resolved first (the security decision); a reject ends the stream with a failure. The key is
 // zeroised immediately after Mount consumes it.
 func runUnlock(b UnlockBackend, pin string, emit func(profile.Progress)) (openSlot int, err error) {
+	return runUnlockBy(b, "", pin, emit)
+}
+
+// deviceResolver is a backend whose limiter counts PIN attempts per device: one device's wrong
+// PINs slow and lock that device, not the box for everyone (a phone without the PIN used to be
+// able to keep the owner out of the prompt, since every attempt was counted under one name).
+type deviceResolver interface {
+	ResolveFor(dev, pin string) (openSlot int, mainWiped bool, err error)
+}
+
+// runUnlockBy is runUnlock for the device named by (its certificate's key name; "" for none).
+func runUnlockBy(b UnlockBackend, by, pin string, emit func(profile.Progress)) (openSlot int, err error) {
 	openSlot = profile.NoSlot
 
 	// RESOLVE
 	emit(profile.Progress{Stage: profile.StageResolve, State: profile.Running})
 	t0 := time.Now()
-	slot, _, rerr := b.Resolve(pin)
+	var slot int
+	var rerr error
+	if dr, ok := b.(deviceResolver); ok && by != "" {
+		slot, _, rerr = dr.ResolveFor(by, pin)
+	} else {
+		slot, _, rerr = b.Resolve(pin)
+	}
 	if rerr != nil || slot == profile.NoSlot {
 		// EVERY reject answers at the same moment: a wrong PIN, a throttled one, the wipe PIN
 		// arming, the main PIN confirming a wipe (whose erase runs inside Resolve). Their own times

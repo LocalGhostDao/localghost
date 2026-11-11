@@ -321,8 +321,28 @@ func main() {
 		}
 		p, ok := parsePlan(resp.Output)
 		if !ok {
-			lg.Warn("web plan: unusable answer", "fn", "plan", "out", clip(resp.Output, 200))
+			lg.Warn("web plan: unusable answer", "fn", "plan", "outChars", len(resp.Output))
+			lg.Debug("web plan: unusable answer", "fn", "plan", "out", clip(resp.Output, 200))
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "box": box})
+			return
+		}
+		// THE QUERIES LEAVE THE HOUSE. Before the phone is told them, each is held to a rule the
+		// model cannot argue with (guardQueries): nothing that came into the conversation from
+		// the box's side and not from the person, no address, no long number, no first person.
+		var private []string
+		if db := chatStore(filepath.Dir(runDir)); db != nil {
+			private = append(peopleNames(db), setting(db, ownerKey))
+		}
+		var dropped int
+		p.Queries, dropped = guardQueries(p.Queries, q.Prompt, q.History, private)
+		if dropped > 0 {
+			lg.Info("web plan: queries withheld", "fn", "plan", "withheld", dropped, "kept", len(p.Queries))
+		}
+		if p.Search && len(p.Queries) == 0 {
+			// nothing that may leave: the question is answered from the box, and the phone is
+			// told why there is no search
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "search": false, "need": p.Need, "shape": p.Shape, "fresh": p.Fresh, "queries": []string{}, "box": box,
+				"withheld": "the searches it would take carry your own details"})
 			return
 		}
 		// what was asked stays out of the INFO log: the log outlives a deleted chat by a week, and
@@ -381,6 +401,18 @@ func main() {
 			history = trimHistory(vals)
 		}
 		items := gatherContext(runDir, q.Prompt)
+		// the box's Wikipedia by what the plan said the question needs, when the question's own
+		// words named no article (a follow-up, a name typed loosely): wikiSourceFor
+		if q.Need != "" && !hasSource(items, "wikipedia") {
+			for _, it := range wikiSourceFor(q.Prompt, q.Need) {
+				if it.Snippet != "" {
+					if len(items) == 3 && items[0].Source == "sample" {
+						items = nil // the empty-index placeholders make way
+					}
+					items = append(items, sanitize(it))
+				}
+			}
+		}
 		// THE PERSON'S TASTE, when the question asks for a suggestion or a plan, and the places
 		// around the phone that fit it; THE WEATHER the box pulled, for a weather question
 		// (weather.go, the fix or the trail says where). Samples (the empty-index placeholders)

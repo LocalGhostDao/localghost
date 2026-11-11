@@ -87,7 +87,7 @@ func TestMailStoreAgainstPostgres(t *testing.T) {
 	if cnt != 1 || !seen {
 		t.Fatalf("history %d %v", cnt, seen)
 	}
-	if n, _ := ns.MailRecentFrom(0, "paul@example.org", 1760000000); n != 1 {
+	if n, _ := ns.MailRecentFrom(0, "paul@example.org", "low", 1760000000); n != 1 {
 		t.Fatal("recent")
 	}
 	if err := ns.MailSetState(0, oid, "sent", ""); err != nil {

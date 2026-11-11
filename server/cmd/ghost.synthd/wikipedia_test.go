@@ -114,3 +114,47 @@ func TestWikiFromTheBoxPG(t *testing.T) {
 		t.Fatalf("status %+v", st)
 	}
 }
+
+// A question typed without capitals still names things: its phrases are tried as titles.
+func TestWikiPhrases(t *testing.T) {
+	has := func(xs []string, s string) bool {
+		for _, x := range xs {
+			if x == s {
+				return true
+			}
+		}
+		return false
+	}
+	for q, want := range map[string]string{
+		"who built hagia sophia":         "hagia sophia",
+		"corfu population":               "corfu",
+		"what's the capital of mongolia": "mongolia",
+		"how do magnets work?":           "magnets",
+		"tower of london opening hours":  "tower of london",
+		"byzantine empire?":              "byzantine empire",
+	} {
+		if got := wikiPhrases(q, "Vlad", []string{"Cristina"}); !has(got, want) {
+			t.Errorf("%q: %q not among %q", q, want, got)
+		}
+	}
+	// nothing from the person's own things, small talk, a request to write, or their people
+	for _, q := range []string{"what did i do in corfu", "good morning", "thanks", "write a poem about autumn", "where is my passport", "cristina?", "ok"} {
+		got := wikiPhrases(q, "Vlad", []string{"Cristina"})
+		for _, g := range got {
+			if !strings.Contains(g, " ") {
+				t.Errorf("%q: a single word %q is looked up", q, g)
+			}
+		}
+		if q == "good morning" || q == "thanks" || q == "ok" || q == "cristina?" || strings.Contains(q, " i ") || strings.Contains(q, " my ") {
+			if len(got) != 0 {
+				t.Errorf("%q looks up %q", q, got)
+			}
+		}
+	}
+	if got := wikiPhrases(strings.Repeat("word ", 60), "", nil); got != nil {
+		t.Fatalf("a long text is looked up: %d phrases", len(got))
+	}
+	if got := wikiPhrases("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda", "", nil); len(got) > 8 {
+		t.Fatalf("%d lookups for one question", len(got))
+	}
+}

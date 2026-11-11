@@ -107,8 +107,19 @@ func newDefaultBackend(cfg Config) UnlockBackend {
 	}
 }
 
-func (b *backend) Resolve(pin string) (int, bool, error) {
-	d := b.accounts.Unlock("box", pin)
+func (b *backend) Resolve(pin string) (int, bool, error) { return b.ResolveFor("", pin) }
+
+// ResolveFor resolves a PIN for one device. The limiter and the armed-wipe state are kept per
+// device (its certificate's key name), so a phone guessing PINs slows and locks itself and
+// cannot hold the owner's phone out; a request with no device is counted under the box's own
+// name, as before. A device cannot give itself new names without the PIN: a certificate comes
+// from the box CA at enrolment or from a re-key, and a re-key needs a session.
+func (b *backend) ResolveFor(dev, pin string) (int, bool, error) {
+	id := "box"
+	if dev != "" {
+		id = "dev:" + dev
+	}
+	d := b.accounts.Unlock(id, pin)
 	switch d.Outcome {
 	case profile.Open:
 		return d.OpenSlot, d.Wiped, nil
@@ -168,46 +179,7 @@ func (b *backend) StartCache(slot int) error {
 	// point of use, heals EXISTING volumes too, not only fresh provisions.
 	if cred := userCredential(b.runUser); cred != nil {
 		uid, gid := int(cred.Uid), int(cred.Gid)
-		if err := os.Chown(filepath.Join(mount, "services.conf"), uid, gid); err != nil {
-			secdLog.Warn("chown services.conf for run user", "fn", "StartCache", "err", err)
-		}
-		for _, d := range []string{"logs", "run", "bin", "conf"} {
-			dir := filepath.Join(mount, d)
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				secdLog.Warn("ensure volume dir", "fn", "StartCache", "dir", dir, "err", err)
-				continue
-			}
-			if err := os.Chown(dir, uid, gid); err != nil {
-				secdLog.Warn("chown volume dir for run user", "fn", "StartCache", "dir", dir, "err", err)
-			}
-		}
-		// Heal spool ownership. spoolBody chowns at commit NOW, but files spooled by an older secd
-		// landed root:root and framed (the run user) retries them forever with permission denied
-		// (observed live: two July-11 spool files stuck across four days of drains). One flat pass
-		// over frames/incoming, chowning only what the run user does not already own , bounded by
-		// the spool's size, which is transient by design.
-		spool := filepath.Join(mount, "frames", "incoming")
-		if entries, err := os.ReadDir(spool); err == nil {
-			healed := 0
-			for _, e := range entries {
-				if e.IsDir() {
-					continue
-				}
-				if fi, ferr := e.Info(); ferr == nil {
-					if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Uid == uint32(uid) {
-						continue
-					}
-				}
-				if cerr := os.Chown(filepath.Join(spool, e.Name()), uid, gid); cerr != nil {
-					secdLog.Warn("heal spool file ownership", "fn", "StartCache", "file", e.Name(), "err", cerr)
-					continue
-				}
-				healed++
-			}
-			if healed > 0 {
-				secdLog.Info("healed spool file ownership for the run user", "fn", "StartCache", "files", healed)
-			}
-		}
+		healVolume(mount, uid, gid)
 	}
 
 	// Ingest provisioning-staged model weights onto the encrypted volume. tools/stage_models.sh
@@ -326,37 +298,32 @@ func (b *backend) ingestStagedModels(mount string) {
 	if err != nil || len(entries) == 0 {
 		return // nothing staged , the usual case
 	}
-	dst := filepath.Join(mount, "ai-models")
-	if err := os.MkdirAll(dst, 0o750); err != nil {
-		secdLog.Error("model ingest: cannot create ai-models on volume", "fn", "ingestStagedModels", "err", err)
+	uid, gid := 0, 0
+	if cred := userCredential(b.runUser); cred != nil {
+		uid, gid = int(cred.Uid), int(cred.Gid)
+	}
+	dst, err := dirUnder(mount, "ai-models", true, 0o750, uid, gid)
+	if err != nil {
+		secdLog.Error("model ingest: cannot open ai-models on volume", "fn", "ingestStagedModels", "err", err)
 		return
 	}
-	cred := userCredential(b.runUser)
+	defer dst.Close()
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		srcPath := filepath.Join(staging, e.Name())
-		dstPath := filepath.Join(dst, e.Name())
 		t0 := time.Now()
-		if err := copyFileSync(srcPath, dstPath); err != nil {
+		if err := copyInto(dst, srcPath, e.Name(), 0o640, uid, gid); err != nil {
 			secdLog.Error("model ingest failed , staged copy kept for retry next unlock",
 				"fn", "ingestStagedModels", "file", e.Name(), "err", err)
 			continue
-		}
-		if cred != nil {
-			if err := os.Chown(dstPath, int(cred.Uid), int(cred.Gid)); err != nil {
-				secdLog.Warn("model ingest: chown", "fn", "ingestStagedModels", "file", e.Name(), "err", err)
-			}
 		}
 		if err := os.Remove(srcPath); err != nil {
 			secdLog.Warn("model ingest: staged copy not removed", "fn", "ingestStagedModels", "file", e.Name(), "err", err)
 		}
 		secdLog.Info("model ingested onto encrypted volume", "fn", "ingestStagedModels",
 			"file", e.Name(), "took", time.Since(t0).Round(time.Millisecond).String())
-	}
-	if cred != nil {
-		_ = os.Chown(dst, int(cred.Uid), int(cred.Gid))
 	}
 }
 
@@ -371,36 +338,38 @@ func (b *backend) ingestStagedBinaries(mount string) {
 	if err != nil || len(entries) == 0 {
 		return // nothing staged , no redeploy since last unlock
 	}
-	dst := filepath.Join(mount, "bin")
-	cred := userCredential(b.runUser)
+	uid, gid := 0, 0
+	if cred := userCredential(b.runUser); cred != nil {
+		uid, gid = int(cred.Uid), int(cred.Gid)
+	}
+	dst, err := dirUnder(mount, "bin", true, 0o700, uid, gid)
+	if err != nil {
+		secdLog.Error("binary ingest: cannot open bin on volume", "fn", "ingestStagedBinaries", "err", err)
+		return
+	}
+	defer dst.Close()
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		srcPath := filepath.Join(staging, e.Name())
-		dstPath := filepath.Join(dst, e.Name())
 		// Copy to a temp name, then rename over the destination. Writing the destination directly
-		// (O_TRUNC) is ETXTBSY against a binary that is RUNNING , which is now the normal case, since
-		// ingest also runs on warm unlocks where the cohort was adopted alive. The rename swaps the
-		// inode: running processes keep executing their old image, the next (re)start execs the new
-		// one, and there is never a half-written binary at the real path.
-		tmpPath := dstPath + ".ingest"
-		if err := copyFileSync(srcPath, tmpPath); err != nil {
+		// is ETXTBSY against a binary that is RUNNING , which is the normal case, since ingest also
+		// runs on warm unlocks where the cohort was adopted alive. The rename swaps the inode:
+		// running processes keep executing their old image, the next (re)start execs the new one,
+		// and there is never a half-written binary at the real path. Both names are bare names in
+		// a directory opened without following a link (vaultfs.go): bin/ is the daemons' own, and
+		// a link planted at either name is replaced, never written through.
+		tmp := e.Name() + ".ingest"
+		if err := copyInto(dst, srcPath, tmp, 0o755, uid, gid); err != nil {
 			secdLog.Error("binary ingest failed , volume keeps its previous build of this daemon",
 				"fn", "ingestStagedBinaries", "file", e.Name(), "err", err)
-			_ = os.Remove(tmpPath)
 			continue
 		}
-		if err := os.Chmod(tmpPath, 0o755); err != nil {
-			secdLog.Warn("binary ingest: chmod", "fn", "ingestStagedBinaries", "file", e.Name(), "err", err)
-		}
-		if cred != nil {
-			_ = os.Chown(tmpPath, int(cred.Uid), int(cred.Gid))
-		}
-		if err := os.Rename(tmpPath, dstPath); err != nil {
+		if err := dst.Rename(tmp, e.Name()); err != nil {
 			secdLog.Error("binary ingest: rename into place failed , volume keeps its previous build",
 				"fn", "ingestStagedBinaries", "file", e.Name(), "err", err)
-			_ = os.Remove(tmpPath)
+			_ = dst.Remove(tmp)
 			continue
 		}
 		_ = os.Remove(srcPath)
@@ -408,29 +377,104 @@ func (b *backend) ingestStagedBinaries(mount string) {
 	}
 }
 
-// copyFileSync copies src to dst with an fsync , model weights are multi-GB and the whole point is
-// that they survive; a torn copy that "succeeded" would fail oracled's size pre-flight confusingly.
-func copyFileSync(src, dst string) error {
+// copyInto copies src to a fresh file name in d with an fsync , model weights are multi-GB and
+// the whole point is that they survive; a torn copy that "succeeded" would fail oracled's size
+// pre-flight confusingly. The mode and the owner are set through the descriptor.
+func copyInto(d *os.Root, src, name string, perm os.FileMode, uid, gid int) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	out, err := createIn(d, name, perm)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close()
-		_ = os.Remove(dst)
-		return err
+	_, err = io.Copy(out, in)
+	if err == nil {
+		err = out.Chmod(perm) // the umask may have cut it
 	}
-	if err := out.Sync(); err != nil {
-		_ = out.Close()
-		_ = os.Remove(dst)
-		return err
+	if err == nil && uid > 0 {
+		err = out.Chown(uid, gid)
 	}
-	return out.Close()
+	if err == nil {
+		err = out.Sync()
+	}
+	if cerr := out.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = d.Remove(name)
+	}
+	return err
+}
+
+// healVolume puts right, for the run user, what provisioning or an older secd left root's:
+// services.conf, the four top directories watchd needs, and spool files an older secd wrote
+// root:root. The volume's root is the run user's, so every name here is theirs to change:
+// nothing is followed through a link, directories are owned through their descriptors after
+// they are opened, and a spool file only when it is a plain file in the real spool directory.
+func healVolume(mount string, uid, gid int) {
+	vr, err := os.OpenRoot(mount)
+	if err != nil {
+		secdLog.Warn("open the volume to heal its permissions", "fn", "healVolume", "err", err)
+		return
+	}
+	defer vr.Close()
+	if fi, err := vr.Lstat("services.conf"); err == nil && fi.Mode().IsRegular() {
+		if err := vr.Lchown("services.conf", uid, gid); err != nil {
+			secdLog.Warn("chown services.conf for run user", "fn", "healVolume", "err", err)
+		}
+	}
+	// Provisioning wrote services.conf as root 0600, so watchd (dropped to the run user) died in
+	// 2ms with "read services.conf: permission denied". watchd also needs logs/ (its rotlog) and
+	// run/ (its control socket) to exist and be writable.
+	for _, name := range []string{"logs", "run", "bin", "conf"} {
+		d, err := descend(vr, name, true, 0o700, uid, gid)
+		if err != nil {
+			secdLog.Warn("ensure volume dir", "fn", "healVolume", "dir", name, "err", err)
+			continue
+		}
+		if f, ferr := d.Open("."); ferr == nil {
+			if err := f.Chown(uid, gid); err != nil {
+				secdLog.Warn("chown volume dir for run user", "fn", "healVolume", "dir", name, "err", err)
+			}
+			f.Close()
+		}
+		d.Close()
+	}
+	// Spool files an older secd wrote root:root: framed retries them forever with permission
+	// denied (observed live: two July-11 spool files stuck across four days of drains). One flat
+	// pass over frames/incoming, plain files only, bounded by the spool's size.
+	spool, err := dirUnder(mount, filepath.Join("frames", "incoming"), false, 0, 0, 0)
+	if err != nil {
+		return
+	}
+	defer spool.Close()
+	dir, err := spool.Open(".")
+	if err != nil {
+		return
+	}
+	entries, _ := dir.ReadDir(-1)
+	dir.Close()
+	healed := 0
+	for _, e := range entries {
+		fi, ferr := spool.Lstat(e.Name()) // not e.Info(): that looks the name up by path
+		if ferr != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		if st, ok := fi.Sys().(*syscall.Stat_t); ok && st.Uid == uint32(uid) {
+			continue
+		}
+		if cerr := spool.Lchown(e.Name(), uid, gid); cerr != nil {
+			secdLog.Warn("heal spool file ownership", "fn", "healVolume", "file", e.Name(), "err", cerr)
+			continue
+		}
+		healed++
+	}
+	if healed > 0 {
+		secdLog.Info("healed spool file ownership for the run user", "fn", "healVolume", "files", healed)
+	}
 }
 
 func (b *backend) spawnWatchd(mount string) (*os.Process, error) {

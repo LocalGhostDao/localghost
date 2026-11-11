@@ -123,3 +123,53 @@ func TestQueueHoldsBackgroundButStillDropsExpired(t *testing.T) {
 		t.Fatalf("after the hold: %+v", it)
 	}
 }
+
+// A request a person is waiting for (the web plan, a spoken question) does not queue behind a
+// running caption: the caption steps aside as it does for a chat, and none starts for the grace.
+func TestInteractiveRequestClearsTheWay(t *testing.T) {
+	old := resumeGrace
+	resumeGrace = 150 * time.Millisecond
+	defer func() { resumeGrace = old }()
+	be := &slowBackend{started: make(chan string, 8), release: make(chan struct{})}
+	b := NewBroker(16, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.SetBackend(oracle.ClassLocalSmall, be)
+	b.Run()
+	defer b.Stop()
+
+	cap1, _ := b.Submit(oracle.Request{Capability: "caption-1", Priority: oracle.PriorityBackground, DeadlineMS: 60_000})
+	wait(t, be.started, "caption-1")
+	t0 := time.Now()
+	plan, _ := b.Submit(oracle.Request{Capability: "plan", Priority: oracle.PriorityInteractive, DeadlineMS: 8000})
+	if r := result(t, cap1); r.Err != oracle.ErrPreempted {
+		t.Fatalf("the running caption: %+v", r)
+	}
+	wait(t, be.started, "plan")
+	if waited := time.Since(t0); waited > time.Second {
+		t.Fatalf("the plan waited %s behind a caption", waited)
+	}
+	// a caption queued meanwhile does not start until the grace after the plan was asked
+	cap2, _ := b.Submit(oracle.Request{Capability: "caption-2", Priority: oracle.PriorityBackground, DeadlineMS: 60_000})
+	be.release <- struct{}{}
+	if r := result(t, plan); r.Output != "done plan" {
+		t.Fatalf("plan: %+v", r)
+	}
+	wait(t, be.started, "caption-2")
+	if time.Since(t0) < resumeGrace {
+		t.Fatalf("background started %s after the plan, inside the grace", time.Since(t0))
+	}
+	be.release <- struct{}{}
+	if r := result(t, cap2); r.Output != "done caption-2" {
+		t.Fatalf("caption after the plan: %+v", r)
+	}
+	// an interactive request does not preempt another interactive one
+	a1, _ := b.Submit(oracle.Request{Capability: "ask-1", Priority: oracle.PriorityInteractive})
+	wait(t, be.started, "ask-1")
+	a2, _ := b.Submit(oracle.Request{Capability: "ask-2", Priority: oracle.PriorityInteractive})
+	be.release <- struct{}{}
+	if r := result(t, a1); r.Err != "" {
+		t.Fatalf("the first interactive request was preempted: %+v", r)
+	}
+	wait(t, be.started, "ask-2")
+	be.release <- struct{}{}
+	_ = result(t, a2)
+}

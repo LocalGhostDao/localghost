@@ -126,6 +126,10 @@ func (a *Accounts) Unlock(id, pin string) Decision {
 }
 
 // armedLive reports whether a live armed wipe exists for the device, without consuming it.
+// Allowed reports what the limiter would say to id's next attempt, without making one (nil:
+// may try now). For status lines and tests; Unlock is the only thing that counts an attempt.
+func (a *Accounts) Allowed(id string) error { return a.gate.CheckAllowed(id) }
+
 func (a *Accounts) armedLive(id string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()

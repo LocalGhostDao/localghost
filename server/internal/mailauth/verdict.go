@@ -40,17 +40,36 @@ type Input struct {
 	Now             time.Time
 }
 
+// The shares of one message's judging (the caller's own deadline still bounds the whole).
+var (
+	stageSPF   = 20 * time.Second
+	stageDKIM  = 20 * time.Second
+	stageDMARC = 15 * time.Second
+)
+
 // Judge runs every check. DNS goes through res; NoResolver turns the DNS verdicts into "not checked".
 func Judge(ctx context.Context, res Resolver, in Input) Verdicts {
 	var v Verdicts
 	v.Screen = ScreenHeaders(in.Raw, in.BoxDomains)
-	v.SPF = CheckSPF(ctx, res, in.IP, in.MailFrom, in.Helo)
-	v.DKIM = VerifyDKIM(ctx, res, in.Raw, in.Now)
+	// Each check has its own share of the caller's time. With one shared deadline, a sender
+	// whose SPF record walks slow name servers used all of it, the policy lookup that came last
+	// was starved, and a DMARC that could not be read counted for nothing (audit run 2).
+	stage := func(share time.Duration) (context.Context, context.CancelFunc) {
+		return context.WithTimeout(ctx, share)
+	}
+	sctx, cancel := stage(stageSPF)
+	v.SPF = CheckSPF(sctx, res, in.IP, in.MailFrom, in.Helo)
+	cancel()
+	kctx, cancel := stage(stageDKIM)
+	v.DKIM = VerifyDKIM(kctx, res, in.Raw, in.Now)
+	cancel()
 	fromDomain := ""
 	if at := strings.LastIndexByte(v.Screen.From, '@'); at >= 0 {
 		fromDomain = v.Screen.From[at+1:]
 	}
-	v.DMARC = CheckDMARC(ctx, res, fromDomain, v.SPF, v.DKIM)
+	dctx, cancel := stage(stageDMARC)
+	v.DMARC = CheckDMARC(dctx, res, fromDomain, v.SPF, v.DKIM)
+	cancel()
 	v.Reverse = in.PTRState
 	if v.Reverse == "" {
 		v.Reverse = "error"
@@ -82,17 +101,25 @@ func score(v Verdicts, in Input) (string, []string) {
 		}
 	case "permerror":
 		add(1, "SPF record broken")
+	case "temperror":
+		add(1, "SPF could not be checked")
 	}
-	anyPass := false
+	anyPass, partial := false, false
 	for _, k := range v.DKIM {
 		if k.Pass() {
 			anyPass = true
 		}
+		if k.Partial && k.Result == "pass" {
+			partial = true
+		}
 	}
 	if !anyPass {
-		if len(v.DKIM) == 0 {
+		switch {
+		case len(v.DKIM) == 0:
 			add(2, "no DKIM signature")
-		} else {
+		case partial:
+			add(3, "DKIM signs only part of the body")
+		default:
 			add(3, "DKIM fails")
 		}
 	}
@@ -102,6 +129,17 @@ func score(v Verdicts, in Input) (string, []string) {
 			add(4, "DMARC fail under a "+v.DMARC.Policy+" policy")
 		} else {
 			add(2, "DMARC fail")
+		}
+	case "temperror":
+		// the policy could not be read: not a pass, and not nothing
+		add(2, "DMARC could not be checked")
+	case "permerror":
+		add(2, "DMARC cannot be judged: "+v.DMARC.Reason)
+	case "none":
+		// no policy, and nothing that passed is the From domain's: the message may be fine, but
+		// nothing in it proves who it is from, and "low" must not read as "genuine"
+		if v.DMARC.Aligned == "" && v.DMARC.Reason != "not checked" {
+			add(2, "nothing proves the From domain")
 		}
 	}
 	switch v.Reverse {
@@ -116,8 +154,12 @@ func score(v Verdicts, in Input) (string, []string) {
 			add(3, r)
 		case strings.HasPrefix(r, "Reply-To goes"):
 			add(2, r)
-		case strings.HasPrefix(r, "a bare CR"), strings.HasPrefix(r, "control characters"):
+		case strings.HasPrefix(r, "a bare CR"), strings.HasPrefix(r, "control characters"), strings.HasPrefix(r, "hidden characters"):
 			add(3, r)
+		case r == "the From address is not a plain address":
+			add(4, r)
+		case strings.HasPrefix(r, "more than one Content-"):
+			add(2, r)
 		case strings.HasPrefix(r, "more than one From"):
 			add(3, r)
 		case r == "subject all in capitals":
