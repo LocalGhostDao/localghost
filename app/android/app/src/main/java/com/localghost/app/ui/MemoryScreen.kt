@@ -92,10 +92,10 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                 }
                 // READ AGAIN: what the box found when it checked this against the record it was
                 // made from. A doubt is the person's to settle: edit, delete, or leave it.
-                val day = { ms: Long -> java.text.SimpleDateFormat("d MMMM", java.util.Locale.UK).format(java.util.Date(ms)) }
+                val formatDay = { ms: Long -> java.text.SimpleDateFormat("d MMMM", java.util.Locale.UK).format(java.util.Date(ms)) }
                 row.doubt?.let { d ->
                     Spacer(Modifier.height(12.dp))
-                    Text(MemoryText.doubtLine(d.optString("ref", ""), d.optString("found", ""), d.optLong("at", 0L), day),
+                    Text(MemoryText.doubtLine(d.optString("ref", ""), d.optString("found", ""), d.optLong("at", 0L), formatDay),
                         color = Warning, style = MaterialTheme.typography.labelMedium)
                 }
                 if (row.doubtedFacts.isNotEmpty()) {
@@ -109,7 +109,7 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                     Text("left out of what the box tells of them until you decide; ✎ to rewrite, or delete the memory",
                         color = TerminalDim, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
                 }
-                if (row.doubt == null && row.doubtedFacts.isEmpty()) MemoryText.confirmedLine(row.verifiedAt, day)?.let { line ->
+                if (row.doubt == null && row.doubtedFacts.isEmpty()) MemoryText.confirmedLine(row.verifiedAt, formatDay)?.let { line ->
                     Spacer(Modifier.height(8.dp))
                     Text(line, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
                 }
