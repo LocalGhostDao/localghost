@@ -14,7 +14,8 @@ class GalleryTextTest {
 
     @Test fun sizes() {
         assertEquals("", GalleryText.size(0))
-        assertEquals("814 KB", GalleryText.size(833_000))
+        assertEquals("813 KB", GalleryText.size(833_000)) // 813.48 KB, rounded
+        assertEquals("814 KB", GalleryText.size(833_536))
         assertEquals("3.2 MB", GalleryText.size(3_355_000))
         assertEquals("1.4 GB", GalleryText.size(1_503_238_553))
     }

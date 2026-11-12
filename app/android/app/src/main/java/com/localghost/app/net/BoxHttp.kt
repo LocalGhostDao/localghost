@@ -67,6 +67,9 @@ object BoxHttp {
         // verification with a perfectly matching pin.
         conn.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
         conn.requestMethod = method
+        // the box never redirects; an answer that says "go elsewhere" is not followed (the pin
+        // would refuse another host anyway, this says so before the request is repeated)
+        conn.instanceFollowRedirects = false
         conn.connectTimeout = 10_000
         conn.readTimeout = 30_000
         // Bearer is the SESSION token minted at PIN unlock (SessionStore), NOT the enrolment token:

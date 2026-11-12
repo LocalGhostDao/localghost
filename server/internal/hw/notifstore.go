@@ -1303,7 +1303,28 @@ type MemoryRow struct {
 	// Edited says the person wrote or rewrote it (kind=user from birth, or an edit by hand):
 	// its words stand as written, and the phone shows them in ink rather than the box's grey.
 	Edited bool `json:"edited,omitempty"`
+	// Anchor says the person marked it as one of the few memories their life hangs on
+	// (memories.anchored_at). Front says it is on today's front page, what every chat starts from.
+	Anchor bool `json:"anchor,omitempty"`
+	Front  bool `json:"front,omitempty"`
 }
+
+// MemoryLink is one neighbour of a memory, for its page: the other memory, and why the box keeps
+// the two together (memory_links.why: part, names, place, written, month).
+type MemoryLink struct {
+	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	Kind      string `json:"kind"`
+	Why       string `json:"why"`
+	Ref       string `json:"ref,omitempty"`
+	Anchor    bool   `json:"anchor,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+// FrontPageKey is the setting ghost.synthd keeps today's front page in ({day, sig, ids, text}):
+// the opening every chat starts from. Emptied here whenever the person changes what it could be
+// made of (an anchor set or lifted, a memory edited or deleted), so the next chat chooses again.
+const FrontPageKey = "front_page"
 
 // DayRow is one prebuilt day summary (ghost.synthd's day_summaries) as the app reads it.
 type DayRow struct {
@@ -1406,14 +1427,16 @@ func (s *NotifStore) DaysList(slot int, before string, limit int) ([]DayRow, err
 }
 
 // memoryCols is what the memory rows are read with, in memoryRows' order.
-const memoryCols = "SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text, COALESCE(source_ref,''), user_edited FROM memories WHERE NOT tombstoned "
+const memoryCols = "SELECT id, title, body, kind, COALESCE(source_chat,0), created_at, meta::text, COALESCE(source_ref,''), user_edited, (anchored_at IS NOT NULL) FROM memories WHERE NOT tombstoned "
 
 // MemoriesList returns live (non-tombstoned) memories, newest first, the whole ones (a trip,
 // a lone outing, a person, a distilled fact) before the parts (an outing or a day folded under
 // a trip, meta.part_of), so a feed cut at the limit keeps every trip and loses old parts first.
 // Until 10 October 2026 the order was the clock alone and the limit 200, and a trip from June
 // fell off the feed once two hundred newer days and outings had been written: it "disappeared".
-// MemoriesPartsOf is the parts of one whole, for its page.
+// MemoriesPartsOf is the parts of one whole, for its page. The anchors come before everything:
+// the person marked them, so no limit may cut them and no newer day may sit above them. The rows
+// on today's front page are marked (Front), so the phone can say what every chat starts from.
 func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 	c, err := s.pg(slot)
 	if err != nil {
@@ -1422,11 +1445,62 @@ func (s *NotifStore) MemoriesList(slot int, limit int) ([]MemoryRow, error) {
 	if limit <= 0 || limit > 2000 {
 		limit = 600
 	}
-	rows, err := c.Query(memoryCols + "ORDER BY (meta IS NOT NULL AND jsonb_exists(meta, 'part_of')), created_at DESC LIMIT " + strconv.Itoa(limit))
+	rows, err := c.Query(memoryCols + "ORDER BY (anchored_at IS NULL), (meta IS NOT NULL AND jsonb_exists(meta, 'part_of')), created_at DESC LIMIT " + strconv.Itoa(limit))
 	if err != nil {
 		return nil, err
 	}
-	return memoryRows(rows), nil
+	return s.markFront(slot, memoryRows(rows)), nil
+}
+
+// markFront marks the rows that are on today's front page (FrontPageKey's ids).
+func (s *NotifStore) markFront(slot int, out []MemoryRow) []MemoryRow {
+	if len(out) == 0 {
+		return out
+	}
+	if v, gerr := s.GetSetting(slot, FrontPageKey); gerr == nil && v != "" {
+		var fp struct {
+			IDs []int64 `json:"ids"`
+		}
+		if json.Unmarshal([]byte(v), &fp) == nil && len(fp.IDs) > 0 {
+			on := make(map[int64]bool, len(fp.IDs))
+			for _, id := range fp.IDs {
+				on[id] = true
+			}
+			for i := range out {
+				out[i].Front = on[out[i].ID]
+			}
+		}
+	}
+	return out
+}
+
+// MemoryByID is one live memory, for its page: the page used to find its row by reading the
+// whole feed, which is cut at a limit, so a day folded under an old trip or month (the rows the
+// cut loses first) opened as "not on the box any more". Empty when there is no such live memory.
+func (s *NotifStore) MemoryByID(slot int, id int64) ([]MemoryRow, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.Query(memoryCols+"AND id = $1", id)
+	if err != nil {
+		return nil, err
+	}
+	return s.markFront(slot, memoryRows(rows)), nil
+}
+
+// MemoryByRef is the live whole a part names in meta.part_of ("trip:2026-09-12",
+// "outing:2026-09-28", "month:2026-08"), for the part's page; empty when there is none.
+func (s *NotifStore) MemoryByRef(slot int, ref string) ([]MemoryRow, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.Query(memoryCols+"AND source_ref = $1 AND kind IN ('trip','outing','month','day') ORDER BY id LIMIT 1", ref)
+	if err != nil {
+		return nil, err
+	}
+	return s.markFront(slot, memoryRows(rows)), nil
 }
 
 // MemoriesPartsOf is the memories folded under one whole (meta.part_of = ref: a trip's outings
@@ -1471,11 +1545,14 @@ func memoryRows(rows *poltergres.Rows) []MemoryRow {
 		if v[5] != nil {
 			m.CreatedAt, _ = strconv.ParseInt(*v[5], 10, 64)
 		}
-		if len(v) > 7 && v[7] != nil && (strings.HasPrefix(*v[7], "day:") || strings.HasPrefix(*v[7], "outing:") || strings.HasPrefix(*v[7], "trip:")) {
+		if len(v) > 7 && v[7] != nil && (strings.HasPrefix(*v[7], "day:") || strings.HasPrefix(*v[7], "outing:") || strings.HasPrefix(*v[7], "trip:") || strings.HasPrefix(*v[7], "month:")) {
 			m.Ref = *v[7]
 		}
 		if len(v) > 8 && v[8] != nil {
 			m.Edited = *v[8] == "t" || *v[8] == "true"
+		}
+		if len(v) > 9 && v[9] != nil {
+			m.Anchor = *v[9] == "t" || *v[9] == "true"
 		}
 		out = append(out, m)
 	}
@@ -1613,11 +1690,131 @@ func (s *NotifStore) MemoryTombstone(slot int, id int64) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	rows, err := c.Query("UPDATE memories SET tombstoned = TRUE, updated_at = (extract(epoch from now())*1000)::bigint WHERE id = $1 AND NOT tombstoned RETURNING id", id)
+	rows, err := c.Query("UPDATE memories SET tombstoned = TRUE, anchored_at = NULL, updated_at = (extract(epoch from now())*1000)::bigint WHERE id = $1 AND NOT tombstoned RETURNING id", id)
 	if err != nil {
 		return false, err
 	}
-	return len(rows.Vals) > 0, nil
+	if len(rows.Vals) == 0 {
+		return false, nil
+	}
+	// its neighbourhood lets go of it now, not at the next pass: a link left pointing at a
+	// deleted memory is a reference to something the person took back. The front page is
+	// chosen again for the same reason.
+	if err := c.Exec("DELETE FROM memory_links WHERE a = $1 OR b = $1", id); err != nil {
+		return true, err
+	}
+	_ = s.SetSetting(slot, FrontPageKey, "")
+	return true, nil
+}
+
+// MemoryAnchor sets or lifts the person's mark on a memory: one of the few their life hangs on.
+// This is the only place the mark is written (a merge of two rows for one person carries it
+// across, consolidate.go, and that is all the passes ever do with it): "the model can guess, the
+// clustering can spot correlations, but the final call has to come from the person whose life it
+// is". False when there is no such live memory.
+func (s *NotifStore) MemoryAnchor(slot int, id int64, on bool) (bool, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return false, err
+	}
+	q := "UPDATE memories SET anchored_at = NULL WHERE id = $1 AND NOT tombstoned RETURNING id"
+	args := []any{id}
+	if on {
+		q = "UPDATE memories SET anchored_at = COALESCE(anchored_at, $2) WHERE id = $1 AND NOT tombstoned RETURNING id"
+		args = append(args, time.Now().UnixMilli())
+	}
+	rows, err := c.Query(q, args...)
+	if err != nil {
+		return false, err
+	}
+	if len(rows.Vals) == 0 {
+		return false, nil
+	}
+	_ = s.SetSetting(slot, FrontPageKey, "")
+	return true, nil
+}
+
+// MemoryOpen is the person opening a memory's page: the memory is touched (touched_at, which
+// the weight reads through the neighbourhood, so its neighbours are warmer for it too), and its
+// neighbours come back, the anchors first, then the newest: the company it keeps, and why.
+func (s *NotifStore) MemoryOpen(slot int, id int64) ([]MemoryLink, bool, error) {
+	c, err := s.pg(slot)
+	if err != nil {
+		return nil, false, err
+	}
+	hit, err := c.Query("UPDATE memories SET touched_at = $2 WHERE id = $1 AND NOT tombstoned RETURNING id", id, time.Now().UnixMilli())
+	if err != nil {
+		return nil, false, err
+	}
+	if len(hit.Vals) == 0 {
+		return nil, false, nil
+	}
+	// its links, then the memories at the other ends in one batched lookup (docs/DATA.md: a
+	// screen reads one table, or one table and one batched lookup, never a join)
+	lrows, err := c.Query("SELECT a, b, why FROM memory_links WHERE a = $1 OR b = $1", id)
+	if err != nil {
+		return nil, true, err
+	}
+	why := map[string]string{}
+	others := make([]string, 0, len(lrows.Vals))
+	self := strconv.FormatInt(id, 10)
+	for _, v := range lrows.Vals {
+		if len(v) < 3 || v[0] == nil || v[1] == nil {
+			continue
+		}
+		other := *v[0]
+		if other == self {
+			other = *v[1]
+		}
+		if _, err := strconv.ParseInt(other, 10, 64); err != nil || other == self {
+			continue
+		}
+		if _, seen := why[other]; !seen {
+			others = append(others, other)
+		}
+		if v[2] != nil {
+			why[other] = *v[2]
+		} else {
+			why[other] = ""
+		}
+	}
+	if len(others) == 0 {
+		return []MemoryLink{}, true, nil
+	}
+	rows, err := c.Query(`SELECT id, title, kind, id::text, COALESCE(source_ref,''), (anchored_at IS NOT NULL), created_at
+		FROM memories WHERE id = ANY($1::bigint[]) AND NOT tombstoned
+		ORDER BY (anchored_at IS NULL), created_at DESC LIMIT 60`, "{"+strings.Join(others, ",")+"}")
+	if err != nil {
+		return nil, true, err
+	}
+	out := make([]MemoryLink, 0, len(rows.Vals))
+	for _, v := range rows.Vals {
+		if len(v) < 7 || v[0] == nil {
+			continue
+		}
+		var l MemoryLink
+		l.ID, _ = strconv.ParseInt(*v[0], 10, 64)
+		if v[1] != nil {
+			l.Title = *v[1]
+		}
+		if v[2] != nil {
+			l.Kind = *v[2]
+		}
+		if v[3] != nil {
+			l.Why = why[*v[3]]
+		}
+		if v[4] != nil && (strings.HasPrefix(*v[4], "day:") || strings.HasPrefix(*v[4], "outing:") || strings.HasPrefix(*v[4], "trip:") || strings.HasPrefix(*v[4], "month:")) {
+			l.Ref = *v[4]
+		}
+		if v[5] != nil {
+			l.Anchor = *v[5] == "t" || *v[5] == "true"
+		}
+		if v[6] != nil {
+			l.CreatedAt, _ = strconv.ParseInt(*v[6], 10, 64)
+		}
+		out = append(out, l)
+	}
+	return out, true, nil
 }
 
 // MemoryAdd inserts a user-authored memory. kind='user', user_edited from birth , the model never
@@ -1650,6 +1847,9 @@ func (s *NotifStore) MemoryEdit(slot int, id int64, title, body string) (bool, e
 		title, body, time.Now().UnixMilli(), id)
 	if err != nil {
 		return false, err
+	}
+	if len(rows.Vals) > 0 {
+		_ = s.SetSetting(slot, FrontPageKey, "") // the page may quote the old words; choose again
 	}
 	return len(rows.Vals) > 0, nil
 }
@@ -2290,6 +2490,7 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 			" · trips "+one("SELECT count(*) FROM memories WHERE kind = 'trip' AND NOT tombstoned")+
 			" · outings "+one("SELECT count(*) FROM memories WHERE kind = 'outing' AND NOT tombstoned")+
 			" · days "+one("SELECT count(*) FROM memories WHERE kind = 'day' AND NOT tombstoned")+
+			" · months "+one("SELECT count(*) FROM memories WHERE kind = 'month' AND NOT tombstoned")+
 			" · distilled "+one("SELECT count(*) FROM memories WHERE kind = 'distilled' AND NOT tombstoned")+
 			" · about me "+one("SELECT count(*) FROM memories WHERE kind = 'me' AND NOT tombstoned")+
 			" · places "+one("SELECT count(*) FROM memories WHERE kind = 'place' AND NOT tombstoned")+
@@ -2297,6 +2498,11 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 		add("yours (user-made)", one("SELECT count(*) FROM memories WHERE kind = 'user' AND NOT tombstoned")+
 			" · edited by hand "+one("SELECT count(*) FROM memories WHERE user_edited AND NOT tombstoned")+
 			" · deleted "+one("SELECT count(*) FROM memories WHERE tombstoned"))
+		// WHAT IS KEPT TOGETHER: the links between memories (synthd's linking pass), the anchors
+		// (the person's marks, never the box's), and how many memories today's front page leads with
+		add("kept together", one("SELECT count(*) FROM memory_links")+" links"+
+			" · anchors "+one("SELECT count(*) FROM memories WHERE anchored_at IS NOT NULL AND NOT tombstoned")+" (marked by you)"+
+			" · on today's front page "+one("SELECT coalesce((SELECT jsonb_array_length((value::jsonb)->'ids') FROM settings WHERE key = 'front_page' AND value LIKE '{%'), 0)"))
 		key("distill queue", one("SELECT count(*) FROM journal_entries WHERE NOT distilled")+
 			" entries waiting · "+one("SELECT count(*) FROM journal_entries WHERE distilled")+" read")
 		// WRITTEN BY THE MODEL: the outings and trips with prose, the days the model told
@@ -2310,7 +2516,7 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 			" of "+one("SELECT count(*) FROM day_summaries"))
 		add("days told", one("SELECT count(*) FROM day_summaries")+" · newest "+one("SELECT coalesce(max(day),'none') FROM day_summaries")+
 			" · oldest "+one("SELECT coalesce(min(day),'none') FROM day_summaries")+
-			" · folded under a trip or an outing "+one("SELECT count(*) FROM memories WHERE kind IN ('day','outing') AND NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'part_of')"))
+			" · folded under a trip, an outing or a month "+one("SELECT count(*) FROM memories WHERE kind IN ('day','outing') AND NOT tombstoned AND meta IS NOT NULL AND jsonb_exists(meta, 'part_of')"))
 		// CONSOLIDATION: the merging and folding run every pass; the model writes the people once a day
 		{
 			line := "people written by the model " + one("SELECT count(*) FROM memories WHERE kind = 'person' AND NOT tombstoned AND coalesce(meta->>'prose','') <> ''") +
@@ -2832,8 +3038,8 @@ func leftText(secs int64) string {
 
 // synthDid is a pass's work in a line: "distilled 3 · outings 1 · trips 1", "" when it did nothing.
 func synthDid(pass map[string]int) string {
-	order := []string{"about", "checkins", "named", "distilled", "outings", "folded", "trips", "people", "places", "insights", "prose", "confirmed", "doubted", "days", "daysByModel"}
-	names := map[string]string{"about": "note", "checkins": "check-in facts", "named": "renamed", "distilled": "distilled", "outings": "outings",
+	order := []string{"about", "checkins", "named", "distilled", "outings", "folded", "trips", "people", "places", "insights", "prose", "confirmed", "doubted", "days", "daysByModel", "months", "links"}
+	names := map[string]string{"months": "months", "links": "links redrawn", "about": "note", "checkins": "check-in facts", "named": "renamed", "distilled": "distilled", "outings": "outings",
 		"folded": "people merged", "trips": "trips", "people": "people written", "places": "places", "insights": "noticed", "prose": "written",
 		"confirmed": "read again, confirmed", "doubted": "read again, in doubt", "days": "days", "daysByModel": "days by the model"}
 	var parts []string

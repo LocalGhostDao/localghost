@@ -66,9 +66,9 @@ account anywhere, no relay, no third party between the phone and the box.
 | **ghost.noted** | Notes, the evening check-in and the chats, into the journal; the box's mail (`agent@` its domain) pulled sealed from the relay, judged (SPF, DKIM, DMARC, the header screen) and kept, and the person's replies signed and handed back. The relay itself (`mx.localghost.ai`, the one machine on port 25 so that no box has to be) lives in the [web repository](https://github.com/LocalGhostDao/web/tree/main/deploy/mail). |
 | **ghost.voiced** | Voice notes, transcribed on the box (whisper.cpp) and journaled. |
 | **ghost.tallyd** | The health sync, the prices from the exchanges every minute and every five seconds, the ECB table, the daily candles and the history, CRYPTO50. |
-| **ghost.synthd** | The memory layer: distills the journal into memories, writes what it knows of the person and their people, counts the places, notices things once a day, writes each day's story, groups the news and writes the brief, writes the coin pages, answers the chat with the person's own context. |
+| **ghost.synthd** | The memory layer: distills the journal into memories, writes what it knows of the person and their people, counts the places, notices things once a day, writes each day's story, folds days under trips and old months, links the memories that belong together, groups the news and writes the brief, writes the coin pages, answers the chat with the person's own context. How memories are kept is in [`server/docs/MEMORY.md`](server/docs/MEMORY.md). |
 | **ghost.cued** | Watches for the moment: a place nearby that suits the person's taste, an old memory worth bringing back. |
-| **ghost.shadowd** | The sibling that challenges: reads what the others wrote and says when something looks wrong. |
+| **ghost.shadowd** | The sibling that challenges. One detector so far: it says when the time spent talking to the box has grown week on week. |
 | **ghost.searchd** | The search index over the archive (full text, and vectors through EmbeddingGemma) and the captioning queue. |
 | **ghost.oracled** | The models: llama.cpp serving Gemma 4 12B with its vision projector on the GPU, with a thinking channel the chat can open. |
 

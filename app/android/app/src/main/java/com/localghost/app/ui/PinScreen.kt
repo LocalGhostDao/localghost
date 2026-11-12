@@ -26,6 +26,14 @@ fun PinScreen(busy: Boolean, error: String?, progress: UnlockSnapshot?, opening:
     var reveal by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     fun submit() { if (pin.isNotEmpty() && !busy) { onSubmit(pin); pin = "" } }
+    // While the code can be typed the window is marked sensitive: a screen share, a cast or a
+    // recording shows a blank window in place of the keys (Android 15's content sensitivity).
+    // A screenshot the person takes themselves still works.
+    val pinView = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(pinView) {
+        pinView.contentSensitivity = android.view.View.CONTENT_SENSITIVITY_SENSITIVE
+        onDispose { pinView.contentSensitivity = android.view.View.CONTENT_SENSITIVITY_AUTO }
+    }
 
     GhostScaffold { pad ->
         // Once the code is in, the keypad goes and the screen is the unlock alone: the vault rings

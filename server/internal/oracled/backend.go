@@ -10,6 +10,8 @@ package oracled
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -101,6 +103,42 @@ type llamaBackend struct {
 	exitState *os.ProcessState
 	starts    int // how many times Start ran (the retry number on the unlock screen)
 	strikes   *imageStrikes
+	// key is what the child asks of every request but /health (LLAMA_API_KEY): made once, for
+	// this daemon's run. "" only in a test's hand-made backend, which sends none.
+	key string
+}
+
+// THE MODEL SERVER'S KEY (second audit, C1). llama-server listens on loopback, and loopback
+// is every user's: any process on the box, whoever it runs as, could ask the model, use the
+// GPU, and watch what the model was busy with (/slots is on by default and lists the requests
+// being served). The child is started with a key of its own and oracled sends it with every
+// request. The key travels in the child's ENVIRONMENT, not its arguments: `ps` shows a
+// process's arguments to every user, its environment only to its own user and to root.
+func newLlamaKey() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("no random bytes for the model server's key: " + err.Error())
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// authorize puts the key on a request to the child.
+func (b *llamaBackend) authorize(r *http.Request) {
+	if b.key != "" {
+		r.Header.Set("Authorization", "Bearer "+b.key)
+	}
+}
+
+// keyEnforced asks the running child for something that needs the key, without one. False
+// when it answered anyway: a llama.cpp that does not read LLAMA_API_KEY.
+func (b *llamaBackend) keyEnforced() (bool, error) {
+	c := &http.Client{Timeout: 5 * time.Second}
+	resp, err := c.Get("http://" + b.addr + "/props")
+	if err != nil {
+		return false, err
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden, nil
 }
 
 // NewLlamaBackend prepares (does not start) the backend.
@@ -115,6 +153,7 @@ func NewLlamaBackend(cfg LlamaConfig) *llamaBackend {
 		info:         info,
 		stats:        NewEngineStats(),
 		strikes:      newImageStrikes(cfg.StrikesPath),
+		key:          newLlamaKey(),
 	}
 }
 
@@ -229,6 +268,9 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 	cmd.SysProcAttr = procs.ChildAttr()
 	cmd.Stdout = b.info.watcher(os.Stdout)
 	cmd.Stderr = b.info.watcher(os.Stderr)
+	if b.key != "" {
+		cmd.Env = append(os.Environ(), "LLAMA_API_KEY="+b.key) // the environment, never an argument
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start llama-server: %w", err)
 	}
@@ -248,6 +290,12 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 		return err
 	}
 	b.info.load.ready()
+	// the key is only worth what the child makes of it: ask once without it
+	if b.key != "" {
+		if held, err := b.keyEnforced(); err == nil && !held {
+			slog.Warn("llama-server answers without its key: this build does not read LLAMA_API_KEY, so any process on the box can ask the model (tools/privacy_check.sh says the same)", "fn", "Start", "port", b.cfg.Port)
+		}
+	}
 	// A log with nothing to say about the GPU (the mirror's v0.5.0): ask the driver instead.
 	if !b.info.get().OnGPU() && b.proc != nil {
 		if mib, ok := gpuMiBOfPID(b.proc.Pid); ok && mib > 0 {
@@ -362,6 +410,7 @@ func (b *llamaBackend) Infer(ctx context.Context, req oracle.Request) (oracle.Re
 		return oracle.Response{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	b.authorize(httpReq)
 	resp, err := b.client.Do(httpReq)
 	if err != nil {
 		return oracle.Response{}, err
@@ -455,6 +504,7 @@ func (b *llamaBackend) inferMultimodal(ctx context.Context, req oracle.Request) 
 		return oracle.Response{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	b.authorize(httpReq)
 	sent = true
 	resp, err := b.client.Do(httpReq)
 	if err != nil {
@@ -652,6 +702,7 @@ func (b *llamaBackend) StreamChat(ctx context.Context, history []Turn, prompt, t
 		return nil, "", err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	b.authorize(httpReq)
 	resp, err := b.streamClient.Do(httpReq)
 	if err != nil {
 		return nil, "", err

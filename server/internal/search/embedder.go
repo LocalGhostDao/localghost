@@ -23,6 +23,9 @@ type Embedder struct {
 	BaseURL string // e.g. http://127.0.0.1:18081
 	ModelID string // recorded on every row (search.chunks.emb_model)
 	HC      *http.Client
+	// Key is the embedding server's own (EmbedServer.Key), sent as a bearer; "" for an
+	// external endpoint, which gets none of the box's.
+	Key string
 }
 
 func NewEmbedder(baseURL, modelID string) *Embedder {
@@ -37,6 +40,9 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float32, erro
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if e.Key != "" {
+		req.Header.Set("Authorization", "Bearer "+e.Key)
+	}
 	resp, err := e.HC.Do(req)
 	if err != nil {
 		return nil, err

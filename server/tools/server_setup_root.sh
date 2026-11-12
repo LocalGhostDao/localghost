@@ -199,11 +199,12 @@ write_sudoers() {
     cat <<EOF
 # LocalGhost: let $SVC_USER manage ONLY the ghost.secd unit (and reload a changed unit file). Narrow
 # by design , exact names, no wildcard (a "ghost.*" pattern also matches extra systemctl arguments).
+# status only with --no-pager: plain status under sudo runs a pager as root, which nothing here
+# needs (release.sh asks with --no-pager; without sudo, status is anyone's to ask).
 # nginx access is NOT here , $SVC_USER has its own nginx deploy rule on this box.
 $SVC_USER ALL=(root) NOPASSWD: $SYSTEMCTL restart ghost.secd, $SYSTEMCTL restart ghost.secd.service
 $SVC_USER ALL=(root) NOPASSWD: $SYSTEMCTL start ghost.secd, $SYSTEMCTL start ghost.secd.service
 $SVC_USER ALL=(root) NOPASSWD: $SYSTEMCTL stop ghost.secd, $SYSTEMCTL stop ghost.secd.service
-$SVC_USER ALL=(root) NOPASSWD: $SYSTEMCTL status ghost.secd, $SYSTEMCTL status ghost.secd.service
 $SVC_USER ALL=(root) NOPASSWD: $SYSTEMCTL --no-pager status ghost.secd, $SYSTEMCTL --no-pager status ghost.secd.service
 $SVC_USER ALL=(root) NOPASSWD: $SYSTEMCTL daemon-reload
 EOF

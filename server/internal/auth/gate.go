@@ -158,6 +158,11 @@ func (g *Gate) CheckAllowed(id string) error {
 	return nil
 }
 
+// Failures is how many invalid attempts stand against id (0 after a success or a reset). It
+// counts nothing itself: for status lines and tests, which otherwise have only CheckAllowed to
+// ask, and its answer turns on how long ago the last attempt was.
+func (g *Gate) Failures(id string) int { return g.store.Get(id).Failed }
+
 // RecordSuccess clears the failure state for id after a valid PIN.
 func (g *Gate) RecordSuccess(id string) { g.store.Put(id, AttemptState{}) }
 

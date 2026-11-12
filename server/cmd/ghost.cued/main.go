@@ -1,16 +1,20 @@
-// ghost.cued is the cueing daemon: the First Officer that reads the user's context and, quietly and
-// rarely, surfaces the right memory for the moment , keep this photo, remember this , as an answerable
-// notification. It runs the four mechanisms from the "Before You Ask" Hard Truth (a running context
-// description, cheap priming, a high suppression threshold, a per-cue learning curve) for real.
+// ghost.cued is the cueing daemon: the First Officer that, quietly and rarely, brings the right
+// memory to the moment as a notification. "Before You Ask" gives it four mechanisms (a running
+// context description, cheap priming, a high suppression threshold, a per-cue learning curve).
 //
-// HONEST STATE. cued is a full daemon, but the RETRIEVAL it depends on , ghost.synthd , is not built.
-// So the synth client is a stub that returns nothing: cued runs its whole loop, primes on every
-// context change, applies the threshold and learning curve, and correctly surfaces nothing, because
-// synthd proposes nothing yet. cued is running-but-blind, and it logs that plainly on start rather
-// than pretending to think. When synthd lands, its client replaces the stub behind the same interface
-// and cued begins surfacing with no change to this daemon.
+// WHAT IT DOES TODAY, each at most once a day and only in the person's waking hours:
 //
-// The shoebox nomination works end to end today, kept as a control command
+//	the reflection   a morning, the day a year ago today, else a day older than a month, from the
+//	                 memories ghost.synthd made; nothing when the archive is too young (reflectionLoop)
+//	something nearby a place close to the phone's last fix that fits the taste and that the person
+//	                 has not been to (nearbyLoop, internal/cued/nearby.go)
+//
+// WHAT IT DOES NOT DO YET: the four mechanisms. The engine is whole (internal/cued) and wired to
+// ghost.synthd's "prime", but nothing on the box feeds it a context (no signal sources), and the
+// index behind "prime" is the empty one, so it primes nothing and surfaces nothing. That is said
+// at start, at debug, and docs/MEMORY.md keeps the list of what is built and what is not.
+//
+// The shoebox nomination works end to end, kept as a control command
 // (ghost-cli ghost.cued nominate photo="beach, this morning") so the ask/answer loop can be exercised
 // against the app now. It produces a real ask through the same NotifStore.Produce path the automatic
 // trigger will use.
@@ -149,9 +153,9 @@ func main() {
 		runDir = filepath.Join(*mount, "run")
 	}
 
-	// The engine, wired to the REAL synth client talking to ghost.synthd over its control socket. Today
-	// synthd's index is empty, so Prime returns nothing and cued surfaces nothing , but the path is
-	// real: when synthd's corpus is built, cued starts surfacing with no change here. A short timeout
+	// The engine, wired to the real synth client talking to ghost.synthd over its control socket.
+	// synthd's index for priming is the empty one, so Prime returns nothing and the engine surfaces
+	// nothing; the path is real, and an index on synthd's side is all it waits for. A short timeout
 	// keeps priming a hot path (cued would rather get nothing fast than block on retrieval).
 	synthSvc := cfg.SynthService
 	if synthSvc == "" {
@@ -160,8 +164,8 @@ func main() {
 	sc := synth.NewSocketClientFor(synthSvc, runDir, 2*time.Second)
 	engine := cued.New(cfg.engineConfig(), sc, notifSurfacer{store: store, slot: cfg.Slot}, lg)
 	if !sc.Ready() {
-		lg.Info("running; ghost.synthd reports no index yet, so no automatic cue will be raised "+
-			"(manual nominate still works)", "fn", "main")
+		lg.Debug("ghost.synthd has no index behind prime: the context engine primes nothing; "+
+			"the reflection and the nearby offer run on their own", "fn", "main")
 	}
 
 	ctl := ctlsock.NewServer(service, runDir, lg)
@@ -240,9 +244,8 @@ func main() {
 	}()
 
 	// The context loop. When context-signal sources exist, they feed engine.UpdateContext and the four
-	// mechanisms run per change. Today there are no signal sources on the box, so the loop idles ,
-	// correct: no context change, no priming, no cue. cued is present and ready, waiting for both the
-	// signals and synthd, without faking either.
+	// mechanisms run per change. There are none on the box, so this goroutine waits: no context
+	// change, no priming, no cue. The reflection and the nearby offer run in their own loops above.
 	lg.Info("up", "fn", "main", "healthPort", *port, "surfaceThreshold", cfg.SurfaceThreshold,
 		"cooldownSeconds", cfg.CooldownSeconds)
 	<-ctx.Done()

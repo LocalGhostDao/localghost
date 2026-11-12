@@ -338,7 +338,7 @@ private fun MessageBubble(msg: Message, selectable: Boolean = true) {
                         val glyph = when (h.kind) { "weather" -> "☂"; "rate" -> "€"; "summary" -> "W"; else -> "◇" }
                         val meta = listOfNotNull(h.site.ifEmpty { null }, h.published.take(10).ifEmpty { null }).joinToString(" · ")
                         Column(Modifier.fillMaxWidth().clickable {
-                            runCatching { wctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(h.url))) }
+                            SafeLink.open(wctx, h.url)
                         }.padding(vertical = 3.dp)) {
                             Text("[${i + 1}] $glyph ${h.title}", color = GhostText, style = MaterialTheme.typography.labelMedium)
                             if (meta.isNotEmpty()) Text(meta, color = TerminalDim, style = MaterialTheme.typography.labelSmall)

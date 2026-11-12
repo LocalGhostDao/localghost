@@ -103,7 +103,7 @@ fun NewsScreen(openStory: Long = 0L, onStoryShown: () -> Unit = {}) {
                     else -> items(n.stories, key = { it.id }) { s ->
                         StoryRow(s, open == s.id, now, onToggle = { open = if (open == s.id) null else s.id },
                             onOpen = { link ->
-                                runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link))) }
+                                SafeLink.open(ctx, link) // a feed's link is the feed's to write: web addresses only
                             })
                     }
                 }

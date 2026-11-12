@@ -151,7 +151,7 @@ func outingPass(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 	}
 	// outings that dissolved on re-clustering go, unless the person touched them
 	if len(keep) > 0 {
-		if err := db.Exec("DELETE FROM memories WHERE kind = 'outing' AND NOT user_edited AND NOT tombstoned AND NOT (source_ref = ANY($1))",
+		if err := db.Exec("DELETE FROM memories WHERE kind = 'outing' AND NOT user_edited AND NOT tombstoned AND anchored_at IS NULL AND NOT (source_ref = ANY($1))",
 			"{"+strings.Join(keep, ",")+"}"); err != nil {
 			lg.Warn("stale outings not removed", "fn", "outingPass", "err", err)
 		}

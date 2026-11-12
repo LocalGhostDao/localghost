@@ -34,7 +34,12 @@ func TestDecodeWebPNeverTouchesTemp(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", tmp)
-	img, err := decodeWebP(filepath.Join(dir, "a.webp"))
+	// the file dwebp is given: a WebP header claiming 8 x 6 (its size is read before dwebp runs)
+	src := filepath.Join(dir, "a.webp")
+	if err := os.WriteFile(src, []byte("RIFF\x16\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x05\x00\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeWebP(src)
 	if err != nil {
 		t.Fatalf("decodeWebP: %v", err)
 	}
@@ -43,5 +48,30 @@ func TestDecodeWebPNeverTouchesTemp(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(tmp); len(left) != 0 {
 		t.Fatalf("temporary directory not empty: %v", left)
+	}
+}
+
+// A WebP claiming more pixels than the box decodes is never handed to dwebp (second audit).
+func TestDecodeWebPRefusesAHugeCanvas(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ran := filepath.Join(dir, "ran")
+	if err := os.WriteFile(filepath.Join(bin, "dwebp"), []byte("#!/bin/sh\ntouch '"+ran+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	src := filepath.Join(dir, "bomb.webp")
+	// VP8X, canvas 16383 x 16383: 268 MP in thirty bytes
+	if err := os.WriteFile(src, []byte("RIFF\x16\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00\xfe\x3f\x00\xfe\x3f\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeWebP(src); err == nil {
+		t.Fatal("a 268 MP WebP was handed to dwebp")
+	}
+	if _, err := os.Stat(ran); err == nil {
+		t.Fatal("dwebp was run on it")
 	}
 }

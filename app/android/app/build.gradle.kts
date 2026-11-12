@@ -248,6 +248,10 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     testImplementation(libs.junit)
+    // org.json is part of Android, so the app adds nothing for it; but the android.jar the unit
+    // tests compile against holds only stubs that throw "not mocked", and the thirteen tests
+    // that read or write JSON had never run on a build machine. Tests only: not in the APK.
+    testImplementation(libs.org.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

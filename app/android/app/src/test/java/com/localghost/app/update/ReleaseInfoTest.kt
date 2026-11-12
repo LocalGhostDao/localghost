@@ -66,6 +66,44 @@ d23072b4dd44e7c82758696f242d74d8c51bac6895bd4907fa05ef72ed8c8ccd  /20260930T1200
         assertEquals("0.0.3", ReleaseInfo.describe("0.0.3", "", "", "")) // an older box says only its version
     }
 
+    // The notes are the web host's words, unsigned, shown in a notification and on the DEPLOY
+    // prompt before the box has checked anything (second audit, 12 Nov 2026).
+    @Test fun theNotesAreHeldToTheirShapes() {
+        assertNull(ReleaseInfo.release("version=0.9.3 , your box is at risk, tap DEPLOY now\n"))
+        assertNull(ReleaseInfo.release("version=" + "9".repeat(400) + "\n"))
+        assertNull(ReleaseInfo.release("version=1\n"))
+        val r = ReleaseInfo.release("version=v0.9.3\nname=URGENT: call 0800 000 000\ncommit=not-a-hash\ndate=soon\n" +
+            "bundle=../../x\nsince=<b>\ngo=go1.27.1\nchanges:\n  " + "a".repeat(5000) + "\n  ok\u0007 line\n" +
+            (1..500).joinToString("") { "  c$it\n" })!!
+        assertEquals("v0.9.3", r.version)
+        assertEquals("", r.name); assertEquals("", r.commit); assertEquals("", r.date); assertEquals("", r.bundle); assertEquals("", r.since)
+        assertEquals("go1.27.1", r.go)
+        assertEquals("v0.9.3", r.label)
+        assertEquals(ReleaseInfo.MAX_CHANGES, r.changes.size)
+        assertEquals(ReleaseInfo.MAX_CHANGE_CHARS + 1, r.changes[0].length)
+        assertEquals("ok line", r.changes[1])
+        // the real thing, as tools/release_build.sh writes it
+        val real = ReleaseInfo.release("version=0.0.8\nname=wisp\ncommit=f4b7d42c0ffee0000000000000000000000000000\ndate=2026-11-12T09:30:00Z\n" +
+            "bundle=localghost-server-0.0.8-linux-amd64.tar.gz\nsince=v0.0.7\ngo=1.27.1\nchanges:\n  f4b7d42 the chat tries things\n")!!
+        assertEquals("wisp 0.0.8", real.label)
+        assertEquals("localghost-server-0.0.8-linux-amd64.tar.gz", real.bundle)
+        assertEquals("v0.0.7", real.since)
+        assertEquals("2026-11-12T09:30:00Z", real.date)
+        assertEquals("the first release", ReleaseInfo.release("version=0.0.1\nsince=the first release\n")!!.since)
+        assertEquals("", ReleaseInfo.release("version=0.0.1\nsince=your box is at risk\n")!!.since)
+    }
+
+    @Test fun aDownloadIsBounded() {
+        assertEquals(10, ServerUpdates.readCapped(ByteArray(10).inputStream(), 10)!!.size)
+        assertNull(ServerUpdates.readCapped(ByteArray(11).inputStream(), 10))
+        assertEquals(0, ServerUpdates.readCapped(ByteArray(0).inputStream(), 10)!!.size)
+        val capped = ServerUpdates.Capped(ByteArray(100_000) { 'a'.code.toByte() }.inputStream(), 50_000)
+        var failed = false
+        try { capped.bufferedReader().readLine() } catch (e: java.io.IOException) { failed = true }
+        assertTrue("an endless line was read whole", failed)
+        assertEquals("ab", ServerUpdates.Capped("ab\nc".byteInputStream(), 50).bufferedReader().readLine())
+    }
+
     @Test fun comparesVersions() {
         assertTrue(ReleaseInfo.newer("0.9.3", "0.9.2"))
         assertTrue(ReleaseInfo.newer("0.10.0", "0.9.9"))

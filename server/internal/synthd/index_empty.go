@@ -6,9 +6,10 @@ import (
 	"github.com/LocalGhostDao/localghost/server/internal/synth"
 )
 
-// EmptyIndex is the Index used until the real corpus exists. It holds nothing and reports not-ready,
-// so synthd's query pipeline runs in full and returns nothing , running-but-blind, not faking a
-// corpus. Swap it for the real embedded index behind the Index interface when the indexing work lands.
+// EmptyIndex is the Index wired until one over the memories is built. It holds nothing and reports
+// not-ready, so a priming query runs the whole pipeline and returns nothing: no candidate is ever
+// invented. The memories themselves are real and are read by the chat another way (memoriesSource
+// in cmd/ghost.synthd); this is only the path ghost.cued primes through.
 type EmptyIndex struct{}
 
 // NewEmptyIndex returns the not-ready, returns-nothing index.

@@ -380,3 +380,60 @@ func TestWindowSamplesItsOwnGrid(t *testing.T) {
 		t.Fatalf("%v %v", err, again.Win)
 	}
 }
+
+// The sun's height over London, and what it does to "feels like".
+func TestSunElevationAndFeelsLikeSun(t *testing.T) {
+	lat, lon := 51.5074, -0.1278
+	// solar noon on 12 November: 90 - 51.5 - 17.8, about 20.7 degrees; midsummer about 62
+	if el := SunElevation(time.Date(2026, 11, 12, 11, 45, 0, 0, time.UTC), lat, lon); el < 20 || el > 21.5 {
+		t.Fatalf("November noon: %.1f", el)
+	}
+	if el := SunElevation(time.Date(2026, 6, 21, 12, 2, 0, 0, time.UTC), lat, lon); el < 61 || el > 62.5 {
+		t.Fatalf("midsummer noon: %.1f", el)
+	}
+	if el := SunElevation(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC), lat, lon); el > -50 {
+		t.Fatalf("midnight: %.1f", el)
+	}
+	// sunrise and sunset by SunTimes are the moments the elevation crosses the horizon
+	rise, set, _ := SunTimes(time.Date(2026, 11, 12, 0, 0, 0, 0, time.UTC), lat, lon)
+	for _, at := range []time.Time{rise, set} {
+		if el := SunElevation(at, lat, lon); el < -1.5 || el > 0 {
+			t.Fatalf("at %s the sun stands %.2f degrees up", at.Format("15:04"), el)
+		}
+	}
+
+	// the day Vlad reported: 3 degrees, a clear sky, a breeze; the shade figure was -2
+	shade := FeelsLike(3, 70, 14)
+	if shade > -1.5 || shade < -3 {
+		t.Fatalf("shade: %.1f", shade)
+	}
+	sun := FeelsLikeSun(3, 70, 14, 5, 20.7)
+	if sun < 3.5 || sun > 8 {
+		t.Fatalf("in the November sun: %.1f (shade %.1f)", sun, shade)
+	}
+	// cloud takes it away by degrees; full cloud leaves about one; night and a sun on the
+	// horizon leave the shade figure exactly
+	half := FeelsLikeSun(3, 70, 14, 50, 20.7)
+	over := FeelsLikeSun(3, 70, 14, 100, 20.7)
+	if !(sun > half && half > over && over > shade) || over-shade > 2 {
+		t.Fatalf("clear %.1f, half %.1f, overcast %.1f, shade %.1f", sun, half, over, shade)
+	}
+	if FeelsLikeSun(3, 70, 14, 0, -10) != shade || FeelsLikeSun(3, 70, 14, 0, 0.5) != shade {
+		t.Fatal("the sun counted when it is down")
+	}
+	// a high clear summer sun at a light wind: about the eight degrees the Bureau quotes
+	if add := FeelsLikeSun(25, 50, 10, 0, 60) - FeelsLike(25, 50, 10); add < 6 || add > 9 {
+		t.Fatalf("summer sun adds %.1f", add)
+	}
+	// wind takes the sun's warmth as it takes the body's
+	if FeelsLikeSun(3, 70, 40, 5, 20.7)-FeelsLike(3, 70, 40) >= sun-shade {
+		t.Fatal("a gale leaves the sun's share untouched")
+	}
+	for el := 1.0; el <= 90; el += 0.5 {
+		for _, c := range []float64{0, 30, 60, 100} {
+			if q := sunAbsorbed(el, c); q < 0 || q > 220 || math.IsNaN(q) {
+				t.Fatalf("Q at %.1f degrees, %.0f%% cloud: %.1f", el, c, q)
+			}
+		}
+	}
+}

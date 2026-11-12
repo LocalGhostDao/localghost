@@ -6681,3 +6681,159 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   second round is decided by code from the ranking), and the plan still sees no archive context.
 - Cost: one short model call before most answers (the plan), a second or two on the GPU.
 
+## 12 November 2026 , the app end to end, the three areas run 2 left, the sun in "feels"
+- Vlad: "Can you go through the app side, also we're now part of the cyber security program so
+  you can do a more thorough security assessment as well" and, mid-way, "my weather now says
+  it's 3 degrees but feels like -2 that is wrong on a sunny day". Done inline (no agents), on
+  main f4b7d42. The Android SDK is in the sandbox now, so the app is compiled and its JVM
+  tests run here: 315 of 329 passed on main (13 needed a real org.json, 1 was a wrong
+  expectation of mine); 350 of 350 now, and a debug APK assembles.
+- Weather: `nwp.SunElevation` (the NOAA equations `SunTimes` already used, split into
+  `solar`), `nwp.FeelsLikeSun` = the shade figure plus Steadman's radiation term
+  0.70*Q/(ws+10), Q from the sun's height and the cloud (`sunAbsorbed`); `assemble` uses it
+  for "now". 3 C, 70%, 14 km/h, clear, sun at 21 degrees: -2.0 in the shade, 4.6 in the sun.
+- App, found and fixed: links from feeds, coins and search hits opened by ACTION_VIEW with
+  any scheme (`ui/SafeLink`: http/https with a host, nothing else); the page reader's regexes
+  went quadratic on unclosed openings (100 KB of "<nav>" 6 s on this machine, the 400 KB cap
+  about a minute and a half, a phone slower): one-pass `stripComments`, `dropElements`,
+  `mainElement`, `stripTags`, `elementsNamed`, `attrsOf`, and the same for the DuckDuckGo
+  result parsers; a numeric entity past U+10FFFF threw (`codePoint`); re-enrolling kept the
+  old box's session token and caches, and WIPE THIS PHONE left the token, unsent voice notes
+  (plain WAV), the last news, prices and weather, the map's view and the Brave key
+  (`security/LocalWipe`); a paired phone took any box's QR on sight (`security/BoxChange`:
+  another box's code stops at the set-up screen and says both boxes); `localOnly` survived a
+  PIN unlock; overlays over the app (`setHideOverlayWindows`, HIDE_OVERLAY_WINDOWS), the PIN
+  screen in a screen share (`contentSensitivity`); the network policy was not named in the
+  manifest and allowed cleartext to 127.0.0.1 for a proxy with no caller (`net/VideoProxy.kt`
+  removed, `removed.txt`); BoxHttp followed redirects; the crash report shown before the gate
+  carried exception messages whole (`CrashHandler.trace`, `oneLine`); the mirror's notes and
+  files were read without bounds and shown unshaped (`ReleaseInfo` field shapes,
+  `ServerUpdates.readCapped`, `Capped`, file and set ceilings); a model id from the box named
+  a path (`ModelStore.safeId`); the Brave key sat in plain prefs (`AppSettings.braveKey`
+  through `BoxConfig` secrets, moved at first read); a camera-roll picture dated in the
+  future carried the sync cursor there (`Cursor.afterConfirmed`, `fromBox`).
+  `testImplementation(libs.org.json)` so the JSON tests run on a build machine (tests only,
+  not in the APK; Vlad's call to keep). Lint: 8 errors, all in code this pass did not touch,
+  none security.
+- Relay (web repo `deploy/mail`, maild-for-web.zip): DATA ended on any line that was a dot,
+  bare LF included, so one message could carry a second (SMTP smuggling; `readRaw`,
+  `prevCRLF`; proved against main's code first); outbound refused a bare CR or LF in the
+  headers only (`crlfOnly` over the whole message); a receiver's reply line was read without
+  limit (646 MB in 3 s here against main's code; `capConn`, 1 MB a session) and its refusal
+  went whole into the report the relay writes under its own name (`clipErr`); the queue was
+  delivered one message at a time (`claim`/`done`, 4 at once, 2 a box, `maxMXHosts`,
+  `preDataLimit`); mail went wherever an MX pointed (`publicIP`); the EHLO name from before
+  STARTTLS was kept; RCPT answered without end (`maxUnknownRcpts`); `dkim_rsa=`/`dkim_ed=`
+  unchecked before `-dns` prints them; a blocking put-back on the PTR channel; POST /out held
+  three copies of a message with no limit on how many at once. Scripts: `certbot-hook.sh` and
+  `root-once.sh` wrote and re-owned by path in trees root does not own (`install -d -o` on a
+  link re-owned its target: shown with both scripts in a scratch container); now through
+  runuser as the tree's owner, and from inside a checked directory for the one chgrp root
+  must do; `status` out of the sudoers line.
+- Box, local boundaries: both llama-servers get a key (run 2's C1): `LLAMA_API_KEY` in the
+  child's environment, never an argument, made per daemon run (`newLlamaKey`, `authorize`,
+  `keyEnforced`; `EmbedServer.Key`, `Embedder.Key`); privacy_check.sh asks /props without it.
+  update.sh, models_check.sh, setup_whisper.sh, mirror_fetch.sh: root's placements in the
+  volume followed links (`cp -f old old.prev` wrote the daemon's bytes through a link,
+  `chown` re-owned a link's target: both shown in a scratch layout); now `ln -fT`,
+  `install -T`, `mv -fT`, `chown -h`, `vol_own`, `vol_mode`; `internal/setup/voltools_test.go`
+  reads the scripts and fails on the old forms (30 on main). The paged `status` rule is out
+  of the box's sudoers.
+- Box, media: ffmpeg had no deadline in framed (`runFFmpeg`, `ffmpegTimeout`), no limits
+  anywhere (`imgfit.FFmpegInput`: `-protocol_whitelist file -max_alloc -max_pixels`), and
+  replies were read into unbounded buffers (`imgfit.Pipe`; my first version embedded
+  bytes.Buffer, whose ReadFrom io.Copy used to go round the limit: the test's `yes` was
+  killed at the sandbox's memory limit, which is how it was found); a WebP's size was never
+  checked before dwebp (`imgfit.WebPSize`, `CheckWebPFile`); the MP4 walk had no box count
+  and a sum that wraps (`maxTopBoxes`, `boxSize > size-pos`), `mvhdCreation` wrapped past
+  2^63; an EXIF date outside 1900..next year is no date.
+- Not changed, said in the report: root's data tools still download by path into the volume
+  (a taken-over daemon could aim an update's bytes at another file: destruction, not
+  control); outbound mail has no MTA-STS or DANE; the daemons' health ports say counts to any
+  local account; voice notes wait on the phone as plain audio.
+- `TestWrongPinIsTheDevicesOwn` (run 2's) asked "may this device try now", which turns on
+  how long ago the last attempt was; it failed once here with the Go suite and a Gradle build
+  running side by side. It asks the count now (`auth.Gate.Failures`, `Accounts.Failures`).
+- Suites: Go 55 packages ok against Postgres 16 (twice on their own), vet clean; relay ok
+  three times with -race; app 350 tests ok.
+
+## 12 November 2026 , memories kept the way the posts say: links, anchors, weight, the front page, months
+- Vlad: "let's make a bit more progress and tidy stuff up, bring it more in line with our blog
+  posts on how we store memories and stuff". Read POST_09 (how memory gets made), POST_11
+  (before you ask), POST_13 and POST_18 section 9 against the code; the plan went to him first
+  and the work followed it. Inline, no agents, on main f4b7d42 with the 12 November security
+  drop still uncommitted under it (this drop carries both).
+- Schema (`internal/hw/schemadef.go`): `memories.anchored_at` (NULL for not an anchor; a column
+  because the passes write `meta` whole), `memories.touched_at`, and `memory_links (a, b, why,
+  made_at)`, a < b. Converged at unlock like the rest.
+- Neighbourhoods (`cmd/ghost.synthd/links.go`): `deriveLinks` (pure) over every live memory:
+  part (meta.part_of), names (a person's title, aliases, first name when unique; `hasName` is
+  rune-exact and wants the capital, so "it will rain" does not link Will), place (the name in a
+  day's, outing's or trip's title, places or route line), written (a note's or a fact's
+  journal entry's local day, `refDays`), month. The stronger reason wins a pair; a hub keeps
+  its 40 newest of a kind. `linkPass` diffs against the table and writes the difference; last
+  in `distillLoop`.
+- Anchors: `hw.MemoryAnchor` is the only setter (`/v1/memories/anchor`). Passes: the trip,
+  outing and month deletes and the note-less person delete spare `anchored_at IS NOT NULL`;
+  `foldNamedMemories` skips anchored rows; `mergePeople` carries the mark (and `touched_at`)
+  to the row that stays; `aboutPass` carries it across the remake of the note's rows by title;
+  `dropEmptyDay` does not spare it, on purpose (the person's delete of the records outranks
+  their mark). `TestNoPassSetsAnAnchor` reads every non-test Go file under cmd/ and internal/.
+- Weight (`weight.go`): anchor 10, own words 1, ln(1+neighbours) capped at 60, warmth
+  2*0.5^(days/90) from the newest moment in the neighbourhood (made or touched). Never stored.
+  `memWeights` is three plain reads, no join.
+- Touch: `/v1/memories/open` (POST: it writes) sets `touched_at` and returns the neighbours;
+  `memoriesFor` touches what a question matched, not the neighbour it brought.
+- Grounding (`memoriesSource` → `memoriesFor`, `rankMemories`, `heaviestNeighbour`): hits, then
+  weight, then the clock; top two and the best one's heaviest neighbour with "kept with …".
+- The front page (`frontpage.go`): `chooseFront` (pure) lays out the note's opening (700 of the
+  1,200 when there is anything to put beside it, all of it when not), up to eight anchors
+  (named by title when the line will not fit), up to eight of the heaviest of kinds
+  me/person/distilled/user/insight/trip; a line the page already says is skipped. Kept in
+  settings `front_page` with the day and a hash of the note; the store empties it on an
+  anchor, an edit and a delete. `identityText(name, front)`.
+- The front page and other people's text. The page heads every prompt, and run 2's open item
+  (a web page quoted in a chat answer can be distilled into a memory) would have had a way to
+  the head of every chat for a day: a new distilled memory is warm, so it weighs. Closed off
+  before it shipped: a distilled memory is a candidate only with `meta.verified_at` (read again
+  and confirmed) or an anchor; `oneLine` flattens title and body so a memory cannot open a line
+  of its own (a hostile title carrying the note's heading is tested); the box's section is
+  headed "your words, not mine; they can be wrong". Run 2's item itself is still open.
+- Months (`months.go`): `monthPass` after the days. A month old by 45 days with three or more
+  days and outings not under a trip gets a `month` memory counted from `day_summaries.facts`
+  (`monthFrom`, `monthBody`), and those rows get `part_of`. Edited: words kept, still folds.
+  Deleted: stays deleted, its days unfold. `tripPass`'s clearing leaves `month:%` folds alone;
+  `projectDayMemory` keeps `part_of` when it writes the meta whole (it used to drop it).
+- Store: `MemoriesList` orders anchors first and marks `Front`; `MemoryOpen` and the grounding
+  read links then one batched `ANY()` (DATA.md's no-join rule; my first version joined);
+  `MemoryTombstone` clears the mark, deletes the links, empties the page; Box Status gets
+  "kept together" and months.
+- A memory's page reads its own row: `/v1/memories?id=` (`hw.MemoryByID`) and `?ref=` for its
+  whole (`hw.MemoryByRef`). `MemoryScreen.load` used to scan the feed for the id; the feed is
+  cut at 600 with the parts last, so an outing under an old trip opened as "not on the box any
+  more" on a box with more than 600 wholes, and every link in KEPT WITH to a folded day would
+  have done the same.
+- App: `MemRow.anchor/front`, `BoxClient.memoryOpen/memoryAnchor`, `MemoryScreen` (the mark's
+  line, the front page's line, KEPT WITH with `MemoryText.linkWhy` said from the page's side,
+  `[ ◆ mark as an anchor ]`), `MemoryKinds` (anchors and months chips; an anchored part shows
+  under "all"), the list's ◆, the explainer's four paragraphs.
+- Tidy: the placeholder context items are gone (`gatherContext` returned three with invented
+  dates when nothing matched and the phone listed them under the answer); headers that said
+  the memories or synthd did not exist are rewritten to what is true (`cmd/ghost.synthd/main.go`
+  including my own 9 November sentence about a rebuilt index that was never there,
+  `internal/synthd`, `internal/synth`, `internal/cued`, `cmd/ghost.cued`, `cmd/ghost.shadowd`
+  and its README, the datastore's comment naming shadowd as the writer); the April design is
+  `cmd/ghost.synthd/DESIGN_APRIL_2026.md` and the README describes the daemon as built;
+  `docs/MEMORY.md` is new; `docs/DATA.md` has the new table, the two writers of `memories` and
+  the access paths.
+- Not built, said in `docs/MEMORY.md`: embeddings on memories (likeness links, retrieval by
+  meaning, an index for cued), the queue with its third answer, context signals for cued,
+  years, reclassify. Flagged for Vlad: a `person` memory's fact list and prose against
+  POST_13's "the reference stays a pointer".
+- The page is also chosen again when the read-again pass puts something in doubt and when a
+  day that was an anchor is emptied (`dropEmptyDay` runs for every empty day a pass looks at,
+  so it empties the page only when it deleted an anchored row; tested).
+- Suites: Go 55 packages ok against Postgres 16 (run on its own), vet clean; app 355 tests ok
+  (350 before), a debug APK assembles; the drop applied to a clean main equals the tree.
+- Not exercised: any of it on xyntai. The first month pass there will fold years of days at
+  once; it is one query and one write per month.

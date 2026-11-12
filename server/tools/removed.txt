@@ -32,3 +32,7 @@ server/tools/maild/maild.conf.example
 server/tools/maild/mta-sts.txt
 server/tools/maild/nginx-mail.conf
 server/docs/MAIL_RELAY.md
+
+# 12 Nov 2026: the loopback video proxy (no caller since the player reads through BoxDataSource;
+# the app's network policy no longer allows cleartext to 127.0.0.1 either)
+app/android/app/src/main/java/com/localghost/app/net/VideoProxy.kt

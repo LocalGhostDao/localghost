@@ -63,9 +63,28 @@ object ReleaseInfo {
             val i = raw.indexOf('=')
             if (i > 0) kv[raw.substring(0, i).trim()] = raw.substring(i + 1).trim()
         }
-        val v = kv["version"]?.takeIf { it.isNotEmpty() } ?: return null
-        return Release(v, kv["commit"] ?: "", kv["date"] ?: "", kv["bundle"] ?: "", kv["since"] ?: "", changes, kv["name"] ?: "", kv["go"] ?: "")
+        // The notes come from the web host, unsigned, and are shown in a notification and on
+        // the DEPLOY prompt before the box has checked anything: each field is held to the shape
+        // it has, and one that is not that shape is left out (the version: no release at all).
+        val v = kv["version"]?.takeIf { VERSION.matches(it) } ?: return null
+        fun field(key: String, shape: Regex): String = kv[key]?.takeIf { shape.matches(it) } ?: ""
+        val lines = changes.take(MAX_CHANGES).map { c ->
+            val t = c.filter { !it.isISOControl() }.trim()
+            if (t.length <= MAX_CHANGE_CHARS) t else t.take(MAX_CHANGE_CHARS) + "…"
+        }.filter { it.isNotEmpty() }
+        return Release(v, field("commit", COMMIT), field("date", DATE), field("bundle", FILE), field("since", SINCE), lines,
+            field("name", NAME), field("go", GO))
     }
+
+    private val VERSION = Regex("^v?[0-9]{1,4}(\\.[0-9]{1,4}){1,3}$")
+    private val NAME = Regex("^[a-z0-9][a-z0-9 -]{0,23}$")
+    private val COMMIT = Regex("^[0-9a-f]{3,40}$")
+    private val DATE = Regex("^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?(Z|[+-]\\d{2}:?\\d{2})?)?$")
+    private val FILE = Regex("^[A-Za-z0-9][A-Za-z0-9._+-]{0,80}$")
+    private val SINCE = Regex("^(the first release|[A-Za-z0-9][A-Za-z0-9._-]{0,30})$") // a tag, or what release_build.sh writes without one
+    private val GO = Regex("^(go)?[0-9][0-9a-z.]{0,15}$")
+    const val MAX_CHANGES = 200
+    const val MAX_CHANGE_CHARS = 160
 
     /** A commit's first seven characters, "" for none. */
     fun short(commit: String): String = commit.trim().take(7)

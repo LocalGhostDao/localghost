@@ -119,10 +119,22 @@ fi
 # into the repo's bin/, like llama-server: redeploy stages it onto the volume with the daemons
 mkdir -p "$REPO/bin"
 install -m 0755 "$WDIR/build/bin/whisper-cli" "$REPO/bin/whisper-cli"
+# ROOT'S HANDS IN THE VOLUME (second audit, 12 Nov 2026). The volume is the daemons' user's from
+# its root down and this script is root (update.sh runs it, for the operator or for ghost.secd when
+# the phone asks). A daemon that had been taken over (they read photos, video and mail from
+# outside) can put a link where any name in there stands, and whatever root then does by that
+# name lands where the link points. Two of the old lines turned that into root: `chown` of a
+# name (it re-owns what a link points at) and `cp -f old old.prev` (the daemon's own bytes,
+# written wherever old.prev pointed). So nothing here follows a link: a file is renamed into
+# place (mv -T: a link to a directory is replaced, never entered), installed fresh (install -T
+# unlinks what stood there first), given a second name without a copy (ln -T), owned through
+# the name itself (chown -h), and has its mode set only when it is a plain file.
+vol_own()  { for _f in "$@"; do if [ -e "$_f" ] || [ -L "$_f" ]; then chown -h "$OWNER:$OWNER" "$_f" 2>/dev/null || true; fi; done; }
+vol_mode() { _m="$1"; shift; for _f in "$@"; do if [ -f "$_f" ] && [ ! -L "$_f" ]; then chmod "$_m" "$_f"; fi; done; }
 if [ -n "$TO" ]; then
     # a running box: beside the old one, then renamed over it (a running binary is never rewritten)
-    install -m 0755 "$WDIR/build/bin/whisper-cli" "$TO/bin/whisper-cli.new" && chown "$OWNER:$OWNER" "$TO/bin/whisper-cli.new" \
-        && mv -f "$TO/bin/whisper-cli.new" "$TO/bin/whisper-cli" || { echo "!! could not put whisper-cli on the volume" >&2; exit 1; }
+    install -T -m 0755 "$WDIR/build/bin/whisper-cli" "$TO/bin/whisper-cli.new" && vol_own "$TO/bin/whisper-cli.new" \
+        && mv -fT "$TO/bin/whisper-cli.new" "$TO/bin/whisper-cli" || { echo "!! could not put whisper-cli on the volume" >&2; exit 1; }
     echo "-- whisper-cli on the volume"
 else
     mkdir -p /var/lib/ghost/staging/bin
@@ -136,10 +148,10 @@ if [ -n "$TO" ]; then
     DEST="$TO/ai-models"
 else
     DEST=/var/lib/ghost/staging/download-speech
-    mkdir -p "$DEST"; chmod 700 "$DEST"
+    mkdir -p -m 700 "$DEST"   # root's own staging, not the volume
 fi
 src=0; sh "$FETCH" speech "$DEST" || src=$?
-[ -f "$DEST/NOTICE.txt" ] && mv -f "$DEST/NOTICE.txt" "$DEST/NOTICE-speech.txt"
+[ -f "$DEST/NOTICE.txt" ] && mv -fT "$DEST/NOTICE.txt" "$DEST/NOTICE-speech.txt"
 rm -f "$DEST/.mirror-files"
 if [ "$src" = 3 ]; then
     echo "-- no speech model on the mirror yet (set speech). Voice notes are kept on the box and wait for it."
@@ -151,8 +163,8 @@ fi
 got="$(ls "$DEST"/ggml-*.bin 2>/dev/null | head -3 | xargs -r -n1 basename | tr '\n' ' ')"
 [ -n "$got" ] || { echo "!! the set speech holds no ggml-*.bin" >&2; exit 1; }
 if [ -n "$TO" ]; then
-    chown "$OWNER:$OWNER" "$DEST"/ggml-*.bin "$DEST"/NOTICE-speech.txt "$DEST"/TERMS-*.txt 2>/dev/null || true
-    chmod 600 "$DEST"/ggml-*.bin
+    vol_own "$DEST"/ggml-*.bin "$DEST"/NOTICE-speech.txt "$DEST"/TERMS-*.txt
+    vol_mode 600 "$DEST"/ggml-*.bin
     echo "-- on the volume: $got"
 else
     mkdir -p /var/lib/ghost/staging/ai-models && chmod 700 /var/lib/ghost/staging /var/lib/ghost/staging/ai-models

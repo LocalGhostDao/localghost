@@ -83,8 +83,27 @@ object AppSettings {
      *  forbids scripts and its search API takes no new customers. */
     fun searchEngine(ctx: Context): String = prefs(ctx).getString("search_engine", "duckduckgo") ?: "duckduckgo"
     fun setSearchEngine(ctx: Context, e: String) = prefs(ctx).edit().putString("search_engine", e).apply()
-    fun braveKey(ctx: Context): String = prefs(ctx).getString("brave_key", "") ?: ""
-    fun setBraveKey(ctx: Context, k: String) = prefs(ctx).edit().putString("brave_key", k.trim()).apply()
+
+    /** The Brave key is the person's credential: kept encrypted under the phone's Keystore, with
+     *  the box's address and the device certificate (BoxConfig's secrets), not in the plain
+     *  settings file where it sat until 12 Nov 2026. One found there is moved the first time it
+     *  is read. A key the Keystore can no longer open reads as none (DuckDuckGo answers). */
+    fun braveKey(ctx: Context): String {
+        val plain = prefs(ctx).getString("brave_key", "") ?: ""
+        if (plain.isNotEmpty()) {
+            com.localghost.app.security.BoxConfig.writeSecret(ctx, BRAVE_SECRET, plain, now = true)
+            if (com.localghost.app.security.BoxConfig.readSecret(ctx, BRAVE_SECRET) == plain) prefs(ctx).edit().remove("brave_key").commit()
+            return plain
+        }
+        return com.localghost.app.security.BoxConfig.readSecret(ctx, BRAVE_SECRET) ?: ""
+    }
+    fun setBraveKey(ctx: Context, k: String) {
+        val key = k.trim()
+        if (key.isEmpty()) com.localghost.app.security.BoxConfig.removeSecret(ctx, BRAVE_SECRET)
+        else com.localghost.app.security.BoxConfig.writeSecret(ctx, BRAVE_SECRET, key)
+        prefs(ctx).edit().remove("brave_key").apply()
+    }
+    const val BRAVE_SECRET = "brave"
 
     /** The location trail: a position every quarter hour, kept on the phone and handed to the box
      *  when there is one. On by default once location is allowed; the switch is on the welcome

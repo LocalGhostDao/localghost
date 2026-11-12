@@ -13,7 +13,7 @@ import (
 // the daemon sees it (open, downloading, missing, failed), and the last daily consolidation.
 type SynthStatus struct {
 	At   int64          `json:"at"`   // the end of the last pass, unix seconds
-	Pass map[string]int `json:"pass"` // what the last pass did, by step: distilled, outings, days, prose, folded, trips, people, named, about, checkins, places, insights
+	Pass map[string]int `json:"pass"` // what the last pass did, by step: distilled, outings, days, prose, folded, trips, people, named, about, checkins, places, insights, months, links
 	Wiki SynthWiki      `json:"wiki"`
 	// ConsolidatedDay is the last day the model wrote the people (the daily consolidation).
 	ConsolidatedDay string `json:"consolidatedDay,omitempty"`

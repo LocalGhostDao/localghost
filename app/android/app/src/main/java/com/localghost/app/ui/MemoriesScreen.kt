@@ -104,10 +104,10 @@ fun MemoriesScreen(context: LifeContext?, open: String = "", onOpened: () -> Uni
     // the list (a keystroke, a chip, a loading flag each ran it over six hundred rows); computed
     // here, in the composable, since the list's own scope is not one
     val shownRows = remember(rows, memKind, memQuery) {
-        (rows ?: emptyList()).filter { MemoryKinds.shown(memKind, it.kind, it.partOf) && (memQuery.isBlank() ||
+        (rows ?: emptyList()).filter { MemoryKinds.shown(memKind, it.kind, it.partOf, it.anchor) && (memQuery.isBlank() ||
             it.title.contains(memQuery, true) || it.body.contains(memQuery, true)) }
     }
-    val kindCounts = remember(rows) { MemoryKinds.counts((rows ?: emptyList()).map { it.kind }) }
+    val kindCounts = remember(rows) { MemoryKinds.counts((rows ?: emptyList()).map { it.kind }, (rows ?: emptyList()).count { it.anchor }) }
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -341,6 +341,8 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 // "?" before a memory the box read again and could not stand behind; its page says what it found
                 if (m.inDoubt) Text("? ", color = Warning, style = MaterialTheme.typography.bodyMedium)
+                // "◆" before a memory the person marked as an anchor: theirs, first in the list
+                if (m.anchor) Text("◆ ", color = TerminalGreen, style = MaterialTheme.typography.bodyMedium)
                 Text(m.title + " ›", color = GhostText, style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f).clickable { onOpen() })
                 Text("✎", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
@@ -355,7 +357,7 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
                 }
             }
             // AN OUTING, a TRIP or a DAY carries its photos: the cover frames synthd picked, spread across it.
-            if ((m.kind == "outing" || m.kind == "trip" || m.kind == "day") && m.covers.isNotEmpty()) {
+            if ((m.kind == "outing" || m.kind == "trip" || m.kind == "day" || m.kind == "month") && m.covers.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 CoverStrip(m.covers)
             }
@@ -366,7 +368,7 @@ private fun MemoryRowCard(m: BoxClient.MemRow, onOpen: () -> Unit, onEdit: (Stri
             Spacer(Modifier.height(4.dp))
             Text(MemoryText.origin(m.kind, m.summaryLine, m.meta?.optString("line") ?: "") + " · " +
                 java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.UK)
-                    .format(java.util.Date(m.createdAt)),
+                    .format(java.util.Date(m.createdAt)) + (if (m.front) " · on today's front page" else ""),
                 color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         }
     }

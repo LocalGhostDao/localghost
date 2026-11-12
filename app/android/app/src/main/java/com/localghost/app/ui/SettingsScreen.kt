@@ -594,8 +594,10 @@ private fun WipeButton(onWipe: () -> Unit) {
         ConfirmDialog(
             title = "WIPE THIS PHONE",
             body = "This destroys the box connection, the device certificate, and the identity key on " +
-                "this phone. The box keeps your data. To use this phone again you re-pair it, which " +
-                "needs to be done at home with your security key. There is no undo from here.",
+                "this phone, and what the phone was holding: voice notes not yet sent, the last news, " +
+                "prices and weather, the map's last view, your search key. The trail not yet sent stays, " +
+                "sealed; only your box opens it. The box keeps your data. To use this phone again you " +
+                "re-pair it, which needs to be done at home with your security key. There is no undo from here.",
             requireWord = "WIPE",
             confirmLabel = "FORGET THE BOX",
             onConfirm = { confirming = false; onWipe() },

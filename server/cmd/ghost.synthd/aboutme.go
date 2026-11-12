@@ -25,7 +25,7 @@ const (
 	aboutKey     = "about_me"           // the note, as written
 	aboutDoneKey = "about_me_distilled" // the hash of the note the memories were made from
 	ownerKey     = "owner_name"         // the name the note gives
-	aboutClip    = 1200                 // characters of the note every chat starts from
+	aboutClip    = 1200                 // characters of the front page every chat starts from (frontpage.go)
 	namedKey     = "memories_named"     // "<name>:<id>": how far namePass has written the older memories again
 	checkinsKey  = "about_checkins"     // the newest check-in journal entry read for facts about me
 	checkinsPer  = 4                    // check-ins read a pass
@@ -147,7 +147,7 @@ func aboutPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (in
 	}
 	if note == "" {
 		// the note was cleared: so are its memories
-		if err := db.Exec("UPDATE memories SET tombstoned = TRUE WHERE source_ref LIKE 'about:%' AND NOT user_edited"); err != nil {
+		if err := db.Exec("UPDATE memories SET tombstoned = TRUE, anchored_at = NULL WHERE source_ref LIKE 'about:%' AND NOT user_edited"); err != nil {
 			return 0, err
 		}
 		return 0, setSetting(db, aboutDoneKey, hash)
@@ -181,7 +181,18 @@ func aboutPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (in
 			}
 		}
 	}
-	if err := db.Exec("DELETE FROM memories WHERE source_ref LIKE 'about:%' AND NOT user_edited AND NOT tombstoned"); err != nil {
+	// An ANCHOR the person set on one of the note's memories is theirs, and the rows are about to
+	// be made again under new ids: the mark is carried to the row with the same title, the way a
+	// deletion is. A line the person took out of the note takes its mark with it.
+	anchored := map[string]string{}
+	if arows, aerr := db.Query("SELECT lower(title), anchored_at FROM memories WHERE source_ref LIKE 'about:%' AND NOT tombstoned AND NOT user_edited AND anchored_at IS NOT NULL"); aerr == nil {
+		for _, v := range arows.Vals {
+			if len(v) > 1 && v[0] != nil && v[1] != nil {
+				anchored[*v[0]] = *v[1]
+			}
+		}
+	}
+	if err := db.Exec("DELETE FROM memories WHERE source_ref LIKE 'about:%' AND NOT user_edited AND NOT tombstoned"); err != nil { // anchors carried below
 		return 0, err
 	}
 	now := time.Now().UnixMilli()
@@ -190,8 +201,8 @@ func aboutPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (in
 		if gone[strings.ToLower(m[0])] {
 			continue
 		}
-		if err := db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at) VALUES ($1,$2,'me',$3,$4,$4)",
-			m[0], m[1], "about:me:"+strconv.Itoa(i), now); err != nil {
+		if err := db.Exec("INSERT INTO memories (title, body, kind, source_ref, created_at, updated_at, anchored_at) VALUES ($1,$2,'me',$3,$4,$4,NULLIF($5,'')::bigint)",
+			m[0], m[1], "about:me:"+strconv.Itoa(i), now, anchored[strings.ToLower(m[0])]); err != nil {
 			return written, err
 		}
 		written++
@@ -232,30 +243,26 @@ func peopleNames(db *poltergres.ReadWrite) []string {
 }
 
 // identityText is what every chat question starts from (pure, for the tests): the box's name and
-// what "LocalGhost" means, who is asking, and what they wrote about themselves and their people.
-func identityText(name, note string) string {
+// what "LocalGhost" means, who is asking, and the front page (frontpage.go): what they wrote
+// about themselves and their people, the memories they marked as anchors, and the heaviest of
+// the rest, chosen once a day.
+func identityText(name, front string) string {
 	var b strings.Builder
 	b.WriteString("You are LocalGhost: the private AI that runs on my own box at home, with my photos, notes, trail and chats; nothing I tell you leaves it. When I say LocalGhost, the ghost or the box, I mean you.")
 	if name != "" {
 		b.WriteString(" I am " + name + "; the memories you are given say " + name + " where they mean me.")
 	}
-	if note = strings.TrimSpace(note); note != "" {
-		if len(note) > aboutClip {
-			note = note[:aboutClip]
-			if i := strings.LastIndexAny(note, ".\n"); i > aboutClip/2 {
-				note = note[:i+1]
-			}
-		}
-		b.WriteString("\nWhat I have told you about me and my people:\n" + note)
+	if front = strings.TrimSpace(front); front != "" {
+		b.WriteString("\n" + front)
 	}
 	return b.String()
 }
 
-// chatIdentity reads the name and the note for the chat (the box's name alone without them),
-// then what else the box holds and how it writes (voice.go).
+// chatIdentity reads the name and today's front page for the chat (the box's name alone without
+// them), then what else the box holds and how it writes (voice.go).
 func chatIdentity(mount string) string {
 	db := chatStore(mount)
-	return identityText(setting(db, ownerKey), setting(db, aboutKey)) + "\n" + holdingsText() + "\n" + voiceRules
+	return identityText(setting(db, ownerKey), frontPageFor(db, time.Now())) + "\n" + holdingsText() + "\n" + voiceRules
 }
 
 // holdingsText says what the box holds beyond the archive, so the model neither denies having

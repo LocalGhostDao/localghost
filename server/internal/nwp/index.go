@@ -352,12 +352,59 @@ func Humidity(tempC, dewC float64) int {
 	return int(math.Round(math.Max(1, math.Min(100, rh))))
 }
 
-// FeelsLike is the apparent temperature (the Australian Bureau of Meteorology's, without
-// radiation): the humidity's vapour pressure warms it, the wind cools it.
+// FeelsLike is the apparent temperature in the shade (the Australian Bureau of Meteorology's,
+// after Steadman, without radiation): the humidity's vapour pressure warms it, the wind cools it.
 func FeelsLike(tempC float64, humidity int, windKmh float64) float64 {
 	ws := windKmh / 3.6
 	e := float64(humidity) / 100 * 6.105 * math.Exp(17.27*tempC/(237.7+tempC))
 	return tempC + 0.33*e - 0.70*ws - 4.0
+}
+
+// FeelsLikeSun is FeelsLike with the sun counted. The shade figure alone read "3°, feels -2" at
+// noon under a clear November sky, when standing in that sun feels warmer than the air, not
+// colder (Vlad, 12 Nov 2026). Steadman's formula has a term for it, 0.70·Q/(ws+10), where Q is
+// the sunlight a standing person absorbs per square metre of body (W/m²); the box has no
+// radiation field, so Q is worked out from what it does have, the sun's height and the cloud:
+//
+//   - the clear-sky beam by air mass (Kasten and Young's air mass, Meinel's transmission) and the
+//     clear-sky total on the ground (Haurwitz);
+//   - cloud takes the beam in proportion to the cover and the total by Kasten and Czeplak
+//     (1 - 0.75·n^3.4); what is not beam is diffuse;
+//   - what a standing person takes of each (the SolarCal model of ASHRAE 55: the beam on the
+//     body's projected area, half the diffuse and half the ground's reflection at an albedo of
+//     0.2, on the 72.5% of the skin that faces outward), absorbed at 0.67.
+//
+// A high clear summer sun adds about 8 degrees at a light wind, which is the figure the Bureau
+// quotes; a low winter sun adds nearly as much, because a standing body faces it; full cloud
+// adds about one; night adds nothing and the result is FeelsLike exactly.
+func FeelsLikeSun(tempC float64, humidity int, windKmh, cloudPct, sunElevDeg float64) float64 {
+	shade := FeelsLike(tempC, humidity, windKmh)
+	q := sunAbsorbed(sunElevDeg, cloudPct)
+	if q <= 0 {
+		return shade
+	}
+	return shade + 0.70*q/(windKmh/3.6+10)
+}
+
+// sunAbsorbed is Q of FeelsLikeSun: W/m² of body surface, 0 with the sun under a degree up.
+func sunAbsorbed(elevDeg, cloudPct float64) float64 {
+	if elevDeg < 1 || math.IsNaN(elevDeg) {
+		return 0
+	}
+	rad := math.Pi / 180
+	sinEl := math.Sin(elevDeg * rad)
+	n := math.Max(0, math.Min(1, cloudPct/100))
+	airMass := 1 / (sinEl + 0.50572*math.Pow(elevDeg+6.07995, -1.6364))
+	beam := 1361 * math.Pow(0.7, math.Pow(airMass, 0.678)) * (1 - n)             // on a surface facing the sun
+	total := 1098 * sinEl * math.Exp(-0.057/sinEl) * (1 - 0.75*math.Pow(n, 3.4)) // on the ground
+	if onGround := beam * sinEl; onGround > total {
+		beam = total / sinEl
+	}
+	diffuse := math.Max(0, total-beam*sinEl)
+	// the share of a standing body the beam meets, by the sun's height (VDI 3787)
+	projected := 0.308 * math.Cos(elevDeg*(1-elevDeg*elevDeg/48402)*rad)
+	const facing, albedo, absorbed = 0.725, 0.2, 0.67
+	return absorbed * facing * (projected*beam + 0.5*diffuse + 0.5*albedo*total)
 }
 
 // Code is the WMO-like weather code the phone maps (the ones Open-Meteo used): the sky from
@@ -479,7 +526,10 @@ func assemble(p weather.Place, loc *time.Location, start time.Time, hours []hour
 	if i >= 0 && i < len(hours) && hours[i].ok {
 		h := hours[i]
 		hum := Humidity(h.temp, h.dew)
-		f.Now = weather.Now{At: now.In(loc).Format("2006-01-02T15:04"), TempC: round1(h.temp), FeelsC: round1(FeelsLike(h.temp, hum, h.windKmh)),
+		// "feels" is for someone standing outside as the sky is: the sun counts when it is up
+		// and the cloud lets it through (FeelsLikeSun)
+		f.Now = weather.Now{At: now.In(loc).Format("2006-01-02T15:04"), TempC: round1(h.temp),
+			FeelsC:   round1(FeelsLikeSun(h.temp, hum, h.windKmh, h.cloud, SunElevation(now, p.Lat, p.Lon))),
 			Humidity: hum, PrecipMM: round1(h.precip), Code: Code(h.temp, h.dew, h.precip, h.cloud, h.windKmh), WindKmh: round1(h.windKmh)}
 	}
 	return f, true

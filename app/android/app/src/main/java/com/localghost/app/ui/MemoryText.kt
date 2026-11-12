@@ -14,6 +14,7 @@ object MemoryText {
         "outing" -> if (outingLine != null) "from your photos · $outingLine" else "from your photos"
         "trip" -> if (outingLine != null) "a trip, from your outings and days · $outingLine" else "a trip, from your outings and days"
         "day" -> if (dayLine.isNotBlank()) "a day, from your trail and photos · $dayLine" else "a day, from your trail and photos"
+        "month" -> "a month, counted from its days"
         "episode" -> "a day"
         else -> "distilled"
     }
@@ -24,6 +25,46 @@ object MemoryText {
         val d = ref.substringAfter(':', "")
         return if ((ref.startsWith("day:") || ref.startsWith("outing:") || ref.startsWith("trip:")) && DayText.valid(d)) d else ""
     }
+
+    /** The heading over a whole's parts: a trip's outings and days, a month's days and outings,
+     *  an outing's days. */
+    fun partsLabel(kind: String): String = when (kind) {
+        "trip" -> "THE OUTINGS AND THE DAYS OF IT"
+        "month" -> "THE DAYS AND THE OUTINGS OF IT"
+        else -> "THE DAYS OF IT"
+    }
+
+    /** How much of a whole each kind is: a month holds outings and days, a trip the same, an
+     *  outing days. The larger of two linked memories is the whole. */
+    private fun span(kind: String): Int = when (kind) {
+        "month" -> 4
+        "trip" -> 3
+        "outing" -> 2
+        "day", "episode" -> 1
+        else -> 0
+    }
+
+    /** WHY TWO MEMORIES ARE KEPT TOGETHER, said from the side of the memory on the page. The box
+     *  draws a link only for a reason it can point at (synthd's links.go) and sends the reason as
+     *  one word; [self] is the kind of the memory being read, [other] the kind of its neighbour. */
+    fun linkWhy(why: String, self: String, other: String): String = when (why) {
+        "part" -> if (span(self) > span(other)) "part of this" else "this is part of it"
+        "names" -> if (self == "person") "names them" else "named here"
+        "place" -> if (self == "place") "was here" else "where this was"
+        "written" -> when {
+            self == "person" -> "something was said of them that day"
+            other == "person" -> "something was said of them this day"
+            span(self) == 1 -> "written on this day"
+            else -> "the day this was written"
+        }
+        "month" -> if (self == "month") "began in this month" else "the month it began in"
+        else -> "kept together"
+    }
+
+    /** The line under an anchored memory's title, and the line under one on the front page
+     *  (ⓘ on MEMORIES says what each means). */
+    const val ANCHOR_LINE = "◆ an anchor , marked by you"
+    const val FRONT_LINE = "on today's front page , every chat starts from it"
 
     /** What a part of a trip is called in the trip's list: "the day", "an outing". */
     fun partLabel(kind: String): String = when (kind) {
@@ -69,6 +110,7 @@ object MemoryText {
         "outing" -> "AN OUTING"
         "trip" -> "A TRIP"
         "day", "episode" -> "A DAY"
+        "month" -> "A MONTH"
         "person" -> "ONE OF MY PEOPLE"
         "place" -> "A PLACE"
         "insight" -> "NOTICED BY THE BOX"

@@ -10,8 +10,10 @@
 //                               candidates that clear the bar are allowed through.
 //   - Fitts-Posner curve     -> curve: usage lowers a cue's value; a well-learned cue is suppressed.
 //
-// cued does NOT own retrieval , it asks ghost.synthd (via the synth.Client) for candidates. synthd is
-// stubbed today, so prime returns nothing and cued stays silent while still running its full logic.
+// cued does NOT own retrieval , it asks ghost.synthd (via the synth.Client) for candidates. synthd's
+// index for this is the empty one today and nothing feeds this engine a context, so prime returns
+// nothing and the engine stays silent while its logic is whole and tested. What ghost.cued does say
+// today is its own loops' (cmd/ghost.cued: a day a year ago, something nearby).
 package cued
 
 import (

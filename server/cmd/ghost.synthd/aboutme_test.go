@@ -69,7 +69,8 @@ func TestNamePromptAndParse(t *testing.T) {
 }
 
 func TestIdentityAndDistillPrompt(t *testing.T) {
-	id := identityText("Vlad", strings.Repeat("I like the sea. ", 200))
+	front, _ := chooseFront(strings.Repeat("I like the sea. ", 200), nil, frontBudget)
+	id := identityText("Vlad", front)
 	if !strings.HasPrefix(id, "You are LocalGhost") || !strings.Contains(id, "When I say LocalGhost") || !strings.Contains(id, "I am Vlad;") || len(id) > aboutClip+600 {
 		t.Fatalf("%d %q", len(id), id[:200])
 	}

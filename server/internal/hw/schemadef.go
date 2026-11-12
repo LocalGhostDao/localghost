@@ -217,11 +217,37 @@ var schemaRegistry = []SchemaTable{
 		// META , structured detail beside the prose, for memories a machine assembled from data
 		// (kind='outing': photos, days, place, tags, cover frames, distance). NULL for the rest.
 		{"meta", "JSONB", false, ""},
+		// ANCHORED_AT , when the person marked this memory as one of the few their life hangs on
+		// (unix ms), NULL for the rest. Only the person sets it (secd's /v1/memories/anchor):
+		// no pass may, because "no system can infer which of your memories are anchors" (the
+		// post "How memory gets made", section 3). A column and not a key in meta, because the
+		// passes write meta whole and would drop the mark.
+		{"anchored_at", "BIGINT", false, ""},
+		// TOUCHED_AT , when the person last had this memory in front of them (unix ms, 0 for
+		// never): its page opened on the phone, or the chat given it for a question. The
+		// weight reads it through the neighbourhood, so touching one member warms the rest.
+		{"touched_at", "BIGINT", true, "0"},
 	}, Indexes: []string{
 		"CREATE INDEX IF NOT EXISTS memories_source ON memories (source_chat)",
 		// every pass looks a memory up by its kind and ref (an outing, a trip, a day, a place),
 		// once per row: without this each lookup read the whole table
 		"CREATE INDEX IF NOT EXISTS memories_kind_ref ON memories (kind, source_ref)",
+		"CREATE INDEX IF NOT EXISTS memories_anchored ON memories (anchored_at) WHERE anchored_at IS NOT NULL",
+	}},
+	// MEMORY LINKS , the neighbourhoods. One row per pair of memories that belong together, the
+	// lower id in a: a person and a day that names them, a place and a day spent there, a note
+	// and the day it was written, a part and its whole. ghost.synthd's linking pass (links.go)
+	// derives the whole set from the memories with no model and makes the table equal to it, so
+	// a link is always something the box can point at (why says what). A deleted memory's links
+	// go with it at once (MemoryTombstone): a reference left standing to something the person
+	// deleted is a privacy failure, not a tidiness one.
+	{Name: "memory_links", PK: "a, b", Cols: []SchemaCol{
+		{"a", "BIGINT", true, ""},
+		{"b", "BIGINT", true, ""},
+		{"why", "TEXT", true, "''"},
+		{"made_at", "BIGINT", true, "0"},
+	}, Indexes: []string{
+		"CREATE INDEX IF NOT EXISTS memory_links_b ON memory_links (b)",
 	}},
 	{Name: "journal_entries", PK: "id", Unique: []string{"source, ref"}, Cols: []SchemaCol{
 		{"id", "BIGSERIAL", true, ""},

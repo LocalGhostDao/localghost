@@ -22,16 +22,45 @@ object CrashHandler {
         }
     }
 
+    /**
+     * The report is kept in the app's files and shown BEFORE the gate, so it says where the
+     * crash happened and not what was being read: an exception's message can carry what it
+     * choked on (a JSON parser quotes its input), so each message is one line, cut short, and
+     * the frames are the app's and the platform's names only.
+     */
+    internal fun trace(t: Throwable): String {
+        val sb = StringBuilder()
+        var cur: Throwable? = t
+        var depth = 0
+        while (cur != null && depth < 6) {
+            if (depth > 0) sb.append("Caused by: ")
+            sb.append(cur.javaClass.name)
+            oneLine(cur.message)?.let { sb.append(": ").append(it) }
+            sb.append('\n')
+            for (f in cur.stackTrace.take(40)) sb.append("\tat ").append(f.toString()).append('\n')
+            if (cur.stackTrace.size > 40) sb.append("\t… ").append(cur.stackTrace.size - 40).append(" more\n")
+            cur = cur.cause.takeIf { it !== cur }
+            depth++
+        }
+        return sb.toString()
+    }
+
+    internal fun oneLine(message: String?): String? {
+        val m = message?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
+        if (m.isEmpty()) return null
+        return if (m.length <= 160) m else m.take(160) + "… (" + m.length + " characters)"
+    }
+
     private fun write(ctx: Context, thread: Thread, t: Throwable) {
         val sw = StringWriter()
-        PrintWriter(sw).use { t.printStackTrace(it) }
+        PrintWriter(sw).use { it.print(trace(t)) }
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         File(ctx.filesDir, FILE).writeText(buildString {
             appendLine("LocalGhost crash report")
             appendLine("time:    $stamp")
             appendLine("thread:  ${thread.name}")
             appendLine("type:    ${t.javaClass.name}")
-            appendLine("message: ${t.message}")
+            appendLine("message: ${oneLine(t.message) ?: ""}")
             appendLine("device:  ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
             appendLine("android: API ${android.os.Build.VERSION.SDK_INT}")
             appendLine()

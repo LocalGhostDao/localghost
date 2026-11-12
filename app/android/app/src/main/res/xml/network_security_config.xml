@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Cleartext ONLY to loopback , the video proxy lives on 127.0.0.1 because no Android media
-     player speaks the box's mTLS + bearer; every byte still crosses the network encrypted and
-     authenticated, the plaintext hop never leaves the process boundary of this phone. Everything
-     non-loopback keeps the platform default: no cleartext, ever. -->
+<!-- No cleartext, to anywhere, and no exceptions. The app fetches addresses that come from
+     outside (search results, feed links, wherever a page redirects); with cleartext off, none
+     of them can reach a plain-http service on the phone or the LAN, and anything on TLS must
+     present a certificate the system trusts. The box is the one peer trusted another way: by
+     the fingerprint pinned at enrolment (net/BoxTrust.kt), in code, not here.
+
+     Until 12 Nov 2026 this file allowed cleartext to 127.0.0.1 for a loopback video proxy that
+     no longer exists (the player reads through BoxDataSource), and was not named in the
+     manifest at all, so the platform default applied. It is named now, and says what it means. -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false" />
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
 </network-security-config>

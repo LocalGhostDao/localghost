@@ -24,7 +24,7 @@ func TestImageKinds(t *testing.T) {
 	for want, raw := range map[string][]byte{
 		"jpeg":    {0xFF, 0xD8, 0xFF, 0xE0, 0, 0},
 		"png":     tinyPNG,
-		"webp":    []byte("RIFF\x00\x00\x00\x00WEBPVP8 "),
+		"webp":    []byte("RIFF\x16\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x05\x00\x00"),
 		"heic":    []byte("\x00\x00\x00\x18ftypheic\x00\x00"),
 		"gif":     []byte("GIF89a...."),
 		"unknown": []byte("hello world!"),

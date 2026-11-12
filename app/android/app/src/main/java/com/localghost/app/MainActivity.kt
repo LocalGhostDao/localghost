@@ -123,6 +123,8 @@ class MainActivity : ComponentActivity() {
     // = enrolled, false = failed. These drive the post-animation routing without cutting the success short.
     private var scannedLink by mutableStateOf<EnrollLink?>(null)
     private var scanEnrolOk by mutableStateOf<Boolean?>(null)
+    /** Why a scan stopped short of enrolling (another box's code), for the scanner's last line. */
+    private var scanNote by mutableStateOf<String?>(null)
     private var sync by mutableStateOf(SyncUiState())
 
     private val messages = mutableStateListOf<Message>()
@@ -319,6 +321,10 @@ class MainActivity : ComponentActivity() {
         thinkLevelState = AppSettings.thinkLevel(this)
         AppLock.ensureKey(this)
         ContextCompat.registerReceiver(this, screenOff, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED)
+        // No other app draws over this one. An overlay cannot read a PIN, but it can dress a
+        // button as something else (ADD TO JOURNAL, DEPLOY, FORGET THE BOX); while the app is in
+        // front, windows of other apps are hidden. A screen dimmer goes with them.
+        runCatching { window.setHideOverlayWindows(true) }
         Notifications.ensureChannel(this)
         // ghost.phrased: redraw the lock-screen card and widget for this hour (no-op when both are
         // off) and arm the next refresh. Runs outside the security gate on purpose , a phrase on the
@@ -406,7 +412,12 @@ class MainActivity : ComponentActivity() {
                             onNoBox = { finishWelcome(trail, noBox = true) },
                         )
                     }
-                    Screen.Setup -> SetupScreen(
+                    Screen.Setup -> {
+                      // a paired phone that backs out of set-up (a code for another box, declined)
+                      // goes back to its gate, still paired with the box it had
+                      if (remember(screen) { BoxConfig.isConfigured(this@MainActivity) })
+                          androidx.activity.compose.BackHandler { scannedLink = null; error = null; scanEnrolOk = null; scanNote = null; screen = Screen.Gate }
+                      SetupScreen(
                         busy = busy,
                         error = error,
                         prefilledUrl = scannedLink?.baseUrl() ?: "",
@@ -416,7 +427,8 @@ class MainActivity : ComponentActivity() {
                         onScanQr = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Scan },
                         onEnroll = { url, code, name, fp -> enroll(url, code, name, fp) },
                         onLocalOnly = ::enterLocalOnly,
-                    )
+                      )
+                    }
                     Screen.Scan -> QrScanScreen(
                         // Fires the instant a valid enrol code is confirmed: start the network enrol NOW so it
                         // overlaps the success animation, and stash the link so Setup can prefill from it.
@@ -430,6 +442,7 @@ class MainActivity : ComponentActivity() {
                         },
                         onCancel = { scannedLink = null; error = null; scanEnrolOk = null; screen = Screen.Setup },
                         enrolOutcome = scanEnrolOk,
+                        outcomeNote = scanNote,
                     )
                     Screen.Gate -> LockScreen(error, unlocking = lockProgress != null, progress = lockProgress, onLocalOnly = ::enterLocalOnly, onReenroll = ::reenrollFromGate, closing = vaultClosing) { passBiometric() }
                     Screen.Pin -> PinScreen(busy, error, unlockProgress, opening = vaultOpening) { submit(it) }
@@ -1309,6 +1322,10 @@ class MainActivity : ComponentActivity() {
             BoxConfig.clear(this@MainActivity)
             DeviceCert.forget(this@MainActivity) // and the device keys in the Keystore
             CrashHandler.clear(this@MainActivity)
+            //   - LocalWipe.all: the session token, voice notes not yet sent, the cache, the
+            //     last news, prices and weather, the map's last view, the last fix, the search
+            //     key. The trail not yet sent stays: it is sealed to the box's key.
+            com.localghost.app.security.LocalWipe.all(this@MainActivity)
 
             tearDownCache()        // in-memory UI state
             screen = Screen.Setup  // unenrolled now, so setup is the correct destination, not the gate
@@ -1516,6 +1533,10 @@ class MainActivity : ComponentActivity() {
         val keyPem = link.deviceKeyPem
         if (certPem.isNullOrBlank() || keyPem.isNullOrBlank())
             return "this QR carries no device certificate , regenerate the enrolment QR on the box"
+        // nothing of the last enrolment's session goes to this box or shows beside it: the
+        // session token, the cached home, the sync cursors (LocalWipe)
+        com.localghost.app.security.LocalWipe.session(this)
+        tearDownCache()
         DeviceCert.store(this, certPem, keyPem)
         BoxConfig.write(this, BoxConfig.Config(
             baseUrl = url, deviceToken = "", // no session yet; a token is issued on first PIN unlock
@@ -1545,7 +1566,18 @@ class MainActivity : ComponentActivity() {
     // (after the animation) and the Setup watcher route on it: success -> gate, failure -> stay on Setup
     // with the fields prefilled and the error shown.
     private fun enrollFromScan(link: EnrollLink) {
-        busy = true; error = null; scanEnrolOk = null
+        busy = true; error = null; scanEnrolOk = null; scanNote = null
+        // A phone that is paired takes its own box's code at once and stops at another's: the
+        // set-up screen says which box the code is for, and ENROL there is the person's yes
+        // (security/BoxChange.kt).
+        val paired = BoxConfig.read(this)
+        if (paired != null && com.localghost.app.security.BoxChange.isAnotherBox(paired.certFingerprint, link.certFingerprint)) {
+            busy = false
+            scanNote = "another box's code , the next screen asks"
+            error = com.localghost.app.security.BoxChange.notice(paired.baseUrl, link.host)
+            scanEnrolOk = false
+            return
+        }
         lifecycleScope.launch {
             val err = doEnrollFromLink(link, link.baseUrl(), phoneName())
             busy = false
@@ -1587,6 +1619,9 @@ class MainActivity : ComponentActivity() {
             // the app went to the background meanwhile and locked itself (onStop): the gate stays
             if (screen !is Screen.Pin) return@launch
             if (ok) {
+                // the box is open: the phone-only shell entered from the gate is over (it used
+                // to stay "no box" for as long as the app ran, with the box unlocked behind it)
+                if (localOnly) { localOnly = false; forceLocalMode = false; localModeActive = false }
                 refreshGrants()
                 sync = sync.copy(notificationsMuted = NotifyState.isMuted(this@MainActivity))
                 if (!Notifications.hasPermission(this@MainActivity))

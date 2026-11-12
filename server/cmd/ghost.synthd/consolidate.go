@@ -341,10 +341,15 @@ func clearPersonNotes(db *poltergres.ReadWrite, named []string, now int64) error
 		p.meta.Note = ""
 		p.meta.Prose, p.meta.ProseN, p.meta.ProseTries = "", 0, 0
 		if len(p.meta.Facts) == 0 && !p.userEdited {
-			if err := db.Exec("DELETE FROM memories WHERE id = $1 AND NOT user_edited", p.id); err != nil {
+			// nothing left to say of them, so the row goes; unless the person anchored it, when
+			// it stays under its name with the note's line taken out, as they took it out
+			gone, err := db.Query("DELETE FROM memories WHERE id = $1 AND NOT user_edited AND anchored_at IS NULL RETURNING id", p.id)
+			if err != nil {
 				return err
 			}
-			continue
+			if len(gone.Vals) > 0 {
+				continue
+			}
 		}
 		if err := savePerson(db, p, now); err != nil {
 			return err
@@ -423,7 +428,12 @@ func mergePeople(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 			} else {
 				k.meta.Aliases = addAlias(k.meta.Aliases, o.title, k.title)
 			}
-			if err := db.Exec("DELETE FROM memories WHERE id = $1", o.id); err != nil {
+			// the person's mark and their last look move to the row that stays: two rows for one
+			// person were the box's mistake, and the anchor was set on the person
+			if err := db.Exec("UPDATE memories k SET anchored_at = COALESCE(k.anchored_at, o.anchored_at), touched_at = GREATEST(k.touched_at, o.touched_at) FROM memories o WHERE k.id = $1 AND o.id = $2", k.id, o.id); err != nil {
+				return folded, err
+			}
+			if err := db.Exec("DELETE FROM memories WHERE id = $1", o.id); err != nil { // its anchor carried above
 				return folded, err
 			}
 			folded++
@@ -453,7 +463,8 @@ func foldNamedMemories(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 	if err != nil || len(people) == 0 {
 		return 0, err
 	}
-	rows, err := db.Query("SELECT id, title, body, source_ref, user_edited FROM memories WHERE kind = 'distilled' AND NOT tombstoned ORDER BY id")
+	// an anchored memory is not folded away: the person marked that row, as it stands
+	rows, err := db.Query("SELECT id, title, body, source_ref, user_edited FROM memories WHERE kind = 'distilled' AND NOT tombstoned AND anchored_at IS NULL ORDER BY id")
 	if err != nil {
 		return 0, err
 	}
@@ -488,7 +499,7 @@ func foldNamedMemories(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 			}
 			people[i] = p
 		}
-		if err := db.Exec("DELETE FROM memories WHERE id = $1", *v[0]); err != nil {
+		if err := db.Exec("DELETE FROM memories WHERE id = $1 AND anchored_at IS NULL", *v[0]); err != nil {
 			return folded, err
 		}
 		folded++
@@ -1231,7 +1242,7 @@ func tripPass(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 	if len(keep) == 0 {
 		arr = "{}"
 	}
-	if gone, qerr := db.Query("SELECT title, source_ref, coalesce(meta->>'outings','[]') FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned AND NOT (source_ref = ANY($1))", arr); qerr == nil {
+	if gone, qerr := db.Query("SELECT title, source_ref, coalesce(meta->>'outings','[]') FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned AND anchored_at IS NULL AND NOT (source_ref = ANY($1))", arr); qerr == nil {
 		for _, v := range gone.Vals {
 			if len(v) < 3 || v[0] == nil || v[1] == nil || v[2] == nil {
 				continue
@@ -1239,12 +1250,14 @@ func tripPass(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 			lg.Warn("a trip dissolved", "fn", "tripPass", "trip", *v[0], "ref", *v[1], "outings", tripOutingsFate(outs, *v[2], partOf))
 		}
 	}
-	if err := db.Exec("DELETE FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned AND NOT (source_ref = ANY($1))", arr); err != nil {
+	if err := db.Exec("DELETE FROM memories WHERE kind = 'trip' AND NOT user_edited AND NOT tombstoned AND anchored_at IS NULL AND NOT (source_ref = ANY($1))", arr); err != nil {
 		return written, err
 	}
 	// FOLDING: part_of on the outings and the days, set where it belongs and cleared where it no
-	// longer does (a trip that dissolved, an outing that moved)
-	if err := db.Exec("UPDATE memories SET meta = meta - 'part_of' WHERE kind IN ('outing','day') AND meta IS NOT NULL AND jsonb_exists(meta, 'part_of')"); err != nil {
+	// longer does (a trip that dissolved, an outing that moved). A fold under a month is the
+	// month pass's (months.go) and is left alone here: a trip's fold below replaces it where a
+	// trip claims the day, and the month pass folds again whatever a dissolved trip let go.
+	if err := db.Exec("UPDATE memories SET meta = meta - 'part_of' WHERE kind IN ('outing','day') AND meta IS NOT NULL AND jsonb_exists(meta, 'part_of') AND meta->>'part_of' NOT LIKE 'month:%'"); err != nil {
 		return written, err
 	}
 	for ref, trip := range partOf {

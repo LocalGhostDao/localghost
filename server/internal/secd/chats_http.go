@@ -168,9 +168,25 @@ func (s *Server) handleMemories(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	var rowsOut []hw.MemoryRow
 	var err error
-	if ref := strings.TrimSpace(r.URL.Query().Get("part_of")); ref != "" {
-		rowsOut, err = s.notif.MemoriesPartsOf(mounted, ref) // a whole's parts, for its page
-	} else {
+	q := r.URL.Query()
+	switch {
+	case q.Get("id") != "": // one memory, for its page
+		id, perr := strconv.ParseInt(q.Get("id"), 10, 64)
+		if perr != nil || id <= 0 {
+			s.appearsDown(w)
+			return
+		}
+		rowsOut, err = s.notif.MemoryByID(mounted, id)
+	case strings.TrimSpace(q.Get("ref")) != "": // the whole a part names, for the part's page
+		ref := strings.TrimSpace(q.Get("ref"))
+		if len(ref) > 64 {
+			s.appearsDown(w)
+			return
+		}
+		rowsOut, err = s.notif.MemoryByRef(mounted, ref)
+	case strings.TrimSpace(q.Get("part_of")) != "":
+		rowsOut, err = s.notif.MemoriesPartsOf(mounted, strings.TrimSpace(q.Get("part_of"))) // a whole's parts, for its page
+	default:
 		rowsOut, err = s.notif.MemoriesList(mounted, limit)
 	}
 	if err != nil {
@@ -335,6 +351,68 @@ func (s *Server) handleMemoryAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "id": id})
+}
+
+// handleMemoryAnchor , POST /v1/memories/anchor {"id","on"} , the person marks a memory as one
+// their life hangs on, or lifts the mark. Nothing else on the box sets it.
+func (s *Server) handleMemoryAnchor(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodPost {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	var req struct {
+		ID int64 `json:"id"`
+		On bool  `json:"on"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil || req.ID <= 0 {
+		s.appearsDown(w)
+		return
+	}
+	ok, err := s.notif.MemoryAnchor(mounted, req.ID, req.On)
+	if err != nil || !ok {
+		s.appearsDown(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "anchor": req.On})
+}
+
+// handleMemoryOpen , POST /v1/memories/open {"id"} , the person opened a memory's page. The
+// memory is touched (a POST because it writes), and the answer is the company it keeps: the
+// memories linked to it and why.
+func (s *Server) handleMemoryOpen(w http.ResponseWriter, r *http.Request) {
+	if !s.session.Valid(bearer(r)) || r.Method != http.MethodPost {
+		s.appearsDown(w)
+		return
+	}
+	s.mu.Lock()
+	mounted := s.mounted
+	s.mu.Unlock()
+	if mounted < 0 {
+		s.appearsDown(w)
+		return
+	}
+	var req struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil || req.ID <= 0 {
+		s.appearsDown(w)
+		return
+	}
+	links, ok, err := s.notif.MemoryOpen(mounted, req.ID)
+	if err != nil || !ok {
+		s.appearsDown(w)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"links": links})
 }
 
 // handleMemoryEdit , POST /v1/memories/edit {"id","title","body"} , the person's version IS the memory.

@@ -156,6 +156,7 @@ func main() {
 			// the next unlock with every embed failing its way to parked
 			go es.Watch(ctx, func(msg string, args ...any) { lg.Warn(msg, append([]any{"fn", "embedWatch"}, args...)...) })
 			embedder = search.NewEmbedder(es.BaseURL(), cfg.EmbedModelID)
+			embedder.Key = es.Key()
 		}
 	}
 

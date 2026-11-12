@@ -42,4 +42,51 @@ class MemoryTextTest {
         assertEquals("Cristina owns the boat. , the record says: it is Vlad's", MemoryText.factDoubt("Cristina owns the boat.", "it is Vlad's"))
         assertEquals("Cristina owns the boat. , not found in the record it came from", MemoryText.factDoubt("Cristina owns the boat.", "the record does not say this"))
     }
+    @Test fun aMonthIsAWholeOfItsOwn() {
+        assertEquals("A MONTH", MemoryText.kindLabel("month"))
+        assertEquals("a month, counted from its days", MemoryText.origin("month", null, ""))
+        assertEquals("", MemoryText.dayOf("month:2026-08")) // a month opens no single day
+        assertEquals("THE DAYS AND THE OUTINGS OF IT", MemoryText.partsLabel("month"))
+        assertEquals("THE OUTINGS AND THE DAYS OF IT", MemoryText.partsLabel("trip"))
+        assertEquals("THE DAYS OF IT", MemoryText.partsLabel("outing"))
+    }
+
+    @Test fun whyTwoMemoriesAreKeptTogetherIsSaidFromThePagesSide() {
+        // part and whole: the larger of the two is the whole, whichever side the page is on
+        assertEquals("part of this", MemoryText.linkWhy("part", "trip", "day"))
+        assertEquals("this is part of it", MemoryText.linkWhy("part", "day", "trip"))
+        assertEquals("part of this", MemoryText.linkWhy("part", "month", "outing"))
+        assertEquals("this is part of it", MemoryText.linkWhy("part", "outing", "month"))
+        assertEquals("part of this", MemoryText.linkWhy("part", "outing", "day"))
+        // a person and what names them
+        assertEquals("names them", MemoryText.linkWhy("names", "person", "day"))
+        assertEquals("named here", MemoryText.linkWhy("names", "day", "person"))
+        assertEquals("named here", MemoryText.linkWhy("names", "user", "person"))
+        // a place and what happened there
+        assertEquals("was here", MemoryText.linkWhy("place", "place", "trip"))
+        assertEquals("where this was", MemoryText.linkWhy("place", "trip", "place"))
+        // a note and the day it was written; a person and the day something was said of them
+        assertEquals("the day this was written", MemoryText.linkWhy("written", "distilled", "day"))
+        assertEquals("written on this day", MemoryText.linkWhy("written", "day", "distilled"))
+        assertEquals("something was said of them that day", MemoryText.linkWhy("written", "person", "day"))
+        assertEquals("something was said of them this day", MemoryText.linkWhy("written", "day", "person"))
+        // a trip and its month
+        assertEquals("began in this month", MemoryText.linkWhy("month", "month", "trip"))
+        assertEquals("the month it began in", MemoryText.linkWhy("month", "trip", "month"))
+        // a reason this build does not know is still a reason, said plainly
+        assertEquals("kept together", MemoryText.linkWhy("alike", "distilled", "distilled"))
+        assertEquals("kept together", MemoryText.linkWhy("", "day", "day"))
+    }
+
+    @Test fun theAnchorSaysWhoMarkedIt() {
+        // the two lines the page shows; the mark is the person's and the words say so
+        assert(MemoryText.ANCHOR_LINE.contains("marked by you"))
+        assert(MemoryText.FRONT_LINE.contains("every chat starts from it"))
+        // the UI's dash is " , ", never an em dash
+        for (s in listOf(MemoryText.ANCHOR_LINE, MemoryText.FRONT_LINE)) assert(!s.contains("\u2014")) { s }
+        // and the explainer says who may mark one, in the memories topic
+        val topic = Explain.of("memories")!!.paragraphs.joinToString(" ")
+        assert(topic.contains("Only you can mark one")) { topic }
+        assert(topic.contains("Nothing is deleted")) { topic }
+    }
 }

@@ -1,17 +1,28 @@
-// ghost.synthd is the memory-surfacing daemon: it owns the retrieval side of the "Before You Ask"
-// loop. Given a context (what the user is doing now), it ranks memories from its index and returns
-// candidates for ghost.cued to gate. synthd decides WHAT is a candidate; cued decides WHEN and
-// WHETHER anything reaches the user.
+// ghost.synthd is the memory daemon: it makes the memories, keeps them in order, and brings them
+// to a question. docs/MEMORY.md tells the whole model and where it stands against the posts.
 //
-// It is also the memory-MAKING daemon (distillLoop, every ten minutes while unlocked): the journal
+// MAKING (distillLoop, every ten minutes while unlocked): the journal
 // distilled into memories (the chats, the notes, the voice notes), one memory per person with
 // every fact and where it came from (aboutme.go, consolidate.go), the outings and the trips from
 // the photos and the days from everything (outings.go, consolidate.go, days.go), the places and
 // the insights (places.go), the model's telling of each written from a fact sheet and kept only
 // when it stays inside the facts (prose.go), and, once a day, every distilled memory and every
 // fact about a person READ AGAIN against the record it was made from and put in doubt when the
-// record does not say it (verify.go). The memory index below is rebuilt from the memories at
-// each start; "prime" ranks over it for cued.
+// record does not say it (verify.go).
+//
+// KEEPING IN ORDER, in the same loop: what belongs together is folded (a person's two rows into
+// one, days under their trip, old days under their month: consolidate.go, months.go) and linked
+// (a person to the days that name them, a place to its days, a note to the day it was written:
+// links.go). An anchor, the person's mark on a memory their life hangs on, is theirs alone: no
+// pass sets one, and none deletes or folds away a memory that carries one.
+//
+// BRINGING: a chat question is answered from the front page (frontpage.go: the note's opening,
+// the anchors and the heaviest memories, chosen once a day) and from the memories its words
+// match, the heavier first, with the best match's neighbour (memoriesSource, weight.go).
+//
+// NOT BUILT: the index "prime" reads. It is the empty one (internal/synthd), so ghost.cued's
+// context priming gets nothing from here; what reaches the person unasked today is cued's own
+// (a day a year ago, something nearby). Retrieval is by word: memories carry no embedding yet.
 //
 // It exposes its work over the same control socket everything uses: base commands (ping/status/reload/
 // log-level) plus its own , prime (the hot path cued calls), ready, and index-stats. So ghost-cli can
@@ -212,12 +223,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	// The query engine over the EMPTY index (the corpus is not built). Runs the full pipeline; returns
-	// nothing until the real index slots in behind the Index interface.
+	// The engine "prime" runs, over the EMPTY index: the memories are real (the passes below make
+	// them, the chat reads them), but nothing has been built that ranks them against a moment,
+	// so a priming query from ghost.cued returns nothing. Said once at start, at debug: it is the
+	// standing state, not news.
 	engine := synthd.New(synthd.NewEmptyIndex(), lg)
 	if !engine.Ready() {
-		lg.Info("running, but the memory index is EMPTY until the corpus is built , prime returns "+
-			"nothing (cued stays silent); the query pipeline is live and ready for the index", "fn", "main")
+		lg.Debug("prime has no index behind it: ghost.cued's context priming gets nothing from here "+
+			"(the memories themselves are made, linked and read by the chat as usual)", "fn", "main")
 	}
 
 	runDir := os.Getenv("GHOST_RUN_DIR")
@@ -406,17 +419,13 @@ func main() {
 		if q.Need != "" && !hasSource(items, "wikipedia") {
 			for _, it := range wikiSourceFor(q.Prompt, q.Need) {
 				if it.Snippet != "" {
-					if len(items) == 3 && items[0].Source == "sample" {
-						items = nil // the empty-index placeholders make way
-					}
 					items = append(items, sanitize(it))
 				}
 			}
 		}
 		// THE PERSON'S TASTE, when the question asks for a suggestion or a plan, and the places
 		// around the phone that fit it; THE WEATHER the box pulled, for a weather question
-		// (weather.go, the fix or the trail says where). Samples (the empty-index placeholders)
-		// make way.
+		// (weather.go, the fix or the trail says where).
 		extra := tasteItems(chatStore(mount), q.Prompt, q.Here)
 		for _, it := range weatherItems(chatStore(mount), q.Prompt, q.Here, time.Now()) {
 			extra = append(extra, sanitize(it))
@@ -427,15 +436,7 @@ func main() {
 		for _, it := range contactItems(chatStore(mount), q.Prompt, time.Now()) {
 			extra = append(extra, sanitize(it)) // THE CONTACTS the phone sent, for a question about someone in them (contacts.go)
 		}
-		if len(extra) > 0 {
-			real := items[:0:0]
-			for _, it := range items {
-				if it.Source != "sample" {
-					real = append(real, it)
-				}
-			}
-			items = append(real, extra...)
-		}
+		items = append(items, extra...)
 		web := boundWeb(q.Web)
 		// THE PARAGRAPHS, ranked against the need: each page's excerpt becomes the passages that
 		// say what is needed. Thin, with a search still unrun: ask the phone for one more round
@@ -767,11 +768,10 @@ func main() {
 			data, _ := json.Marshal(map[string]bool{"ready": engine.Ready()})
 			return ctlsock.Response{OK: true, Data: data}, nil
 		})
-		// chat: the app's question -> oracled -> answer. TODAY a PURE PASSTHROUGH , synthd adds no
-		// context because the index is empty. This is deliberately the seam where retrieval joins:
-		// when the corpus exists, this handler looks up relevant memories and injects them into the
-		// prompt before oracled sees it, with zero change to secd or the app. Interactive priority ,
-		// a person is waiting.
+		// chat: the app's question -> what the box holds on it -> oracled -> answer. The question
+		// starts from the front page (chatIdentity) and is given the context gatherContext finds:
+		// the memories its words match, the archive, the box's Wikipedia, its numbers. Interactive
+		// priority , a person is waiting.
 		oc := oracle.NewClient(runDir, 120*time.Second)
 		ctl.Handle("chat", func(args json.RawMessage) (ctlsock.Response, error) {
 			var q struct {
@@ -781,12 +781,10 @@ func main() {
 			if err := json.Unmarshal(args, &q); err != nil {
 				return ctlsock.Response{}, err
 			}
-			// CONTEXT INJECTION , the seam, now live-but-empty. Ask ghost.searchd for archive matches
-			// and prepend them; today the index is empty so this returns nothing and the request is a
-			// byte-identical passthrough. The moment framed's captions start flowing through ingest,
-			// chat answers become grounded in the archive with no further change here or above.
-			// Retrieval is time-boxed and failure is SILENT-but-logged: a slow or dead searchd must
-			// never stall or fail a chat that the model alone could answer.
+			// CONTEXT INJECTION. What the sources found is put before the question; when they found
+			// nothing the question goes as it is. Retrieval is time-boxed and failure is
+			// SILENT-but-logged: a slow or dead searchd must never stall or fail a chat that the
+			// model alone could answer.
 			items := gatherContext(runDir, q.Prompt)
 			input := q.Prompt
 			if block := formatContext(items); block != "" {
@@ -1271,17 +1269,10 @@ func gatherContext(runDir, prompt string) []ctxItem {
 	if len(out) > 0 {
 		slog.Info("context injected into chat", "fn", "gatherContext", "items", len(out))
 	}
-	if len(out) == 0 {
-		// SAMPLES , the index is empty (captions have not been generated yet), so these three are
-		// PLACEHOLDERS to exercise the transparency UI end to end. Every one is labeled sample and
-		// says so in why; they are NOT injected into the model's prompt (formatContext skips the
-		// sample source) , the display pipeline gets real traffic, the model gets nothing fake.
-		out = []ctxItem{
-			{When: "2026-04-12", Source: "sample", Snippet: "photo caption placeholder , captions land here once framed's backlog is processed", Why: "sample: index is empty"},
-			{When: "2026-05-03", Source: "sample", Snippet: "note placeholder , notes and voice memos will surface here", Why: "sample: index is empty"},
-			{When: "2026-06-21", Source: "sample", Snippet: "location placeholder , day summaries from your tracks", Why: "sample: index is empty"},
-		}
-	}
+	// Nothing found is nothing shown. Until 12 November 2026 an empty result came back as three
+	// placeholders with invented dates ("photo caption placeholder", from the first weeks, when
+	// there was no archive to match), and the phone listed them under the answer as what the box
+	// had drawn on: three memories that were never anyone's.
 	return out
 }
 
@@ -1295,7 +1286,7 @@ func chatSteps(items []ctxItem, web []webHit, webNote string) []string {
 	var wikiTitles, rateWhat []string
 	for _, it := range items {
 		switch it.Source {
-		case "sample", "web":
+		case "web":
 			continue
 		case "wikipedia":
 			if t, _, ok := strings.Cut(it.Snippet, ":"); ok {
@@ -1396,9 +1387,6 @@ func formatContext(items []ctxItem) string {
 	b.WriteString("Context from my archive (found automatically, may be irrelevant):")
 	wrote := false
 	for _, it := range items {
-		if it.Source == "sample" {
-			continue // display-only placeholders , the model NEVER sees fake memories
-		}
 		wrote = true
 		when := ""
 		if it.When != "" {
@@ -1850,6 +1838,10 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 			lg.Warn("read-again pass failed", "fn", "distillLoop", "err", verr)
 		} else if ok+nope > 0 {
 			did["confirmed"], did["doubted"] = ok, nope
+			if nope > 0 {
+				// a memory the box no longer stands behind leaves the front page now, not tomorrow
+				_ = setSetting(db, hw.FrontPageKey, "")
+			}
 		}
 		// THE DAYS, after the outings (a day's sheet names the outing it belongs to)
 		if built, wrote, derr := daySummaryPass(db, oc, mount, lg); derr != nil {
@@ -1857,6 +1849,21 @@ func distillLoop(ctx context.Context, mount, runDir string, lg *slog.Logger) {
 		} else if built > 0 {
 			lg.Info("day summaries built", "fn", "distillLoop", "days", built, "byModel", wrote)
 			did["days"], did["daysByModel"] = built, wrote
+		}
+		// THE MONTHS (months.go): a month that ended six weeks ago becomes one memory, its days
+		// and outings folded under it; nothing is deleted, the days are one tap down
+		zone := hw.LocalZone(db)
+		if mn, merr := monthPass(db, time.Now().In(zone), lg); merr != nil {
+			lg.Warn("month pass failed", "fn", "distillLoop", "err", merr)
+		} else if mn > 0 {
+			did["months"] = mn
+		}
+		// THE NEIGHBOURHOODS (links.go), last: every memory this pass made, folded or dropped is
+		// settled, so the links are drawn over what is there now
+		if _, changed, lerr := linkPass(db, zone, lg); lerr != nil {
+			lg.Warn("link pass failed", "fn", "distillLoop", "err", lerr)
+		} else if changed > 0 {
+			did["links"] = changed
 		}
 		// and what Box Status shows of this daemon: the pass, the Wikipedia file, the consolidation
 		if serr := hw.SaveSynthStatus(db, hw.SynthStatus{At: time.Now().Unix(), Pass: did, Wiki: wikiStatus(), ConsolidatedDay: setting(db, consolidateKey)}); serr != nil {
@@ -1971,12 +1978,19 @@ func distillPass(db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) (
 // because contextSources are plain funcs. Dropped on error, re-dialed next call.
 var memDB *poltergres.ReadWrite
 
-// memoriesSource , the retrieval half of the memory system finally meeting the injection path the
-// architecture built months ago. Keyword term-overlap over the memories table: honest v1 recall
-// (the emb column and semantic ranking are the recorded upgrade), which is exactly enough for
-// "what did I decide about the boat" to surface the boat memory. Live rows only , tombstones are
-// invisible here as everywhere , and user-authored rows compete equally with distilled ones. Top 2
-// by term hits then recency: memories season the chat, they do not flood it.
+// memoriesSource , the memories a question brings into the chat. The words that carry meaning are
+// matched against every live memory the box still stands behind (a tombstone is invisible here as
+// everywhere; a memory in doubt stays out until the person has judged it). The two that match the
+// most words go to the model; between two that match equally the heavier goes first (weight.go:
+// an anchor, then the company a memory keeps and how lately its neighbourhood was touched), not
+// simply the newer. Then ONE HOP OUT: the best match brings its heaviest neighbour (links.go),
+// so a question about a person can come with the trip they were on, and a question about a day
+// with who was there, though the question named neither. Three at most: memories season the
+// chat, they do not flood it. Matching is by word (the emb column is still empty), which is
+// enough for "what did I decide about the boat" to find the boat.
+//
+// What was matched is TOUCHED: the person asked about it, so it and its neighbourhood are warm
+// again. The neighbour brought along is not: it was not asked for.
 func memoriesSource(runDir, prompt string) []ctxItem {
 	terms := memoryTerms(prompt) // the words that carry meaning; "the" matched every memory
 	if len(terms) == 0 {
@@ -1991,9 +2005,70 @@ func memoriesSource(runDir, prompt string) []ctxItem {
 		memDB = poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port,
 			cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 	}
+	out, err := memoriesFor(memDB, terms, time.Now().UnixMilli())
+	if err != nil {
+		memDB = nil
+		return nil
+	}
+	return out
+}
+
+// memCand is one memory that matched a question.
+type memCand struct {
+	id       int64
+	title    string
+	body     string
+	created  int64
+	anchored bool
+	hits     int
+	weight   float64
+}
+
+// rankMemories orders the matches (pure, for the tests): the most words matched first, then the
+// heavier, then the newer; a memory that matched nothing is dropped.
+func rankMemories(cands []memCand) []memCand {
+	out := make([]memCand, 0, len(cands))
+	for _, c := range cands {
+		if c.hits > 0 {
+			out = append(out, c)
+		}
+	}
+	sort.SliceStable(out, func(a, b int) bool {
+		if out[a].hits != out[b].hits {
+			return out[a].hits > out[b].hits
+		}
+		if out[a].weight != out[b].weight {
+			return out[a].weight > out[b].weight
+		}
+		return out[a].created > out[b].created
+	})
+	return out
+}
+
+func memSnippet(title, body string) string {
+	snip := title
+	if body != "" {
+		snip = title + " , " + body
+	}
+	if r := []rune(snip); len(r) > 240 {
+		snip = string(r[:240]) + "…"
+	}
+	return snip
+}
+
+func memWhen(ms int64) string {
+	if ms <= 0 {
+		return ""
+	}
+	return time.UnixMilli(ms).UTC().Format("2006-01-02")
+}
+
+// memoriesFor is memoriesSource against a database: the two best matches and the best one's
+// heaviest neighbour.
+func memoriesFor(db *poltergres.ReadWrite, terms []string, nowMs int64) ([]ctxItem, error) {
 	var sb strings.Builder
 	args := make([]any, 0, len(terms))
-	sb.WriteString("SELECT title, body, created_at FROM memories WHERE NOT tombstoned AND (meta IS NULL OR NOT jsonb_exists(meta, 'doubt')) AND (")
+	sb.WriteString("SELECT id, title, body, created_at, (anchored_at IS NOT NULL) FROM memories WHERE NOT tombstoned AND (meta IS NULL OR NOT jsonb_exists(meta, 'doubt')) AND (")
 	for i, t := range terms {
 		if i > 0 {
 			sb.WriteString(" OR ")
@@ -2002,64 +2077,151 @@ func memoriesSource(runDir, prompt string) []ctxItem {
 		sb.WriteString("title ILIKE " + p + " OR body ILIKE " + p)
 		args = append(args, "%"+t+"%")
 	}
-	sb.WriteString(") ORDER BY created_at DESC LIMIT 12")
-	rows, err := memDB.Query(sb.String(), args...)
+	// the anchors first, so a clip at the limit never loses one to a newer match
+	sb.WriteString(") ORDER BY (anchored_at IS NULL), created_at DESC LIMIT 24")
+	rows, err := db.Query(sb.String(), args...)
 	if err != nil {
-		memDB = nil
-		return nil
+		return nil, err
 	}
-	type scored struct {
-		it   ctxItem
-		hits int
-	}
-	cand := make([]scored, 0, len(rows.Vals))
+	cands := make([]memCand, 0, len(rows.Vals))
+	ids := make([]int64, 0, len(rows.Vals))
 	for _, v := range rows.Vals {
-		if len(v) < 3 || v[0] == nil {
+		if len(v) < 5 || v[0] == nil || v[1] == nil {
 			continue
 		}
-		title := *v[0]
-		body := ""
-		if v[1] != nil {
-			body = *v[1]
-		}
-		low := strings.ToLower(title + " " + body)
-		hits := 0
+		c := memCand{title: *v[1], body: str(v[2]), anchored: str(v[4]) == "t"}
+		c.id, _ = strconv.ParseInt(*v[0], 10, 64)
+		c.created, _ = strconv.ParseInt(str(v[3]), 10, 64)
+		low := strings.ToLower(c.title + " " + c.body)
 		for _, t := range terms {
 			if strings.Contains(low, t) {
-				hits++
+				c.hits++
 			}
 		}
-		when := ""
-		if v[2] != nil {
-			if ms, perr := strconv.ParseInt(*v[2], 10, 64); perr == nil {
-				when = time.UnixMilli(ms).UTC().Format("2006-01-02")
-			}
-		}
-		snip := title
-		if body != "" {
-			snip = title + " , " + body
-		}
-		if r := []rune(snip); len(r) > 240 {
-			snip = string(r[:240]) + "…"
-		}
-		cand = append(cand, scored{ctxItem{
-			When: when, Source: "memory", Snippet: snip,
-			Why:   "remembered , matched " + strconv.Itoa(hits) + " of your words",
-			Score: float64(hits) / float64(len(terms)),
-		}, hits})
+		cands = append(cands, c)
+		ids = append(ids, c.id)
 	}
-	sort.SliceStable(cand, func(a, b int) bool { return cand[a].hits > cand[b].hits })
-	out := make([]ctxItem, 0, 2)
-	for _, c := range cand {
-		if c.hits == 0 {
+	// the weights are a refinement: without them the order is the words and the clock, as before
+	if w, werr := memWeights(db, ids, nowMs); werr == nil {
+		for i := range cands {
+			cands[i].weight = w[cands[i].id]
+		}
+	}
+	ranked := rankMemories(cands)
+	if len(ranked) > 2 {
+		ranked = ranked[:2]
+	}
+	out := make([]ctxItem, 0, 3)
+	touched := make([]string, 0, 2)
+	for _, c := range ranked {
+		why := "remembered , matched " + strconv.Itoa(c.hits) + " of your words"
+		if c.anchored {
+			why += " , one you marked as an anchor"
+		}
+		out = append(out, ctxItem{When: memWhen(c.created), Source: "memory", Snippet: memSnippet(c.title, c.body),
+			Why: why, Score: float64(c.hits) / float64(len(terms))})
+		touched = append(touched, strconv.FormatInt(c.id, 10))
+	}
+	if len(ranked) == 0 {
+		return out, nil
+	}
+	if n, ok := heaviestNeighbour(db, ranked[0].id, touched, nowMs); ok {
+		out = append(out, ctxItem{When: memWhen(n.created), Source: "memory", Snippet: memSnippet(n.title, n.body),
+			Why:   "kept with \"" + ranked[0].title + "\" , " + linkWhyWords(n.why),
+			Score: out[0].Score / 2})
+	}
+	_ = db.Exec("UPDATE memories SET touched_at = $1 WHERE id = ANY($2::bigint[])", nowMs, "{"+strings.Join(touched, ",")+"}")
+	return out, nil
+}
+
+// neighbour is a linked memory as the grounding reads it.
+type neighbour struct {
+	memCand
+	why string
+}
+
+// heaviestNeighbour is the neighbour of a memory that weighs the most, among the ones the box
+// still stands behind and that are not already going to the model.
+func heaviestNeighbour(db *poltergres.ReadWrite, id int64, already []string, nowMs int64) (neighbour, bool) {
+	// its links, then the memories at the other ends in one batched lookup: no join (docs/DATA.md)
+	lrows, err := db.Query("SELECT a, b, why FROM memory_links WHERE a = $1 OR b = $1", id)
+	if err != nil || len(lrows.Vals) == 0 {
+		return neighbour{}, false
+	}
+	skip := map[string]bool{strconv.FormatInt(id, 10): true}
+	for _, a := range already {
+		skip[a] = true
+	}
+	why := map[string]string{}
+	var others []string
+	for _, v := range lrows.Vals {
+		if len(v) < 3 || v[0] == nil || v[1] == nil {
 			continue
 		}
-		out = append(out, c.it)
-		if len(out) == 2 {
-			break
+		for _, x := range []string{*v[0], *v[1]} {
+			if _, perr := strconv.ParseInt(x, 10, 64); perr != nil || skip[x] {
+				continue
+			}
+			if _, seen := why[x]; !seen {
+				others = append(others, x)
+			}
+			why[x] = str(v[2])
 		}
 	}
-	return out
+	if len(others) == 0 {
+		return neighbour{}, false
+	}
+	rows, err := db.Query(`SELECT id, title, body, created_at, id::text FROM memories
+		WHERE id = ANY($1::bigint[]) AND NOT tombstoned AND (meta IS NULL OR NOT jsonb_exists(meta, 'doubt'))
+		ORDER BY created_at DESC LIMIT 60`, "{"+strings.Join(others, ",")+"}")
+	if err != nil || len(rows.Vals) == 0 {
+		return neighbour{}, false
+	}
+	ns := make([]neighbour, 0, len(rows.Vals))
+	ids := make([]int64, 0, len(rows.Vals))
+	for _, v := range rows.Vals {
+		if len(v) < 5 || v[0] == nil || v[1] == nil {
+			continue
+		}
+		n := neighbour{why: why[str(v[4])]}
+		n.id, _ = strconv.ParseInt(*v[0], 10, 64)
+		n.title, n.body = *v[1], str(v[2])
+		n.created, _ = strconv.ParseInt(str(v[3]), 10, 64)
+		ns = append(ns, n)
+		ids = append(ids, n.id)
+	}
+	if len(ns) == 0 {
+		return neighbour{}, false
+	}
+	if w, werr := memWeights(db, ids, nowMs); werr == nil {
+		for i := range ns {
+			ns[i].weight = w[ns[i].id]
+		}
+	}
+	sort.SliceStable(ns, func(a, b int) bool {
+		if ns[a].weight != ns[b].weight {
+			return ns[a].weight > ns[b].weight
+		}
+		return ns[a].created > ns[b].created
+	})
+	return ns[0], true
+}
+
+// linkWhyWords says a link's reason in words, for the model and the log.
+func linkWhyWords(why string) string {
+	switch why {
+	case linkPart:
+		return "one is part of the other"
+	case linkNames:
+		return "one names the person the other is about"
+	case linkPlace:
+		return "it happened at that place"
+	case linkWritten:
+		return "written on that day"
+	case linkMonth:
+		return "in that month"
+	}
+	return "they belong together"
 }
 
 // otdYear is one year's slice of an On This Day report.

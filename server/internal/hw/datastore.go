@@ -412,12 +412,13 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     ts      BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages (chat_id, id);
--- MEMORIES , the durable distillate ghost.shadowd writes from saved conversations (and, later,
--- from frames/places). One row = one fact/preference/event about the person, with PROVENANCE
--- (source_chat) and USER SOVEREIGNTY: tombstoned memories are the tag principle again , the model
--- may never resurrect what the person deleted; user_edited rows are never overwritten by re-
--- distillation. emb is reserved for the embedding pass (synthd's semantic index); NULL means
--- keyword-only retrieval, which is the honest v1.
+-- MEMORIES , what ghost.synthd keeps from everything the box holds: a fact about the person, one
+-- of their people, a place, a day, an outing, a trip, a month, something it noticed, and what the
+-- person wrote by hand. One row each, with where it came from (source_chat, source_ref) and the
+-- person's say over it: a tombstoned memory is never made again, a user_edited one is never
+-- rewritten. The columns added since (source_ref, meta, anchored_at, touched_at) and the links
+-- between memories are in the registry (schemadef.go); docs/MEMORY.md tells the whole model.
+-- emb is still reserved: retrieval is by word, not by meaning.
 CREATE TABLE IF NOT EXISTS memories (
     id          BIGSERIAL PRIMARY KEY,
     title       TEXT NOT NULL,

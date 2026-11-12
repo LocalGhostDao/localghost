@@ -10,8 +10,13 @@ import java.io.File
 object ModelStore {
     private fun dir(ctx: Context): File = File(ctx.filesDir, "models").apply { mkdirs() }
 
-    fun file(ctx: Context, id: String): File = File(dir(ctx), "$id.gguf")
-    fun partFile(ctx: Context, id: String): File = File(dir(ctx), "$id.gguf.part")
+    /** The box's id for a model as a file name: letters, digits, dot, dash, underscore. The id
+     *  comes from the box's catalogue; it names a file here and never a path. */
+    internal fun safeId(id: String): String =
+        id.replace(Regex("[^A-Za-z0-9._-]"), "_").trimStart('.').ifEmpty { "model" }.take(120)
+
+    fun file(ctx: Context, id: String): File = File(dir(ctx), safeId(id) + ".gguf")
+    fun partFile(ctx: Context, id: String): File = File(dir(ctx), safeId(id) + ".gguf.part")
 
     fun isPresent(ctx: Context, id: String): Boolean = file(ctx, id).let { it.exists() && it.length() > 0 }
 

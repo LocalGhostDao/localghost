@@ -71,16 +71,28 @@ for n in $bad; do
 done
 # swap: the old file stays as .replaced (llama-server has it mapped until the restart; the kernel
 # keeps the pages until then), the new one takes the name, ownership as the rest of the volume
+# ROOT'S HANDS IN THE VOLUME (second audit, 12 Nov 2026). The volume is the daemons' user's from
+# its root down and this script is root (update.sh runs it, for the operator or for ghost.secd when
+# the phone asks). A daemon that had been taken over (they read photos, video and mail from
+# outside) can put a link where any name in there stands, and whatever root then does by that
+# name lands where the link points. Two of the old lines turned that into root: `chown` of a
+# name (it re-owns what a link points at) and `cp -f old old.prev` (the daemon's own bytes,
+# written wherever old.prev pointed). So nothing here follows a link: a file is renamed into
+# place (mv -T: a link to a directory is replaced, never entered), installed fresh (install -T
+# unlinks what stood there first), given a second name without a copy (ln -T), owned through
+# the name itself (chown -h), and has its mode set only when it is a plain file.
+vol_own()  { for _f in "$@"; do if [ -e "$_f" ] || [ -L "$_f" ]; then chown -h "$OWNER:$OWNER" "$_f" 2>/dev/null || true; fi; done; }
+vol_mode() { _m="$1"; shift; for _f in "$@"; do if [ -f "$_f" ] && [ ! -L "$_f" ]; then chmod "$_m" "$_f"; fi; done; }
 for n in $fetched; do
-    [ -f "$DIR/$n" ] && mv -f "$DIR/$n" "$DIR/$n.replaced"
-    mv -f "$STAGE/$n" "$DIR/$n"
-    chown "$OWNER:$OWNER" "$DIR/$n" 2>/dev/null || true
-    chmod 600 "$DIR/$n"
+    [ -f "$DIR/$n" ] && mv -fT "$DIR/$n" "$DIR/$n.replaced"
+    mv -fT "$STAGE/$n" "$DIR/$n"
+    vol_own "$DIR/$n"
+    vol_mode 600 "$DIR/$n"
     echo "-- $n in place (the old file is $n.replaced)"
 done
 # the set's notice and terms go beside the weights, as setup left them
-[ -f "$STAGE/NOTICE.txt" ] && mv -f "$STAGE/NOTICE.txt" "$DIR/NOTICE-models.txt"
-for f in "$STAGE"/TERMS-*.txt; do [ -f "$f" ] && mv -f "$f" "$DIR/"; done
+[ -f "$STAGE/NOTICE.txt" ] && mv -fT "$STAGE/NOTICE.txt" "$DIR/NOTICE-models.txt"
+for f in "$STAGE"/TERMS-*.txt; do [ -f "$f" ] && mv -fT "$f" "$DIR/$(basename "$f")"; done
 rm -rf "$STAGE"
 echo "> restarting ghost.oracled so llama-server loads the pinned files"
 if "$HERE/../bin/ghost-ctl" restart-daemon ghost.oracled >/dev/null 2>&1 || /opt/localghost/bin/ghost-ctl restart-daemon ghost.oracled >/dev/null 2>&1; then

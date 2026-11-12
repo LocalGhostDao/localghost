@@ -83,11 +83,16 @@ func dwebpPNG(ctx context.Context, path, kind string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// its size first, from the header: a WebP of a few kilobytes can claim a gigabyte of pixels
+	if err := imgfit.CheckWebPFile(path); err != nil {
+		return nil, fmt.Errorf("dwebp not run: %w", err)
+	}
 	// "-o -": the PNG comes back on a pipe. The picture is decoded from where it lies on the
 	// encrypted volume and never written anywhere else, not even a temporary file.
-	var out, errb bytes.Buffer
+	var errb bytes.Buffer
+	out := imgfit.NewPipe()
 	cmd := exec.CommandContext(ctx, bin, "-quiet", path, "-o", "-")
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	cmd.Stdout, cmd.Stderr = out, &errb
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("dwebp: %v %s", err, strings.TrimSpace(errb.String()))
@@ -104,12 +109,19 @@ func ffmpegJPEG(ctx context.Context, path, kind string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out, errb bytes.Buffer
+	if kind == "webp" {
+		if err := imgfit.CheckWebPFile(path); err != nil {
+			return nil, fmt.Errorf("ffmpeg not run: %w", err)
+		}
+	}
+	var errb bytes.Buffer
+	out := imgfit.NewPipe()
 	// scaled on the way out, so a HEIC or a JPEG Go refuses is small before it is decoded again here
 	side := strconv.Itoa(ImageMaxSide)
 	scale := "scale=w='min(iw," + side + ")':h='min(ih," + side + ")':force_original_aspect_ratio=decrease"
-	cmd := exec.CommandContext(ctx, bin, "-v", "error", "-i", path, "-frames:v", "1", "-vf", scale, "-f", "image2", "-c:v", "mjpeg", "pipe:1")
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	args := append([]string{"-v", "error"}, imgfit.FFmpegInput(path)...)
+	cmd := exec.CommandContext(ctx, bin, append(args, "-frames:v", "1", "-vf", scale, "-f", "image2", "-c:v", "mjpeg", "pipe:1")...)
+	cmd.Stdout, cmd.Stderr = out, &errb
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("ffmpeg: %v: %s", err, firstLine(errb.String()))

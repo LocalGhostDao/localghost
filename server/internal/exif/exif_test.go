@@ -1,6 +1,7 @@
 package exif
 
 import (
+	"bytes"
 	"encoding/binary"
 	"math"
 	"testing"
@@ -178,5 +179,46 @@ func TestParseOffsetTimeOriginal(t *testing.T) {
 	m := Parse(append(b, 0xFF, 0xD9))
 	if got := m.TakenAt.UTC().Format("2006-01-02T15:04:05Z"); got != "2024-06-01T11:30:00Z" {
 		t.Fatalf("12:30 at +01:00 must be 11:30Z, got %s", got)
+	}
+}
+
+// A date no camera could have written is no date: the photo keeps its place on the map and is
+// filed by the phone's hint, not under the year 9999 (12 Nov 2026).
+func TestParseRefusesAnImpossibleDate(t *testing.T) {
+	for _, when := range []string{"9999:12:31 23:59:59", "0000:01:01 00:00:00", "1899:12:31 23:59:59", "2999:01:01 00:00:00"} {
+		b := buildTestJPEG()
+		i := bytes.Index(b, []byte("2024:06:01 12:30:00"))
+		copy(b[i:], when)
+		m := Parse(b)
+		if !m.TakenAt.IsZero() {
+			t.Fatalf("%s read as %s", when, m.TakenAt)
+		}
+		if !m.HasGPS {
+			t.Fatalf("%s: the fix went with the date", when)
+		}
+	}
+	b := buildTestJPEG()
+	i := bytes.Index(b, []byte("2024:06:01 12:30:00"))
+	copy(b[i:], "1969:07:20 20:17:00")
+	if m := Parse(b); m.TakenAt.Year() != 1969 {
+		t.Fatalf("a scan of an old photograph lost its date: %v", m.TakenAt)
+	}
+}
+
+// Every length and offset in a TIFF is the file's own word: none of them may take the reader
+// out of the bytes it was given, whatever they say.
+func TestParseNeverReadsOutOfRange(t *testing.T) {
+	base := buildTestJPEG()
+	// every byte of the TIFF block set to each of a few telling values, one at a time
+	for i := 12; i < len(base)-2; i++ {
+		for _, v := range []byte{0x00, 0x7f, 0x80, 0xff} {
+			b := append([]byte(nil), base...)
+			b[i] = v
+			_ = Parse(b) // a panic fails the test
+		}
+	}
+	// and cut short at every length
+	for n := 0; n <= len(base); n++ {
+		_ = Parse(base[:n])
 	}
 }

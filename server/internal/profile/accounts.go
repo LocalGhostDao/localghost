@@ -130,6 +130,9 @@ func (a *Accounts) Unlock(id, pin string) Decision {
 // may try now). For status lines and tests; Unlock is the only thing that counts an attempt.
 func (a *Accounts) Allowed(id string) error { return a.gate.CheckAllowed(id) }
 
+// Failures is how many wrong PINs stand against id in the limiter, without making an attempt.
+func (a *Accounts) Failures(id string) int { return a.gate.Failures(id) }
+
 func (a *Accounts) armedLive(id string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()

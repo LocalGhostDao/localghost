@@ -275,24 +275,22 @@ object WebSearch {
     // Result anchors are found by class, whatever the attribute order: the HTML endpoint marks the
     // title link result__a and the snippet result__snippet; the lite endpoint is a table whose link
     // has class result-link and whose snippet sits in the next row's td.result-snippet.
-    private val anchorTag = Regex("<a\\b([^>]*)>(.*?)</a\\s*>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val resultSnippet = Regex("<a[^>]*class=\"result__snippet\"[^>]*>(.*?)</a>", RegexOption.DOT_MATCHES_ALL)
-    private val liteSnippet = Regex("<td[^>]*class=['\"]result-snippet['\"][^>]*>(.*?)</td>", RegexOption.DOT_MATCHES_ALL)
+    // Read with the same one-pass cuts as a page (elementsNamed, attrsOf, below): the results
+    // page is DuckDuckGo's, but the titles and snippets on it are strangers' words.
+    private const val RESULT_ELEMENTS = 2000
 
     /** (href, title) of every anchor whose class carries [cls]. */
-    internal fun anchorsWithClass(html: String, cls: String): List<Pair<String, String>> {
-        val out = ArrayList<Pair<String, String>>()
-        for (m in anchorTag.findAll(html)) {
-            val attrs = m.groupValues[1]
-            var href = ""; var klass = ""
-            for (am in attr.findAll(attrs)) {
-                val v = am.groupValues[2].ifEmpty { am.groupValues[3].ifEmpty { am.groupValues[4] } }
-                when (am.groupValues[1].lowercase()) { "href" -> href = v; "class" -> klass = v }
-            }
-            if (klass.split(' ').any { it == cls }) out.add(decodeLink(href) to clean(m.groupValues[2]))
+    internal fun anchorsWithClass(html: String, cls: String): List<Pair<String, String>> =
+        elementsNamed(html, "a", RESULT_ELEMENTS).mapNotNull { (tag, inside) ->
+            val a = attrsOf(tag)
+            if ((a["class"] ?: "").split(' ').any { it == cls }) decodeLink(a["href"] ?: "") to clean(inside) else null
         }
-        return out
-    }
+
+    /** The text inside every <[name]> whose class carries [cls]. */
+    private fun textWithClass(html: String, name: String, cls: String): List<String> =
+        elementsNamed(html, name, RESULT_ELEMENTS).mapNotNull { (tag, inside) ->
+            if ((attrsOf(tag)["class"] ?: "").split(' ').any { it == cls }) clean(inside) else null
+        }
 
     /** DuckDuckGo, HTML first, lite as the fallback. Empty when both come back empty or with the
      *  bot check (DuckDuckGo answers a burst of requests with a challenge page instead of results;
@@ -367,7 +365,7 @@ object WebSearch {
     internal fun parseDdgHtml(html: String): List<Hit> {
         if (isBotCheck(html)) return emptyList()
         val titles = anchorsWithClass(html, "result__a")
-        val snippets = resultSnippet.findAll(html).map { clean(it.groupValues[1]) }.toList()
+        val snippets = textWithClass(html, "a", "result__snippet")
         return collect(titles, snippets)
     }
 
@@ -389,7 +387,7 @@ object WebSearch {
     internal fun parseDdgLite(html: String): List<Hit> {
         if (isBotCheck(html)) return emptyList()
         val titles = anchorsWithClass(html, "result-link")
-        val snippets = liteSnippet.findAll(html).map { clean(it.groupValues[1]) }.toList()
+        val snippets = textWithClass(html, "td", "result-snippet")
         return collect(titles, snippets)
     }
 
@@ -508,17 +506,213 @@ object WebSearch {
         return runCatching { String(bytes, charset(cs ?: "UTF-8")) }.getOrElse { String(bytes, Charsets.UTF_8) }
     }
 
-    private val dropBlocks = Regex("<(script|style|noscript|svg|iframe|nav|header|footer|aside|form|template|figure)\\b[^>]*>.*?</\\1\\s*>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val comments = Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL)
+    // THE PAGE IS A STRANGER'S. Until the second audit (12 Nov 2026) the reduction below was a
+    // handful of regular expressions of the shape "<x …>.*?</x>", each of which, on a page with
+    // thousands of openings and no closing (four hundred kilobytes of "<nav>" or "<!--"), starts
+    // again at every opening and reads to the end: the square of the page, minutes of one core,
+    // on a thread that cannot be stopped. A page like that only has to rank for something the
+    // person asks. The cuts are now made by hand, each in one pass over the page: an element
+    // that is never closed is left in (and its kind not looked for again), a tag that never
+    // ends ends the search.
+    private val dropNames = arrayOf("script", "style", "noscript", "svg", "iframe", "nav", "header", "footer", "aside", "form", "template", "figure")
+    private val mainNames = arrayOf("article", "main")
+
+    private fun wordChar(c: Char) = c.isLetterOrDigit() || c == '_'
+
+    /** The name, of [names], of the element that opens at [i] (where a '<' stands), or null. */
+    private fun opensAt(s: String, i: Int, names: Array<String>): String? {
+        for (n in names) {
+            val end = i + 1 + n.length
+            if (end < s.length && s.regionMatches(i + 1, n, 0, n.length, ignoreCase = true) && !wordChar(s[end])) return n
+        }
+        return null
+    }
+
+    /** Where the closing tag of [name] starts, at or after [from]: the '<' of "</name>", or -1. */
+    private fun closeAt(s: String, name: String, from: Int): Int {
+        val needle = "</$name"
+        var j = s.indexOf(needle, from, ignoreCase = true)
+        while (j >= 0) {
+            var k = j + needle.length
+            while (k < s.length && s[k].isWhitespace()) k++
+            if (k < s.length && s[k] == '>') return j
+            j = s.indexOf(needle, j + 1, ignoreCase = true)
+        }
+        return -1
+    }
+
+    /** [html] without its comments; one that is never closed takes the rest of the page. */
+    internal fun stripComments(html: String): String {
+        var i = html.indexOf("<!--")
+        if (i < 0) return html
+        val sb = StringBuilder(html.length)
+        var from = 0
+        while (i >= 0) {
+            sb.append(html, from, i)
+            val end = html.indexOf("-->", i + 4)
+            if (end < 0) return sb.toString()
+            from = end + 3
+            i = html.indexOf("<!--", from)
+        }
+        sb.append(html, from, html.length)
+        return sb.toString()
+    }
+
+    /** [html] with each element named in [names] cut out whole, a space in its place. */
+    internal fun dropElements(html: String, names: Array<String>): String {
+        val dead = HashSet<String>() // kinds with no closing tag left on the page
+        val sb = StringBuilder(html.length)
+        var from = 0
+        var i = html.indexOf('<')
+        while (i >= 0) {
+            val name = opensAt(html, i, names)
+            if (name != null && name !in dead) {
+                val gt = html.indexOf('>', i + 1)
+                if (gt < 0) break // no tag ends after this point
+                val close = closeAt(html, name, gt + 1)
+                if (close < 0) dead.add(name)
+                else {
+                    sb.append(html, from, i).append(' ')
+                    from = html.indexOf('>', close) + 1
+                    i = html.indexOf('<', from)
+                    continue
+                }
+            }
+            i = html.indexOf('<', i + 1)
+        }
+        sb.append(html, from, html.length)
+        return sb.toString()
+    }
+
+    /** The inside of the first <article> or <main> on the page that is closed, or null. */
+    internal fun mainElement(html: String): String? {
+        val dead = HashSet<String>()
+        var i = html.indexOf('<')
+        while (i >= 0 && dead.size < mainNames.size) {
+            val name = opensAt(html, i, mainNames)
+            if (name != null && name !in dead) {
+                val gt = html.indexOf('>', i + 1)
+                if (gt < 0) return null
+                val close = closeAt(html, name, gt + 1)
+                if (close >= 0) return html.substring(gt + 1, close)
+                dead.add(name)
+            }
+            i = html.indexOf('<', i + 1)
+        }
+        return null
+    }
+
+    /** [s] with every tag replaced by [with]. A tag is a '<' with a letter, '/', '!' or '?' after
+     *  it and a '>' somewhere on; any other '<' is text ("1 < 2 and 3 > 2" stays whole, where the
+     *  expression before took "< 2 and 3 >" for a tag). */
+    internal fun stripTags(s: String, with: String = ""): String {
+        var i = s.indexOf('<')
+        if (i < 0) return s
+        val sb = StringBuilder(s.length)
+        var from = 0
+        while (i >= 0) {
+            val c = if (i + 1 < s.length) s[i + 1] else ' '
+            if (c.isLetter() || c == '/' || c == '!' || c == '?') {
+                val gt = s.indexOf('>', i + 1)
+                if (gt < 0) break
+                sb.append(s, from, i).append(with)
+                from = gt + 1
+                i = s.indexOf('<', from)
+            } else i = s.indexOf('<', i + 1)
+        }
+        sb.append(s, from, s.length)
+        return sb.toString()
+    }
+
+    /** How much of [raw] is link text: what stands between each <a …> and its </a>. */
+    internal fun linkChars(raw: String): Int = elementsNamed(raw, "a", Int.MAX_VALUE).sumOf { clean(it.second).length }
+
+    /** Every <[name] …>…</[name]> in [html] in order, as (the opening tag, what is inside), up
+     *  to [max]. The search goes on after each closing tag, so one inside another of its own
+     *  kind is not listed twice; an opening with no closing after it ends the list. */
+    internal fun elementsNamed(html: String, name: String, max: Int): List<Pair<String, String>> {
+        val out = ArrayList<Pair<String, String>>()
+        val needle = "<$name"
+        var i = html.indexOf(needle, ignoreCase = true)
+        while (i >= 0 && out.size < max) {
+            val after = i + needle.length
+            if (after < html.length && !wordChar(html[after])) { // "<a>", "<a href…", not "<abbr" or "<article"
+                val gt = html.indexOf('>', after)
+                if (gt < 0) break
+                val close = closeAt(html, name, gt + 1)
+                if (close < 0) break
+                out.add(html.substring(i, gt + 1) to html.substring(gt + 1, close))
+                i = html.indexOf(needle, close, ignoreCase = true)
+                continue
+            }
+            i = html.indexOf(needle, after, ignoreCase = true)
+        }
+        return out
+    }
+
+    /** The attributes of one tag as written ("<meta name=… content=…>"), names in lower case,
+     *  the first of a repeated name kept (as a browser does), at most 64. Read in one pass: the
+     *  expression this replaces began again at every letter of a long tag. */
+    internal fun attrsOf(tag: String): Map<String, String> {
+        val out = HashMap<String, String>()
+        val n = tag.length
+        var i = 0
+        if (i < n && tag[i] == '<') { // the tag's own name
+            i++
+            while (i < n && !tag[i].isWhitespace() && tag[i] != '>' && tag[i] != '/') i++
+        }
+        while (i < n && out.size < 64) {
+            while (i < n && (tag[i].isWhitespace() || tag[i] == '/')) i++
+            if (i >= n || tag[i] == '>') break
+            val start = i
+            while (i < n && !tag[i].isWhitespace() && tag[i] != '=' && tag[i] != '>' && tag[i] != '/') i++
+            if (i == start) { i++; continue } // an '=' with no name before it
+            val name = tag.substring(start, i).lowercase()
+            while (i < n && tag[i].isWhitespace()) i++
+            var value = ""
+            if (i < n && tag[i] == '=') {
+                i++
+                while (i < n && tag[i].isWhitespace()) i++
+                if (i < n && (tag[i] == '"' || tag[i] == '\'')) {
+                    val end = tag.indexOf(tag[i], i + 1)
+                    if (end < 0) { value = tag.substring(i + 1); i = n } else { value = tag.substring(i + 1, end); i = end + 1 }
+                } else {
+                    val from = i
+                    while (i < n && !tag[i].isWhitespace() && tag[i] != '>') i++
+                    value = tag.substring(from, i)
+                }
+            }
+            if (name !in out) out[name] = value
+        }
+        return out
+    }
+
+    /** Every <[name] …> tag in [html], as written, up to [max] of them. */
+    private fun tagsNamed(html: String, name: String, max: Int): List<String> {
+        val out = ArrayList<String>()
+        val needle = "<$name"
+        var i = html.indexOf(needle, ignoreCase = true)
+        while (i >= 0 && out.size < max) {
+            val after = i + needle.length
+            val gt = html.indexOf('>', after)
+            if (gt < 0) break
+            if (after < html.length && !wordChar(html[after]) && gt - i <= 4096) out.add(html.substring(i, gt + 1))
+            i = html.indexOf(needle, gt, ignoreCase = true)
+        }
+        return out
+    }
+
+    /** The text of the page's <title>, "" without one. */
+    private fun titleOf(head: String): String {
+        val i = head.indexOf("<title", ignoreCase = true)
+        if (i < 0) return ""
+        val gt = head.indexOf('>', i + 6)
+        if (gt < 0) return ""
+        val close = closeAt(head, "title", gt + 1)
+        return if (close < 0) "" else clean(head.substring(gt + 1, close))
+    }
     private val blockEnd = Regex("</(p|div|li|h[1-6]|tr|td|th|section|article|blockquote|pre|dd|dt)\\s*>|<br\\s*/?>|<hr\\s*/?>", RegexOption.IGNORE_CASE)
-    private val anyTag = Regex("<[^>]+>")
-    private val anchor = Regex("<a\\b[^>]*>(.*?)</a\\s*>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val titleTag = Regex("<title[^>]*>(.*?)</title>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-    private val metaTag = Regex("<meta\\b[^>]*>", RegexOption.IGNORE_CASE)
-    private val attr = Regex("([a-zA-Z:_-]+)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))")
-    private val timeTag = Regex("<time\\b[^>]*datetime=[\"']([^\"']+)[\"']", RegexOption.IGNORE_CASE)
     private val ldDate = Regex("\"datePublished\"\\s*:\\s*\"([^\"]+)\"")
-    private val mainBlock = Regex("<(article|main)\\b[^>]*>(.*?)</\\1\\s*>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 
     /**
      * The readability pass. Title and description from the head; the publish date from the
@@ -528,14 +722,13 @@ object WebSearch {
      * and is not mostly links (a menu, a tag cloud, a "related" list).
      */
     internal fun extract(html: String): Page {
-        val noComments = comments.replace(html, "")
+        val noComments = stripComments(html)
         val head = noComments.take(64 * 1024)
-        val title = titleTag.find(head)?.let { clean(it.groupValues[1]) } ?: ""
+        val title = titleOf(head)
         var description = ""
         var published = ""
-        for (m in metaTag.findAll(head)) {
-            val a = HashMap<String, String>()
-            for (am in attr.findAll(m.value)) a[am.groupValues[1].lowercase()] = am.groupValues[2].ifEmpty { am.groupValues[3].ifEmpty { am.groupValues[4] } }
+        for (tag in tagsNamed(head, "meta", 400)) {
+            val a = attrsOf(tag)
             val key = (a["property"] ?: a["name"] ?: a["itemprop"] ?: "").lowercase()
             val content = a["content"] ?: continue
             when (key) {
@@ -545,15 +738,16 @@ object WebSearch {
             }
         }
         if (published.isEmpty()) published = ldDate.find(noComments)?.groupValues?.get(1)?.take(32) ?: ""
-        if (published.isEmpty()) published = timeTag.find(noComments)?.groupValues?.get(1)?.take(32) ?: ""
+        if (published.isEmpty()) published = tagsNamed(noComments, "time", 200)
+            .firstNotNullOfOrNull { attrsOf(it)["datetime"]?.takeIf { d -> d.isNotEmpty() } }?.take(32) ?: ""
         val bodyStart = noComments.indexOf("<body", ignoreCase = true).let { if (it < 0) 0 else it }
         var body = noComments.substring(bodyStart)
-        mainBlock.find(body)?.let { m -> if (m.groupValues[2].length > 400) body = m.groupValues[2] }
-        body = dropBlocks.replace(body, " ")
+        mainElement(body)?.let { inside -> if (inside.length > 400) body = inside }
+        body = dropElements(body, dropNames)
         val paragraphs = ArrayList<String>()
         for (raw in blockEnd.split(body)) {
-            val linkChars = anchor.findAll(raw).sumOf { clean(it.groupValues[1]).length }
-            val text = clean(anyTag.replace(raw, " ")).replace('\n', ' ').replace(Regex(" {2,}"), " ").trim()
+            val linkChars = linkChars(raw)
+            val text = clean(stripTags(raw, " ")).replace('\n', ' ').replace(Regex(" {2,}"), " ").trim()
             if (text.length < 40) continue
             if (linkChars * 2 > text.length) continue // more link than prose: a menu, not a paragraph
             paragraphs.add(text)
@@ -602,13 +796,18 @@ object WebSearch {
         m
     }
 
+    /** A numeric entity as text; "" for a number that is no character (Character.toChars throws
+     *  on one, and "&#x7fffffff;" in a title used to throw the whole page away). */
+    private fun codePoint(n: Int?): String =
+        if (n == null || n <= 0 || !Character.isValidCodePoint(n) || n in 0xD800..0xDFFF) "" else String(Character.toChars(n))
+
     internal fun clean(s: String): String {
-        val noTags = anyTag.replace(s, "")
+        val noTags = stripTags(s)
         val decoded = entity.replace(noTags) { m ->
             val e = m.groupValues[1]
             when {
-                e.startsWith("#x") || e.startsWith("#X") -> e.substring(2).toIntOrNull(16)?.let { String(Character.toChars(it)) } ?: ""
-                e.startsWith("#") -> e.substring(1).toIntOrNull()?.let { String(Character.toChars(it)) } ?: ""
+                e.startsWith("#x") || e.startsWith("#X") -> codePoint(e.substring(2).toIntOrNull(16))
+                e.startsWith("#") -> codePoint(e.substring(1).toIntOrNull())
                 else -> named[e] ?: m.value // an entity we do not know stays as written
             }
         }

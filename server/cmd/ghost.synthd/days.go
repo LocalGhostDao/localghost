@@ -758,10 +758,14 @@ func projectDayMemory(db *poltergres.ReadWrite, day, title, summary, by string, 
 		if (len(v) > 1 && str(v[1]) == "t") || (len(v) > 2 && str(v[2]) == "t") {
 			return nil
 		}
+		// the meta is written whole, so the fold the day is under (meta.part_of: its trip, its
+		// outing, its month) is carried: without it a day told again showed on its own in the
+		// feed until the next folding
+		const keepFold = "$2::jsonb || CASE WHEN meta IS NOT NULL AND jsonb_exists(meta, 'part_of') THEN jsonb_build_object('part_of', meta->'part_of') ELSE '{}'::jsonb END"
 		if len(v) > 3 && str(v[3]) == summary {
-			return db.Exec("UPDATE memories SET title = $1, meta = $2::jsonb WHERE id = $3", title, string(mb), str(v[0]))
+			return db.Exec("UPDATE memories SET title = $1, meta = "+keepFold+" WHERE id = $3", title, string(mb), str(v[0]))
 		}
-		return db.Exec("UPDATE memories SET title = $1, body = $2, meta = $3::jsonb, updated_at = $4 WHERE id = $5", title, summary, string(mb), now, str(v[0]))
+		return db.Exec("UPDATE memories SET title = $1, body = $2, meta = "+strings.Replace(keepFold, "$2", "$3", 1)+", updated_at = $4 WHERE id = $5", title, summary, string(mb), now, str(v[0]))
 	}
 	t, _ := time.Parse("2006-01-02", day)
 	return db.Exec("INSERT INTO memories (title, body, kind, source_ref, meta, created_at, updated_at) VALUES ($1,$2,'day',$3,$4::jsonb,$5,$6)",
@@ -795,12 +799,27 @@ func wordsTakenBack(oldJSON string, now *dayFacts) bool {
 }
 
 // dropEmptyDay removes the telling of a day that has nothing left to be told from: the
-// day_summaries row and the day's memory, unless the person edited that memory by hand.
+// day_summaries row and the day's memory, unless the person edited that memory by hand. An
+// anchor does not save it: the day is empty because the person deleted what it was told from,
+// and the box's telling of deleted things goes with them (their own words on it would stay).
 func dropEmptyDay(db *poltergres.ReadWrite, day string) error {
 	if err := db.Exec("DELETE FROM day_summaries WHERE day = $1", day); err != nil {
 		return err
 	}
-	return db.Exec("DELETE FROM memories WHERE kind = 'day' AND source_ref = $1 AND NOT user_edited", "day:"+day)
+	gone, err := db.Query("DELETE FROM memories WHERE kind = 'day' AND source_ref = $1 AND NOT user_edited RETURNING (anchored_at IS NOT NULL)", "day:"+day) // the person's delete outranks their anchor
+	if err != nil {
+		return err
+	}
+	// an anchored day was on the front page: the page is chosen again now, so the day is not
+	// quoted to the model for the rest of today after the person deleted what it was told
+	// from. Only then: this runs for every empty day a pass looks at, and the page must not
+	// change with every pass.
+	for _, v := range gone.Vals {
+		if len(v) > 0 && str(v[0]) == "t" {
+			return setSetting(db, hw.FrontPageKey, "")
+		}
+	}
+	return nil
 }
 
 // --- small words ---

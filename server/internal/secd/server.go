@@ -330,6 +330,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/memories/delete", s.handleMemoryDelete)      // tombstone: deletion outranks the model
 	mux.HandleFunc("/v1/memories/add", s.handleMemoryAdd)            // user-authored, sovereign from birth
 	mux.HandleFunc("/v1/memories/edit", s.handleMemoryEdit)          // the person's version IS the memory
+	mux.HandleFunc("/v1/memories/anchor", s.handleMemoryAnchor)      // the person's mark: only they can set it
+	mux.HandleFunc("/v1/memories/open", s.handleMemoryOpen)          // a memory's page opened: touched, and its neighbours
 	mux.HandleFunc("/v1/taste", s.handleTaste)                       // what the photos say you like (synthd's outing pass)
 	mux.HandleFunc("/v1/nearby", s.handleNearby)                     // places around you that fit the taste, from the box's own geo data
 	mux.HandleFunc("/v1/notes", s.handleNoteAdd)                     // app -> noted inbox -> journal

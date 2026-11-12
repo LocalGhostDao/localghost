@@ -92,7 +92,7 @@ object ServerUpdates {
             val man = File(dir, "MANIFEST.txt")
             val asc = File(dir, "MANIFEST.txt.asc")
             progress("reading the mirror's manifest…")
-            if (!fetchFile("$MIRROR/MANIFEST.txt", man) || !fetchFile("$MIRROR/MANIFEST.txt.asc", asc))
+            if (!fetchFile("$MIRROR/MANIFEST.txt", man, MANIFEST_MAX) || !fetchFile("$MIRROR/MANIFEST.txt.asc", asc, 64L shl 10))
                 return@withContext false to "the mirror did not answer"
             val now = ReleaseInfo.manifest(man.readText()) ?: return@withContext false to "the mirror's manifest did not read"
             // a site deploy makes a new build of the mirror with the same files: what matters is that
@@ -101,10 +101,13 @@ object ServerUpdates {
             val notesThen = o.files.firstOrNull { it.name == "RELEASE.txt" }?.sha256
             if (notesNow == null || notesNow != notesThen) return@withContext false to "the mirror offers a different release since; check again"
             val files = ArrayList<Pair<ReleaseInfo.SetFile, File>>()
+            var setBytes = 0L
+            if (now.server.size > 64) return@withContext false to "the mirror's release has more files than a release has"
             for (f in now.server) {
                 val local = File(dir, f.name)
                 progress("downloading ${f.name}…")
-                if (!fetchFile(MIRROR + f.path, local)) return@withContext false to "${f.name} did not download"
+                if (!fetchFile(MIRROR + f.path, local, minOf(FILE_MAX, SET_MAX - setBytes))) return@withContext false to "${f.name} did not download, or is larger than a release is"
+                setBytes += local.length()
                 if (sha256(local) != f.sha256) return@withContext false to "${f.name} is not what the manifest says"
                 files.add(f to local)
             }
@@ -150,24 +153,42 @@ object ServerUpdates {
             setRequestProperty("Cache-Control", "no-cache")
         }
 
-    /** A small text file (a release's notes), whole, up to a megabyte. */
+    /** A small text file (a release's notes), whole, up to a megabyte; null when it is longer
+     *  (it used to be read whole into memory first, whatever its size, then cut). */
     private fun fetchBytes(url: String): ByteArray? = try {
         val c = open(url)
-        try { if (c.responseCode == 200) c.inputStream.use { it.readBytes().take(1 shl 20).toByteArray() } else null } finally { c.disconnect() }
+        try { if (c.responseCode == 200) c.inputStream.use { readCapped(it, NOTES_MAX) } else null } finally { c.disconnect() }
     } catch (e: Exception) { null }
 
-    /** A text file line by line, keeping the lines [keep] says, up to 64 MB read. */
+    /** [ins] whole when it is at most [max] bytes, else null. */
+    internal fun readCapped(ins: java.io.InputStream, max: Int): ByteArray? {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        while (true) {
+            val n = ins.read(buf)
+            if (n < 0) break
+            if (out.size() + n > max) return null
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
+    private const val NOTES_MAX = 1 shl 20
+    /** One file of a release, and a whole release: far above any real one, far below a phone's
+     *  storage. The mirror's sizes are not known before the download, so the ceiling is here. */
+    private const val FILE_MAX = 1L shl 30
+    private const val SET_MAX = 2L shl 30
+
+    /** A text file line by line, keeping the lines [keep] says; null past [MANIFEST_MAX] bytes
+     *  (counted as they arrive: one endless line used to be read whole before it was counted). */
     private fun fetchLines(url: String, keep: (String) -> Boolean): String? = try {
         val c = open(url)
         try {
             if (c.responseCode != 200) null
-            else c.inputStream.bufferedReader().use { r ->
+            else Capped(c.inputStream, MANIFEST_MAX).bufferedReader().use { r ->
                 val sb = StringBuilder()
-                var read = 0L
                 while (true) {
                     val l = r.readLine() ?: break
-                    read += l.length + 1
-                    if (read > (64L shl 20)) break
                     if (keep(l)) sb.append(l).append('\n')
                 }
                 sb.toString()
@@ -175,13 +196,45 @@ object ServerUpdates {
         } finally { c.disconnect() }
     } catch (e: Exception) { null }
 
-    private fun fetchFile(url: String, dst: File): Boolean = try {
+    /** The manifest lists every file of every set: a few megabytes. Ten times that, and no more. */
+    private const val MANIFEST_MAX = 32L shl 20
+
+    /** A stream that fails once more than [max] bytes have come through it. */
+    internal class Capped(ins: java.io.InputStream, private val max: Long) : java.io.FilterInputStream(ins) {
+        private var seen = 0L
+        private fun count(n: Int): Int {
+            if (n > 0) { seen += n; if (seen > max) throw java.io.IOException("more than $max bytes") }
+            return n
+        }
+        override fun read(): Int { val b = super.read(); if (b >= 0) count(1); return b }
+        override fun read(b: ByteArray, off: Int, len: Int): Int = count(super.read(b, off, len))
+    }
+
+    /** [url] into [dst], stopped (and [dst] removed) past [max] bytes. */
+    private fun fetchFile(url: String, dst: File, max: Long = FILE_MAX): Boolean = try {
         val c = open(url)
         try {
             if (c.responseCode != 200) false
-            else { c.inputStream.use { ins -> dst.outputStream().use { ins.copyTo(it, 256 * 1024) } }; true }
+            else {
+                var total = 0L
+                var whole = true
+                c.inputStream.use { ins ->
+                    dst.outputStream().use { out ->
+                        val buf = ByteArray(256 * 1024)
+                        while (true) {
+                            val n = ins.read(buf)
+                            if (n < 0) break
+                            total += n
+                            if (total > max) { whole = false; break }
+                            out.write(buf, 0, n)
+                        }
+                    }
+                }
+                if (!whole) dst.delete()
+                whole
+            }
         } finally { c.disconnect() }
-    } catch (e: Exception) { false }
+    } catch (e: Exception) { dst.delete(); false }
 
     private fun sha256(b: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 

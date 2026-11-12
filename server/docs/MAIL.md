@@ -145,7 +145,12 @@ refused, a minute's silence or ten minutes of `DATA` ends the session, five bad 
 it; a box's queue over 200 MB is `452 4.2.2 mailbox full` (senders retry); greylisting
 (`greylist=on`, a 451 for a never-seen sender, taken on the retry two minutes later) off until
 needed. Nothing is refused on content, because the relay never looks at content. The queue
-holds a sealed file thirty days.
+holds a sealed file thirty days. Since 12 November 2026 the data ends on `<CR><LF>.<CR><LF>` and
+on nothing else: a dot beside a bare `<LF>` is the message's own text (a bare `<LF>` is taken
+as a line end and stored as CRLF), so a message cannot carry a second one inside it for the
+relay to read as new (SMTP smuggling: the second would arrive from the first one's server,
+under any sender its author wrote, and SPF would pass for it). The name given to `EHLO` before
+`STARTTLS` is forgotten, and a session that names four mailboxes that are not here is closed.
 
 **The API** (`api.go`), bearer token, the box id in the path and the token must match:
 `GET /box/<id>/in/` lists `{name, size, note}`; `GET /box/<id>/in/<name>` returns a sealed
@@ -169,6 +174,15 @@ connection error retries after 1, 5, 15, 60, 120, 240 minutes and then every fou
 day from acceptance. When nothing is pending the job is `sent`, or `bounced` with a report
 written into the box's inbound queue as a message from `mailer-daemon@<relay>` (sealed, with a
 note whose reverse verdict is `relay`), so the box learns of it the way it learns of any mail.
+Since 12 November 2026: a posted message with a CR or an LF that is not part of a CRLF, anywhere
+in it, is refused (the box writes none; a receiver that took one for a line end could read
+the rest as another message from the relay's address); mail goes to public addresses only,
+whatever a domain's MX names; a receiver gets ninety seconds up to `DATA`, five minutes for the
+message and a megabyte of answers (one reply line with no end used to be read into memory
+until the session's own five minutes ran out); four deliveries run at once, two of them one
+box's, so a receiver that answers nothing holds its own message and no other; and a
+receiver's refusal reaches the box as one line of at most 200 bytes, in the job and in the
+report.
 
 **The log** says counts, sizes, box ids and refusals, never an address.
 

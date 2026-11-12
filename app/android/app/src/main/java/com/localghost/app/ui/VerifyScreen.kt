@@ -3,9 +3,7 @@ package com.localghost.app.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -165,7 +163,7 @@ private fun Cmd(ctx: Context, text: String) {
 @Composable
 private fun LinkButton(label: String, url: String, ctx: Context) {
     GhostButton(label, {
-        runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        SafeLink.open(ctx, url)
     }, modifier = Modifier.fillMaxWidth())
 }
 

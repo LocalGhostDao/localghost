@@ -286,9 +286,15 @@ func TestWrongPinIsTheDevicesOwn(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		post(other, "0000")
 	}
-	// the other device is throttled by now; the owner's device is not
-	if err := b.accounts.Allowed("dev:" + devOf(other)); err == nil {
-		t.Fatal("five wrong PINs and the device that typed them is not slowed")
+	// the wrong PINs stand against the device that typed them, and against no other. (Asked
+	// of the count, not of "may it try now": that answer turns on how long ago the last
+	// attempt was, and on 12 Nov 2026 a loaded machine took long enough for the wait to have
+	// run out, which failed this test once without anything being wrong.)
+	if n := b.accounts.Failures("dev:" + devOf(other)); n < 1 {
+		t.Fatalf("five wrong PINs and %d stand against the device that typed them", n)
+	}
+	if n := b.accounts.Failures("dev:" + devOf(owner)); n != 0 {
+		t.Fatalf("another device's wrong PINs stand against the owner's: %d", n)
 	}
 	if err := b.accounts.Allowed("dev:" + devOf(owner)); err != nil {
 		t.Fatalf("another device's wrong PINs throttle the owner's: %v", err)

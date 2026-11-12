@@ -1,12 +1,11 @@
-// Package synth is the client contract for ghost.synthd, the memory-surfacing daemon. ghost.cued asks
-// synthd "given this context, what memories are worth priming, and which (if any) clears the bar to
-// surface". synthd owns the index and the retrieval; cued owns the WHEN and the WHETHER.
+// Package synth is the client contract for ghost.synthd's priming: ghost.cued asks "given this
+// context, what memories are worth priming, and which (if any) clears the bar to surface". synthd
+// owns the retrieval; cued owns the WHEN and the WHETHER.
 //
-// HONEST STATE. synthd is not built , the indexing work is the next few months (see the "Before You
-// Ask" Hard Truth). So this package ships a real interface and a STUB that returns nothing. cued is a
-// full daemon running the four mechanisms for real; it just never gets a candidate back yet, so it
-// correctly stays silent. When synthd exists, its client replaces the stub behind this same interface
-// and cued starts surfacing without a line of cued changing.
+// WHERE IT STANDS (12 November 2026). ghost.synthd is built and makes the memories, but the index
+// its "prime" command ranks over is the empty one (internal/synthd), so the socket client below
+// gets no candidates and cued's priming stays silent. The contract is the real one: when an index
+// over the memories goes in on synthd's side, cued starts surfacing without a line here changing.
 package synth
 
 import "context"
@@ -36,10 +35,10 @@ type Query struct {
 // its own threshold and learning curve before anything reaches the user.
 type Client interface {
 	// Prime returns candidate memories for a context. Cheap and frequent; returns nil,nil when there
-	// is nothing (which is the normal case, and the ONLY case until synthd is built).
+	// is nothing (which is the normal case, and the only case while synthd's index is the empty one).
 	Prime(ctx context.Context, q Query) ([]Candidate, error)
 
-	// Ready reports whether the retrieval backend is actually available, so cued can log honestly that
-	// it is running-but-blind rather than pretend synthd works.
+	// Ready reports whether synthd has an index behind "prime", so cued can say plainly that its
+	// priming has nothing to draw on rather than look as if it found nothing worth showing.
 	Ready() bool
 }

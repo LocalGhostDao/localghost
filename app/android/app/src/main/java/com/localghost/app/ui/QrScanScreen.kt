@@ -54,6 +54,7 @@ fun QrScanScreen(
     onProceed: () -> Unit,
     onCancel: () -> Unit,
     enrolOutcome: Boolean? = null, // the box's answer to the enrol started by onScanned: null while it is still out
+    outcomeNote: String? = null,   // why it stopped short when it was not the box that refused (another box's code)
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -626,7 +627,7 @@ fun QrScanScreen(
                     // started with the scan and may still be out, or have been refused
                     Text(when (enrolOutcome) {
                         true -> "READY , unlock with your PIN"
-                        false -> "the box did not take it , what it said is next"
+                        false -> outcomeNote ?: "the box did not take it , what it said is next"
                         null -> "code read , waiting for the box to answer…"
                     }, color = if (enrolOutcome == false) Warning else TerminalGreen,
                         style = MaterialTheme.typography.titleMedium,

@@ -113,11 +113,19 @@ if ss -ltnH 2>/dev/null | grep -q '127.0.0.1:8443 '; then
         warn "ghost.secd still trusts the X-Client-Cert header on plain 127.0.0.1:8443: any local process that forges the header reaches the PIN door without the phone's certificate. Move it with: sudo ghost-ctl edge-passthrough --domain <box name> (secd does its own TLS, nginx forwards the raw stream by name, and the edge flag is written for you)"
     fi
 fi
+# the model servers ask for a key since 12 Nov 2026 (LLAMA_API_KEY in the child's environment,
+# made by oracled and searchd at each run): without it everything but /health is refused
 for p in 18080 18081; do
-    if out=$(curl -s -m 2 "http://127.0.0.1:$p/slots" 2>/dev/null) && echo "$out" | grep -q '"id"'; then
-        echo "$out" | grep -q '"prompt"' && warn "llama-server on :$p serves /slots WITH prompts to any local process (--no-slots)" \
-            || warn "llama-server on :$p serves /slots to any local process (--no-slots)"
-    fi
+    code=$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$p/props" 2>/dev/null) || code=000
+    case "$code" in
+        000) ;; # not listening (locked, or no model)
+        401|403) pass "llama-server on :$p refuses a request without its key" ;;
+        *)  if out=$(curl -s -m 2 "http://127.0.0.1:$p/slots" 2>/dev/null) && echo "$out" | grep -q '"prompt"'; then
+                warn "llama-server on :$p answers any local process, and /slots shows the prompts it is working on (an oracled or searchd from before the key, or a llama.cpp that does not read LLAMA_API_KEY)"
+            else
+                warn "llama-server on :$p answers any local process without a key (an oracled or searchd from before the key, or a llama.cpp that does not read LLAMA_API_KEY)"
+            fi ;;
+    esac
 done
 if ps -eo args 2>/dev/null | grep -v grep | grep -q 'redis-server.*--requirepass'; then
     warn "Redis's password is on its command line (ps shows it to every user)"

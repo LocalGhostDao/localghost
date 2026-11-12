@@ -39,12 +39,20 @@ INGESTION (each daemon writes its own tables, nobody else's)
                           │ distillation (oracled)
                           v
  ┌──────────────────────────────────────────────────────────┐
- │ memories   kind distilled|user, user_edited, tombstoned  │
+ │ memories   kind me|person|distilled|user|outing|trip|    │
+ │            day|month|place|insight                       │
  │   source_ref TEXT (soft ref to journal), source_chat     │
+ │   user_edited, tombstoned, anchored_at, touched_at       │
+ │   meta JSONB (part_of folds a part under its whole)      │
+ │ memory_links (a, b) PK, why , which memories belong      │
+ │            together; rebuilt whole by synthd's link pass │
+ │ day_summaries  day PK , the day's fact sheet and telling │
  │ reports    day 'MM-DD' PK , On This Day cache            │
  └──────────────────────────────────────────────────────────┘
+ docs/MEMORY.md tells this layer whole.
 
- CONVERSATION & APP SURFACE (secd writes chats/messages/notifications; synthd writes memories)
+ CONVERSATION & APP SURFACE (secd writes chats/messages/notifications; synthd writes memories,
+ and secd writes the person's own acts on one: add, edit, delete, anchor, open)
 
  chats ── chat_messages (chat_id soft ref, index (chat_id,id))
  notifications
@@ -58,8 +66,10 @@ INGESTION (each daemon writes its own tables, nobody else's)
 | Gallery search         | frames + EXISTS(frame_tags) per term                       | 0*    |
 | Map dots / day tracks  | frames w/ GPS; paths/*.geojson straight off disk           | 0     |
 | Chat history           | chats; chat_messages by (chat_id, id) keyset               | 0     |
-| Memories screen        | memories WHERE NOT tombstoned                              | 0     |
-| Memory injection       | memories ILIKE per term, scored in Go                      | 0     |
+| Memories screen        | memories WHERE NOT tombstoned, anchors first               | 0     |
+| A memory's page        | memories by id; its parts by part_of; its whole by ref; memory_links by a or b, then ONE batched memories ANY() | 0 |
+| Memory injection       | memories ILIKE per term, scored in Go; the best match's links, then ONE batched memories ANY() | 0 |
+| Memory weights         | memories, memory_links, ONE batched ANY() for neighbours outside the set | 0 |
 | Day summary / check-in | frames range + journal range + health_metrics day = 3 SELECTs | 0  |
 | On This Day            | frames to_char scan + journal to_char scan, cached in reports | 0  |
 | Health screen          | health_metrics >= since, one ordered scan                  | 0     |
@@ -71,8 +81,13 @@ INGESTION (each daemon writes its own tables, nobody else's)
 ## The rules that keep it this way
 
 1. **Single writer per table.** framed writes frames/frame_tags/points/geo, noted+tallyd+framed
-   write journal_entries (their own rows), synthd writes memories/reports, secd writes
-   chats/messages/notifications. A daemon never updates another daemon's table.
+   write journal_entries (their own rows), synthd writes memories/memory_links/day_summaries/
+   reports, secd writes chats/messages/notifications. A daemon never updates another daemon's
+   table. One table has two writers, on purpose: memories, where synthd writes what the box
+   makes and secd writes what the person does to it (add, edit, delete, anchor, open). The
+   columns keep them apart: user_edited, tombstoned and anchored_at are the person's, and a
+   pass touches them only to carry out something the person did (the note cleared, a mark
+   carried across a merge of two rows for one person).
 2. **Denormalize display fields onto the row.** frames.place and frames.display_name are copies
    of derivable data, refreshed by the writer when inputs change (reprocess, tag edits). The read
    path never reconstructs them.
@@ -92,6 +107,9 @@ INGESTION (each daemon writes its own tables, nobody else's)
   regardless. Upgrade: STORED generated column mmdd + index, one ALTER, zero code changes.
 - memoriesSource uses ILIKE over all live memories , fine to ~50k memories. Upgrade: embeddings
   into memories.emb (reserved) and semantic ranking (TODO 30c).
+- The link pass reads every live memory and every link each pass and diffs them in Go , a few
+  thousand short rows, tens of milliseconds. Upgrade when it shows: only the memories changed
+  since the last pass (updated_at), and their neighbours.
 - Geocoder candidate sets ride the lat/lon btrees, ordered by approximate squared-degree
   distance so LIMIT keeps the closest candidates even in dense areas; exact haversine picks in Go.
 

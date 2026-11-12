@@ -184,7 +184,7 @@ private fun LinkText(label: String, url: String) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     Text(label, color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
         modifier = Modifier.padding(end = 12.dp).clickable {
-            runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+            SafeLink.open(ctx, url) // the listing's address is the listing's to write: web addresses only
         })
 }
 

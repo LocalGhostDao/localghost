@@ -166,6 +166,13 @@ func parseTIFF(t []byte) (Meta, error) {
 			} else if ts, err := time.Parse("2006:01:02 15:04:05", dto); err == nil {
 				m.TakenAt = ts
 			}
+			// A clock from the future is not a capture time (the rule a clip's mvhd already
+			// gets), and nor is one from before there were cameras to carry: a picture saying
+			// 9999 was filed under a day in 9999, and one saying 0000 under the year nought.
+			// Without a date of its own the photo takes the phone's hint, as a clip does.
+			if y := m.TakenAt.Year(); y > time.Now().Year()+1 || y < 1900 {
+				m.TakenAt = time.Time{}
+			}
 		}
 	}
 

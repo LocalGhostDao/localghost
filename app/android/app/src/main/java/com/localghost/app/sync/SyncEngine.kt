@@ -46,7 +46,8 @@ class SyncEngine(private val ctx: Context) {
         var sinceReport = 0
         val confirm: (CameraReader.Item) -> Unit = { item ->
             if (!sawFailure) {
-                confirmedTs = item.dateTaken; confirmedId = item.id
+                val at = Cursor.afterConfirmed(item.dateTaken, item.id, System.currentTimeMillis())
+                confirmedTs = at.dateTaken; confirmedId = at.id
                 if (++sinceReport >= 25) {
                     sinceReport = 0
                     kotlinx.coroutines.runBlocking { BoxClient.reportCursor(ctx, cmd.kind, confirmedTs, confirmedId) }

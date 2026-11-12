@@ -22,6 +22,12 @@ import (
 // for a long clip); anything bigger is not a moov we want in RAM.
 const moovCap = 64 << 20
 
+// maxTopBoxes bounds the walk to the moov. A clip has a handful of boxes at its top (ftyp, free,
+// mdat, moov, a few more for a fragmented one: a moof and an mdat per fragment, thousands for an
+// hour). A file built as nothing but eight-byte boxes is a quarter of a billion of them in two
+// gigabytes, each a seek and a read, with the pipeline waiting (second audit, 12 Nov 2026).
+const maxTopBoxes = 200_000
+
 // ParseISOBMFF extracts Meta from an MP4/MOV/3GP stream. Absence of metadata yields zero Meta, never
 // an error , same contract as Parse for JPEG.
 func ParseISOBMFF(r io.ReadSeeker) Meta {
@@ -41,7 +47,10 @@ func parseISOBMFF(r io.ReadSeeker) (Meta, error) {
 	}
 	var pos int64
 	hdr := make([]byte, 16)
-	for pos+8 <= size {
+	for boxes := 0; pos+8 <= size; boxes++ {
+		if boxes >= maxTopBoxes {
+			return Meta{}, errNoMoov
+		}
 		if _, err := r.Seek(pos, io.SeekStart); err != nil {
 			return Meta{}, err
 		}
@@ -61,7 +70,7 @@ func parseISOBMFF(r io.ReadSeeker) (Meta, error) {
 			boxSize = int64(binary.BigEndian.Uint64(hdr[8:16]))
 			hdrLen = 16
 		}
-		if boxSize < hdrLen || pos+boxSize > size {
+		if boxSize < hdrLen || boxSize > size-pos { // (not pos+boxSize > size: a size near 2^63 wraps that sum)
 			return Meta{}, errNoMoov // corrupt size: stop, do not guess
 		}
 		if typ == "moov" {
@@ -217,7 +226,8 @@ func mvhdCreation(b []byte) time.Time {
 		return time.Time{}
 	}
 	const epoch1904 = 2082844800 // seconds between 1904-01-01 and 1970-01-01
-	if secs <= epoch1904 {
+	// (the upper bound: a 64-bit count past the year 10000 would wrap into a date before 1904)
+	if secs <= epoch1904 || secs > epoch1904+253402300800 {
 		return time.Time{}
 	}
 	t := time.Unix(int64(secs-epoch1904), 0).UTC()

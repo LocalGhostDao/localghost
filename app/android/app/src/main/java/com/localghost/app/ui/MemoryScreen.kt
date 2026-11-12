@@ -26,6 +26,12 @@ import kotlinx.coroutines.launch
  * from and when, the day it was made from when there is one, and the person's two powers over it,
  * edit and delete (the model never overwrites an edit or resurrects a deletion). A memory's title
  * in the list opens here too.
+ *
+ * Two things more, from how the box keeps memories: the ANCHOR, the person's mark on one of the
+ * few memories their life hangs on (set and lifted here and nowhere else; the box never guesses
+ * one), and the COMPANY the memory keeps, the others the box holds with it and why (who it
+ * names, where it was, the day it was written, what it is part of), each a tap away. Opening
+ * the page tells the box the memory was looked at, which is one of the things it weighs.
  */
 @Composable
 fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> Unit = {}, backLabel: String = "memories", onBack: () -> Unit) {
@@ -39,23 +45,29 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
     // folded under this one, oldest first
     var parts by remember(id) { mutableStateOf<List<BoxClient.MemRow>>(emptyList()) }
     var whole by remember(id) { mutableStateOf<BoxClient.MemRow?>(null) }
+    // THE COMPANY IT KEEPS: the memories linked to this one, and why (null until the box answers)
+    var links by remember(id) { mutableStateOf<List<BoxClient.MemLink>?>(null) }
+    var allLinks by remember(id) { mutableStateOf(false) }
     var failed by remember(id) { mutableStateOf(false) } // the box did not answer the load
     var note by remember(id) { mutableStateOf("") } // an edit or delete that did not land
     fun load() {
         scope.launch {
-            val list = BoxClient.memoriesList(ctx)
-            val found = list?.firstOrNull { it.id == id }
+            // the row, its parts and its whole each come from the box by name, never from the
+            // feed: the feed is cut at a limit, and a day under an old trip or month is among
+            // the first rows past it (it opened as "not on the box any more")
+            val one = BoxClient.memoryById(ctx, id)
+            val found = one?.firstOrNull()
             if (found != null) {
                 m = found
-                // the parts come from the box by ref: the feed is cut at a limit and an old
-                // trip's days are the first rows past it
-                parts = if (found.ref.isEmpty()) emptyList() else (BoxClient.memoriesParts(ctx, found.ref) ?: list.filter { it.partOf == found.ref }.sortedBy { it.createdAt })
-                whole = found.partOf.takeIf { it.isNotEmpty() }?.let { ref -> list.firstOrNull { it.ref == ref } }
+                parts = if (found.ref.isEmpty()) emptyList() else (BoxClient.memoriesParts(ctx, found.ref) ?: emptyList())
+                whole = found.partOf.takeIf { it.isNotEmpty() }?.let { ref -> BoxClient.memoryByRef(ctx, ref)?.firstOrNull() }
                 failed = false
-            } else { missing = list != null; failed = list == null && m == null }
+            } else { missing = one != null; failed = one == null && m == null }
         }
     }
     LaunchedEffect(id) { load() }
+    // once per opening, not per reload: an edit that reloads the page is not a second look
+    LaunchedEffect(id) { links = BoxClient.memoryOpen(ctx, id) }
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
         Spacer(Modifier.height(12.dp))
         Text("‹ $backLabel", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
@@ -82,6 +94,14 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                 Text(MemoryText.origin(row.kind, row.summaryLine, row.meta?.optString("line") ?: "") + " · " +
                     java.text.SimpleDateFormat("d MMMM yyyy", java.util.Locale.UK).format(java.util.Date(row.createdAt)),
                     color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                if (row.anchor) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(MemoryText.ANCHOR_LINE, color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+                }
+                if (row.front) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(MemoryText.FRONT_LINE, color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+                }
                 if (row.covers.isNotEmpty()) {
                     Spacer(Modifier.height(12.dp))
                     ThumbStrip(row.covers, title = row.title, size = 112.dp)
@@ -147,7 +167,7 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                 }
                 if (parts.isNotEmpty()) {
                     Spacer(Modifier.height(14.dp))
-                    SectionLabel(if (row.kind == "trip") "THE OUTINGS AND THE DAYS OF IT" else "THE DAYS OF IT")
+                    SectionLabel(MemoryText.partsLabel(row.kind))
                     Spacer(Modifier.height(4.dp))
                     parts.forEach { p ->
                         val pd = MemoryText.dayOf(p.ref)
@@ -160,8 +180,40 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
                         }
                     }
                 }
+                // THE COMPANY IT KEEPS: what the box holds with this memory, and why. The whole and
+                // the parts are above already, so a link that only says "part" is not said twice.
+                val company = (links ?: emptyList()).filter { it.why != "part" }
+                if (company.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    SectionLabel("KEPT WITH")
+                    Spacer(Modifier.height(4.dp))
+                    (if (allLinks) company else company.take(COMPANY_SHOWN)).forEach { l ->
+                        Row(Modifier.fillMaxWidth().clickable { onOpenMemory(l.id) }.padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (l.anchor) "◆" else if (l.kind == "day") "◷" else "◇", color = if (l.anchor) TerminalGreen else TerminalDim,
+                                style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(22.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(l.title, color = GhostText, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                Text(MemoryText.linkWhy(l.why, row.kind, l.kind), color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                            }
+                            Text("›", color = TerminalGreen, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                    if (!allLinks && company.size > COMPANY_SHOWN) {
+                        Text("[ ${company.size - COMPANY_SHOWN} more ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.clickable { allLinks = true }.padding(vertical = 4.dp))
+                    }
+                }
                 val day = MemoryText.dayOf(row.ref)
                 Spacer(Modifier.height(20.dp))
+                // THE ANCHOR: the person's mark, set and lifted here. The box never sets one.
+                Text(if (row.anchor) "[ ◆ lift the anchor ]" else "[ ◆ mark as an anchor ]",
+                    color = if (row.anchor) GhostTextDim else TerminalGreen, style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.clickable { scope.launch {
+                        if (BoxClient.memoryAnchor(ctx, id, !row.anchor)) { note = ""; load() }
+                        else note = "! the box did not take the mark , is it unlocked?"
+                    } }.padding(vertical = 4.dp))
+                if (!row.anchor) Text("for the few your life hangs on; only you can mark one", color = TerminalDim, style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (day.isNotEmpty()) {
                         Text(if (row.kind == "trip") "[ the first day › ]" else "[ the day › ]", color = TerminalGreen, style = MaterialTheme.typography.labelMedium,
@@ -192,3 +244,6 @@ fun MemoryScreen(id: Long, onOpenDay: (String) -> Unit, onOpenMemory: (Long) -> 
         Spacer(Modifier.height(24.dp))
     }
 }
+
+/** How many of a memory's neighbours its page lists before "more". */
+private const val COMPANY_SHOWN = 8

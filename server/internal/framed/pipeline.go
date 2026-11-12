@@ -16,6 +16,7 @@ package framed
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1228,18 +1229,36 @@ func (p *Pipeline) redecode(src string) ([]byte, error) {
 	// A named file, not stdin: ffmpeg probes stdin by content and a damaged JPEG fails the probe
 	// ("Invalid data found when processing input"); named and told to ignore decode errors, it reads
 	// what is there. The name is the archived original's (hash.ext), already on the volume.
-	cmd := exec.Command(ff, "-hide_banner", "-loglevel", "error", "-err_detect", "ignore_err",
-		"-i", src, "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "2", "pipe:1")
+	args := append([]string{"-hide_banner", "-loglevel", "error", "-err_detect", "ignore_err"}, imgfit.FFmpegInput(src)...)
+	return runFFmpeg(ff, env, append(args, "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-q:v", "2", "pipe:1"))
+}
+
+// ffmpegTimeout is how long one ffmpeg may take over one frame. A variable so a test need not
+// wait it out.
+var ffmpegTimeout = 90 * time.Second
+
+// runFFmpeg runs ffmpeg for one frame on its standard output, within ffmpegTimeout and
+// imgfit.MaxPipeBytes. Until 12 Nov 2026 the two calls here had neither: a clip or a damaged
+// picture ffmpeg never finished with held the pipeline, and with it every photo behind it.
+func runFFmpeg(ff string, env, args []string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ffmpegTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ff, args...)
 	cmd.Env = env
 	cmd.WaitDelay = 5 * time.Second
-	out, err := cmd.Output()
+	out := imgfit.NewPipe()
+	cmd.Stdout = out
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return nil, fmt.Errorf("ffmpeg ran past %s and was stopped", ffmpegTimeout)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return nil, fmt.Errorf("ffmpeg produced nothing")
 	}
-	return out, nil
+	return out.Bytes(), nil
 }
 
 // grabVideoFrame pulls one frame (t=1s, falling back to t=0 for sub-second clips) as JPEG bytes.
@@ -1255,14 +1274,14 @@ func (p *Pipeline) grabVideoFrame(videoPath string) ([]byte, error) {
 			return nil, fmt.Errorf("no ffmpeg (bundle one: tools/bundle_ffmpeg.sh <mount>)")
 		}
 	}
+	var last error
 	for _, seek := range []string{"1", "0"} {
-		cmd := exec.Command(ff, "-hide_banner", "-loglevel", "error",
-			"-ss", seek, "-i", videoPath, "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "pipe:1")
-		cmd.Env = env
-		out, cerr := cmd.Output()
-		if cerr == nil && len(out) > 0 {
+		args := append([]string{"-hide_banner", "-loglevel", "error", "-ss", seek}, imgfit.FFmpegInput(videoPath)...)
+		out, cerr := runFFmpeg(ff, env, append(args, "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "pipe:1"))
+		if cerr == nil {
 			return out, nil
 		}
+		last = cerr
 	}
-	return nil, fmt.Errorf("ffmpeg produced no frame")
+	return nil, fmt.Errorf("ffmpeg produced no frame (%v)", last)
 }

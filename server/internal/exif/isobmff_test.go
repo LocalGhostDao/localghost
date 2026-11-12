@@ -145,3 +145,58 @@ func TestParseISO6709(t *testing.T) {
 		}
 	}
 }
+
+// A file built to be slow, or to wrap a sum, reads as "no metadata" at once (second audit).
+func TestISOBMFFHostileShapes(t *testing.T) {
+	be32 := func(n uint32) []byte { return []byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)} }
+	// nothing but eight-byte boxes: the walk stops at maxTopBoxes, not at the end of the file
+	var many bytes.Buffer
+	for i := 0; i < maxTopBoxes+1000; i++ {
+		many.Write(be32(8))
+		many.WriteString("free")
+	}
+	// a moov after them is never reached, by design
+	many.Write(be32(8 + 8))
+	many.WriteString("moov")
+	many.Write(be32(8))
+	many.WriteString("udta")
+	r := &countingReader{Reader: bytes.NewReader(many.Bytes())}
+	if m := ParseISOBMFF(r); m != (Meta{}) {
+		t.Fatalf("metadata from a file of empty boxes: %+v", m)
+	}
+	if r.reads > maxTopBoxes+10 {
+		t.Fatalf("%d header reads for a walk capped at %d boxes", r.reads, maxTopBoxes)
+	}
+	// a 64-bit box size just under 2^63: pos+size wraps negative, and must not be taken as fitting
+	var wrap bytes.Buffer
+	wrap.Write(be32(16))
+	wrap.WriteString("ftyp")
+	wrap.WriteString("isom\x00\x00\x00\x00")
+	wrap.Write(be32(1))
+	wrap.WriteString("mdat")
+	wrap.Write([]byte{0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xf8})
+	wrap.Write(make([]byte, 64))
+	if _, err := parseISOBMFF(bytes.NewReader(wrap.Bytes())); err != errNoMoov {
+		t.Fatalf("a box size that wraps: %v", err)
+	}
+	// a creation time past any calendar is no time, not a date before 1904
+	mvhd := make([]byte, 32)
+	mvhd[0] = 1
+	for i := 4; i < 12; i++ {
+		mvhd[i] = 0xff
+	}
+	if ts := mvhdCreation(mvhd); !ts.IsZero() {
+		t.Fatalf("a creation time of 2^64-1 seconds read as %s", ts)
+	}
+	mvhd[4], mvhd[5], mvhd[6], mvhd[7], mvhd[8], mvhd[9], mvhd[10], mvhd[11] = 0x80, 0, 0, 0, 0, 0, 0, 0
+	if ts := mvhdCreation(mvhd); !ts.IsZero() {
+		t.Fatalf("a creation time of 2^63 seconds read as %s", ts)
+	}
+}
+
+type countingReader struct {
+	*bytes.Reader
+	reads int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) { c.reads++; return c.Reader.Read(p) }

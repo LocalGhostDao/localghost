@@ -9,6 +9,8 @@ package search
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -29,14 +31,27 @@ type EmbedServerConfig struct {
 }
 
 type EmbedServer struct {
-	cfg    EmbedServerConfig
+	cfg EmbedServerConfig
+	// key is what the child asks of every request but /health (LLAMA_API_KEY in its
+	// environment, never an argument): loopback is every user's on the box, and the texts sent
+	// here to be embedded are the person's own. Made once, for this daemon's run.
+	key    string
 	cmd    *exec.Cmd
 	exited chan struct{} // closed when the child is reaped (one waiter, in Start)
 	mu     sync.Mutex
 	stop   bool
 }
 
-func NewEmbedServer(cfg EmbedServerConfig) *EmbedServer { return &EmbedServer{cfg: cfg} }
+func NewEmbedServer(cfg EmbedServerConfig) *EmbedServer {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("no random bytes for the embedding server's key: " + err.Error())
+	}
+	return &EmbedServer{cfg: cfg, key: hex.EncodeToString(b[:])}
+}
+
+// Key is what the Embedder sends with every request to this child.
+func (e *EmbedServer) Key() string { return e.key }
 
 // Start launches the child and waits for /health. A missing weights file is a clean, nameable error ,
 // the caller degrades to FTS-only and says so in health, per spec 4's failure semantics.
@@ -71,6 +86,9 @@ func (e *EmbedServer) Start(within time.Duration) error {
 	cmd.SysProcAttr = procs.ChildAttr()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	if e.key != "" {
+		cmd.Env = append(os.Environ(), "LLAMA_API_KEY="+e.key)
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start embed llama-server: %w", err)
 	}

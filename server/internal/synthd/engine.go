@@ -1,14 +1,14 @@
-// Package synthd is the engine of the memory-surfacing daemon. It owns the retrieval side of the
-// "Before You Ask" loop: given a context (what the user is doing now), it ranks memories from the
-// index and returns candidates for ghost.cued to gate. cued decides WHEN and WHETHER; synthd decides
-// WHAT is even a candidate.
+// Package synthd is the PRIMING engine ghost.synthd answers ghost.cued with: the retrieval side of
+// the "Before You Ask" loop. Given a context (what the person is doing now), it ranks memories
+// from an index and returns candidates for cued to gate. cued decides WHEN and WHETHER; this
+// decides WHAT is even a candidate.
 //
-// HONEST STATE. The INDEX , the embeddings, the vector store, the memory corpus , is the next few
-// months of work and does not exist. So this engine ships the real query PIPELINE (intake, the
-// ranking frame, the candidate shaping) over an EMPTY index: Query runs the whole path and returns
-// nothing, because there is nothing indexed. synthd is running-but-blind, exactly like cued one layer
-// up. When the index is built behind the Index interface, synthd starts returning candidates with no
-// change to this pipeline or to cued.
+// WHERE IT STANDS (12 November 2026). The memories exist: ghost.synthd makes them, links them and
+// reads them for the chat (cmd/ghost.synthd, docs/MEMORY.md). What does not exist is an index
+// that ranks them against a MOMENT rather than against a question's words: memories carry no
+// embedding, and cued has no context signals to send. So the daemon wires the EmptyIndex here,
+// Query runs its whole path and returns nothing, and cued's priming stays silent. An Index over
+// the memories table goes behind the interface below without a change to this pipeline or to cued.
 package synthd
 
 import (
@@ -19,9 +19,9 @@ import (
 	"github.com/LocalGhostDao/localghost/server/internal/synth"
 )
 
-// Index is the retrieval backend synthd ranks over. A real implementation holds the embedded memory
-// corpus and does nearest-neighbour lookup; the stub holds nothing. Kept an interface so the corpus
-// work slots in behind it without touching the query pipeline.
+// Index is the retrieval backend the engine ranks over. A real implementation ranks the memories
+// against a context (by meaning, once they carry embeddings); the one wired today holds nothing.
+// Kept an interface so that work goes behind it without touching the query pipeline.
 type Index interface {
 	// Lookup returns raw matches for a context query: memories the index thinks are near this moment,
 	// with a similarity score. synthd turns these into ranked Candidates. Empty until the index exists.
@@ -47,7 +47,7 @@ type Engine struct {
 	log   *slog.Logger
 }
 
-// New builds the engine over an index (the stub, until the corpus exists).
+// New builds the engine over an index (the empty one, until one over the memories is built).
 func New(index Index, log *slog.Logger) *Engine {
 	return &Engine{index: index, log: log}
 }

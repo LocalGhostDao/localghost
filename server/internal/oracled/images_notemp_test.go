@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,7 +45,7 @@ func fakeDwebp(t *testing.T) (tmp string) {
 func TestWebPNeverTouchesTemp(t *testing.T) {
 	tmp := fakeDwebp(t)
 	src := filepath.Join(t.TempDir(), "a.webp")
-	if err := os.WriteFile(src, []byte("RIFF\x00\x00\x00\x00WEBPVP8 "), 0o600); err != nil {
+	if err := os.WriteFile(src, []byte("RIFF\x16\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x05\x00\x00"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := dwebpPNG(context.Background(), src, "webp")
@@ -56,5 +57,22 @@ func TestWebPNeverTouchesTemp(t *testing.T) {
 	}
 	if left, _ := os.ReadDir(tmp); len(left) != 0 {
 		t.Fatalf("temporary directory not empty: %v", left)
+	}
+}
+
+// A WebP claiming more pixels than the box decodes is handed to no decoder (second audit): Go
+// reads no WebP, so until 12 Nov 2026 nothing looked at its size before dwebp or ffmpeg did.
+func TestAHugeWebPIsNotDecoded(t *testing.T) {
+	fakeDwebp(t)
+	src := filepath.Join(t.TempDir(), "bomb.webp")
+	// VP8X, canvas 16383 x 16383: 268 MP in thirty bytes
+	if err := os.WriteFile(src, []byte("RIFF\x16\x00\x00\x00WEBPVP8X\x0a\x00\x00\x00\x00\x00\x00\x00\xfe\x3f\x00\xfe\x3f\x00"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := dwebpPNG(context.Background(), src, "webp"); err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("dwebp was run on a 268 MP WebP: %d bytes, %v", len(out), err)
+	}
+	if out, err := ffmpegJPEG(context.Background(), src, "webp"); err == nil || (!strings.Contains(err.Error(), "too large") && !strings.Contains(err.Error(), "executable file not found")) {
+		t.Fatalf("ffmpeg was run on a 268 MP WebP: %d bytes, %v", len(out), err)
 	}
 }

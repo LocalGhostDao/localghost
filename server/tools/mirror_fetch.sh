@@ -222,7 +222,10 @@ fetch_all() {
             break
         done
         if [ "$ok" = 1 ]; then
-            mv -f "$part" "$DIR/$name"
+            # -T: the name is replaced, never entered. When <dir> is on the unlocked volume it
+            # is the daemons' user's, and a link to a directory put where the file's name
+            # stands would otherwise have this (root) move the file into that directory.
+            mv -fT "$part" "$DIR/$name"
             record "$name" "$sha"
             n=$((n + 1))
             if [ "$total" -le 200 ]; then

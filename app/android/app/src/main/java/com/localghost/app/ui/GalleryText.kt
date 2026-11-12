@@ -20,8 +20,8 @@ object GalleryText {
     fun size(bytes: Long): String = when {
         bytes <= 0 -> ""
         bytes < 1024L * 1024 -> "${(bytes + 512) / 1024} KB"
-        bytes < 1024L * 1024 * 1024 -> "%.1f MB".format(bytes / 1048576.0)
-        else -> "%.1f GB".format(bytes / 1073741824.0)
+        bytes < 1024L * 1024 * 1024 -> "%.1f MB".format(java.util.Locale.UK, bytes / 1048576.0)
+        else -> "%.1f GB".format(java.util.Locale.UK, bytes / 1073741824.0)
     }
 
     /** The heading of a detail: "> PHOTO", "> VIDEO · 1:42". */

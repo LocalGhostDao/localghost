@@ -778,7 +778,9 @@ object BoxClient {
             // path answered, "postgres" = the durable fallback, "frames" = content-derived only,
             // "none" = the box has nothing for this device (the one honest reason to start at 0).
             android.util.Log.i("LocalGhost", "resume ${kind.wire}: ts=$ts id=${o.optLong("id")} via $src")
-            com.localghost.app.sync.Cursor(ts, o.optLong("id"))
+            val c = com.localghost.app.sync.Cursor.fromBox(ts, o.optLong("id"), System.currentTimeMillis())
+            if (c.dateTaken != ts) android.util.Log.w("LocalGhost", "resume ${kind.wire}: the kept position is in the future; reading the roll from the beginning (what the box has is skipped by hash)")
+            c
         }
     } catch (e: Exception) {
         android.util.Log.w("LocalGhost", "cursor fetch failed, not syncing this run: ${e.message}")
@@ -1302,7 +1304,11 @@ object BoxClient {
      *  [ref] is what a day's or an outing's memory was made from ("day:2026-10-03"), "" otherwise
      *  (and on a box from before 0.0.5). */
     data class MemRow(val id: Long, val title: String, val body: String, val kind: String, val createdAt: Long,
-                      val meta: org.json.JSONObject? = null, val ref: String = "", val edited: Boolean = false) {
+                      val meta: org.json.JSONObject? = null, val ref: String = "", val edited: Boolean = false,
+                      /** Marked by the person as one of the few memories their life hangs on; only they set it. */
+                      val anchor: Boolean = false,
+                      /** On today's front page: one of the memories every chat starts from. */
+                      val front: Boolean = false) {
         val covers: List<String> get() = meta?.optJSONArray("covers")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { it.isNotEmpty() } } ?: emptyList()
         /** The trip or the outing this memory is a part of ("trip:2026-09-12", "outing:2026-10-02"), "" for none:
          *  the list shows the whole in its place, and the whole's page lists its parts. */
@@ -1355,15 +1361,49 @@ object BoxClient {
     /** The parts folded under one whole (a trip's outings and days), oldest first, for its page. */
     suspend fun memoriesParts(ctx: Context, ref: String): List<MemRow>? = memoriesAt(ctx, "/v1/memories?part_of=" + java.net.URLEncoder.encode(ref, "UTF-8"))
 
+    /** One memory by its id, for its own page: a list of one, empty when it is not on the box any
+     *  more, null when the box did not answer. The page used to look for its row in the feed,
+     *  which is cut at a limit, so a day or an outing folded under an old trip or month (the rows
+     *  the cut loses first) opened as "not on the box any more". */
+    suspend fun memoryById(ctx: Context, id: Long): List<MemRow>? = memoriesAt(ctx, "/v1/memories?id=$id")?.filter { it.id == id }
+
+    /** The whole a part names (its trip, its outing, its month), by the whole's ref. */
+    suspend fun memoryByRef(ctx: Context, ref: String): List<MemRow>? =
+        memoriesAt(ctx, "/v1/memories?ref=" + java.net.URLEncoder.encode(ref, "UTF-8"))?.filter { it.ref == ref }
+
     private suspend fun memoriesAt(ctx: Context, path: String): List<MemRow>? = try {
         val r = BoxHttp.getJson(ctx, path)
         val a = r.optJSONArray("memories") ?: return emptyList()
         (0 until a.length()).mapNotNull { i ->
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             MemRow(o.optLong("id"), o.optString("title"), o.optString("body"),
-                o.optString("kind"), o.optLong("created_at"), o.optJSONObject("meta"), o.optString("ref"), o.optBoolean("edited"))
+                o.optString("kind"), o.optLong("created_at"), o.optJSONObject("meta"), o.optString("ref"), o.optBoolean("edited"),
+                o.optBoolean("anchor"), o.optBoolean("front"))
         }
     } catch (e: Exception) { android.util.Log.w("LocalGhost", "memories: ${e.message}"); null }
+
+    /** One neighbour of a memory: the other memory, and why the box keeps the two together
+     *  ([why]: part, names, place, written, month; MemoryText.linkWhy says it in words). */
+    data class MemLink(val id: Long, val title: String, val kind: String, val why: String, val ref: String,
+                       val anchor: Boolean, val createdAt: Long)
+
+    /** The person opened a memory's page: the box notes the look (a memory looked at, and the ones
+     *  kept with it, count for more when it chooses) and answers with the company it keeps. Null
+     *  when the box did not answer; the page shows the memory without its company. */
+    suspend fun memoryOpen(ctx: Context, id: Long): List<MemLink>? = try {
+        val r = BoxHttp.postJson(ctx, "/v1/memories/open", org.json.JSONObject().put("id", id))
+        val a = r.optJSONArray("links")
+        if (a == null) emptyList() else (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            MemLink(o.optLong("id"), o.optString("title"), o.optString("kind"), o.optString("why"), o.optString("ref"),
+                o.optBoolean("anchor"), o.optLong("created_at"))
+        }
+    } catch (e: Exception) { android.util.Log.w("LocalGhost", "memory open: ${e.message}"); null }
+
+    /** Mark a memory as an anchor, or lift the mark. Only this call sets it: the box never does. */
+    suspend fun memoryAnchor(ctx: Context, id: Long, on: Boolean): Boolean = try {
+        BoxHttp.postJson(ctx, "/v1/memories/anchor", org.json.JSONObject().put("id", id).put("on", on)); true
+    } catch (_: Exception) { false }
 
     /** WHAT THE PHOTOS SAY YOU LIKE , synthd's taste: the tags that recur across the days with a
      *  camera out (share = the fraction of those days), folded onto the fixed interests. */

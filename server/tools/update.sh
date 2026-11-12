@@ -58,6 +58,19 @@ OWNER="$(stat -c %U "$DOOR$MOUNT/run" 2>/dev/null || echo coder)"
 CLI="$REPO/bin/ghost-cli"; [ -x "$CLI" ] || CLI=/opt/localghost/bin/ghost-cli
 CTL="$REPO/bin/ghost-ctl"; [ -x "$CTL" ] || CTL=/opt/localghost/bin/ghost-ctl
 
+# ROOT'S HANDS IN THE VOLUME (second audit, 12 Nov 2026). The volume is the daemons' user's from
+# its root down and this script is root (run by the operator, or by ghost.secd when the phone
+# asks for an update). A daemon that had been taken over (they read photos, video and mail from
+# outside) can put a link where any name in there stands, and whatever root then does by that
+# name lands where the link points. Two of the old lines turned that into root: `chown` of a
+# name (it re-owns what a link points at) and `cp -f old old.prev` (the daemon's own bytes,
+# written wherever old.prev pointed). So nothing here follows a link: a file is renamed into
+# place (mv -T: a link to a directory is replaced, never entered), installed fresh (install -T
+# unlinks what stood there first), given a second name without a copy (ln -T), owned through
+# the name itself (chown -h), and has its mode set only when it is a plain file.
+vol_own()  { for _f in "$@"; do if [ -e "$_f" ] || [ -L "$_f" ]; then chown -h "$OWNER:$OWNER" "$_f" 2>/dev/null || true; fi; done; }
+vol_mode() { _m="$1"; shift; for _f in "$@"; do if [ -f "$_f" ] && [ ! -L "$_f" ]; then chmod "$_m" "$_f"; fi; done; }
+
 STEPS="${*:-maps embedder weights phone engine speech wiki}"
 for s in $STEPS; do
     case "$s" in maps|embedder|weights|phone|engine|speech|wiki) ;; *) echo "unknown step '$s' (maps embedder weights phone engine speech wiki)" >&2; exit 2 ;; esac
@@ -107,7 +120,7 @@ maps)
     # the cutting is left to ghost.framed, which does it in the background and serves the old
     # tiles until the new ones are whole
     GHOST_GEO_NO_CUT=1 "$TOOLS/ns.sh" "$TOOLS/fetch_geo.sh" "$GEO"
-    chown -R "$OWNER:$OWNER" "$DOOR$GEO" 2>/dev/null || true
+    chown -R -h "$OWNER:$OWNER" "$DOOR$GEO" 2>/dev/null || true
     ch="$(sort -u "$DOOR$GEO/.fetch-geo-changed" 2>/dev/null | tr '\n' ' ')"
     rm -f "$DOOR$GEO/.fetch-geo-changed"
     asked=""
@@ -130,11 +143,11 @@ embedder)
     AI="$DOOR$MOUNT/ai-models"; E=embeddinggemma-300m-qat-Q8_0.gguf
     before="$(cat "$AI/.$E.sha256" 2>/dev/null)"
     erc=0; sh "$TOOLS/mirror_fetch.sh" embeddings "$AI" "$E" || erc=$?
-    [ -f "$AI/NOTICE.txt" ] && mv -f "$AI/NOTICE.txt" "$AI/NOTICE-embeddings.txt"
+    [ -f "$AI/NOTICE.txt" ] && mv -fT "$AI/NOTICE.txt" "$AI/NOTICE-embeddings.txt"
     rm -f "$AI/.mirror-files"
     if [ "$erc" = 0 ] && [ -s "$AI/$E" ]; then
-        chown "$OWNER:$OWNER" "$AI/$E" "$AI"/NOTICE-embeddings.txt "$AI"/TERMS-*.txt 2>/dev/null || true
-        chmod 600 "$AI/$E"
+        vol_own "$AI/$E" "$AI"/NOTICE-embeddings.txt "$AI"/TERMS-*.txt
+        vol_mode 600 "$AI/$E"
         if [ "$(cat "$AI/.$E.sha256" 2>/dev/null)" != "$before" ]; then
             # searchd picks the QAT build at start and queues the archive to be embedded again
             if "$CTL" restart-daemon ghost.searchd >/dev/null 2>&1; then
@@ -183,8 +196,10 @@ engine)
         # as llama-server.prev and put back if the new one does not bring the model up: on 29 Sep
         # 2026 a new build did not, and with the old binary renamed away there was nothing to go
         # back to.
-        [ -x "$ON" ] && cp -f "$ON" "$ON.prev" && chown "$OWNER:$OWNER" "$ON.prev"
-        install -m755 "$NEW" "$ON.new" && chown "$OWNER:$OWNER" "$ON.new" && mv -f "$ON.new" "$ON"
+        # (the old one is kept by a second name for the same file, not by a copy: nothing of
+        # the volume's is opened for writing)
+        if [ -x "$ON" ] && [ ! -L "$ON" ]; then ln -fT "$ON" "$ON.prev" && vol_own "$ON.prev"; fi
+        install -T -m755 "$NEW" "$ON.new" && vol_own "$ON.new" && mv -fT "$ON.new" "$ON"
         SRC_NAME="$(cat /opt/localghost/llama.cpp/.mirror-src 2>/dev/null || echo 'the new build')"
         if ! "$CTL" restart-daemon ghost.oracled >/dev/null 2>&1; then
             result engine "$SRC_NAME on the volume; restart ghost.oracled to use it: sudo $CTL restart-daemon ghost.oracled"
@@ -192,7 +207,7 @@ engine)
             result engine "$SRC_NAME on the volume; the model is up on it (the previous build kept as llama-server.prev)"
         elif [ -x "$ON.prev" ]; then
             why="$("$TOOLS/ns.sh" "$CLI" ghost.oracled status 2>/dev/null | tr -d '\n' | sed -n 's/.*"detail": *"\([^"]*\)".*/\1/p')"
-            mv -f "$ON" "$ON.failed" && mv -f "$ON.prev" "$ON"
+            mv -fT "$ON" "$ON.failed" && mv -fT "$ON.prev" "$ON"
             "$CTL" restart-daemon ghost.oracled >/dev/null 2>&1
             if model_up 420; then
                 result engine "NOT kept: $SRC_NAME did not bring the model up (${why:-see the ghost.oracled log}); the previous build is back and serving. The failed one: $ON.failed"
@@ -250,8 +265,8 @@ wiki)
     zrc=0; sh "$TOOLS/mirror_fetch.sh" wikipedia "$WK" || zrc=$?
     rm -f "$WK/.mirror-files"
     case "$zrc" in
-        0) chown -R "$OWNER:$OWNER" "$WK" 2>/dev/null || true
-           chmod 640 "$WK"/*.zim 2>/dev/null || true
+        0) chown -R -h "$OWNER:$OWNER" "$WK" 2>/dev/null || true
+           vol_mode 640 "$WK"/*.zim
            if [ "$(cat "$WK"/.*.zim.sha256 2>/dev/null)" != "$before" ]; then
                result wiki "$(ls "$WK"/*.zim | xargs -n1 basename) on the volume ($(du -sh "$WK" 2>/dev/null | cut -f1)); ghost.synthd imports it into the database from the next minute (an hour or two; Box Status shows how far) and removes the file after"
            else

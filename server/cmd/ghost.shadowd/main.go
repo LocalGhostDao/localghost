@@ -14,8 +14,10 @@
 // [LOCALGHOST]-origin ones that read data the box already holds: total interaction time and
 // session-past-task-completion (addiction by design), share of emotional processing done with the
 // ghost vs humans (engagement-driven loneliness), sunk-cost retrieval framing, topic-surface
-// narrowing (filter bubble of one). This binary is the honest stub of all that: health + ctl only,
-// detectors pending, and the box will not ship v1 without it running.
+// narrowing (filter bubble of one). ONE detector runs today: interaction time, this week's chat
+// messages against last week's, one observation per week when it has grown past the threshold
+// (interactionTrend). The other twenty-seven and the arbiter are not built, and the box will not
+// ship v1 without them.
 //
 // Runs only while the account is UNLOCKED (data lives on the encrypted volume). Spawned by ghost.watchd
 // from <mount>/bin/ghost.shadowd; its stdout/stderr go to <mount>/logs/ghost.shadowd.log.
@@ -140,7 +142,7 @@ func main() {
 		}
 	}
 
-	lg.Info("stub up (charter recorded, detectors pending)", "fn", "main", "healthPort", *port)
+	lg.Info("up: one detector running (interaction time, week against week); the rest of the catalogue and the arbiter are not built", "fn", "main", "healthPort", *port)
 
 	<-ctx.Done()
 	lg.Info("shutting down", "fn", "main")

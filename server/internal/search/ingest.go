@@ -8,6 +8,7 @@ package search
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -363,14 +364,22 @@ func decodeWebP(path string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out, errb bytes.Buffer
-	cmd := exec.Command(bin, "-quiet", path, "-o", "-")
-	cmd.Stdout, cmd.Stderr = &out, &errb
+	// its size first, from the header (Go reads no WebP, so the check every other picture gets
+	// never saw one): a WebP of a few kilobytes can claim a gigabyte of pixels
+	if err := imgfit.CheckWebPFile(path); err != nil {
+		return nil, fmt.Errorf("dwebp not run: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	var errb bytes.Buffer
+	out := imgfit.NewPipe()
+	cmd := exec.CommandContext(ctx, bin, "-quiet", path, "-o", "-")
+	cmd.Stdout, cmd.Stderr = out, &errb
 	cmd.WaitDelay = 5 * time.Second
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("dwebp: %v %s", err, strings.TrimSpace(errb.String()))
 	}
-	img, _, err := image.Decode(&out)
+	img, _, err := image.Decode(out.Reader())
 	return img, err
 }
 
