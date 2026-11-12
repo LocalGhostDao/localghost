@@ -173,10 +173,8 @@ const BackupManifest = "MANIFEST.txt"
 // alone a photo that arrived yesterday was in no incremental until Sunday.
 func changedAt(info os.FileInfo) time.Time {
 	t := info.ModTime()
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		if ct := time.Unix(st.Ctim.Sec, st.Ctim.Nsec); ct.After(t) {
-			t = ct
-		}
+	if ct, ok := inodeChanged(info); ok && ct.After(t) {
+		t = ct
 	}
 	return t
 }

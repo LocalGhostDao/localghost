@@ -23,14 +23,14 @@ Read [why we build](https://www.localghost.ai/manifesto), or the
 
 ## Status
 
-**wisp**, the first release, was cut on 2 October 2026 and is at 0.0.7:
+**wisp**, the first release, was cut on 2 October 2026 and is at 0.0.8:
 [the release](https://github.com/LocalGhostDao/localghost/releases/latest),
 [what is in it and how it works](server/releases/0.0.1.md), and what the
 [second](server/releases/0.0.2.md), [third](server/releases/0.0.3.md),
 [fourth](server/releases/0.0.4.md), [fifth](server/releases/0.0.5.md),
-[sixth](server/releases/0.0.6.md) and [seventh](server/releases/0.0.7.md) cuts changed. One box
-runs it with one phone. The server is about 88,000 lines of Go with 200 test files, the app
-about 37,000 lines of Kotlin.
+[sixth](server/releases/0.0.6.md), [seventh](server/releases/0.0.7.md) and
+[eighth](server/releases/0.0.8.md) cuts changed. One box runs it with one phone. The server is
+about 96,000 lines of Go with 220 test files, the app about 38,000 lines of Kotlin.
 
 What works, as of wisp: the encrypted volume and its unlock from the phone, the photo archive
 with captions, tags and search, the trail on a map drawn from the box's own data, the heights
@@ -41,10 +41,12 @@ computes itself, the health pages, the calendar and the contacts kept on the box
 the map and the trips told by country, mail at an address of the box's own through a relay
 that can read none of it, the integrations with their sources listed and fetched from the
 mirror, phone certificates that renew while the phone is in use, releases that the phone hands
-to the box with a trial and a rollback, and a security audit of the whole with its findings
-closed.
+to the box with a trial and a rollback, memories the box reads again against their records,
+links together, folds into months and lets the person anchor, a box that checks itself over
+(`ghost-ctl doctor`), and three security passes over the whole, with what each left open named
+in the release notes.
 
-What is not built: the decoy volume and the duress PINs, the Mist (peer-to-peer backup), mail, an
+What is not built: the decoy volume and the duress PINs, the Mist (peer-to-peer backup), an
 offline release key, a hardware product. The [release notes](server/releases/0.0.1.md#known-gaps-at-wisp)
 list the known gaps, and [the security policy](SECURITY.md) says how to report what you find.
 
@@ -194,12 +196,11 @@ contributors edit it; a box is Linux. The app's JVM tests run on pull requests a
 
 ## Where it is going
 
-Next, in no promised order: shorter device certificates renewed by the phone (the rekey path
-exists; wisp issues ten-year certificates), an offline release key, the decoy volume, the retire
-button on the phone's DEVICES screen, and a release every few weeks with the notes to match,
-every 0.x a wisp (shade is 1.x, and the ghosts grow from there). The box CA stays where it is, on
+Next, in no promised order: an offline release key, the decoy volume, the retire button on the
+phone's DEVICES screen, and a release every few weeks with the notes to match, every 0.x a wisp
+(shade is 1.x, and the ghosts grow from there). The box CA stays where it is, on
 the OS disk, so a phone can be enrolled and refused while the vault is locked; that is a choice,
-not an oversight. Later: mail, the Mist (sharded, encrypted peer-to-peer backup between boxes),
+not an oversight. Later: the Mist (sharded, encrypted peer-to-peer backup between boxes),
 hardware. Nothing on this list depends on a server of ours; the mirror is a convenience the box
 verifies, not a service it needs.
 

@@ -6837,3 +6837,26 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (350 before), a debug APK assembles; the drop applied to a clean main equals the tree.
 - Not exercised: any of it on xyntai. The first month pass there will fold years of days at
   once; it is one query and one write per month.
+
+## 12 November 2026 , wisp 0.0.8 cut
+- Vlad: "ok, let's cut a new build". The cut edits, on main f4b7d42 with the two drops of the
+  day under them: `releases/0.0.8.md` "Cut on 12 November 2026" with the paragraph for a box
+  and a phone on 0.0.7 (the schema converges, the months fold in the first pass, the links,
+  the front page, read-again's "?", clip durations, the firewall table from redeploy.sh,
+  server_setup_root.sh once more for the sudo rule and security updates, privacy_check.sh for
+  the models' key, one full backup, the search key's move on the phone, the relay's
+  root-once.sh and install.sh); the second audit's "three areas not covered" now points at the
+  12 November pass; the forecast's gap is the corrected one from 0.0.7's notes (no
+  verification), which this page had not taken; `RELEASES.md` the 0.0.8 row; `CITATION.cff`
+  0.0.8, 2026-11-12; `README.md` status at 0.0.8 with the eighth cut's link, "about 96,000
+  lines of Go with 220 test files, the app about 38,000 lines of Kotlin" (counted here, tests
+  apart: 95,741 / 224 / 38,134), the "what works" paragraph adds the memories, the doctor and
+  the three passes, and three stale lines go (mail under "not built" and under "later", the
+  ten-year certificates under "next": both shipped in 0.0.6 and 0.0.7).
+- `release.names` (0.0.8 wisp) and the app (0.0.8 / 8) were set on 23 October.
+- CI's last server step, `GOOS=darwin go vet ./...`, has been failing on main since run 2's
+  backup fix: `changedAt` read `syscall.Stat_t.Ctim`, which only Linux has. The read is in
+  `internal/framed/backup_ctime_linux.go` now, with a stand-in for the rest
+  (`backup_ctime_other.go`); the darwin vet passes here, and the suite passes both ways CI and
+  a box run it (55 packages, with Postgres and without).
+- Nothing in this drop has run on xyntai or on a phone: redeploy and look before the tag.
