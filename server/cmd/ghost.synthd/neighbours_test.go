@@ -338,6 +338,10 @@ func TestMonths(t *testing.T) {
 	if got := monthBody(monthFrom("2019-02", []dayFacts{{Photos: 1}}, 4, 0, nil)); got != "4 days kept, 1 photo." {
 		t.Fatal(got)
 	}
+	// a month whose days all belong to its outings names the outings, not "0 days"
+	if got := monthBody(monthFrom("2025-04", []dayFacts{{Photos: 30}}, 0, 5, nil)); got != "5 outings, 30 photos." {
+		t.Fatal(got)
+	}
 	// more covers than the strip holds: spread over the month
 	var many []dayFacts
 	for i := 0; i < 20; i++ {

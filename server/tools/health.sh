@@ -118,7 +118,13 @@ for svc in $CHECK; do
                 0) echo "ok${hd:+ , $hd}" ;;
                 1) echo "$(yellow DEGRADED) ${hd}" ;;
                 2) echo "$(red FAILING) ${hd}" ;;
-                *) echo "(no health in its status: a build from before 29 Sep 2026)" ;;
+                *) case "$svc" in
+                       # the supervisor answers status with what it supervises, not a health line
+                       # of its own; saying "a build from before 29 Sep 2026" of a watchd built
+                       # an hour ago sent a reader looking for a stale binary
+                       watchd|ghost.watchd) echo "(the supervisor: its health is the cohort's, below)" ;;
+                       *) echo "(no health in its status: a build from before 29 Sep 2026)" ;;
+                   esac ;;
             esac
             if [ "$svc" = "ghost.oracled" ]; then
                 # The GPU question, from oracled itself (tools/gpu.sh has the whole picture).
@@ -185,8 +191,15 @@ for svc in $CHECK; do
                     printf '  map coast: no tiles (tools/fetch_geo.sh <mount>/geo fetches the polygons and cuts them)\n'
                 fi
                 if [ -s "$MOUNT/roadtiles/index.bin" ]; then
-                    nm=$(ls "$MOUNT"/roadtiles/1 2>/dev/null | wc -l); nf=$(ls "$MOUNT"/roadtiles/0 2>/dev/null | wc -l)
-                    printf '  map roads: %s major + %s fine tiles, %s\n' "$nm" "$nf" "$(du -sh "$MOUNT/roadtiles" 2>/dev/null | cut -f1)"
+                    # Counted without sorting or stat-ing: a continent's worth is over a million
+                    # small files, and `ls | wc -l` sorted them all and `du` asked the disk about
+                    # each one, so this line held the whole report up for seconds (minutes on a
+                    # cold cache). `ls -f` reads the directory as it lies; the size is asked for
+                    # only with GHOST_HEALTH_SIZES=1.
+                    nm=$(ls -f "$MOUNT"/roadtiles/1 2>/dev/null | grep -c '\.lgr$'); nf=$(ls -f "$MOUNT"/roadtiles/0 2>/dev/null | grep -c '\.lgr$')
+                    rsz=""
+                    [ "${GHOST_HEALTH_SIZES:-0}" = 1 ] && rsz=", $(du -sh "$MOUNT/roadtiles" 2>/dev/null | cut -f1)"
+                    printf '  map roads: %s major + %s fine tiles%s\n' "$nm" "$nf" "$rsz"
                 else
                     np=$(ls "$MOUNT"/geo/roads/*.osm.pbf 2>/dev/null | wc -l)
                     if [ "$np" -gt 0 ]; then

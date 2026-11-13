@@ -215,7 +215,7 @@ if [ "$DRY" = 1 ]; then
 else
 if [ -f "$SUDOERS" ] && grep -q 'ghost\.\*' "$SUDOERS"; then
     cp -a "$SUDOERS" "$SUDOERS.wildcard-$(date -u +%Y%m%dT%H%M%SZ).bak"
-    echo "  the existing rule used ghost.* ; the old file is kept as $SUDOERS.wildcard-*.bak"
+    echo "  the existing rule used ghost.* ; the old file is kept as $SUDOERS.wildcard-*.bak (sudo reads no file with a dot in its name)"
 fi
 write_sudoers > "$SUDOERS"
 chmod 440 "$SUDOERS"
@@ -297,7 +297,7 @@ if [ "$DRY" = 1 ]; then
 else
     echo " ROOT setup complete for service user: $SVC_USER"
     echo "   packages detected/installed, postgres bins on PATH, dm_crypt loaded,"
-    echo "   $SVC_USER granted TPM (tss) + scoped ghost.* service sudo,"
+    echo "   $SVC_USER granted TPM (tss) + sudo for the ghost.secd unit and nothing else,"
     CUR_HOST="$(grep '^GHOST_HOST=' /etc/ghost/ghost.env 2>/dev/null | head -1 | cut -d= -f2-)"
     if [ -n "$CUR_HOST" ]; then
         echo "   box env at /etc/ghost/ghost.env (GHOST_HOST=$CUR_HOST , read from the file, not the flag)."
@@ -307,6 +307,15 @@ else
     fi
     echo
     REPO="$(cd "$(dirname "$0")/.." && pwd)"   # the server/ dir this script lives under
+    # A box that is already provisioned (run again for a new package, the sudo rule, the firewall)
+    # has no next step. It used to be shown the whole bring-up, down to the ghost-setup --apply
+    # line that wipes a disk, as if it were what to do now.
+    if [ -e /etc/systemd/system/ghost.secd.service ]; then
+        echo " This box is already provisioned (ghost.secd is installed): nothing more to do."
+        echo " The steps for a new box are in tools/README.md."
+        echo "==================================================================="
+        exit 0
+    fi
     echo " ------------------------------------------------------------------"
     echo " NEXT , copy/paste in order. Two roles: the SERVICE USER builds, ROOT provisions."
     echo " ------------------------------------------------------------------"

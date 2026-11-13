@@ -6860,3 +6860,37 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (`backup_ctime_other.go`); the darwin vet passes here, and the suite passes both ways CI and
   a box run it (55 packages, with Postgres and without).
 - Nothing in this drop has run on xyntai or on a phone: redeploy and look before the tag.
+
+## 13 November 2026 , the cut's first run on xyntai, and what it turned up
+- Vlad applied the cut drop (main 651d1ac "wisp 0.0.8"; his own ee851b6 before it moved the
+  Gradle wrapper to 9.9.0), redeployed, and pasted health.sh, server_setup_root.sh and
+  privacy_check.sh. On the real box: the month pass wrote the old months and the link pass drew
+  810 links at 23:25; both llama-servers refuse a request without their key (the first time
+  that was seen against the real binary); 11 of 11 up.
+- `cut_release.sh` stopped: go 1.27.3 on the box, go.mod names 1.27.1. Vlad: "we need it all
+  updated, go and the gradle". go.dev has 1.27.4 since 10 November (security fixes to net/http,
+  cgo, the go command, the compiler and the linker; 1.27.2 and 1.27.3 before it fixed
+  crypto/tls, html/template, net/http, net/textproto, os and crypto/x509). `go.mod`,
+  `install_go.sh`'s pin and `server_setup_user.sh`'s default are 1.27.4; the mirror's `go` set
+  gains go1.27.4 in the web repository (`check=godev`); README and BUILDING say so. The box needs
+  `sudo ./tools/install_go.sh` once the mirror has published it. Not built here: this sandbox
+  has Go 1.25.1 and runs the suite against a lowered go line.
+- Gradle: main's wrapper (9.9.0) taken into this tree as it is; BUILDING.md said 9.6. The app
+  compiles and its tests pass here on 9.9.0 with AGP 9.2.1.
+- "framed hangs for a bit": health.sh, not the daemon. Its road tiles line ran `ls | wc -l`
+  over a directory of 1.28 million files (ls sorts them) and `du -sh` over all of them. Now
+  `ls -f` and a count, and the size only with GHOST_HEALTH_SIZES=1.
+- privacy_check.sh warned of the sudoers wildcard straight after server_setup_root.sh had
+  replaced it: it grepped every file in /etc/sudoers.d, the kept `.bak` included, which sudo
+  itself never reads (a dot in the name). It reads what sudo reads now. Its forged-header
+  warning said any local process reaches the PIN door on a box behind nginx; since run 2 the
+  header's certificate is checked against the device CA and the firewall table keeps other
+  accounts off the port, so it passes when that table is loaded and warns, in true words, when
+  it is not.
+- server_setup_root.sh on a provisioned box printed the whole bring-up as "NEXT", down to the
+  `ghost-setup --apply` line that wipes a disk. It says the box is provisioned and stops. Its
+  summary still said "scoped ghost.* service sudo".
+- A month whose days all sit under its outings read "0 days kept and 5 outings" (xyntai's
+  2025-04): it names the outings alone.
+- The date line moved to 13 November (the cut had not been tagged at midnight).
+

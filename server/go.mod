@@ -1,6 +1,6 @@
 module github.com/LocalGhostDao/localghost/server
 
-go 1.27.1
+go 1.27.4
 
 require (
 	github.com/google/go-tpm v0.9.8

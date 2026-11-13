@@ -8,7 +8,7 @@ debug builds too (command line only).
 
 | What | Version | Why |
 |---|---|---|
-| JDK | 21 (17 or newer works) | runs Gradle 9.6 and the Android Gradle Plugin 9.2 |
+| JDK | 21 (17 or newer works) | runs Gradle 9.9 (the wrapper fetches it) and the Android Gradle Plugin 9.2 |
 | Android SDK Platform | API 37 and API 36 | compileSdk 37, targetSdk 36 (minSdk 35) |
 | Android SDK Build-Tools | 36.0.0 | pinned in `app/build.gradle.kts` |
 | Android SDK Platform-Tools | latest | `adb`, to install on the phone |
@@ -204,6 +204,6 @@ rename a field or function, so rebuild and test after moving the pin.
 ## The box's server (Linux only)
 
 The Go server is not built on these machines. It builds on the box: `server/tools/setup.sh`
-installs Go from the mirror at setup (the version `server/go.mod` names, 1.27.1 now; `redeploy.sh`
+installs Go from the mirror at setup (the version `server/go.mod` names, 1.27.4 now; `redeploy.sh`
 brings a box up to a newer one the same way), and `server/tools/redeploy.sh` builds and stages the
 daemons (the next unlock puts them on the volume).
