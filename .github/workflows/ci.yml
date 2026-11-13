@@ -5,6 +5,7 @@
 #            a cross-compile for macOS, so the tree keeps building where contributors edit it
 #   app      the Android app's JVM unit tests (no device, no emulator); the heavy job, so it runs
 #            on pull requests and by hand (Actions › ci › Run workflow), not on every push
+#   ios      the iOS app's simulator build and unit tests on pull requests and by hand
 #
 # Actions are free for a public repository; a push cancels a run still going on the same branch,
 # so nothing stacks up. Nothing here reaches outside GitHub but the module proxy and Maven; the
@@ -81,3 +82,22 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest
+
+  ios:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: app/ios
+    steps:
+      - uses: actions/checkout@v4
+      - name: simulator tests
+        run: |
+          simulator_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { print $2; exit }')"
+          test -n "$simulator_id"
+          xcodebuild \
+            -project LocalGhost.xcodeproj \
+            -scheme LocalGhost \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            test \
+            CODE_SIGNING_ALLOWED=NO

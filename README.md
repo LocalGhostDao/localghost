@@ -175,16 +175,32 @@ localghost/
 │   ├── tools/         setup, update, release and health scripts; README.md is the setup guide;
 │   │                  DEV_UPDATE.md is the engineering journal, newest at the end
 │   └── releases/      the notes and the pin of every release
-└── app/android/       the Android app (Gradle, Kotlin, Compose)
+└── app/
+    ├── android/       the Android app (Gradle, Kotlin, Compose)
+    └── ios/           the iOS app (Xcode, Swift, SwiftUI)
 ```
+## Run the server
 
 ```sh
 cd server
 go build ./... && go vet ./... && go test ./...      # the Postgres tests run when GHOST_PG_SOCKET_DIR
                                                      # names a Postgres socket dir, and skip otherwise
 make box                                             # every daemon, with the tree's git description
+```
+
+## Run on Android (requires Android dev tools)
+
+```sh
 cd ../app/android
 ./gradlew :app:testDebugUnitTest                     # the app's JVM tests, no device needed
+```
+
+## Run on iOS (requires iOS dev tools)
+
+```sh
+cd ../ios
+xcodebuild -project LocalGhost.xcodeproj -scheme LocalGhost \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO
 ```
 
 CI ([ci.yml](.github/workflows/ci.yml)) runs the server's build, vet and tests on every push
