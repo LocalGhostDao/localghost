@@ -6860,3 +6860,9 @@ Anchor Terminal's second pass, after wisp 0.0.2:
   (`backup_ctime_other.go`); the darwin vet passes here, and the suite passes both ways CI and
   a box run it (55 packages, with Postgres and without).
 - Nothing in this drop has run on xyntai or on a phone: redeploy and look before the tag.
+
+## 13 November 2026 , the iOS app begins
+- Added the first native iOS target under `app/ios`: a Swift 6 and SwiftUI application shell,
+  an explicit setup-first state, a Swift Testing target and no external dependencies.
+- Added simulator build and test coverage to CI on macOS, plus local build instructions. The
+  app and its tests compile for the iOS 26.5 simulator with code signing disabled.
