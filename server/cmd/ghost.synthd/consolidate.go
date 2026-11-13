@@ -15,11 +15,13 @@ package main
 //   goes. A memory the person edited by hand is never merged into or rewritten; it stays theirs.
 //
 //   TRIPS. Outings away from home that follow one another within a few days are one trip (kind
-//   'trip', source_ref trip:<first day>): the country or the places and the dates for a title, a
-//   template body from the numbers, the outings and the days folded under it (meta.part_of on each),
-//   and the model writes the trip from the outings' own texts and the days' stories when it is on
-//   the GPU (prose.go). A lone outing away for a night or more folds its days under itself the same
-//   way. MEMORIES shows a trip in place of its parts; the parts are still there, one tap down.
+//   'trip', source_ref trip:<first day>) when between them they span a night: the country and the
+//   dates for a title, or the places when the trip never left the country the person lives in
+//   ("Bath and Bristol", not "United Kingdom"), a template body from the numbers, the outings and
+//   the days folded under it (meta.part_of on each), and the model writes the trip from the
+//   outings' own texts and the days' stories when it is on the GPU (prose.go). One outing away
+//   over a night is a trip of one. A day out, with no night in it, stays an outing. MEMORIES shows
+//   a trip in place of its parts; the parts are still there, one tap down.
 //
 // Merging and folding are plain SQL and run every pass; the writing needs the GPU and runs once a
 // day. Nothing here reads the journal: it works on the memories the other passes made.
@@ -39,8 +41,17 @@ import (
 )
 
 const (
-	tripGapS       = 3 * 86400 // outings this close in time, both away from home, are one trip
-	tripMinSpanS   = 86400     // a trip is at least a night away; outings on one day are a day out
+	tripGapS = 3 * 86400 // outings this close in time, both away from home, are one trip
+	// A trip is a night away; outings on one day are a day out. The night is counted as one
+	// (nightsAway: the clock where the photos were taken passed four in the morning), with
+	// eight hours at least between the first photo and the last, so a night out that ran past
+	// four is not a trip. Until 13 November 2026 the rule was 24 hours from the first photo to
+	// the last, and a weekend that began with Saturday's lunch and ended with Sunday's was not
+	// one (Vlad: "i went to a few places for just 2 days, in the uk they should appear as a trip").
+	tripMinSpanS   = 8 * 3600
+	tripNightH     = 4
+	tripRules      = "2" // the rules above, named: a box that takes other rules chains its trips again at once
+	tripRulesKey   = "synthd_trip_rules"
 	tripCountryD   = 7         // a week or more in one country is a trip of its own (16 Oct 2026, Vlad's rule)
 	tripNameS      = 48 * 3600 // a country is in a trip's title from two days in it; less is a passage, said in the body
 	tripNameMax    = 3         // a title names three countries at most; a trip that would name four is split
@@ -714,6 +725,7 @@ type tripOuting struct {
 	days      int
 	photos    int
 	away      bool
+	lon       float64 // the outing's centre, for the clock there (nightsAway)
 	fromHomeM float64
 	distanceM float64
 	country   string
@@ -721,9 +733,47 @@ type tripOuting struct {
 	covers    []string
 }
 
+// nightsAway is how many nights lie between two moments at a longitude: how many times the clock
+// there passed tripNightH in the morning, by the sun (fifteen degrees of longitude an hour), which
+// is near enough to the wall clock anywhere and needs no zone. Four and not midnight: an evening
+// that runs to one in the morning is one evening, and a photo at breakfast the day after is a
+// night away.
+func nightsAway(start, end int64, lon float64) int {
+	if end <= start {
+		return 0
+	}
+	off := int64(lon/15*3600) - tripNightH*3600
+	day := func(ts int64) int64 {
+		t := ts + off
+		if t < 0 {
+			return (t - 86399) / 86400
+		}
+		return t / 86400
+	}
+	return int(day(end) - day(start))
+}
+
+// homeCountry is the country the person lives in, as the outings say it: the one most
+// photographed among the outings that are not away. "" when no outing at home names a country.
+func homeCountry(outs []tripOuting) string {
+	n := map[string]int{}
+	best := ""
+	for _, o := range outs {
+		if o.away || o.country == "" {
+			continue
+		}
+		n[o.country] += o.photos + 1
+		if best == "" || n[o.country] > n[best] || (n[o.country] == n[best] && o.country < best) {
+			best = o.country
+		}
+	}
+	return best
+}
+
 // chainTrips groups the outings away from home into trips: time order, a new trip when the next
 // outing starts more than tripGapS after the last ended; a chain is a trip when it spans a night
-// at least, a lone outing included (a week in one town is one outing and still a trip; until
+// at least (nightsAway, and tripMinSpanS from its first photo to its last), a lone outing
+// included (a week in one town is one outing and still a trip; until
 // 10 October 2026 it took two outings, and a trip spent in one place never showed as one).
 // Then the countries: a chain is split where a week or more in one country meets a week or more
 // in another (ten days in Greece then ten in Romania are two trips), and a shorter stay joins
@@ -750,10 +800,16 @@ func chainByTime(outs []tripOuting) [][]int {
 	var cur []int
 	var curEnd int64
 	flush := func() {
-		if len(cur) >= 1 && outs[cur[len(cur)-1]].end-outs[cur[0]].start >= tripMinSpanS {
-			groups = append(groups, cur)
+		// from the chain's first photo to its last (curEnd: the last to end, which need not be
+		// the last to begin), on the clock where the chain began
+		if len(cur) >= 1 {
+			first := outs[cur[0]]
+			if curEnd-first.start >= tripMinSpanS && nightsAway(first.start, curEnd, first.lon) >= 1 {
+				groups = append(groups, cur)
+			}
 		}
 		cur = nil
+		curEnd = 0
 	}
 	for _, i := range idx {
 		o := outs[i]
@@ -949,8 +1005,11 @@ type tripMeta struct {
 	DistanceM float64  `json:"distanceM,omitempty"`
 	FromHomeM float64  `json:"fromHomeM,omitempty"`
 	Away      bool     `json:"away"`
-	Template  string   `json:"template,omitempty"`
-	Prose     string   `json:"prose,omitempty"`
+	// Domestic: the trip never left the country the person lives in (homeCountry). Its title is
+	// its places, since "United Kingdom" names nothing to someone who lives there.
+	Domestic bool   `json:"domestic,omitempty"`
+	Template string `json:"template,omitempty"`
+	Prose    string `json:"prose,omitempty"`
 }
 
 // tripOf folds a chain of outings into one trip: dates, counts, the countries and places most
@@ -1018,16 +1077,23 @@ func tripOf(outs []tripOuting, group []int) tripMeta {
 	}
 	t.Places = places
 	t.Days = int((dayStart(t.End)-dayStart(t.Start))/86400) + 1
+	// at home in the wider sense: every country the trip was in is the one the person lives in
+	if home := homeCountry(outs); home != "" && len(countries) == 1 && countries[0] == home {
+		t.Domestic = true
+	}
 	return t
 }
 
 func dayStart(ts int64) int64 { return ts - ts%86400 }
 
-// tripTitle: "Canada, 12 to 19 September 2026"; the places when no country is known; "France and
-// Italy" for two, "France, Italy and Austria" for three, "four countries" past that.
+// tripTitle: "Canada, 12 to 19 September 2026"; the places when no country is known, or when the
+// trip stayed in the country the person lives in ("Bath and Bristol, 17 to 18 October 2026");
+// "France and Italy" for two, "France, Italy and Austria" for three, "four countries" past that.
 func tripTitle(t tripMeta) string {
 	where := ""
 	switch {
+	case t.Domestic && len(t.Places) > 0:
+		where = joinSome(t.Places, 3)
 	case len(t.Countries) >= 1 && len(t.Countries) <= 3:
 		where = joinAnd(t.Countries)
 	case len(t.Countries) > 3:
@@ -1150,6 +1216,7 @@ func loadOutings(db *poltergres.ReadWrite) ([]tripOuting, error) {
 				o.photos = int(p)
 			}
 			o.away, _ = m["away"].(bool)
+			o.lon, _ = metaFloat(m, "lon")
 			o.fromHomeM, _ = metaFloat(m, "fromHomeM")
 			o.distanceM, _ = metaFloat(m, "distanceM")
 			o.country, _ = m["country"].(string)
@@ -1380,9 +1447,17 @@ func consolidatePass(db *poltergres.ReadWrite, oc *oracle.Client, outingsChanged
 	folded += named
 	today := time.Now().UTC().Format("2006-01-02")
 	daily := setting(db, consolidateKey) != today
-	if outingsChanged || daily {
+	// a build with other rules for what a trip is chains the trips again at its first pass, not
+	// at the next photo or the next day
+	rules := setting(db, tripRulesKey) != tripRules
+	if outingsChanged || daily || rules {
 		if trips, err = tripPass(db, lg); err != nil {
 			return
+		}
+		if rules {
+			if err = setSetting(db, tripRulesKey, tripRules); err != nil {
+				return
+			}
 		}
 	}
 	if !daily {

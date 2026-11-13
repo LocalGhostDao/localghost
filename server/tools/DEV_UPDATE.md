@@ -374,11 +374,7 @@ described are in the header of `tools/release.sh`; day to day a box is brought c
   a box run it (55 packages, with Postgres and without).
 - Nothing in this drop has run on xyntai or on a phone: redeploy and look before the tag.
 
-## 13 November 2026 , the cut's first run on xyntai, and what it turned up, the iOS app begins
-- Added the first native iOS target under `app/ios`: a Swift 6 and SwiftUI application shell,
-  an explicit setup-first state, a Swift Testing target and no external dependencies.
-- Added simulator build and test coverage to CI on macOS, plus local build instructions. The
-  app and its tests compile for the iOS 26.5 simulator with code signing disabled.
+## 13 November 2026 , the cut's first run on xyntai, and what it turned up
 - Vlad applied the cut drop (main 651d1ac "wisp 0.0.8"; his own ee851b6 before it moved the
   Gradle wrapper to 9.9.0), redeployed, and pasted health.sh, server_setup_root.sh and
   privacy_check.sh. On the real box: the month pass wrote the old months and the link pass drew
@@ -490,3 +486,51 @@ described are in the header of `tools/release.sh`; day to day a box is brought c
   (the iOS shell, this).
 - Checked: every day that had an entry has its line and no day has two; November is line for
   line what it was; this drop applied to main 52a9337 equals the working tree.
+
+## 13 November 2026 , a weekend away is a trip: the night counted, two places on one day, short stops
+- Vlad: "do i need to run anything on the memories or will they naturally be rearranged? also
+  daily trips should be in there, i went to a few places for just 2 days, in the uk they should
+  appear as a trip". Nothing to run: the loop does it every ten minutes. The second half is a
+  bug in three parts, found by reading the code against that sentence. His archive was not
+  looked at.
+- The rule. `chainByTime` asked for 24 hours between a chain's first photo and its last (the
+  comment said "a trip is at least a night away", the code said 86400). Saturday 13:00 to
+  Sunday 11:00 is 22. Now `nightsAway`: the clock where the photos were taken passed four in
+  the morning (by the sun, longitude over fifteen, no zone needed), with eight hours at least
+  from first photo to last, so a night out that ran past four is not a trip. Four and not
+  midnight, so an evening that runs to one is one evening. The chain's end is the last photo
+  of any outing in it; the old code read the end of the one that began last.
+- The refs. `outings.Build` named an outing by the day it began. Two outings can begin on one
+  day (a photo 30 km from the centre begins a new one; photos at home before setting off are
+  one too), and both were written to `outing:<day>`, the later over the earlier, at every pass,
+  the model's telling thrown away each time. So "a few places" on the Saturday were one memory
+  holding the afternoon, and the chain began at the afternoon. `uniqueRefs`: the first keeps
+  `outing:<day>`, the next is `outing:<day>.2`. The app's `MemoryText.dayOf` reads the day out
+  of both. On This Day still lists only the first outing of a day (its query wants the ref to
+  end with the date); the day's own story comes first there anyway.
+- The stops. A group under three photos was dropped. Two photos at dinner on the evening of
+  arriving, in another town from the next day's, took the first day with them. `foldStops`: a
+  short group away from home joins the group before it when that one is away and ended within
+  36 hours, else the one after. Its photos are marked aside when the host is an outing in its
+  own right: counted in the photos, places, tags and dates, and the centre stays where it was.
+  Short stops in a row join each other. At home, or with no position, dropped as before.
+- The title. A trip that never left the country the person lives in (`homeCountry`: the one
+  most photographed among the outings that are not away) is `domestic` in its meta and titled
+  by its places. The body's template is unchanged on purpose: a changed template has the model
+  write the trip again, and that would have been every trip on the box.
+- So that nothing has to be run: `outings.Rules` is part of the archive's signature and
+  `tripRules` is kept in settings, so this build's first pass groups and chains again with no
+  photo and no new day to set it off. A trip takes its outings and days back from the month
+  they were folded into (that was already so; a test holds it now).
+- Tests. `internal/outings`: two outings on a day, the York, Whitby and Bridlington weekend,
+  stops in a row; all three fail on the old code. `TestATripIsANightAway`: the 22 hour weekend,
+  a late arrival, a day out, an evening past midnight, a night out past four, Vancouver and
+  Tokyo by their own clocks, the chain's end, the title at home, abroad, through two countries,
+  and with no home known. `TestConsolidatePGAWeekendAtHomeIsATrip` on Postgres: the trip made
+  by `consolidatePass` with nothing changed and the day's work done, its parts moved out of the
+  month, a second pass leaving it alone. `MemoryTextTest` for the app.
+- Not done, and said in the notes: a trip is made from photos only (the trail knows the nights
+  and is not asked); the rules ran on made-up weekends, not on a real archive. A single day
+  out stays an outing; Vlad was asked whether those should be trips too.
+- Main's copy of this file had the iOS lines twice (a merge brought the joined heading back on
+  top of the split one). This copy has them once.

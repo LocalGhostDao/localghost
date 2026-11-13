@@ -53,7 +53,7 @@ One row in `memories`.
 | `distilled` | thing worth keeping from a note, a chat, a voice note | the distiller | the model, read again against the record |
 | `user` | memory the person wrote by hand | the person | the person |
 | `outing` | run of photos in one place | the photos | a template from counts; the model when it stays inside them |
-| `trip` | chain of outings away from home | the outings | the same |
+| `trip` | chain of outings away from home with a night in it | the outings | the same |
 | `day` | day with something in it | everything that day | a fact sheet, a template, then the model inside the sheet |
 | `month` | month that ended six weeks ago | its days | counted only |
 | `place` | place the person keeps going to | the trail and the photos | counted only |
@@ -69,6 +69,28 @@ folds under its trip; a day under an outing that was a night or more away; and a
 older than six weeks, not already under a trip, under its **month** (`months.go`). MEMORIES shows
 the whole where it would have shown the parts. The parts are one tap down, unchanged, and what
 they were told from is untouched on disk. An anchored part still shows on its own.
+
+What makes an outing and a trip (`internal/outings`, `consolidate.go`), since both decide what
+the feed shows:
+
+- An **outing** is three photos or more, close in time (a silence of 36 hours ends it) and in
+  place (a photo 30 km from the outing's centre begins another). It is **away** when its centre
+  is more than 25 km from home, and home is where the photos say it is: the 5 km cell
+  photographed on the most days.
+- A stop away from home with one or two photos is not a memory by itself. It joins the outing
+  beside it (the one before, else the one after, within 36 hours), counted in its photos, places
+  and dates, and leaving its centre where it was.
+- Two outings can begin on one day. The first has the ref `outing:<day>`, the next
+  `outing:<day>.2`.
+- A **trip** is a chain of outings away, each beginning within three days of the last ending,
+  that has a **night** in it: the clock where the photos were taken passed four in the morning
+  between the first photo and the last, and those are eight hours apart or more. One outing can
+  be a trip. A day out, however long, is not.
+- A trip is titled by its countries, and by its places when it never left the country the
+  person lives in (the one most photographed at home).
+
+Both sets of rules are named (`outings.Rules`, `tripRules`), and a box that takes a build with
+other rules groups its photos and chains its trips again at the first pass.
 
 So the feed reads: the last six weeks day by day, before that month by month, with every trip a
 whole of its own. Years are not built: a month from 2014 is still a month.

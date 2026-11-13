@@ -4,7 +4,8 @@ package main
 // one) it reads the photo frames , when, where, which place the box resolved, which tags the
 // pipeline gave , groups them into outings (internal/outings: runs close in time and place, a
 // home cell to say which are trips), asks the trail how far the person moved over each, and
-// writes one memory per outing (kind='outing', source_ref='outing:<day>', body from a template
+// writes one memory per outing (kind='outing', source_ref='outing:<day>', 'outing:<day>.2' for
+// the second to begin that day, body from a template
 // over real numbers, meta as JSON for the app's cards). Then the TASTE: which tags recur across
 // the days with a camera out, folded onto the fixed interests, written to settings for /v1/taste
 // and /v1/nearby. No model call HERE: a memory of a trip exists the week it happened, whether or
@@ -38,10 +39,12 @@ func outingPass(db *poltergres.ReadWrite, lg *slog.Logger) (int, error) {
 	// The signature of the archive: a pass only when something changed since the last one. The
 	// trail counts by its newest point older than two days: a point every quarter hour made the
 	// count change every pass, and every pass re-read every frame and tag and rewrote every
-	// outing; the distances of the last two days settle at the next change after that.
+	// outing; the distances of the last two days settle at the next change after that. The
+	// grouping rules are part of it (outings.Rules): a build that groups differently groups
+	// again at its first pass, with no photo needed to set it off.
 	sig := ""
 	if rows, err := db.Query("SELECT count(*)::text || ':' || coalesce(max(taken_at),0)::text || ':' || (SELECT count(*) FROM frame_tags)::text || ':' || (SELECT coalesce(max(ts),0) FROM location_points WHERE ts < $1)::text FROM frames WHERE kind = 'photo'", time.Now().Unix()-2*86400); err == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
-		sig = *rows.Vals[0][0]
+		sig = "r" + outings.Rules + ":" + *rows.Vals[0][0]
 	}
 	if rows, err := db.Query("SELECT value FROM settings WHERE key = 'synthd_outings_sig'"); err == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil && *rows.Vals[0][0] == sig && sig != "" {
 		lastOutingPass = time.Now()

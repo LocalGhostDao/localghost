@@ -20,9 +20,11 @@ object MemoryText {
     }
 
     /** The day a memory's page can open, from what it was made of ("day:2026-10-03",
-     *  "outing:2026-09-28", "trip:2026-09-12", its first day); "" for any other memory. */
+     *  "outing:2026-09-28", "trip:2026-09-12", its first day); "" for any other memory. The second
+     *  outing to begin on a day is "outing:2026-10-17.2" (the third ".3"): the same day. */
     fun dayOf(ref: String): String {
-        val d = ref.substringAfter(':', "")
+        var d = ref.substringAfter(':', "")
+        if (ref.startsWith("outing:") && d.length > 11 && d[10] == '.' && d.substring(11).all { it.isDigit() }) d = d.substring(0, 10)
         return if ((ref.startsWith("day:") || ref.startsWith("outing:") || ref.startsWith("trip:")) && DayText.valid(d)) d else ""
     }
 

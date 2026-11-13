@@ -11,6 +11,12 @@ class MemoryTextTest {
         assertEquals("", MemoryText.dayOf("chat:12"))
         assertEquals("", MemoryText.dayOf("day:soon"))
         assertEquals("2026-09-12", MemoryText.dayOf("trip:2026-09-12"))
+        // the second and third outings to begin on a day carry a number after it
+        assertEquals("2026-10-17", MemoryText.dayOf("outing:2026-10-17.2"))
+        assertEquals("2026-10-17", MemoryText.dayOf("outing:2026-10-17.12"))
+        assertEquals("", MemoryText.dayOf("outing:2026-10-17."))
+        assertEquals("", MemoryText.dayOf("outing:2026-10-17.x"))
+        assertEquals("", MemoryText.dayOf("day:2026-10-17.2"))
         assertEquals("day", MemoryText.partLabel("day"))
         assertEquals("outing", MemoryText.partLabel("outing"))
     }

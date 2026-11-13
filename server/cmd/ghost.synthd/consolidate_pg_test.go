@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/LocalGhostDao/localghost/server/internal/oracle"
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 )
 
@@ -255,5 +256,81 @@ func TestConsolidatePGTripsFoldTheirParts(t *testing.T) {
 	joined := strings.Join(facts, "\n")
 	if !strings.Contains(joined, "Days: 7") || !strings.Contains(joined, "Countries: Canada") || !strings.Contains(joined, "Part of it, Toronto: template") {
 		t.Fatalf("facts:\n%s", joined)
+	}
+}
+
+// A weekend in the country the person lives in. Two outings begin on the Saturday (two towns
+// more than thirty kilometres apart, the second under the day's second ref) and one of them ends
+// with Sunday's lunch, 21 hours after the first photo: a trip, named by its places, its outings
+// and its days folded under it and out of the month they had been folded into. A build whose
+// rules for a trip are new to the box chains the trips again at its first pass, with no photo
+// and no new day to set it off.
+func TestConsolidatePGAWeekendAtHomeIsATrip(t *testing.T) {
+	db := pgFresh(t, "lg_consolidate_weekend")
+	now := time.Now().UnixMilli()
+	must := func(err error) {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	sat, sun := day("2026-08-15"), day("2026-08-16")
+	outing := func(ref string, start, end int64, away bool, lon float64, place, partOf string, photos int) {
+		meta := map[string]any{"start": start, "end": end, "days": int((end-start)/86400) + 1, "photos": photos, "away": away, "lon": lon,
+			"country": "United Kingdom", "places": []string{place}, "fromHomeM": 160000.0}
+		if partOf != "" {
+			meta["part_of"] = partOf
+		}
+		mb, _ := json.Marshal(meta)
+		must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, meta, created_at, updated_at) VALUES ($1,'template','outing',$2,$3::jsonb,$4,$4)", place, ref, string(mb), now))
+	}
+	outing("outing:2026-08-02", day("2026-08-02")+36000, day("2026-08-02")+40000, false, -0.01, "Greenwich", "month:2026-08", 40)
+	outing("outing:2026-08-15", sat+15*3600, sun+12*3600, true, -2.36, "Bath", "month:2026-08", 30)
+	outing("outing:2026-08-15.2", sat+17*3600, sat+18*3600, true, -2.59, "Bristol", "month:2026-08", 6)
+	// a day out the week after: no night in it, not a trip
+	outing("outing:2026-08-22", day("2026-08-22")+9*3600, day("2026-08-22")+21*3600, true, -0.14, "Brighton", "month:2026-08", 12)
+	for _, d := range []string{"2026-08-14", "2026-08-15", "2026-08-16", "2026-08-22"} {
+		must(db.Exec("INSERT INTO memories (title, body, kind, source_ref, meta, created_at, updated_at) VALUES ($1,'a day','day',$2,'{\"part_of\":\"month:2026-08\"}'::jsonb,$3,$3)", d, "day:"+d, now))
+	}
+	// the box as an earlier build left it today: the day's consolidation done, no rules named
+	must(setSetting(db, consolidateKey, time.Now().UTC().Format("2006-01-02")))
+	oc := oracle.NewClient(t.TempDir(), time.Second) // no oracled: the templates stand
+	if _, trips, _, err := consolidatePass(db, oc, false, quietLog()); err != nil || trips != 1 {
+		t.Fatalf("first pass under the new rules: trips %d err %v", trips, err)
+	}
+	if got := setting(db, tripRulesKey); got != tripRules {
+		t.Fatalf("rules kept as %q", got)
+	}
+	tr := memRows(t, db, "kind = 'trip'")
+	if len(tr) != 1 || tr[0][2] != "trip:2026-08-15" || tr[0][1] != "Bath and Bristol, 15 to 16 August 2026" {
+		t.Fatalf("the weekend's trip: %v", tr)
+	}
+	var tm tripMeta
+	_ = json.Unmarshal([]byte(tr[0][4]), &tm)
+	if !tm.Domestic || tm.Days != 2 || tm.Photos != 36 || len(tm.Outings) != 2 || len(tm.Countries) != 1 || tm.Countries[0] != "United Kingdom" {
+		t.Fatalf("trip meta %+v", tm)
+	}
+	partOf := func(ref string) string {
+		rows, err := db.Query("SELECT coalesce(meta->>'part_of','') FROM memories WHERE source_ref = $1", ref)
+		if err != nil || len(rows.Vals) != 1 || rows.Vals[0][0] == nil {
+			return "?"
+		}
+		return *rows.Vals[0][0]
+	}
+	for ref, want := range map[string]string{
+		"outing:2026-08-15": "trip:2026-08-15", "outing:2026-08-15.2": "trip:2026-08-15",
+		"day:2026-08-15": "trip:2026-08-15", "day:2026-08-16": "trip:2026-08-15",
+		"outing:2026-08-02": "month:2026-08", "outing:2026-08-22": "month:2026-08", "day:2026-08-14": "month:2026-08", "day:2026-08-22": "month:2026-08",
+	} {
+		if got := partOf(ref); got != want {
+			t.Fatalf("%s part_of %q, want %q", ref, got, want)
+		}
+	}
+	// the rules are the box's now: with nothing changed and the day done, the trips are left alone
+	must(db.Exec("UPDATE memories SET title = 'left alone' WHERE kind = 'trip'"))
+	if _, trips, _, err := consolidatePass(db, oc, false, quietLog()); err != nil || trips != 0 {
+		t.Fatalf("second pass: trips %d err %v", trips, err)
+	}
+	if tr = memRows(t, db, "kind = 'trip'"); len(tr) != 1 || tr[0][1] != "left alone" {
+		t.Fatalf("the trip pass ran again: %v", tr)
 	}
 }

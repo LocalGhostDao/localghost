@@ -27,6 +27,9 @@ type Frame struct {
 	HasGPS  bool
 	Place   string // the on-box hierarchy, "Europe / Greece / Ionian Islands / Antipaxos"; '' when unknown
 	Tags    []Tag
+	// aside marks a photo from a short stop that was given to the outing beside it (foldStops):
+	// it counts in the outing's photos, places, tags and dates, and does not move its centre
+	aside bool
 }
 
 // Tag is one tag with its category (” when not yet assigned).
@@ -44,7 +47,7 @@ type TagCount struct {
 
 // Outing is one memory-worth of photos: a trip, or a notable run of days at home.
 type Outing struct {
-	Ref       string     `json:"ref"` // "outing:<start day>", the memory's source_ref
+	Ref       string     `json:"ref"` // "outing:<start day>", the memory's source_ref; ".2", ".3" for the later ones of a day
 	Start     int64      `json:"start"`
 	End       int64      `json:"end"`
 	Days      int        `json:"days"`
@@ -82,6 +85,12 @@ const (
 	maxCovers  = 6
 	maxTags    = 24
 )
+
+// Rules names the grouping rules in force. The caller keeps it beside the archive's signature, so
+// a box that takes a build with other rules groups its photos again at the next pass, not at the
+// next photo. "2" (13 November 2026): a short stop away from home joins the outing beside it, and
+// two outings that begin on the same day have a ref each.
+const Rules = "2"
 
 // Build groups time-ordered frames into outings and finds home. Frames without a time are ignored.
 func Build(frames []Frame) ([]Outing, Home) {
@@ -123,6 +132,7 @@ func Build(frames []Frame) ([]Outing, Home) {
 		}
 	}
 	flush()
+	groups = foldStops(groups, home)
 
 	var out []Outing
 	for _, g := range groups {
@@ -131,7 +141,87 @@ func Build(frames []Frame) ([]Outing, Home) {
 		}
 		out = append(out, summarize(g, home))
 	}
+	uniqueRefs(out)
 	return out, home
+}
+
+// foldStops gives a short stop away from home to the outing beside it. A group of fewer than
+// minPhotos photos is no memory by itself and used to be dropped, so two photos at dinner on the
+// evening of arriving, thirty kilometres from where the next day was spent, took the first day
+// of a weekend away with them, and a place seen for one photograph on a drive never showed in
+// the trip. Such a stop now joins the group before it when that one is away from home too and
+// ended within gapS, else the group after it on the same terms (the one before first, so an
+// outing's first day, which its ref is made of, moves as rarely as it can). Its photos are
+// marked aside when the group they join is an outing in its own right: they count, and the
+// outing's centre stays where its own photos put it. Short stops in a row join each other the
+// same way and make an outing between them once they are minPhotos together. At home, with no
+// home known, or with no position, a short group is dropped as before.
+func foldStops(groups [][]Frame, home Home) [][]Frame {
+	if !home.Known {
+		return groups
+	}
+	away := func(g []Frame) bool {
+		lat, lon, n := centre(g)
+		return n > 0 && distKm(home.Lat, home.Lon, lat, lon) > awayKm
+	}
+	joins := func(a, b []Frame) bool { // b follows a: both away, close enough in time, not too long together
+		return away(a) && away(b) && b[0].TakenAt-a[len(a)-1].TakenAt <= gapS && b[len(b)-1].TakenAt-a[0].TakenAt <= maxSpanS
+	}
+	mark := func(g []Frame, host []Frame) []Frame {
+		if len(host) < minPhotos {
+			return g // two short stops together: neither is the other's aside
+		}
+		out := make([]Frame, len(g))
+		for i, f := range g {
+			f.aside = true
+			out[i] = f
+		}
+		return out
+	}
+	var out [][]Frame
+	for _, g := range groups {
+		if n := len(out); n > 0 && len(g) < minPhotos && joins(out[n-1], g) {
+			out[n-1] = append(out[n-1], mark(g, out[n-1])...)
+			continue
+		}
+		out = append(out, g)
+	}
+	for i := len(out) - 2; i >= 0; i-- {
+		if len(out[i]) < minPhotos && joins(out[i], out[i+1]) {
+			out[i+1] = append(mark(out[i], out[i+1]), out[i+1]...)
+			out = append(out[:i], out[i+1:]...)
+		}
+	}
+	return out
+}
+
+// centre is the mean position of a group's own geotagged photos (the ones not aside), and how
+// many there were.
+func centre(g []Frame) (lat, lon float64, n int) {
+	for _, f := range g {
+		if f.HasGPS && !f.aside {
+			n++
+			lat += (f.Lat - lat) / float64(n)
+			lon += (f.Lon - lon) / float64(n)
+		}
+	}
+	return lat, lon, n
+}
+
+// uniqueRefs gives every outing a ref of its own. The ref is the day the outing began, and two
+// outings can begin on one day: a morning in one town and an afternoon in another more than
+// splitKm away, or photos at home before setting off. Both were written to the memory of that
+// day, the later over the earlier, at every pass. The first keeps "outing:<day>", the ones after
+// it are "outing:<day>.2", ".3", in time order.
+func uniqueRefs(out []Outing) {
+	seen := map[string]int{}
+	for i := range out {
+		ref := out[i].Ref
+		seen[ref]++
+		if n := seen[ref]; n > 1 {
+			out[i].Ref = fmt.Sprintf("%s.%d", ref, n)
+		}
+	}
 }
 
 // findHome is the ~5 km cell with the most distinct photo days.
@@ -178,13 +268,9 @@ func summarize(g []Frame, home Home) Outing {
 	placeCount := map[string]int{}
 	var placeFull string
 	placeFullCount := 0
+	o.Lat, o.Lon, n = centre(g)
 	for _, f := range g {
 		o.Hashes = append(o.Hashes, f.Hash)
-		if f.HasGPS {
-			n++
-			o.Lat += (f.Lat - o.Lat) / float64(n)
-			o.Lon += (f.Lon - o.Lon) / float64(n)
-		}
 		if f.Place != "" {
 			placeCount[f.Place]++
 			if placeCount[f.Place] > placeFullCount {

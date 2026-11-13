@@ -181,3 +181,149 @@ func TestDateRange(t *testing.T) {
 		}
 	}
 }
+
+// homeMornings is London on eight mornings, three photos each: enough days for a home.
+func homeMornings(from time.Time) []Frame {
+	var fs []Frame
+	for d := 0; d < 8; d++ {
+		for k := 0; k < 3; k++ {
+			fs = append(fs, Frame{Hash: "H" + itoa(d*10+k), TakenAt: from.Unix() + int64(d)*day + int64(k)*600, Lat: 51.5074, Lon: -0.1278, HasGPS: true,
+				Place: "Europe / United Kingdom / England / London"})
+		}
+	}
+	return fs
+}
+
+func at(y int, m time.Month, d, h, min int) int64 {
+	return time.Date(y, m, d, h, min, 0, 0, time.UTC).Unix()
+}
+
+// Two places on one day, more than splitKm apart, are two outings and were one memory: both had
+// the ref of the day, and the later was written over the earlier at every pass.
+func TestTwoOutingsOnOneDayHaveARefEach(t *testing.T) {
+	var fs []Frame
+	for k := 0; k < 3; k++ {
+		fs = append(fs, Frame{Hash: "a" + itoa(k), TakenAt: t0 + int64(k)*600, Lat: 39.15, Lon: 20.22, HasGPS: true})
+	}
+	for k := 0; k < 3; k++ {
+		fs = append(fs, Frame{Hash: "b" + itoa(k), TakenAt: t0 + 3600 + int64(k)*600, Lat: 39.60, Lon: 20.22, HasGPS: true})
+	}
+	for k := 0; k < 3; k++ {
+		fs = append(fs, Frame{Hash: "c" + itoa(k), TakenAt: t0 + 7200 + int64(k)*600, Lat: 40.10, Lon: 20.22, HasGPS: true})
+	}
+	for k := 0; k < 3; k++ {
+		fs = append(fs, Frame{Hash: "d" + itoa(k), TakenAt: t0 + 3*day + int64(k)*600, Lat: 40.10, Lon: 20.22, HasGPS: true})
+	}
+	outs, _ := Build(fs)
+	if len(outs) != 4 {
+		t.Fatalf("outings = %d, want 4", len(outs))
+	}
+	want := []string{"outing:2026-09-01", "outing:2026-09-01.2", "outing:2026-09-01.3", "outing:2026-09-04"}
+	seen := map[string]bool{}
+	for i, o := range outs {
+		if o.Ref != want[i] {
+			t.Fatalf("ref %d = %q, want %q", i, o.Ref, want[i])
+		}
+		if seen[o.Ref] {
+			t.Fatalf("ref %q twice", o.Ref)
+		}
+		seen[o.Ref] = true
+	}
+	if outs[0].Hashes[0] != "a0" || outs[1].Hashes[0] != "b0" {
+		t.Fatalf("the first of the day keeps the day's ref: %v %v", outs[0].Hashes, outs[1].Hashes)
+	}
+}
+
+// A weekend away in the country the person lives in: two photos in York on the Friday evening,
+// six in Whitby on the Saturday (66 km on), one in Bridlington on the Sunday morning (52 km on).
+// The two short stops were dropped, and the weekend was one day in Whitby.
+func TestAShortStopJoinsTheOutingBesideIt(t *testing.T) {
+	fs := homeMornings(time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC))
+	york := "Europe / United Kingdom / England / York"
+	whitby := "Europe / United Kingdom / England / Whitby"
+	brid := "Europe / United Kingdom / England / Bridlington"
+	fs = append(fs,
+		Frame{Hash: "y0", TakenAt: at(2026, 10, 16, 19, 30), Lat: 53.96, Lon: -1.08, HasGPS: true, Place: york},
+		Frame{Hash: "y1", TakenAt: at(2026, 10, 16, 20, 10), Lat: 53.96, Lon: -1.08, HasGPS: true, Place: york})
+	for k := 0; k < 6; k++ {
+		fs = append(fs, Frame{Hash: "w" + itoa(k), TakenAt: at(2026, 10, 17, 10+k, 0), Lat: 54.486, Lon: -0.615, HasGPS: true, Place: whitby})
+	}
+	fs = append(fs, Frame{Hash: "b0", TakenAt: at(2026, 10, 18, 9, 40), Lat: 54.085, Lon: -0.19, HasGPS: true, Place: brid})
+	// and things that must stay as they were: two photos at home on a day of their own, and one
+	// photo far away with nothing within a day and a half of it
+	fs = append(fs,
+		Frame{Hash: "h0", TakenAt: at(2026, 10, 25, 9, 0), Lat: 51.5074, Lon: -0.1278, HasGPS: true},
+		Frame{Hash: "h1", TakenAt: at(2026, 10, 25, 9, 5), Lat: 51.5074, Lon: -0.1278, HasGPS: true},
+		Frame{Hash: "e0", TakenAt: at(2026, 11, 3, 12, 0), Lat: 55.95, Lon: -3.19, HasGPS: true})
+	outs, home := Build(fs)
+	if !home.Known {
+		t.Fatal("no home")
+	}
+	var away []Outing
+	for _, o := range outs {
+		if o.Away {
+			away = append(away, o)
+		}
+		for _, h := range o.Hashes {
+			if h == "h0" || h == "e0" {
+				t.Fatalf("%s is in an outing: %+v", h, o)
+			}
+		}
+	}
+	if len(away) != 1 {
+		t.Fatalf("away outings = %d, want the weekend alone: %+v", len(away), away)
+	}
+	w := away[0]
+	if w.Photos != 9 || w.Start != at(2026, 10, 16, 19, 30) || w.End != at(2026, 10, 18, 9, 40) || w.Days != 3 {
+		t.Fatalf("the weekend = photos %d, %s to %s, days %d", w.Photos, time.Unix(w.Start, 0).UTC(), time.Unix(w.End, 0).UTC(), w.Days)
+	}
+	if w.Ref != "outing:2026-10-16" {
+		t.Fatalf("ref = %q, the outing begins on the Friday", w.Ref)
+	}
+	if w.Place != "Whitby" || len(w.Places) != 3 || w.Places[0] != "Whitby" || w.Places[1] != "York" || w.Places[2] != "Bridlington" {
+		t.Fatalf("place %q places %v", w.Place, w.Places)
+	}
+	// the centre is Whitby's: nine photos, and the three from the stops do not pull it south
+	if w.Lat < 54.48 || w.Lat > 54.49 || w.Lon < -0.62 || w.Lon > -0.61 {
+		t.Fatalf("centre = %.3f, %.3f, want Whitby's", w.Lat, w.Lon)
+	}
+}
+
+// Short stops in a row, each too few to be a memory, make one between them; and a group that is
+// an outing in its own right is never given to another.
+func TestShortStopsInARowMakeAnOuting(t *testing.T) {
+	fs := homeMornings(time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC))
+	fs = append(fs,
+		Frame{Hash: "p0", TakenAt: at(2026, 10, 20, 11, 0), Lat: 52.20, Lon: 0.12, HasGPS: true, Place: "Europe / United Kingdom / England / Cambridge"},
+		Frame{Hash: "p1", TakenAt: at(2026, 10, 20, 11, 30), Lat: 52.20, Lon: 0.12, HasGPS: true, Place: "Europe / United Kingdom / England / Cambridge"},
+		Frame{Hash: "q0", TakenAt: at(2026, 10, 20, 15, 0), Lat: 52.63, Lon: 1.30, HasGPS: true, Place: "Europe / United Kingdom / England / Norwich"},
+		Frame{Hash: "q1", TakenAt: at(2026, 10, 21, 10, 0), Lat: 52.63, Lon: 1.30, HasGPS: true, Place: "Europe / United Kingdom / England / Norwich"})
+	// then two outings in their own right the same week, 60 km apart: they stay two
+	for k := 0; k < 4; k++ {
+		fs = append(fs, Frame{Hash: "m" + itoa(k), TakenAt: at(2026, 10, 24, 10+k, 0), Lat: 50.82, Lon: -0.14, HasGPS: true})
+	}
+	for k := 0; k < 4; k++ {
+		fs = append(fs, Frame{Hash: "n" + itoa(k), TakenAt: at(2026, 10, 25, 10+k, 0), Lat: 50.72, Lon: -1.88, HasGPS: true})
+	}
+	outs, _ := Build(fs)
+	var away []Outing
+	for _, o := range outs {
+		if o.Away {
+			away = append(away, o)
+		}
+	}
+	if len(away) != 3 {
+		t.Fatalf("away outings = %d, want 3: %+v", len(away), away)
+	}
+	e := away[0]
+	if e.Photos != 4 || e.Days != 2 || len(e.Places) != 2 {
+		t.Fatalf("the two stops together = photos %d days %d places %v", e.Photos, e.Days, e.Places)
+	}
+	// neither stop is the other's aside: the centre is between Cambridge and Norwich
+	if e.Lon < 0.6 || e.Lon > 0.8 {
+		t.Fatalf("centre lon = %.2f, want between the two", e.Lon)
+	}
+	if away[1].Photos != 4 || away[2].Photos != 4 {
+		t.Fatalf("the two outings of four stayed two: %d and %d", away[1].Photos, away[2].Photos)
+	}
+}

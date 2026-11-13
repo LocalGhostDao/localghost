@@ -273,3 +273,92 @@ func TestTripNamesAndSplitAtFour(t *testing.T) {
 		t.Fatalf("%q %v", got, tr.Through)
 	}
 }
+
+// A trip is a night away, counted as a night. Until 13 November 2026 it was 24 hours from the
+// first photo to the last, and a weekend that began with Saturday's lunch and ended with
+// Sunday's was two days out.
+func TestATripIsANightAway(t *testing.T) {
+	sat, sun := day("2026-10-17"), day("2026-10-18")
+	at := func(d int64, h, m int) int64 { return d + int64(h)*3600 + int64(m)*60 }
+	one := func(start, end int64, lon float64) []tripOuting {
+		return []tripOuting{{ref: "outing:x", start: start, end: end, away: true, lon: lon, photos: 5}}
+	}
+	cases := []struct {
+		name string
+		outs []tripOuting
+		trip bool
+	}{
+		{"Saturday lunch to Sunday lunch, 22 hours", one(at(sat, 13, 0), at(sun, 11, 0), -2.36), true},
+		{"arrived late and left after breakfast, 10 hours", one(at(sat, 22, 30), at(sun, 8, 30), -2.36), true},
+		{"a day out from dawn to late evening", one(at(sat, 5, 30), at(sat, 22, 0), -2.36), false},
+		{"an evening that ran to half past one", one(at(sat, 19, 0), at(sun, 1, 30), -2.36), false},
+		{"a night out that ran past four", one(at(sat, 23, 0), at(sun, 4, 30), -2.36), false},
+		// the clock is the place's: 10:00 to 21:00 in Vancouver is 17:00 to 04:00 UTC, two dates and no night
+		{"a day in Vancouver", one(at(sat, 17, 0), at(sun, 4, 0), -123.1), false},
+		{"a night in Vancouver", one(at(sat, 23, 0), at(sun, 17, 0), -123.1), true},
+		// 08:00 to 21:00 in Tokyo is 23:00 the day before to 12:00 UTC
+		{"a day in Tokyo", one(at(sat, 23, 0), at(sun, 12, 0), 139.7), false},
+		{"a night in Tokyo", one(at(sat, 9, 0), at(sun, 0, 0), 139.7), true},
+		{"not away", []tripOuting{{ref: "outing:x", start: at(sat, 13, 0), end: at(sun, 11, 0), away: false, photos: 5}}, false},
+	}
+	for _, c := range cases {
+		if got := len(chainTrips(c.outs)) == 1; got != c.trip {
+			t.Errorf("%s: trip %v, want %v", c.name, got, c.trip)
+		}
+	}
+	if n := nightsAway(at(sat, 13, 0), at(sat, 13, 0)+9*86400, 0); n != 9 {
+		t.Fatalf("nine nights = %d", n)
+	}
+	if n := nightsAway(at(sun, 11, 0), at(sat, 13, 0), 0); n != 0 {
+		t.Fatalf("an end before its start = %d nights", n)
+	}
+
+	// Two places on the Saturday and one on the Sunday, three outings, 21 hours: one trip. The
+	// first outing ends after the second begins and after it ends; the chain's end is the last
+	// photo of any of them, not of the one that began last.
+	outs := []tripOuting{
+		{ref: "outing:2026-10-01", start: day("2026-10-01") + 36000, end: day("2026-10-01") + 40000, away: false, photos: 40, places: []string{"Greenwich"}, country: "United Kingdom"},
+		{ref: "outing:2026-10-17", start: at(sat, 15, 0), end: at(sun, 12, 0), away: true, lon: -2.36, photos: 30, places: []string{"Bath"}, country: "United Kingdom", fromHomeM: 156000},
+		{ref: "outing:2026-10-17.2", start: at(sat, 17, 0), end: at(sat, 18, 0), away: true, lon: -2.59, photos: 6, places: []string{"Bristol"}, country: "United Kingdom", fromHomeM: 170000},
+	}
+	groups := chainTrips(outs)
+	if len(groups) != 1 || len(groups[0]) != 2 {
+		t.Fatalf("the weekend: %v", groups)
+	}
+	tr := tripOf(outs, groups[0])
+	if tr.Days != 2 || tr.Photos != 36 || tr.End != at(sun, 12, 0) || len(tr.Outings) != 2 {
+		t.Fatalf("trip %+v", tr)
+	}
+	// in the country the person lives in, the places are the title; the country stays in the meta
+	if !tr.Domestic || len(tr.Countries) != 1 || tr.Countries[0] != "United Kingdom" {
+		t.Fatalf("domestic %v countries %v", tr.Domestic, tr.Countries)
+	}
+	if got := tripTitle(tr); got != "Bath and Bristol, 17 to 18 October 2026" {
+		t.Fatalf("title %q", got)
+	}
+	if got := tripBody(tr); got != "Two days away in United Kingdom: Bath and Bristol. 36 photos over 2 outings. About 170 km from home." {
+		t.Fatalf("body %q", got)
+	}
+	// with no outing at home to say where home is, the country names the trip as it did
+	if tr := tripOf(outs[1:], [][]int{{0, 1}}[0]); tr.Domestic || tripTitle(tr) != "United Kingdom, 17 to 18 October 2026" {
+		t.Fatalf("no home country: domestic %v title %q", tr.Domestic, tripTitle(tr))
+	}
+	// abroad is abroad, and a trip through two countries is named by them even when one is home
+	abroad := []tripOuting{outs[0],
+		{ref: "outing:2026-10-24", start: day("2026-10-24") + 40000, end: day("2026-10-27") + 40000, away: true, lon: -0.13, photos: 20, places: []string{"York"}, country: "United Kingdom"},
+		{ref: "outing:2026-10-28", start: day("2026-10-28") + 40000, end: day("2026-10-31") + 40000, away: true, lon: 2.35, photos: 20, places: []string{"Paris"}, country: "France"},
+	}
+	g := chainTrips(abroad)
+	if len(g) != 1 {
+		t.Fatalf("two countries: %v", g)
+	}
+	if tr := tripOf(abroad, g[0]); tr.Domestic || tripTitle(tr) != "United Kingdom and France, 24 to 31 October 2026" {
+		t.Fatalf("two countries: domestic %v title %q", tr.Domestic, tripTitle(tr))
+	}
+	if h := homeCountry(abroad); h != "United Kingdom" {
+		t.Fatalf("home country %q", h)
+	}
+	if h := homeCountry(abroad[1:]); h != "" {
+		t.Fatalf("home country with no outing at home %q", h)
+	}
+}
