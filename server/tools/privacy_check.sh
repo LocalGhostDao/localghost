@@ -109,8 +109,13 @@ done
 if ss -ltnH 2>/dev/null | grep -q '127.0.0.1:8443 '; then
     if [ "$(cat /etc/ghost/edge 2>/dev/null)" = tls ] && [ -f /etc/nginx/localghost-stream.conf ]; then
         pass "ghost.secd terminates the phone's TLS itself (edge=tls, nginx forwards the raw stream by name): a plain-HTTP client on :8443 gets the down page, not the door"
+    elif nft list table inet localghost 2>/dev/null | grep -q 'dport 8443'; then
+        # nginx ends the phone's TLS and hands secd the certificate in a header. The header is
+        # checked against the box's device CA, and the kernel lets only root and nginx reach the
+        # port (tools/firewall.sh), so no other account on the machine can send one.
+        pass "ghost.secd takes the phone's certificate from nginx on plain 127.0.0.1:8443: the firewall table lets only root and nginx reach that port, and the certificate is checked against the box's device CA"
     else
-        warn "ghost.secd still trusts the X-Client-Cert header on plain 127.0.0.1:8443: any local process that forges the header reaches the PIN door without the phone's certificate. Move it with: sudo ghost-ctl edge-passthrough --domain <box name> (secd does its own TLS, nginx forwards the raw stream by name, and the edge flag is written for you)"
+        warn "ghost.secd takes the X-Client-Cert header on plain 127.0.0.1:8443 and the firewall table that keeps other accounts off that port is not loaded: a local process that holds a copy of a phone's certificate could present it without the phone. Load it with: sudo ./tools/firewall.sh , or move the TLS into secd with: sudo ghost-ctl edge-passthrough --domain <box name> (secd does its own TLS, nginx forwards the raw stream by name, and the edge flag is written for you)"
     fi
 fi
 # the model servers ask for a key since 12 Nov 2026 (LLAMA_API_KEY in the child's environment,
@@ -130,9 +135,19 @@ done
 if ps -eo args 2>/dev/null | grep -v grep | grep -q 'redis-server.*--requirepass'; then
     warn "Redis's password is on its command line (ps shows it to every user)"
 else pass "no Redis password on a command line"; fi
-if grep -rqs 'systemctl.*ghost\.\*' /etc/sudoers.d/ 2>/dev/null; then
+# Only the files sudo itself reads: it skips a name with a dot in it or ending in "~", which is
+# how server_setup_root.sh keeps the old wildcard rule beside the new one as a .bak. Reading
+# every file warned of the wildcard for ever after it had been replaced.
+sudoers_live() {
+    for f in /etc/sudoers.d/*; do
+        [ -f "$f" ] || continue
+        case "$(basename "$f")" in *.*|*~) continue ;; esac
+        cat "$f" 2>/dev/null
+    done
+}
+if sudoers_live | grep -q 'systemctl.*ghost\.\*'; then
     warn "a sudoers rule grants systemctl on 'ghost.*' (a wildcard that also matches extra arguments like -H/-M): re-run server_setup_root.sh to replace it with the exact ghost.secd unit"
-elif grep -rqs 'ghost\.secd' /etc/sudoers.d/ 2>/dev/null; then
+elif sudoers_live | grep -q 'ghost\.secd'; then
     pass "the service user's systemctl sudo is the exact ghost.secd unit, no wildcard"
 fi
 

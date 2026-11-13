@@ -161,9 +161,15 @@ func monthFrom(ym string, sheets []dayFacts, days, outings int, trips []string) 
 // monthBody says a month from its counts (pure, for the tests). Every number is the fact sheets'.
 func monthBody(m monthMeta) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d day%s kept", m.Days, plural(m.Days))
-	if m.Outings > 0 {
-		fmt.Fprintf(&b, " and %d outing%s", m.Outings, plural(m.Outings))
+	// what is under it: its days, its outings, or both. A month whose days all belong to its
+	// outings has outings only ("0 days kept and 5 outings" was the first box's first month).
+	switch {
+	case m.Days > 0 && m.Outings > 0:
+		fmt.Fprintf(&b, "%d day%s kept and %d outing%s", m.Days, plural(m.Days), m.Outings, plural(m.Outings))
+	case m.Outings > 0:
+		fmt.Fprintf(&b, "%d outing%s", m.Outings, plural(m.Outings))
+	default:
+		fmt.Fprintf(&b, "%d day%s kept", m.Days, plural(m.Days))
 	}
 	if m.Photos > 0 {
 		fmt.Fprintf(&b, ", %d photo%s", m.Photos, plural(m.Photos))

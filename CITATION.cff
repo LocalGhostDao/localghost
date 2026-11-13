@@ -25,7 +25,7 @@ authors:
     alias: zerocool
     orcid: "https://orcid.org/0009-0008-0642-4046"
 version: "0.0.8"
-date-released: 2026-11-12
+date-released: 2026-11-13
 license: MIT
 license-url: "https://github.com/LocalGhostDao/localghost/blob/main/LICENSE"
 repository-code: "https://github.com/LocalGhostDao/localghost"

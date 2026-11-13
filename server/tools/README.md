@@ -502,7 +502,7 @@ Weather names the runs. Without the geo set there is nothing to forecast.
 
 ## 1b''''''. A newer Go , nothing to run
 
-`go.mod` names the Go the server is built with (1.27.1 since October 2026). `redeploy.sh` checks the
+`go.mod` names the Go the server is built with (1.27.4 since wisp 0.0.8; 1.27.1 from 0.0.4 to 0.0.7). `redeploy.sh` checks the
 box's Go against it before every build and installs the mirror's when it is older
 (`tools/install_go.sh`, the same script setup runs; `sudo ./tools/install_go.sh --check` only
 says). The build runs with `GOTOOLCHAIN=local`, so a Go that is too old fails out loud rather than

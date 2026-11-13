@@ -21,7 +21,7 @@
 set -eu
 
 # the version the mirror carries; bump it with go.mod (the two should agree, go.mod is the floor)
-GO_PIN="${GHOST_GO_PIN:-1.27.1}"
+GO_PIN="${GHOST_GO_PIN:-1.27.4}"
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 GO_MIN="$(awk '$1 == "go" { print $2; exit }' "$REPO/go.mod" 2>/dev/null)"; GO_MIN="${GO_MIN:-$GO_PIN}"
 CHECK=0

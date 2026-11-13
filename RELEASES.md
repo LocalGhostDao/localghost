@@ -15,4 +15,4 @@ commit, to the same bytes. The name is the line and the number is the cut: every
 | 0.0.5 | wisp | 5 October 2026 | [server/releases/0.0.5.md](server/releases/0.0.5.md) |
 | 0.0.6 | wisp | 10 October 2026 | [server/releases/0.0.6.md](server/releases/0.0.6.md) |
 | 0.0.7 | wisp | 23 October 2026 | [server/releases/0.0.7.md](server/releases/0.0.7.md) |
-| 0.0.8 | wisp | 12 November 2026 | [server/releases/0.0.8.md](server/releases/0.0.8.md) |
+| 0.0.8 | wisp | 13 November 2026 | [server/releases/0.0.8.md](server/releases/0.0.8.md) |

@@ -32,8 +32,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
@@ -59,7 +59,7 @@ jobs:
         run: |
           grep -A15 -- '^--- FAIL' test.log | head -300 || true
           grep -- '^--- FAIL' test.log | sed -E 's/^--- FAIL: (\S+).*/::error title=go test::\1 failed (the test step log has its lines)/' || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: server-test-log
@@ -74,12 +74,12 @@ jobs:
       run:
         working-directory: app/android
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: unit tests
         run: ./gradlew --no-daemon :app:testDebugUnitTest
 
