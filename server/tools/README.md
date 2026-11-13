@@ -631,8 +631,9 @@ signature. The script prints what comes next: push the tag, make the GitHub rele
 file (the `gh release create` line it prints; GitHub flattens the folders, so the server set's
 own SHA256SUMS stays home and every other name is unique), point the mirror's `server` set at the
 server files. The box reports itself as "wisp 0.0.1" (SETTINGS ›
-SERVER), and the phone offers the next release by its name. DEV_UPDATE.md, "A new server release
-from the phone", has how the box takes one.
+SERVER), and the phone offers the next release by its name. The journal as it stood at v0.0.8
+([DEV_UPDATE.md](https://github.com/LocalGhostDao/localghost/blob/v0.0.8/server/tools/DEV_UPDATE.md),
+"A new server release from the phone") has how the box takes one.
 
 ## 8d. Move the phone's TLS into secd , root once (recommended on a box that hosts other sites)
 
@@ -651,7 +652,9 @@ stream never carries plain bytes to secd (a non-TLS first byte behind the PROXY 
 
 `ghost-cli` and `ghost-ctl` are unaffected , they use the box's control sockets, not the TLS port ,
 so everything you run here keeps working. `sudo ./tools/privacy_check.sh` says whether the move is in
-place. DEV_UPDATE.md, "The phone's TLS is checked by secd itself", has the design.
+place. The journal as it stood at v0.0.8
+([DEV_UPDATE.md](https://github.com/LocalGhostDao/localghost/blob/v0.0.8/server/tools/DEV_UPDATE.md),
+"The phone's TLS is checked by secd itself") has the design.
 
 ## 8e. Check the box, any time , root
 

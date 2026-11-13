@@ -138,10 +138,13 @@ type FrameRow struct {
 	TagsByCategory map[string][]string `json:"tagsByCategory,omitempty"`
 }
 
-// FramesList pages the archive newest-first: frames with taken_at strictly BEFORE the cursor (pass 0
-// or a huge value for the first page), up to limit. The app paginates by passing the last row's
-// takenAt as the next call's before.
-func (s *NotifStore) FramesList(slot int, beforeTs int64, limit int) ([]FrameRow, error) {
+// FramesList pages the archive newest-first: the frames after the cursor in (taken_at, hash)
+// order, both descending, up to limit (pass 0 for the first page). The cursor is the last row
+// of the page before: its takenAt, and its hash. The hash is what makes the order total: the
+// cursor used to be the time alone ("strictly before"), so when a page ended inside a burst,
+// the rest of the photos taken in that same second were never listed at all. A caller that
+// sends no hash (an app from before 13 November 2026) gets the old rule.
+func (s *NotifStore) FramesList(slot int, beforeTs int64, beforeHash string, limit int) ([]FrameRow, error) {
 	c, err := s.pg(slot)
 	if err != nil {
 		return nil, err
@@ -152,9 +155,13 @@ func (s *NotifStore) FramesList(slot int, beforeTs int64, limit int) ([]FrameRow
 	if limit <= 0 || limit > 200 {
 		limit = 60
 	}
-	rows, err := c.Query(
-		"SELECT "+frameCols+" FROM frames WHERE taken_at < $1 ORDER BY taken_at DESC LIMIT "+strconv.Itoa(limit),
-		strconv.FormatInt(beforeTs, 10))
+	q := "SELECT " + frameCols + " FROM frames WHERE taken_at < $1 ORDER BY taken_at DESC, hash DESC LIMIT " + strconv.Itoa(limit)
+	args := []any{strconv.FormatInt(beforeTs, 10)}
+	if beforeHash != "" {
+		q = "SELECT " + frameCols + " FROM frames WHERE taken_at < $1 OR (taken_at = $1 AND hash < $2) ORDER BY taken_at DESC, hash DESC LIMIT " + strconv.Itoa(limit)
+		args = append(args, beforeHash)
+	}
+	rows, err := c.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

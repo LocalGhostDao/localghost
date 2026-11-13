@@ -84,12 +84,18 @@ fun GalleryScreen() {
 
     suspend fun loadPage() {
         loading = true
-        val before = frames.lastOrNull()?.takenAt ?: 0L
-        val page = BoxClient.framesList(ctx, before)
+        val last = frames.lastOrNull()
+        val page = BoxClient.framesList(ctx, last?.takenAt ?: 0L, beforeHash = last?.hash ?: "")
         when {
             page == null -> failed = true
             page.isEmpty() -> { endReached = true; failed = false }
-            else -> { frames = frames + page; failed = false }
+            else -> {
+                // never the same frame twice: the grid is keyed by hash, and a key used twice is
+                // a crash, not a duplicate cell (an older box pages by time alone)
+                val fresh = GalleryPaging.fresh(frames.map { it.hash }, page.map { it.hash })
+                if (fresh.isEmpty()) endReached = true else frames = frames + page.filter { it.hash in fresh }
+                failed = false
+            }
         }
         loading = false
     }

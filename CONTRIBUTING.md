@@ -9,7 +9,9 @@ models that run on the box, and gives them back on the phone. A fleet of Go daem
 box with a GPU (`server/`), and an Android app that is the only client (`app/android/`). The
 [README](README.md) is the shape of it, [the release notes](server/releases/0.0.1.md) are the
 whole of what wisp 0.0.1 does and how it works, and `server/tools/DEV_UPDATE.md` is the
-engineering journal, newest at the end: what changed, why, and what was tested.
+engineering journal, newest at the end: what changed, why, and what was tested. It keeps the
+current month whole and each earlier month as a line a day; the entries as they were written
+are in its history.
 
 ## Where we are
 

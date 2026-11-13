@@ -397,7 +397,8 @@ func (s *Server) handleFramesKinds(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleFramesList pages the archived frames newest-first for the app's gallery grid.
-// GET /v1/frames/list?before=<takenAt>&limit=<n> -> {"frames":[{hash,takenAt,kind,bytes}]}
+// GET /v1/frames/list?before=<takenAt>&before_hash=<hash>&limit=<n> -> {"frames":[{hash,takenAt,kind,bytes}]}
+// before and before_hash are the last row of the page before (the hash breaks a tie within a second).
 func (s *Server) handleFramesList(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) {
 		s.appearsDown(w)
@@ -412,7 +413,11 @@ func (s *Server) handleFramesList(w http.ResponseWriter, r *http.Request) {
 	}
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	rowsOut, err := s.notif.FramesList(mounted, before, limit)
+	beforeHash := r.URL.Query().Get("before_hash")
+	if !isHexHash(beforeHash) {
+		beforeHash = "" // not a hash: the old rule, never a query built on what was sent
+	}
+	rowsOut, err := s.notif.FramesList(mounted, before, beforeHash, limit)
 	if err != nil {
 		secdLog.Warn("frames/list query failed", "fn", "handleFramesList", "err", err)
 		s.appearsDown(w)
@@ -1806,4 +1811,18 @@ func deviceKeyFromRequest(r *http.Request) string {
 		return ""
 	}
 	return k
+}
+
+// isHexHash says whether s is a frame's hash as the box writes it: lowercase hex, 16 to 128
+// characters (the rule the thumb and the full-size handlers hold a hash to before it nears a path).
+func isHexHash(s string) bool {
+	if len(s) < 16 || len(s) > 128 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }

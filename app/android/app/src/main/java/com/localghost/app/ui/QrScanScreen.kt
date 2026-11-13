@@ -82,20 +82,17 @@ fun QrScanScreen(
     var diag by remember { mutableStateOf("") }
     var coach by remember { mutableStateOf<String?>(null) } // "move closer" / "hold steady" hint, or null
     LaunchedEffect(Unit) {
+        // a new scan starts with nothing remembered: the sampler and the coach are objects, and
+        // what the last opening learnt (its threshold, a hint it had earned) was still there
+        com.localghost.app.qr.QrSampler.reset()
+        ScanDiag.coach = com.localghost.app.qr.ScanCoach.State()
+        ScanDiag.last = "starting"
         while (true) {
             diag = ScanDiag.last
-            // Coaching from the shared streak counter: only after a sustained run of finders-but-no-decode
-            // (~1.5s), turn module pixel size into a "move closer / back / focus" hint. Cleared as soon as
-            // anything decodes (tryDecode zeroes the streak).
-            val streak = com.localghost.app.qr.QrSampler.ScanGeom.noDecodeStreak
-            coach = if (streak >= 6) {
-                val mod = com.localghost.app.qr.QrSampler.ScanGeom.moduleLenPx
-                when {
-                    mod in 0.1..3.0 -> "move closer , the code is too small to read"
-                    mod > 9.0 -> "move back a little , the code is too big for the frame"
-                    else -> "hold steady and tap the code to focus"
-                }
-            } else null
+            // Coaching (qr/ScanCoach): after about a second of seeing a code and reading nothing,
+            // "move closer / back / hold steady" from the module size; gone when the code reads or
+            // leaves the frame.
+            coach = com.localghost.app.qr.ScanCoach.hint(ScanDiag.coach)?.let { com.localghost.app.qr.ScanCoach.words(it) }
             kotlinx.coroutines.delay(180)
         }
     }
@@ -132,12 +129,28 @@ fun QrScanScreen(
     // read/written only on the analysis thread, so no atomics needed.
     val timing = remember { ScanTiming() }
 
+    // How many times the camera was asked for and refused on this visit. After a refusal Android
+    // may stop showing its dialog at all ("don't ask again"), and the launcher then answers "no"
+    // at once: the only way left is the app's page in the phone's settings, so the screen offers it.
+    var refusals by remember { mutableIntStateOf(0) }
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { ok -> granted = ok }
+    ) { ok -> granted = ok; if (!ok) refusals++ }
 
     LaunchedEffect(Unit) {
         if (!granted) permLauncher.launch(Manifest.permission.CAMERA)
+    }
+    // Back from the phone's settings with the camera allowed there: the scanner starts without
+    // being left and opened again.
+    DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                    PackageManager.PERMISSION_GRANTED
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
     // On a valid enrol scan: kick the enrol off in the BACKGROUND immediately (onScanned starts the
@@ -179,6 +192,24 @@ fun QrScanScreen(
                      "address, code and fingerprint by hand.",
                      color = GhostTextDim, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(16.dp))
+                // ask again; once the phone has stopped asking, its own settings page for the app
+                GhostButton("ALLOW THE CAMERA", { permLauncher.launch(Manifest.permission.CAMERA) },
+                    modifier = Modifier.fillMaxWidth())
+                if (refusals >= 2) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("The phone has stopped asking. Allow the camera for LocalGhost in the phone's settings; the scanner starts when you come back.",
+                        color = GhostTextDim, style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(8.dp))
+                    GhostButton("OPEN THE PHONE'S SETTINGS", {
+                        runCatching {
+                            context.startActivity(android.content.Intent(
+                                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.fromParts("package", context.packageName, null))
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                        }
+                    }, modifier = Modifier.fillMaxWidth())
+                }
+                Spacer(Modifier.height(8.dp))
                 GhostButton("BACK TO TYPED ENTRY", onCancel, modifier = Modifier.fillMaxWidth())
             }
             return@Box
@@ -218,6 +249,7 @@ fun QrScanScreen(
         }
         // Tap-to-focus feedback ring: where the last tap landed and its fade clock. tapTick (not the
         // offset) keys the animation so tapping the same spot twice still replays the ring.
+        var bindTick by remember { mutableIntStateOf(0) }
         var focusRingAt by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
         var focusRingTick by remember { mutableIntStateOf(0) }
         var focusRingT by remember { mutableStateOf(1f) }
@@ -231,7 +263,9 @@ fun QrScanScreen(
             focusRingAt = null
         }
 
-        LaunchedEffect(granted) {
+        // bindTick: a tap on a dead preview binds again (the status said "tap to retry" and a tap
+        // did nothing: with no camera bound, the tap handler returned before it did anything)
+        LaunchedEffect(granted, bindTick) {
             if (!granted) return@LaunchedEffect
             val provider = withContext(Dispatchers.IO) {
                 ProcessCameraProvider.getInstance(context).get()
@@ -410,8 +444,11 @@ fun QrScanScreen(
                 }
             }
             if (!bound) {
+                camera = null // so a tap is a retry, not a focus on a camera that is not there
                 status = "camera busy , tap to retry"
                 ScanDiag.last = "camera bind failed: ${lastErr?.javaClass?.simpleName}"
+            } else if (status.startsWith("camera busy") || status.startsWith("trying the camera")) {
+                status = "point at the QR on the box"
             }
             // the slider's range; start every scan at 1x, no zoom carried over
             maxZoom = camera?.cameraInfo?.zoomState?.value?.maxZoomRatio ?: 1f
@@ -431,7 +468,11 @@ fun QrScanScreen(
             factory = { previewView },
             modifier = Modifier.fillMaxSize().pointerInput(Unit) {
                 detectTapGestures { tap ->
-                    val cam = camera ?: return@detectTapGestures
+                    val cam = camera ?: run {
+                        status = "trying the camera again…"
+                        bindTick++
+                        return@detectTapGestures
+                    }
                     val point = previewView.meteringPointFactory.createPoint(tap.x, tap.y)
                     val action = FocusMeteringAction
                         .Builder(point, FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE)
@@ -773,12 +814,17 @@ private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAsse
         // Solomon can. We try each candidate (and the decoder itself tries all 4 rotations) and keep the
         // first that actually decodes. This is what makes tilted real frames work: the best-looking grid
         // and the decodable grid are not always the same, and only the decode settles it.
+        com.localghost.app.qr.QrSampler.ScanGeom.moduleLenPx = 0.0 // this frame's, or none
         val (candidates, diag) = QrSampler.sampleCandidates(lum, w, h)
         // f=N is the finder-cluster count this frame , the detection-vs-decode discriminator that the
         // frame dump used to answer: f=0 means the finders were never seen (detection problem), f>=3
         // with no decode means the maths downstream is what is failing.
         ScanDiag.last = "${diag.note} f=${QrSampler.ScanGeom.findersSeen}"
-        if (candidates.isEmpty()) return ScanResult.Nothing
+        if (candidates.isEmpty()) {
+            ScanDiag.coach = com.localghost.app.qr.ScanCoach.next(ScanDiag.coach,
+                QrSampler.ScanGeom.findersSeen, sampled = false, decoded = false, modulePx = 0.0)
+            return ScanResult.Nothing
+        }
 
         var text: String? = null
         var overlay: Overlay? = null
@@ -800,11 +846,11 @@ private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAsse
         val align = if (com.localghost.app.qr.QrSampler.ScanGeom.alignFound) "align+" else "align-"
         if (text == null || overlay == null) {
             ScanDiag.last = "v$ver $align f=${com.localghost.app.qr.QrSampler.ScanGeom.findersSeen}: sampled, none decoded"
-            // Track a finders-but-no-decode streak on the shared ScanGeom so the composable can turn it
-            // into on-screen coaching (this function is top-level, with no access to composable state).
-            if (com.localghost.app.qr.QrSampler.ScanGeom.findersSeen >= 1) {
-                com.localghost.app.qr.QrSampler.ScanGeom.noDecodeStreak += 1
-            }
+            // Seen and not read: one more frame towards a hint (this function is top-level, with no
+            // access to composable state, so the coach's state is kept beside the diagnostic).
+            ScanDiag.coach = com.localghost.app.qr.ScanCoach.next(ScanDiag.coach,
+                QrSampler.ScanGeom.findersSeen, sampled = true, decoded = false,
+                modulePx = com.localghost.app.qr.QrSampler.ScanGeom.moduleLenPx)
             return ScanResult.Nothing
         }
         // Whether the decode was CLEAN (plain Reed-Solomon, no erasures). A clean decode of a code that
@@ -813,7 +859,7 @@ private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAsse
         // impossible. Erasure-path decodes ("conf"/"logo") are more willing to manufacture a consistent-
         // but-wrong payload, so those still require the two-frame confirmation downstream.
         val cleanDecode = QrMatrixDecode.lastPath == "clean"
-        com.localghost.app.qr.QrSampler.ScanGeom.noDecodeStreak = 0 // decoding works; clear any coaching
+        ScanDiag.coach = com.localghost.app.qr.ScanCoach.State() // decoding works; clear any coaching
         ScanDiag.last = "v$ver $align ${QrMatrixDecode.lastPath} ${text.length}ch"
 
         // Multi-frame enrolment: a real device identity spans several QRs. If this decode is a frame,
@@ -888,6 +934,8 @@ private fun tryDecode(proxy: ImageProxy, frames: com.localghost.app.qr.FrameAsse
 /** Thread-safe holder for the latest scan-pipeline diagnostic, read by the status line. */
 private object ScanDiag {
     @Volatile var last: String = "starting"
+    /** The coach's state, written by the analyser a frame at a time and read by the screen. */
+    @Volatile var coach: com.localghost.app.qr.ScanCoach.State = com.localghost.app.qr.ScanCoach.State()
 }
 
 // --- the vault aperture drawn over the code, in the unlock's language (QrApertureModel) ---

@@ -143,7 +143,9 @@ fun ThumbStrip(hashes: List<String>, title: String = "", size: androidx.compose.
     var kinds by remember(hashes) { mutableStateOf<Map<String, String>>(emptyMap()) }
     LaunchedEffect(hashes) { kinds = BoxClient.frameKinds(ctx, hashes) }
     androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        items(hashes.size, key = { hashes[it] }) { i ->
+        // keyed by place and hash: a strip may hold the same frame twice (two days of a month
+        // sharing a cover), and a key used twice crashes the list
+        items(hashes.size, key = { "$it-${hashes[it]}" }) { i ->
             val hash = hashes[i]
             var bmp by remember(hash) { mutableStateOf<android.graphics.Bitmap?>(null) }
             LaunchedEffect(hash) {

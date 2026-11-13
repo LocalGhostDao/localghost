@@ -12,7 +12,7 @@ import org.junit.Test
 class QrDecodeRoundTripTest {
 
     // version-1, EC level M, "hello" (matches our own Go encoder).
-    private val helloV1M = listOf(
+    internal val helloV1M = listOf(
         "111111100110001111111",
         "100000101100001000001",
         "101110100101101011101",
@@ -37,7 +37,7 @@ class QrDecodeRoundTripTest {
     )
 
     // version-1, EC level L, "hello" (what online generators default to).
-    private val helloV1L = listOf(
+    internal val helloV1L = listOf(
         "111111100101101111111",
         "100000100111001000001",
         "101110101101101011101",
@@ -65,7 +65,7 @@ class QrDecodeRoundTripTest {
     // encoder). This is the regression guard for v7+ support: v7 and up carry version-information
     // blocks that must be reserved, and v11 needs the extended EC block table and the alignment-pattern
     // formula. A wrong reserved matrix, block-table row, or alignment coordinate corrupts this decode.
-    private val enrolV11M = listOf(
+    internal val enrolV11M = listOf(
         "1111111001010011000101100000101101011000001101011101101111111",
         "1000001000001100000111110111111000001101011000001001101000001",
         "1011101010110010011010101010101100101111010000101111101011101",
@@ -129,7 +129,7 @@ class QrDecodeRoundTripTest {
         "1111111010110000100101111001011111110010100111110010111001111",
     )
 
-    private fun grid(rows: List<String>): Array<BooleanArray> =
+    internal fun grid(rows: List<String>): Array<BooleanArray> =
         Array(rows.size) { r -> BooleanArray(rows[r].length) { c -> rows[r][c] == '1' } }
 
     @Test

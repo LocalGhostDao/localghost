@@ -12,6 +12,13 @@ GaloisField and ReedSolomon are the error correction below them, ported faithful
 reference and covered by round-trip tests that check it corrects up to capacity and rejects beyond it
 rather than mis-correcting.
 
-The decoder is solid and tested. The known bug here is not in the decoding, it is in the surface, the
-scanner stays silent when a code is bad or unreadable so the person has no idea whether it is working.
-That is a UX fix in the screen, not a decoder change.
+The decoder is tested end to end on rendered frames (`QrScanEndToEndTest`): a real code drawn into
+a camera-sized frame at a size, an angle, a blur and a noise, then put through exactly what the
+analyser runs. That test exists because the scanner read large codes only in a narrow band of
+distances and nothing showed why. Four causes, all in the sampler, fixed on 13 November 2026: the
+row scan tried only every third dark run as a finder's start (so a finder with a dark page beside
+it was never found); a dense code's own data out-ranked its real corners; a turned code's module
+size was measured on a slant; and a speck of data could pass for the alignment pattern.
+
+What the person is told while it is not reading is in `ScanCoach` (move closer, move back, hold
+steady), which says nothing once the code has left the frame.

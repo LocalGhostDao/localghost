@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.localghost.app.net.BoxClient
 import com.localghost.app.ui.theme.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
@@ -90,6 +91,10 @@ private fun invMercY(y: Double): Double {
 
 /** A photo cell projected ONCE to map units when it arrives , the draw loop only scales. */
 private class Dot(val x: Double, val y: Double, val cell: BoxClient.GeoCell)
+
+/** The camera and the view's size as one value, for the effects that watch them (snapshotFlow
+ *  gives a new one only when one of the five has changed). */
+private data class CameraAt(val cx: Double, val cy: Double, val zoom: Float, val w: Float, val h: Float)
 
 /**
  * WHAT THE MAP LAST SHOWED, for the next open to draw at once. The box's data (photo cells, the
@@ -631,7 +636,15 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
     // pass at draw time. Projected once per fetch.
     class Label(val x: Double, val y: Double, val name: String, val kind: String)
     var labels by remember { mutableStateOf(MapMemory.labels.map { Label(mercXD(it.lon), mercYD(it.lat), it.name, it.kind) }) }
-    LaunchedEffect(cx, cy, zoom, viewW, viewH) {
+    // THE CAMERA IS NEVER READ IN THIS SCREEN'S COMPOSITION. It is read in effects that watch it
+    // (snapshotFlow, here and below) and in the draw and gesture lambdas. It used to be the key of
+    // three effects and two remembers, so every frame of a pan or a pinch recomposed the whole
+    // screen, restarted three coroutines and built the wanted-tile lists again, all to redraw a
+    // layer. Now a moving camera invalidates the canvas and nothing else. collectLatest cancels
+    // the body when the camera moves again, as the restarted effect did.
+    LaunchedEffect(Unit) {
+      androidx.compose.runtime.snapshotFlow { CameraAt(cx, cy, zoom, viewW, viewH) }.collectLatest {
+       kotlinx.coroutines.coroutineScope cam@{
         kotlinx.coroutines.delay(160)
         MapCamera.save(ctx, cx, cy, zoom)
         val lvl = when {
@@ -651,7 +664,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         val inside = vLatMin >= fetchedLatMin && vLatMax <= fetchedLatMax &&
             vLonMin >= fetchedLonMin && vLonMax <= fetchedLonMax
         val zoomStable = fetchedSpan > 0 && vSpan > fetchedSpan / 3.2 && vSpan < fetchedSpan * 1.6
-        if (inside && zoomStable && cells.isNotEmpty()) return@LaunchedEffect
+        if (inside && zoomStable && cells.isNotEmpty()) return@cam
         val mLat = (vLatMax - vLatMin) / 2.0
         val mLon = (vLonMax - vLonMin) / 2.0
         // GARBAGE IN -> THE WORLD, NOT ANTARCTICA: any non-finite or out-of-range corner means
@@ -700,13 +713,15 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             worldFallback = true
             fetchedSpan = 0.0
             cx = WORLD_UNITS / 2; cy = WORLD_UNITS / 2; zoom = 1f
-            return@LaunchedEffect
+            return@cam
         }
         if (lod != null) MapMemory.cells = cells
         loadNote = when {
             cells.isEmpty() -> "no geotagged photos anywhere yet , they appear as photos with GPS sync"
             else -> cells.sumOf { it.n }.toString() + " photos · detail " + (lvl + 1) + "/4"
         }
+       }
+      }
     }
     // The names' paints: a country in capitals, wide and dim; a capital or city bright; a town
     // small; every one on a dark halo so it reads over land, coast and trail alike.
@@ -824,13 +839,32 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         }
         // The tiles the view needs, asked for as the camera settles on them (equal lists do not
         // re-fire, so a pan within the same cells costs nothing).
-        val pxzNow = if (viewW > 0f && viewH > 0f) (minOf(viewW, viewH) / WORLD) * zoom else 0f
-        val wantTiles = remember(tileIndex, cx, cy, pxzNow, viewW, viewH) {
-            val idx = tileIndex
-            if (idx == null || pxzNow < LandTileGeom.TILE_PXZ) emptyList()
-            else LandTileGeom.cellsFor(invMercX(cx - viewW / 2.0 / pxzNow), invMercX(cx + viewW / 2.0 / pxzNow),
-                invMercY(cy + viewH / 2.0 / pxzNow), invMercY(cy - viewH / 2.0 / pxzNow))
-                .filter { idx[it].toInt() == LandTileGeom.COAST }
+        // The tiles under the view change only when its edge crosses a cell's edge or the zoom
+        // crosses a threshold (MapViewCells): the camera is watched for that, and the lists are
+        // built then, not on every frame of a pan.
+        var wantTiles by remember { mutableStateOf<List<Int>>(emptyList()) }
+        var wantRoads by remember { mutableStateOf<List<Int>>(emptyList()) }
+        LaunchedEffect(tileIndex, roadIndex) {
+            androidx.compose.runtime.snapshotFlow {
+                val p = if (viewW > 0f && viewH > 0f) (minOf(viewW, viewH) / WORLD) * zoom else 0f
+                if (p <= 0f) MapViewCells.Key(0, 0, 0)
+                else MapViewCells.key(invMercX(cx - viewW / 2.0 / p), invMercX(cx + viewW / 2.0 / p),
+                    invMercY(cy + viewH / 2.0 / p), invMercY(cy - viewH / 2.0 / p), p)
+            }.collect { k ->
+                val p = if (viewW > 0f && viewH > 0f) (minOf(viewW, viewH) / WORLD) * zoom else 0f
+                val lon0 = invMercX(cx - viewW / 2.0 / p); val lon1 = invMercX(cx + viewW / 2.0 / p)
+                val latLo = invMercY(cy + viewH / 2.0 / p); val latHi = invMercY(cy - viewH / 2.0 / p)
+                val land = tileIndex
+                val tiles = if (land == null || k.band and 1 == 0) emptyList()
+                    else LandTileGeom.cellsFor(lon0, lon1, latLo, latHi).filter { land[it].toInt() == LandTileGeom.COAST }
+                val ridx = roadIndex
+                val roads = if (ridx == null || k.band and 1 == 0) emptyList() else {
+                    val major = RoadTileGeom.cellsFor(ridx, 1, lon0, lon1, latLo, latHi)
+                    if (k.band and 2 != 0) major + RoadTileGeom.cellsFor(ridx, 0, lon0, lon1, latLo, latHi) else major
+                }
+                if (tiles != wantTiles) wantTiles = tiles
+                if (roads != wantRoads) wantRoads = roads
+            }
         }
         // one tick for every tile that lands within a third of a second: the base is recorded
         // again on a tick, and a pan over a coast lands many tiles at once
@@ -842,22 +876,20 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             }
         }
         LaunchedEffect(wantTiles) { if (wantTiles.isNotEmpty()) tileCache.ensure(mapScope, ctx, wantTiles) { tickSoon() } }
-        val wantRoads = remember(roadIndex, cx, cy, pxzNow, viewW, viewH) {
-            val idx = roadIndex
-            if (idx == null || pxzNow < RoadTileGeom.MAJOR_PXZ) emptyList()
-            else {
-                val lon0 = invMercX(cx - viewW / 2.0 / pxzNow); val lon1 = invMercX(cx + viewW / 2.0 / pxzNow)
-                val latLo = invMercY(cy + viewH / 2.0 / pxzNow); val latHi = invMercY(cy - viewH / 2.0 / pxzNow)
-                val major = RoadTileGeom.cellsFor(idx, 1, lon0, lon1, latLo, latHi)
-                if (pxzNow >= RoadTileGeom.FINE_PXZ) major + RoadTileGeom.cellsFor(idx, 0, lon0, lon1, latLo, latHi) else major
-            }
+        LaunchedEffect(wantRoads) {
+            // the zoom is read here, when the tiles are asked for, not in the composition
+            if (wantRoads.isNotEmpty()) roadCache.ensure(mapScope, ctx, wantRoads, (minOf(viewW, viewH) / WORLD) * zoom) { tileTick++ }
         }
-        LaunchedEffect(wantRoads) { if (wantRoads.isNotEmpty()) roadCache.ensure(mapScope, ctx, wantRoads, pxzNow) { tileTick++ } }
         // The note says what the coast is doing, so "the map does not work" has a line to quote:
         // no index (the box has no tiles, or the phone never got the index), not zoomed in yet,
         // or tiles wanted / here / failed, with the last failure's reason.
-        @Suppress("UNUSED_VARIABLE") val tilesTick = tileTick
-        val coastNote = when {
+        val debug = remember { com.localghost.app.settings.AppSettings.debugMode(ctx) }
+        // (DEBUG MODE only: the line follows the zoom and the landing tiles, so with the switch on
+        // the screen does recompose as the camera moves; without it the camera is not read here)
+        val coastNote = if (!debug) "" else run {
+          @Suppress("UNUSED_VARIABLE") val tilesTick = tileTick
+          val pxzNow = if (viewW > 0f && viewH > 0f) (minOf(viewW, viewH) / WORLD) * zoom else 0f
+          when {
             tileIndex == null -> " · coast: no tile index from the box"
             pxzNow < LandTileGeom.TILE_PXZ -> " · coast © OpenStreetMap contributors (zoom in for detail)"
             else -> {
@@ -871,11 +903,11 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             else -> " · roads ${wantRoads.size} wanted, ${wantRoads.count { roadCache.get(it) != null }} here" +
                 (if (roadCache.failures > 0) ", ${roadCache.failures} failed: ${roadCache.lastError}" else "")
         }
+        }
         // What the map says about itself: in DEBUG MODE (settings) everything , the photo count and
         // detail level, the landmass file's ring and point counts, the coast tiles' state , and
         // otherwise only what a person needs: nothing while it has photos to show, the one line
         // that says why when it has none.
-        val debug = remember { com.localghost.app.settings.AppSettings.debugMode(ctx) }
         // the recorded base (see the Canvas): the layer, what camera it was drawn at, and a tick
         // that fires once the camera has stood still for a moment, so the base is drawn crisp again
         val baseLayer = androidx.compose.ui.graphics.rememberGraphicsLayer()
@@ -886,9 +918,11 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         }
         val baseRec = remember { BaseRec() }
         var settleTick by remember { mutableIntStateOf(0) }
-        LaunchedEffect(cx, cy, zoom) {
-            kotlinx.coroutines.delay(120)
-            settleTick++
+        LaunchedEffect(Unit) {
+            androidx.compose.runtime.snapshotFlow { CameraAt(cx, cy, zoom, 0f, 0f) }.collectLatest {
+                kotlinx.coroutines.delay(120)
+                settleTick++
+            }
         }
         // YOU ARE HERE breathes: a slow pulse on the halo, so the eye finds it on a busy map. A
         // few breaths when the map opens or the fix moves, then still: an animation that never
@@ -898,7 +932,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         val pulseAnim = remember { androidx.compose.animation.core.Animatable(0f) }
         // keyed on the fix's cell of about 30 m, not its time: a fix comes every few seconds while
         // the map is open, and a pulse restarted on each never ended
-        val pulseKey = lastFix?.let { "%.4f,%.4f".format(java.util.Locale.US, it.lat, it.lon) }
+        val pulseKey = lastFix?.let { Math.round(it.lat * 1e4) * 10_000_000L + Math.round(it.lon * 1e4) }
         LaunchedEffect(pulseKey) {
             if (pulseKey == null) return@LaunchedEffect
             repeat(4) {
@@ -915,8 +949,10 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         Box(Modifier.weight(1f).fillMaxWidth().padding(12.dp).background(Void)) {
             // CAMERA SANITY , a NaN centre poisons every draw AND every gesture. Checked on each
             // composition; garbage snaps back to the world.
-            if (!cx.isFinite() || !cy.isFinite() || !zoom.isFinite() || zoom <= 0f) {
-                cx = WORLD_UNITS / 2; cy = WORLD_UNITS / 2; zoom = 1f; worldFallback = false
+            LaunchedEffect(Unit) {
+                androidx.compose.runtime.snapshotFlow { cx.isFinite() && cy.isFinite() && zoom.isFinite() && zoom > 0f }.collect { sane ->
+                    if (!sane) { cx = WORLD_UNITS / 2; cy = WORLD_UNITS / 2; zoom = 1f; worldFallback = false }
+                }
             }
             // clipToBounds: Compose does not clip a Canvas to its own box, and a filled continent
             // at street zoom is a rectangle the size of the screen , it painted over the title, the
@@ -1192,6 +1228,9 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                     }
                 }) {
                 val sw = size.width; val sh = size.height
+                // a camera gone to garbage draws nothing this frame; the effect above has it back
+                // at the world by the next
+                if (!cx.isFinite() || !cy.isFinite() || !zoom.isFinite() || zoom <= 0f) return@Canvas
                 val pxzD = (minOf(sw, sh) / WORLD).toDouble() * zoom
                 val pxz = pxzD.toFloat()
                 // Screen origin of map coordinate (0,0), in Double , the one subtraction that

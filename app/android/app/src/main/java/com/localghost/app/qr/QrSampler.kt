@@ -63,9 +63,6 @@ object QrSampler {
         // proxy the UI turns into "move closer": below ~3px/module the binariser cannot resolve modules
         // reliably, which is exactly when a dense code refuses to decode however steady you hold it.
         @Volatile var moduleLenPx: Double = 0.0
-        // Consecutive analyser passes that saw finders but decoded nothing. tryDecode increments it and
-        // zeroes it on any successful decode; the UI reads it to decide whether to coach the person.
-        @Volatile var noDecodeStreak: Int = 0
     }
 
     /**
@@ -144,6 +141,25 @@ object QrSampler {
     private var stickyBias: Int? = null
     private var stickyMisses = 0
 
+    /**
+     * A new scan starts with nothing remembered. The sampler is an object, so what one opening of
+     * the scanner learnt (the threshold that worked in that light, the every-line scan it had
+     * switched to, the last code's module size) was still there at the next opening, in another
+     * room, minutes or days later. The screen calls this when it opens; the tests call it between
+     * scenes.
+     */
+    fun reset() {
+        frameCounter = 0
+        stickyBias = null
+        stickyMisses = 0
+        precisionScan = false
+        ScanGeom.corners = null
+        ScanGeom.findersSeen = 0
+        ScanGeom.moduleLenPx = 0.0
+        ScanGeom.gridN = 0
+        ScanGeom.alignFound = false
+    }
+
     /** One binarisation pass: binarise at the given bias, detect, and produce ordered candidate grids. */
     private fun candidatesForBias(lum: IntArray, width: Int, height: Int, bias: Int): Pair<List<Sampled>, Diag> {
         val bin = binariseLocal(lum, width, height, bias)
@@ -174,14 +190,20 @@ object QrSampler {
         // the judge: only the genuine finder set yields a grid with a clean timing pattern that actually
         // decodes. The cheap timing-based version estimate skips most wrong triples before the costly
         // sampling, so considering several stays affordable. Grids are returned best-timing first.
-        val triples = selectFinderTriples(clusters3, MAX_TRIPLES)
+        val triples = selectFinderTriples(clusters3, clusters3.map { finderLines(bin, width, height, it.first) }, MAX_TRIPLES)
 
         data class Cand(val grid: Array<BooleanArray>, val conf: Array<IntArray>, val score: Int, val roles: Corners, val centrality: Double)
         val cands = ArrayList<Cand>()
         for (triple in triples) {
             if (cands.size >= MAX_GRIDS) break
             val roles = assignCorners(triple) ?: continue
-            val moduleLen = estimateModuleSize(bin, width, height, roles)
+            // The finder's width is measured along a pixel row, and a row crosses a turned finder
+            // on a slant: the width, and the module size taken from it, came out too large by
+            // 1/max(|cos|, |sin|) of the code's angle (1.06 at twenty degrees, 1.41 at forty-five).
+            // The geometry's size estimate then landed a version or four short, and the timing
+            // count looked for the timing row in the wrong place: a code at forty-five degrees
+            // never read. The angle is known from the corners, so the size is put right here.
+            val moduleLen = estimateModuleSize(bin, width, height, roles)?.let { it * axisFactor(roles.tl, roles.tr) }
             if (moduleLen != null && moduleLen > 0) ScanGeom.moduleLenPx = moduleLen
             val nFromTiming = countVersionFromTiming(bin, width, height, roles, moduleLen)
             // Version candidates per triple , the decoder is the judge, same principle as the triples
@@ -203,10 +225,22 @@ object QrSampler {
                 }
             }
             if (sizes.isEmpty()) continue // no usable version for this triple; skip it cheaply
+            var plain = 2 // the sizes that also get the three-finder sampling: the likeliest two
             for (nEst in sizes) {
                 if (cands.size >= MAX_GRIDS) break
                 val (grid, conf) = sampleAtSize(lum, bin, width, height, roles, nEst) ?: continue
                 cands.add(Cand(grid, conf, timingScore(grid, nEst), roles, aimCentrality(roles, width, height)))
+                // The fourth corner comes from the alignment pattern, and the search for it takes
+                // the nearest thing that looks like one: on a dense code that is sometimes a speck
+                // of data a module or two away, and the whole bottom-right is then sampled askew.
+                // So for a triple's likeliest sizes the grid is also sampled from the three finders
+                // alone, and the decoder judges between the two, as it does between sizes.
+                if (plain > 0 && ScanGeom.alignFound && cands.size < MAX_GRIDS) {
+                    sampleWithTransform(lum, width, height, nEst, threeFinderTransform(roles, nEst))?.let { (g, cf) ->
+                        cands.add(Cand(g, cf, timingScore(g, nEst), roles, aimCentrality(roles, width, height)))
+                    }
+                }
+                plain--
             }
         }
         if (cands.isEmpty()) return emptyList<Sampled>() to Diag.NoGrid(clusters.size, "no grid @bias$bias")
@@ -254,7 +288,7 @@ object QrSampler {
     // before the expensive sampling, and MAX_GRIDS caps how many grids we actually build and hand to the
     // decoder, so per-frame cost stays bounded even though we look at many triples.
     private const val MAX_TRIPLES = 12
-    private const val MAX_GRIDS = 5
+    private const val MAX_GRIDS = 6
 
     // Weight of the aim-centrality term when ranking candidate grids for decode order (see the sort in
     // candidatesForBias). Sized to break ties AMONG genuine codes toward the one nearest the frame centre,
@@ -400,89 +434,93 @@ object QrSampler {
     // the halved cost is what lets sticky + probe both run every frame without stalling.
     @Volatile var precisionScan = false
 
+    /**
+     * Walk one line (a row or a column) and call [onMatch] for every run of five (dark, light,
+     * dark, light, dark) that reads 1:1:3:1:1, with where the five begin.
+     *
+     * EVERY dark run gets to be the first of five. Until 12 November 2026 the scan read five runs,
+     * and when they were not a finder it started again AFTER all five, so only every third dark
+     * run on a line was ever tried as a pattern's start. Which runs those were depended on what
+     * lay to the left: on a code shown on a dark page the line reads [the page, dark] [the quiet
+     * zone, light] [the finder's ring] ..., the ring is always the second dark run, and the
+     * top-left finder was never found by any line through it (the same from above, for both top
+     * finders). Two finders of three was the scanner's commonest near-miss, and this is why. Now
+     * a window that fails slides on by one dark run and its light, keeping the three runs it has.
+     */
+    private inline fun scanRuns(len: Int, isDark: (Int) -> Boolean, onMatch: (start: Int, runs: IntArray) -> Unit) {
+        val runs = IntArray(5)
+        var i = 0
+        while (i < len && !isDark(i)) i++
+        var start = i
+        var state = 0 // which of the five runs is being counted; the even ones are dark
+        while (i < len) {
+            if (isDark(i) == (state and 1 == 0)) {
+                runs[state]++
+            } else if (state < 4) {
+                state++
+                runs[state] = 1
+            } else {
+                // the fifth run has ended: judge the five, then slide on by a dark run and its light
+                if (matches11311(runs)) onMatch(start, runs)
+                start += runs[0] + runs[1]
+                runs[0] = runs[2]; runs[1] = runs[3]; runs[2] = runs[4]; runs[3] = 1; runs[4] = 0
+                state = 3
+            }
+            i++
+        }
+        if (state == 4 && matches11311(runs)) onMatch(start, runs) // five that end at the frame's edge
+    }
+
     private fun finderClusters(bin: BooleanArray, w: Int, h: Int): List<Pair<Pt, Int>> {
         val step = if (precisionScan) 1 else 2
         val candidates = ArrayList<Pt>()
         for (y in 0 until h step step) {
-            var x = 0
-            while (x < w) {
-                if (dark(bin, w, x, y)) {
-                    val runs = IntArray(5)
-                    var ri = 0
-                    var cx = x
-                    var expectDark = true
-                    val runStart = x
-                    while (cx < w && ri < 5) {
-                        var run = 0
-                        while (cx < w && dark(bin, w, cx, y) == expectDark) { run++; cx++ }
-                        runs[ri++] = run
-                        expectDark = !expectDark
+            val row = y * w
+            scanRuns(w, { x -> bin[row + x] }) { runStart, runs ->
+                // Sub-pixel horizontal centre: centre of the middle (3-module) dark bar, which
+                // starts after runs[0]+runs[1] from runStart and spans runs[2].
+                val midStart = runStart + runs[0] + runs[1]
+                val centreXd = midStart + runs[2] / 2.0
+                val centreXi = centreXd.toInt()
+                // Confirm it is a real finder via the vertical cross-check, or , for finders
+                // rotated enough to break the vertical scan , via a diagonal cross-check.
+                var centreYd = verticalCentre(bin, w, h, centreXi, y)
+                var refinedX = centreXd
+                if (!centreYd.isNaN()) {
+                    val hx = horizontalCentre(bin, w, h, centreXi, centreYd.toInt())
+                    if (!hx.isNaN()) {
+                        refinedX = hx
+                        // One more vertical pass at the refined X converges the centre.
+                        val vy2 = verticalCentre(bin, w, h, hx.toInt(), centreYd.toInt())
+                        if (!vy2.isNaN()) centreYd = vy2
                     }
-                    if (ri == 5 && matches11311(runs)) {
-                        // Sub-pixel horizontal centre: centre of the middle (3-module) dark bar, which
-                        // starts after runs[0]+runs[1] from runStart and spans runs[2].
-                        val midStart = runStart + runs[0] + runs[1]
-                        val centreXd = midStart + runs[2] / 2.0
-                        val centreXi = centreXd.toInt()
-                        // Confirm it is a real finder via the vertical cross-check, or , for finders
-                        // rotated enough to break the vertical scan , via a diagonal cross-check.
-                        var centreYd = verticalCentre(bin, w, h, centreXi, y)
-                        var refinedX = centreXd
-                        if (!centreYd.isNaN()) {
-                            val hx = horizontalCentre(bin, w, h, centreXi, centreYd.toInt())
-                            if (!hx.isNaN()) {
-                                refinedX = hx
-                                // One more vertical pass at the refined X converges the centre.
-                                val vy2 = verticalCentre(bin, w, h, hx.toInt(), centreYd.toInt())
-                                if (!vy2.isNaN()) centreYd = vy2
-                            }
-                        }
-                        if (!centreYd.isNaN()) {
-                            val mod = runs.sum() / 7.0
-                            candidates.add(Pt(refinedX, centreYd, mod))
-                        } else {
-                            val d = diagonalFinder(bin, w, h, centreXi, y, 1)
-                                ?: diagonalFinder(bin, w, h, centreXi, y, -1)
-                            if (d != null) candidates.add(d)
-                        }
-                    }
-                    x = cx
-                } else x++
+                }
+                if (!centreYd.isNaN()) {
+                    val mod = runs.sum() / 7.0
+                    candidates.add(Pt(refinedX, centreYd, mod))
+                } else {
+                    val d = diagonalFinder(bin, w, h, centreXi, y, 1)
+                        ?: diagonalFinder(bin, w, h, centreXi, y, -1)
+                    if (d != null) candidates.add(d)
+                }
             }
         }
         // Second pass: scan columns for the same 1:1:3:1:1 vertically. A finder whose centre row is
         // clipped by rotation can be missed by the horizontal pass but caught here (and vice versa).
         // Clustering merges the two passes, so a finder seen either way survives.
         for (x in 0 until w step step) {
-            var y = 0
-            while (y < h) {
-                if (dark(bin, w, x, y)) {
-                    val runs = IntArray(5)
-                    var ri = 0
-                    var cy = y
-                    var expectDark = true
-                    val runStart = y
-                    while (cy < h && ri < 5) {
-                        var run = 0
-                        while (cy < h && dark(bin, w, x, cy) == expectDark) { run++; cy++ }
-                        runs[ri++] = run
-                        expectDark = !expectDark
-                    }
-                    if (ri == 5 && matches11311(runs)) {
-                        val midStart = runStart + runs[0] + runs[1]
-                        val centreYd = midStart + runs[2] / 2.0
-                        val centreXd = horizontalCentre(bin, w, h, x, centreYd.toInt())
-                        if (!centreXd.isNaN()) {
-                            val mod = runs.sum() / 7.0
-                            candidates.add(Pt(centreXd, centreYd, mod))
-                        } else {
-                            val d = diagonalFinder(bin, w, h, x, centreYd.toInt(), 1)
-                                ?: diagonalFinder(bin, w, h, x, centreYd.toInt(), -1)
-                            if (d != null) candidates.add(d)
-                        }
-                    }
-                    y = cy
-                } else y++
+            scanRuns(h, { y -> bin[y * w + x] }) { runStart, runs ->
+                val midStart = runStart + runs[0] + runs[1]
+                val centreYd = midStart + runs[2] / 2.0
+                val centreXd = horizontalCentre(bin, w, h, x, centreYd.toInt())
+                if (!centreXd.isNaN()) {
+                    val mod = runs.sum() / 7.0
+                    candidates.add(Pt(centreXd, centreYd, mod))
+                } else {
+                    val d = diagonalFinder(bin, w, h, x, centreYd.toInt(), 1)
+                        ?: diagonalFinder(bin, w, h, x, centreYd.toInt(), -1)
+                    if (d != null) candidates.add(d)
+                }
             }
         }
         // Pick the three that actually form a QR finder set , similar module size and a right-isosceles
@@ -568,8 +606,29 @@ object QrSampler {
      * finder-shaped data coincidence: it may win the geometry score, but it cannot win the decode, and
      * the genuine triple is almost always within the top few here even when it is not ranked first.
      */
-    private fun selectFinderTriples(clusters: List<Pair<Pt, Int>>, k: Int): List<List<Pt>> {
-        if (clusters.size <= 3) return if (clusters.size == 3) listOf(clusters.map { it.first }) else emptyList()
+    private fun selectFinderTriples(all: List<Pair<Pt, Int>>, allLines: List<Int>, k: Int): List<List<Pt>> {
+        if (all.size <= 3) return if (all.size == 3) listOf(all.map { it.first }) else emptyList()
+        // A WHOLE FINDER FIRST. A dense code's own data throws up dozens of places where a row and
+        // a column both read 1:1:3:1:1 (a v11 code gave 34 "finders" on a clean frame), and by
+        // geometry alone three of those often made a neater right angle than the three real
+        // corners; with five grids a frame, the real triple was then never sampled. That is why
+        // big codes read only in a narrow band of distances. A real finder is concentric squares,
+        // so EVERY line through its centre reads 1:1:3:1:1, the diagonals too; a coincidence in
+        // the data almost never does. So the clusters that read as a finder on three of the four
+        // lines are tried first, among themselves; the ranking of everything else is as it was,
+        // after them, so a blurred frame whose finders pass no diagonal loses nothing.
+        //
+        // And a bound: a carpet, a keyboard or sensor noise can give well over a hundred clusters,
+        // and every triple of them was scored (a million for 190), which is where the time went
+        // while pointing at nothing. Past MAX_CLUSTERS the whole finders are kept, then the best
+        // supported of the rest.
+        var order = all.indices.toList()
+        if (all.size > MAX_CLUSTERS) {
+            order = order.sortedWith(compareByDescending<Int> { allLines[it] >= STRONG_LINES }.thenByDescending { all[it].second })
+                .take(MAX_CLUSTERS)
+        }
+        val clusters = order.map { all[it] }
+        val lines = order.map { allLines[it] }
         val scored = ArrayList<Pair<Double, List<Pt>>>()
         val n = clusters.size
         for (i in 0 until n) for (j in i + 1 until n) for (m in j + 1 until n) {
@@ -583,7 +642,9 @@ object QrSampler {
             val geom = rightIsoscelesScore(pa, pb, pc)
             if (geom > 0.6) continue
             val legPx = legLength(pa, pb, pc)
-            val dimEst = legPx / mAvg + 7.0
+            // the clusters' module sizes are measured along rows and columns, so on a turned code
+            // they carry the same slant (see candidatesForBias); the legs say what the angle is
+            val dimEst = legPx / (mAvg * legAxisFactor(pa, pb, pc)) + 7.0
             // 17..68, NOT 19..60: the enrol sequence uses up to version 11, which is 61 modules ,
             // the old 60 cap rejected every v11 triple at the geometry stage even with all three
             // finders cleanly found (the "bigger QRs" that would not catch). The bounds are an
@@ -591,7 +652,9 @@ object QrSampler {
             // decision , so they carry slack for perspective and module-size noise on both ends.
             if (dimEst < 17.0 || dimEst > 68.0) continue
             val support = a.second + b.second + c.second
-            val score = geom + modSpread * 5.0 - support * 0.01
+            var score = geom + modSpread * 5.0 - support * 0.01
+            // three whole finders sort ahead of any triple that holds a doubtful one
+            if (lines[i] >= STRONG_LINES && lines[j] >= STRONG_LINES && lines[m] >= STRONG_LINES) score -= WHOLE_FINDERS_FIRST
             scored.add(score to listOf(pa, pb, pc))
         }
         if (scored.isEmpty()) {
@@ -600,6 +663,29 @@ object QrSampler {
         }
         scored.sortBy { it.first }
         return scored.take(k).map { it.second }
+    }
+
+    private const val MIN_FINDER_PX = 10
+
+    // A cluster is a whole finder when this many of the four lines through its centre (across,
+    // down, the two diagonals) read 1:1:3:1:1. Three, not four: blur or a moire band can spoil one.
+    private const val STRONG_LINES = 3
+    // Larger than any score a triple can have (geometry is at most 0.6, the spread term at most 2.5).
+    private const val WHOLE_FINDERS_FIRST = 100.0
+    // Clusters considered for triples: 24 give 2,024 triples, where 190 gave 1.1 million.
+    private const val MAX_CLUSTERS = 24
+
+    /** How many of the four lines through a cluster's centre read as a finder's 1:1:3:1:1. The
+     *  centre is a mean of scan hits, so the pixel beside it is tried too before a line is given up. */
+    private fun finderLines(bin: BooleanArray, w: Int, h: Int, p: Pt): Int {
+        val x = p.x.roundToInt(); val y = p.y.roundToInt()
+        if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) return 0
+        var n = 0
+        if (!horizontalCentre(bin, w, h, x, y).isNaN() || !horizontalCentre(bin, w, h, x, y + 1).isNaN()) n++
+        if (!verticalCentre(bin, w, h, x, y).isNaN() || !verticalCentre(bin, w, h, x + 1, y).isNaN()) n++
+        if (diagonalFinder(bin, w, h, x, y, 1) != null || diagonalFinder(bin, w, h, x + 1, y, 1) != null) n++
+        if (diagonalFinder(bin, w, h, x, y, -1) != null || diagonalFinder(bin, w, h, x + 1, y, -1) != null) n++
+        return n
     }
 
     /** Right-isosceles fit: 0 when two legs from the best vertex are equal and perpendicular. */
@@ -618,6 +704,32 @@ object QrSampler {
             if (s < best) best = s
         }
         return best
+    }
+
+    /** max(|cos|, |sin|) of the direction from a to b: 1 for a line along a pixel row or column,
+     *  0.707 for a diagonal. A length measured along a row across a square turned to that angle
+     *  is the square's side divided by this. */
+    private fun axisFactor(a: DoublePt, b: DoublePt): Double {
+        val dx = abs(b.x - a.x); val dy = abs(b.y - a.y)
+        val len = hypot(dx, dy)
+        return if (len <= 0.0) 1.0 else maxOf(dx, dy) / len
+    }
+
+    /** [axisFactor] for a triple, from a leg at its best right-angle vertex (the two legs are
+     *  square to each other, so either gives the same). */
+    private fun legAxisFactor(a: Pt, b: Pt, c: Pt): Double {
+        var best = Double.MAX_VALUE; var f = 1.0
+        val pts = listOf(a, b, c)
+        for (v in 0 until 3) {
+            val corner = pts[v]; val p1 = pts[(v + 1) % 3]; val p2 = pts[(v + 2) % 3]
+            val e1x = p1.x - corner.x; val e1y = p1.y - corner.y
+            val e2x = p2.x - corner.x; val e2y = p2.y - corner.y
+            val l1 = hypot(e1x, e1y); val l2 = hypot(e2x, e2y)
+            if (l1 == 0.0 || l2 == 0.0) continue
+            val s = abs(l1 - l2) / maxOf(l1, l2) + abs((e1x * e2x + e1y * e2y) / (l1 * l2))
+            if (s < best) { best = s; f = maxOf(abs(e1x), abs(e1y)) / l1 }
+        }
+        return f
     }
 
     /** Length of one finder leg (the top-left vertex's edge) for the best right-angle vertex. */
@@ -667,7 +779,11 @@ object QrSampler {
 
     private fun matches11311(r: IntArray): Boolean {
         val total = r.sum()
-        if (total < 7) return false
+        // Ten pixels across at the least: a finder is seven modules, and a code under a pixel
+        // and a half a module cannot be read however it is sampled (at two it rarely is). The
+        // floor was seven, one pixel a module, which let through every speck of sensor noise and
+        // every weave of a carpet that happened to run 1,1,3,1,1, by the hundred a frame.
+        if (total < MIN_FINDER_PX) return false
         // Judge the centre against the ARMS, not a global unit. The four arms (r0,r1,r3,r4) should share
         // one width; the centre (r2) must be a genuinely WIDE bar, about 3x an arm. The old global-unit
         // test with a wide tolerance let a 1:1:1:1:1 alignment pattern (centre == arm) pass as a finder,
@@ -1000,6 +1116,14 @@ object QrSampler {
      * otherwise extrapolates the fourth corner. This is the single source of truth for sampling geometry,
      * so the on-screen outline and the actual module sampling use the identical homography.
      */
+    /** The transform from the three finders alone, the fourth corner taken as the parallelogram's:
+     *  exact for a code seen square-on, and never misled by a wrong alignment pattern. */
+    private fun threeFinderTransform(c: Corners, n: Int): PerspectiveTransform =
+        PerspectiveTransform.quadToQuad(
+            3.5, 3.5, n - 3.5, 3.5, n - 3.5, n - 3.5, 3.5, n - 3.5,
+            c.tl.x, c.tl.y, c.tr.x, c.tr.y, c.tr.x + c.bl.x - c.tl.x, c.tr.y + c.bl.y - c.tl.y, c.bl.x, c.bl.y,
+        )
+
     private fun buildTransform(bin: BooleanArray, w: Int, h: Int, c: Corners, n: Int): PerspectiveTransform {
         val tlmX = 3.5; val tlmY = 3.5
         val trmX = n - 3.5; val trmY = 3.5

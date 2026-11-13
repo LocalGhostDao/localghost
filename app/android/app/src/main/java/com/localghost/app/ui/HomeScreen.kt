@@ -473,7 +473,7 @@ fun CryptoScreen(onOpenCoin: (String) -> Unit = {}) {
                                 modifier = Modifier.padding(bottom = 8.dp))
                         }
                         if (rows.isEmpty()) item { EmptyLine("no rank list on the box yet: Coinbase's is fetched hourly") }
-                        items(rows, key = { it.symbol + it.rank }) { c -> CoinLine(c, sparks[c.symbol] ?: emptyList()) { onOpenCoin(c.symbol) } }
+                        items(rows, key = { it.symbol + "#" + it.rank }) { c -> CoinLine(c, sparks[c.symbol] ?: emptyList()) { onOpenCoin(c.symbol) } }
                     }
                 }
             }

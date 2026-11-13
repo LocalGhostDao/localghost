@@ -860,8 +860,12 @@ object BoxClient {
     /** Page the archive newest-first. before=0 for the first page; pass the last row's takenAt to
      *  continue. Empty list on failure or end of archive. */
     /** A page of the archive, newest first; null when the box did not answer (an empty list is a real end). */
-    suspend fun framesList(ctx: Context, before: Long = 0, limit: Int = 60): List<GalleryFrame>? = try {
-        val r = BoxHttp.getJson(ctx, "/v1/frames/list?before=$before&limit=$limit")
+    /** A page of the archive, newest first, after the cursor: the last frame of the page before
+     *  ([before] its time, [beforeHash] its hash, which breaks a tie between frames taken in the
+     *  same second; without it a page that ended inside a burst lost the rest of the burst). */
+    suspend fun framesList(ctx: Context, before: Long = 0, limit: Int = 60, beforeHash: String = ""): List<GalleryFrame>? = try {
+        val r = BoxHttp.getJson(ctx, "/v1/frames/list?before=$before&limit=$limit" +
+            (if (com.localghost.app.ui.GalleryPaging.isHash(beforeHash)) "&before_hash=$beforeHash" else ""))
         val arr = r.optJSONArray("frames") ?: return emptyList()
         (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { galleryFrame(it) } }
     } catch (e: Exception) {
@@ -1106,13 +1110,18 @@ object BoxClient {
     suspend fun dayFrames(ctx: Context, start: Long, end: Long): List<GalleryFrame>? {
         val out = ArrayList<GalleryFrame>()
         var before = end
+        var beforeHash = ""
+        val seen = HashSet<String>()
         while (out.size < 600) {
-            val page = framesList(ctx, before, 200) ?: return null
+            val page = framesList(ctx, before, 200, beforeHash) ?: return null
             if (page.isEmpty()) break
-            for (f in page) if (f.takenAt in start until end) out.add(f)
-            val oldest = page.minOf { it.takenAt }
-            if (oldest < start || page.size < 200) break
-            before = oldest
+            for (f in page) if (f.takenAt in start until end && seen.add(f.hash)) out.add(f)
+            // newest first, so the last row is the oldest: the next page starts after it, by its
+            // time and its hash (the time alone skipped the rest of a burst at a page's end)
+            val oldest = page.minByOrNull { it.takenAt } ?: break
+            if (oldest.takenAt < start || page.size < 200) break
+            before = oldest.takenAt
+            beforeHash = page.filter { it.takenAt == oldest.takenAt }.minOf { it.hash }
         }
         return out.sortedBy { it.takenAt }
     }
