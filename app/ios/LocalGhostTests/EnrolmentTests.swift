@@ -33,6 +33,50 @@ struct EnrolmentLinkTests {
   }
 
   @Test
+  func rebuildsServerLGQR2FixtureFromDataAndParityFrames() throws {
+    // Frames 0...4 plus parity frames 11...16 from server/internal/pair/qrstream_test.go.
+    // This fixed cross-platform fixture catches drift in the GF(256), Cauchy-row and CRC contract.
+    let encodedFrames = [
+      "TEdRUjIgMCAxMSA2IDEyNDMgMzQ2YmNmODYgNzFiZSBsb2NhbGdob3N0Oi8vZW5yb2xsP0lnQ0JxMVkzJlYybyZzMTYyM0s3N1JHaWlPJUs/cElPMU5pS3NIJXhxUWRpXzNHNENGOjdFXy5PRDRfLXBKOUZBd3hZbEk6LWhaTlYwRjRzRWFhVm9jMkp5M0dGcA==",
+      "TEdRUjIgMSAxMSA2IDEyNDMgMzQ2YmNmODYgYmNhNiBsZFVqJjVZakEyYTNfZkFCd0F6LWY6L1IybC9YJmhWNzJRbiVkOXFCM0ZBWXYvUHkmYXU1eWpuM1RNNTExYjZCT0tIdlQlNEFhP0hBPTE6Tz16UnBMND9WQTppMnBILm5FWHBQNVBub1Z5JUZDMndQLw==",
+      "TEdRUjIgMiAxMSA2IDEyNDMgMzQ2YmNmODYgOGVlMSBVNVY2WGEyU0ZHZF9XPVgmLVhmald2cDBaR0VNZVAxREVfQ0tiZz9pOFQ6QWNCbXE9cDBXeEpkMUxnTUYtWHllQlYwbVgtJjo9Sy1Md1oycTBXPzlIemVmdEc5UVBlN1pSZ0tmL3UwP0laRFJDWkZIbA==",
+      "TEdRUjIgMyAxMSA2IDEyNDMgMzQ2YmNmODYgYzNlZCB0VldHN0U9Ukt3P1BDWFhDZUNncUJkT2ZVdFgzfkR1cDM1U3pFYmFJRzdSYnFuNXl4MDNvQ3BpJkJETTpraTRqeXNQb2VtODNzSU9jOFhHOjglS3ozSk11bTNjajlHUGtwZzhEQ2V2TmJTcXpLZjlwOg==",
+      "TEdRUjIgNCAxMSA2IDEyNDMgMzQ2YmNmODYgMTI5ZiB+QiVLeUlpcS5zMHg5Py5sVkRkP1ZtZi1kd1JFQ0Zyfmd2QTZ0cmNZMlc9ckJOV09WSjR+UXIvc1hSYURvNHpWajlyXyVRUTpmfkFZJXRrSXdCbnkyYlQvYU84PUVWLjpMamdLV1RPTkslNHc/P2lHNw==",
+      "TEdRUjIgMTEgMTEgNiAxMjQzIDM0NmJjZjg2IDM2MmYgJ4/h8I7CpGTFig4ujnYjM8M3ySxsAt7C52tiybniUkEtpTgx9M6n7z8rzF7dWGgp0RYROT6cgv22QCQcLwTPr5jXizT65h3Y3rYg79gCG6XrLIaiivpBzgo39PZwgv9qDkHbDCFOn6PqnFQn0bTWwrg=",
+      "TEdRUjIgMTIgMTEgNiAxMjQzIDM0NmJjZjg2IDI4MDgg5Vm21jnnYOtag9V21EtvfLYsdpWdX9Hn/GaGdX8B/2Z0OqzrdrnXu9VZBQGCE05FKig8QwEUJRR4Jf9mD95k2jqEpCzx01HyrCi9xJJHXBr+Bqz1mu0MAsLafj+eNYYJCvqBuj6rbpSDxXVT5LAlY+U=",
+      "TEdRUjIgMTMgMTEgNiAxMjQzIDM0NmJjZjg2IDAxOTYgvecRr7jvi78RGGMlSe4sVDgXzh0WYXSiBY9srPc8WKtXEmpHBEnTrmP4UolfYuOnqNrEHku0PXYsR8K2rE83jjE5Cps9r2/CiFXDyOTBLBcHeHbqwPts3yFJKYKsqOrucK09+3xWhbcqU1lq1ppxNmg=",
+      "TEdRUjIgMTQgMTEgNiAxMjQzIDM0NmJjZjg2IDA4MDUg7kE68anwTWXkND9CuQV/lSv+IGTqoOQSBhrYNyn17biqwT8v2TltCLPw/EZEUIuOriJv0jXm/pakec7OIloZiokRvIexmG3Y0nXL4ogSUNvql3xcq0ui7e1DruuUDsgwxpaQkxl4B/6pT3FaigsIIsc=",
+      "TEdRUjIgMTUgMTEgNiAxMjQzIDM0NmJjZjg2IDU4YmEgPPQ/OHgcQpG9K9c92OWJee+HiojTmPQbrIhzXik01rEUMljZXX0SEzf21lzmQbErXtLDVkTUTWJtuz09n9tboio+m8bR8C4Zn0wpmILhYjz4pvIJJbgpa/VxhVhAFhJ19p1t5MALZKdxtTWdE+EIEL4=",
+      "TEdRUjIgMTYgMTEgNiAxMjQzIDM0NmJjZjg2IDFiY2UgJvu6Y+1duwHBQjU4nKTnTEiTRSVP5v/OArh1ZLAY0imKSMtFCgrh45dzsf7IMq9kJgQKSK8W8+GBnhrRKnqA6EDZ4+Key55GK0WUv4GCe0eus8hdW/OiNr2Tsb2wGUnwSslMxrcBzI3pn3Vz0OevGUs=",
+    ]
+    let frames = try encodedFrames.map { encoded -> String in
+      let data = try #require(Data(base64Encoded: encoded))
+      return try #require(String(data: data, encoding: .isoLatin1))
+    }
+    var assembler = EnrolmentQRStreamAssembler()
+    var payload: Data?
+
+    for frame in frames {
+      payload = assembler.offer(frame) ?? payload
+    }
+
+    let rebuilt = try #require(payload)
+    #expect(rebuilt.count == 1_243)
+    #expect(String(data: rebuilt, encoding: .isoLatin1)?.hasPrefix("localghost://enroll?") == true)
+  }
+
+  @Test
+  func extractsBinaryByteModePayloadFromVisionCodewords() throws {
+    // QR byte mode + 8-bit length 3 + [ff 00 80], followed by arbitrary data-codeword padding.
+    var codewords = Data([0x40, 0x3f, 0xf0, 0x08, 0x00])
+    codewords.append(Data(repeating: 0xec, count: 11))
+
+    let payload = try #require(QRByteModePayload.decode(codewords))
+
+    #expect(payload == Data([0xff, 0x00, 0x80]))
+  }
+
+  @Test
   @MainActor
   func setupStoresScannedCredentialsAtomically() throws {
     let store = RecordingCredentialStore()
