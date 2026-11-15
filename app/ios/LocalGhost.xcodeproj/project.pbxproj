@@ -10,6 +10,11 @@
 		A20000000000000000000001 /* LocalGhostApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000001 /* LocalGhostApp.swift */; };
 		A20000000000000000000002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000002 /* RootView.swift */; };
 		A20000000000000000000003 /* AppPhaseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000003 /* AppPhaseTests.swift */; };
+		A20000000000000000000004 /* Enrolment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000006 /* Enrolment.swift */; };
+		A20000000000000000000005 /* SetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000007 /* SetupView.swift */; };
+		A20000000000000000000006 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000008 /* QRScannerView.swift */; };
+		A20000000000000000000007 /* EnrolmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000009 /* EnrolmentTests.swift */; };
+		A20000000000000000000008 /* GhostTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000A /* GhostTheme.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +33,11 @@
 		A30000000000000000000003 /* AppPhaseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPhaseTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000004 /* LocalGhost.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LocalGhost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A30000000000000000000005 /* LocalGhostTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LocalGhostTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A30000000000000000000006 /* Enrolment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Enrolment.swift; sourceTree = "<group>"; };
+		A30000000000000000000007 /* SetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupView.swift; sourceTree = "<group>"; };
+		A30000000000000000000008 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
+		A30000000000000000000009 /* EnrolmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnrolmentTests.swift; sourceTree = "<group>"; };
+		A3000000000000000000000A /* GhostTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostTheme.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -62,6 +72,10 @@
 			children = (
 				A30000000000000000000001 /* LocalGhostApp.swift */,
 				A30000000000000000000002 /* RootView.swift */,
+				A30000000000000000000006 /* Enrolment.swift */,
+				A30000000000000000000007 /* SetupView.swift */,
+				A30000000000000000000008 /* QRScannerView.swift */,
+				A3000000000000000000000A /* GhostTheme.swift */,
 			);
 			path = LocalGhost;
 			sourceTree = "<group>";
@@ -70,6 +84,7 @@
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000003 /* AppPhaseTests.swift */,
+				A30000000000000000000009 /* EnrolmentTests.swift */,
 			);
 			path = LocalGhostTests;
 			sourceTree = "<group>";
@@ -183,6 +198,10 @@
 			files = (
 				A20000000000000000000001 /* LocalGhostApp.swift in Sources */,
 				A20000000000000000000002 /* RootView.swift in Sources */,
+				A20000000000000000000004 /* Enrolment.swift in Sources */,
+				A20000000000000000000005 /* SetupView.swift in Sources */,
+				A20000000000000000000006 /* QRScannerView.swift in Sources */,
+				A20000000000000000000008 /* GhostTheme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -191,6 +210,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A20000000000000000000003 /* AppPhaseTests.swift in Sources */,
+				A20000000000000000000007 /* EnrolmentTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -325,6 +345,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = LocalGhost;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the enrolment QR shown by your LocalGhost box.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -357,6 +378,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = LocalGhost;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the enrolment QR shown by your LocalGhost box.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
