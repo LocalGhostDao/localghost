@@ -28,7 +28,7 @@ func TestChatDeleteAgainstPostgres(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_chatdelete")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_chatdelete WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_chatdelete"); err != nil {
 		t.Fatal(err)
 	}

@@ -30,7 +30,7 @@ func TestMemoryAnchorOpenAndLinks(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_memanchor")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_memanchor WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_memanchor"); err != nil {
 		t.Fatal(err)
 	}

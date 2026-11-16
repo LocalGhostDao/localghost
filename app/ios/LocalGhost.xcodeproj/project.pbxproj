@@ -15,6 +15,11 @@
 		A20000000000000000000006 /* QRScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000008 /* QRScannerView.swift */; };
 		A20000000000000000000007 /* EnrolmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000009 /* EnrolmentTests.swift */; };
 		A20000000000000000000008 /* GhostTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000A /* GhostTheme.swift */; };
+		A20000000000000000000009 /* DeviceKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000B /* DeviceKeys.swift */; };
+		A2000000000000000000000A /* BoxChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000C /* BoxChannel.swift */; };
+		A2000000000000000000000B /* BoxModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000D /* BoxModel.swift */; };
+		A2000000000000000000000C /* BoxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000E /* BoxView.swift */; };
+		A2000000000000000000000D /* BoxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000F /* BoxTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -38,6 +43,11 @@
 		A30000000000000000000008 /* QRScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerView.swift; sourceTree = "<group>"; };
 		A30000000000000000000009 /* EnrolmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnrolmentTests.swift; sourceTree = "<group>"; };
 		A3000000000000000000000A /* GhostTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhostTheme.swift; sourceTree = "<group>"; };
+		A3000000000000000000000B /* DeviceKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceKeys.swift; sourceTree = "<group>"; };
+		A3000000000000000000000C /* BoxChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxChannel.swift; sourceTree = "<group>"; };
+		A3000000000000000000000D /* BoxModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxModel.swift; sourceTree = "<group>"; };
+		A3000000000000000000000E /* BoxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxView.swift; sourceTree = "<group>"; };
+		A3000000000000000000000F /* BoxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -76,6 +86,10 @@
 				A30000000000000000000007 /* SetupView.swift */,
 				A30000000000000000000008 /* QRScannerView.swift */,
 				A3000000000000000000000A /* GhostTheme.swift */,
+				A3000000000000000000000B /* DeviceKeys.swift */,
+				A3000000000000000000000C /* BoxChannel.swift */,
+				A3000000000000000000000D /* BoxModel.swift */,
+				A3000000000000000000000E /* BoxView.swift */,
 			);
 			path = LocalGhost;
 			sourceTree = "<group>";
@@ -85,6 +99,7 @@
 			children = (
 				A30000000000000000000003 /* AppPhaseTests.swift */,
 				A30000000000000000000009 /* EnrolmentTests.swift */,
+				A3000000000000000000000F /* BoxTests.swift */,
 			);
 			path = LocalGhostTests;
 			sourceTree = "<group>";
@@ -202,6 +217,10 @@
 				A20000000000000000000005 /* SetupView.swift in Sources */,
 				A20000000000000000000006 /* QRScannerView.swift in Sources */,
 				A20000000000000000000008 /* GhostTheme.swift in Sources */,
+				A20000000000000000000009 /* DeviceKeys.swift in Sources */,
+				A2000000000000000000000A /* BoxChannel.swift in Sources */,
+				A2000000000000000000000B /* BoxModel.swift in Sources */,
+				A2000000000000000000000C /* BoxView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -211,6 +230,7 @@
 			files = (
 				A20000000000000000000003 /* AppPhaseTests.swift in Sources */,
 				A20000000000000000000007 /* EnrolmentTests.swift in Sources */,
+				A2000000000000000000000D /* BoxTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -346,6 +366,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = LocalGhost;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the enrolment QR shown by your LocalGhost box.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Reach your LocalGhost box on your own network.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -379,6 +400,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = LocalGhost;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the enrolment QR shown by your LocalGhost box.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Reach your LocalGhost box on your own network.";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

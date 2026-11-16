@@ -44,7 +44,7 @@ func TestVoicePGNoteToCheckin(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	if err := admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_voice"); err != nil {
+	if err := admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_voice WITH (FORCE)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_voice"); err != nil {

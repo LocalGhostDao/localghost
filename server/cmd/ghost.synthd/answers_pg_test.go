@@ -28,7 +28,7 @@ func answersDB(t *testing.T) *poltergres.ReadWrite {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	if err := admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_answers"); err != nil {
+	if err := admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_answers WITH (FORCE)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_answers"); err != nil {

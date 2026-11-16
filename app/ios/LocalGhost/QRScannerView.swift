@@ -1,23 +1,70 @@
+import AVFoundation
 import SwiftUI
+import UIKit
 import VisionKit
+
+/// Whether the camera can be used, asked of AVFoundation rather than inferred from VisionKit's
+/// isAvailable (which is false both before the question was asked and after a refusal).
+enum CameraAccess: Equatable {
+  case unknown
+  case granted
+  case refused
+  case unsupported
+
+  static func current(supported: Bool = DataScannerViewController.isSupported) -> CameraAccess {
+    guard supported else { return .unsupported }
+    switch AVCaptureDevice.authorizationStatus(for: .video) {
+    case .authorized: return .granted
+    case .notDetermined: return .unknown
+    default: return .refused // denied, or restricted by Screen Time or a profile
+    }
+  }
+}
 
 struct QRScannerSheet: View {
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.openURL) private var openURL
   @Environment(GhostTheme.self) private var theme
   @State private var scannerError: String?
+  @State private var access = CameraAccess.current()
 
   let onPayload: (String) -> Bool
 
   var body: some View {
     cameraScreen
     .preferredColorScheme(.dark)
+    .task {
+      // the first time: ask, and the scanner starts when the answer is yes
+      if access == .unknown {
+        _ = await AVCaptureDevice.requestAccess(for: .video)
+        access = CameraAccess.current()
+      }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      // back from Settings with the camera allowed: the scanner starts by itself
+      if phase == .active {
+        access = CameraAccess.current()
+      }
+    }
+  }
+
+  private var accessWords: String? {
+    switch access {
+    case .refused:
+      "the camera is off for LocalGhost: allow it in Settings to scan the box's QR"
+    case .unsupported:
+      "this iPhone cannot read codes with its camera"
+    case .unknown, .granted:
+      nil
+    }
   }
 
   private var cameraScreen: some View {
     ZStack {
       theme.background.ignoresSafeArea()
 
-      if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
+      if access == .granted && DataScannerViewController.isAvailable {
         QRScannerView(
           onPayload: handlePayload,
           onError: { scannerError = $0.localizedDescription }
@@ -25,7 +72,9 @@ struct QRScannerSheet: View {
         .ignoresSafeArea()
       }
 
-      ScannerReticle()
+      if access == .granted || access == .unknown {
+        ScannerReticle()
+      }
 
       VStack(spacing: 0) {
         Text("> SCAN THE BOX QR")
@@ -44,7 +93,12 @@ struct QRScannerSheet: View {
               .font(theme.font(.callout))
               .foregroundStyle(theme.accent)
 
-            if let scannerError {
+            if let refusal = accessWords {
+              Text("! \(refusal)")
+                .font(theme.font(.callout))
+                .foregroundStyle(theme.warning)
+                .multilineTextAlignment(.center)
+            } else if let scannerError {
               Text("! \(scannerError)")
                 .font(theme.font(.callout))
                 .foregroundStyle(theme.warning)
@@ -55,7 +109,14 @@ struct QRScannerSheet: View {
           .padding(14)
           .background(theme.background.opacity(0.82), in: RoundedRectangle(cornerRadius: 12))
 
-          GhostButton(title: "Cancel / Type Instead") {
+          if access == .refused, let settings = URL(string: UIApplication.openSettingsURLString) {
+            GhostButton(title: "Open settings") {
+              openURL(settings)
+            }
+            .accessibilityIdentifier("scanner.settings")
+          }
+
+          GhostButton(title: "Cancel") {
             dismiss()
           }
           .accessibilityIdentifier("scanner.cancel")

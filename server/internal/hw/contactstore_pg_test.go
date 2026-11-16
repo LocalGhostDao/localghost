@@ -30,7 +30,7 @@ func TestContactStoreAgainstPostgres(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_contacts")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_contacts WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_contacts"); err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestContactStoreAgainstPostgres(t *testing.T) {
 	if r, _ := ns.ContactSearch(0, nil, 0); len(r) != 0 {
 		t.Fatal("forget drops every contact")
 	}
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_contacts")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_contacts WITH (FORCE)")
 }
 
 func TestContactBirthday(t *testing.T) {

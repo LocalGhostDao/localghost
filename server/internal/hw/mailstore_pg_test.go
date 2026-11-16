@@ -27,7 +27,7 @@ func TestMailStoreAgainstPostgres(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_mail")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_mail WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_mail"); err != nil {
 		t.Fatal(err)
 	}

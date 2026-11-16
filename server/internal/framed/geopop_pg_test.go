@@ -27,7 +27,7 @@ func TestGeoWithoutPopulations(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_geopop")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_geopop WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_geopop"); err != nil {
 		t.Fatal(err)
 	}

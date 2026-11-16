@@ -6,7 +6,8 @@ Thanks for stopping by. Here is an honest state of things, so you know what is u
 
 A box at home that keeps a person's photos, trail, notes, voice, health and chats, reads them with
 models that run on the box, and gives them back on the phone. A fleet of Go daemons on a Debian
-box with a GPU (`server/`), and an Android app that is the only client (`app/android/`). The
+box with a GPU (`server/`), and an Android app that is the client (`app/android/`), with an iOS
+app being built beside it (`app/ios/`). The
 [README](README.md) is the shape of it, [the release notes](server/releases/0.0.1.md) are the
 whole of what wisp 0.0.1 does and how it works, and `server/tools/DEV_UPDATE.md` is the
 engineering journal, newest at the end: what changed, why, and what was tested. It keeps the

@@ -28,7 +28,7 @@ func TestIngestKeepsTheHigherCounter(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_tally")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_tally WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_tally"); err != nil {
 		t.Fatal(err)
 	}

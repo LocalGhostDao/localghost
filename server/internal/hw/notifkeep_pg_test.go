@@ -28,7 +28,7 @@ func TestNotificationLinkAndWeek(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_notifkeep")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_notifkeep WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_notifkeep"); err != nil {
 		t.Fatal(err)
 	}

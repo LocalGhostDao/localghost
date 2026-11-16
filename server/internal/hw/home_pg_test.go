@@ -27,7 +27,7 @@ func TestHomeGuessIsWhereTheNightsAre(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_home")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_home WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_home"); err != nil {
 		t.Fatal(err)
 	}

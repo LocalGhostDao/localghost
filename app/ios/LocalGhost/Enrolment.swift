@@ -173,8 +173,22 @@ struct EnrolmentCredentials: Codable, Equatable, Sendable {
   let baseURL: String
   let deviceName: String
   let certificateFingerprint: String
-  let deviceCertificatePEM: String
-  let devicePrivateKeyPEM: String
+  /// The certificate this iPhone presents: the QR's until the first rekey, then the one the box
+  /// signed for the key made here.
+  var deviceCertificatePEM: String
+  /// Never kept once the key is in the Keychain as a key of its own (keyTag); only a record
+  /// written by the build before that holds it, and the first launch after an install clears
+  /// those (InstallMark).
+  var devicePrivateKeyPEM: String? = nil
+  /// The Keychain tag of the private key that goes with deviceCertificatePEM.
+  var keyTag: String? = nil
+  /// When the key in use was made on this iPhone; nil while it is still the one the QR carried.
+  var rekeyedAt: Date? = nil
+  /// How long the box wants between rekeys (its answer's renewAfterHours).
+  var renewAfterHours: Int? = nil
+  /// A rekey the box answered and this iPhone has not confirmed yet: the new key and certificate.
+  var pendingKeyTag: String? = nil
+  var pendingCertificatePEM: String? = nil
 }
 
 protocol CredentialStoring: Sendable {
@@ -269,12 +283,15 @@ final class SetupModel {
   private(set) var errorMessage: String?
 
   private let credentialStore: any CredentialStoring
+  private let keyring: any DeviceKeyring
 
   init(
     credentialStore: any CredentialStoring,
+    keyring: any DeviceKeyring = KeychainDeviceKeyring(),
     deviceName: String = UIDevice.current.name
   ) {
     self.credentialStore = credentialStore
+    self.keyring = keyring
     self.deviceName = deviceName
   }
 
@@ -332,15 +349,23 @@ final class SetupModel {
         throw SetupError.missingDeviceName
       }
 
-      try credentialStore.save(
-        EnrolmentCredentials(
-          baseURL: address.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
-          deviceName: name,
-          certificateFingerprint: link.certificateFingerprint,
-          deviceCertificatePEM: certificate,
-          devicePrivateKeyPEM: privateKey
+      // the key goes into the Keychain as a key, beside its certificate, where TLS can use the
+      // pair; the record keeps only the key's tag
+      let tag = try keyring.installQRIdentity(certificatePEM: certificate, privateKeyPEM: privateKey)
+      do {
+        try credentialStore.save(
+          EnrolmentCredentials(
+            baseURL: address.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+            deviceName: name,
+            certificateFingerprint: link.certificateFingerprint,
+            deviceCertificatePEM: certificate,
+            keyTag: tag
+          )
         )
-      )
+      } catch {
+        keyring.remove(tag: tag)
+        throw error
+      }
       scannedLink = nil
       errorMessage = nil
       return true

@@ -56,9 +56,11 @@ list the known gaps, and [the security policy](SECURITY.md) says how to report w
 
 Two parts. **The server** is a fleet of Go daemons on a Debian box with an NVIDIA GPU, one
 process per job, everything on an encrypted volume (LUKS) that opens with a PIN from the phone.
-**The app** is Kotlin and Compose on Android, the only client, which talks to the box over HTTPS
-with a client certificate the box issued when the phone scanned its QR. The box is its own CA. No
-account anywhere, no relay, no third party between the phone and the box.
+**The app** is Kotlin and Compose on Android, which talks to the box over HTTPS with a client
+certificate the box issued when the phone scanned its QR. The box is its own CA. No account
+anywhere, no relay, no third party between the phone and the box. An iOS app (`app/ios`, Swift)
+is being built to the same contract, from a contributor: it enrols, opens the box and shows its
+status so far; Android is the one that does everything.
 
 | Daemon | Job |
 |---|---|
@@ -200,13 +202,14 @@ cd ../app/android
 ```sh
 cd ../ios
 xcodebuild -project LocalGhost.xcodeproj -scheme LocalGhost \
-  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test   # signing on: the Keychain tests need it
 ```
 
 CI ([ci.yml](.github/workflows/ci.yml)) runs the server's build, vet and tests on every push
 and pull request, and cross-compiles the server for macOS so the tree keeps building where
-contributors edit it; a box is Linux. The app's JVM tests run on pull requests and on demand
-(Actions › ci › Run workflow). [CONTRIBUTING.md](CONTRIBUTING.md) says what is useful and how changes land.
+contributors edit it; a box is Linux. The Android app's JVM tests run on pull requests and on
+demand (Actions › ci › Run workflow); the iOS app's simulator tests ([ios.yml](.github/workflows/ios.yml))
+whenever `app/ios` changes. [CONTRIBUTING.md](CONTRIBUTING.md) says what is useful and how changes land.
 
 ---
 

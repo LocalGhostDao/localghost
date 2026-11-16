@@ -1,0 +1,60 @@
+# iOS , the iOS app's simulator build and unit tests, on a macOS runner.
+#
+# Only when the iOS app (or this file) changes: a change to the server or the Android app has
+# nothing here to break, and a macOS runner is the slowest to come. On pushes to main as well as
+# on pull requests, so a change that lands on main without a pull request is built too; and by
+# hand (Actions › ios › Run workflow).
+#
+# The simulator build is signed to run locally (Xcode's ad-hoc signing, no team, no secrets): the
+# Keychain refuses an app with no signature at all, and the tests store and read the device's
+# credentials there. Nothing here reaches outside GitHub.
+name: ios
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "app/ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: app/ios
+    steps:
+      - uses: actions/checkout@v7
+      - name: boot one simulator
+        run: |
+          simulator_id="$(xcrun simctl list devices available | awk -F '[()]' '/iPhone/ { print $2; exit }')"
+          test -n "$simulator_id"
+          echo "SIMULATOR_ID=$simulator_id" >> "$GITHUB_ENV"
+          xcrun simctl boot "$simulator_id" || true
+          xcrun simctl bootstatus "$simulator_id" -b
+      - name: simulator tests
+        # one simulator, booted above: parallel testing clones it for each test runner, and a
+        # clone that does not boot in time is a common way for a busy macOS runner to time out.
+        # A test that hangs fails after its allowance rather than at the job's limit.
+        run: |
+          xcodebuild \
+            -project LocalGhost.xcodeproj \
+            -scheme LocalGhost \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 120 \
+            test

@@ -5,6 +5,16 @@ import SwiftUI
 struct LocalGhostApp: App {
   @State private var theme = GhostTheme()
 
+  init() {
+    // before anything reads the Keychain: what an earlier install left there goes (InstallMark)
+    InstallMark.clearLeftovers(
+      defaults: .standard,
+      credentials: KeychainCredentialStore(),
+      keyring: KeychainDeviceKeyring(),
+      sessions: KeychainSessionStore()
+    )
+  }
+
   var body: some Scene {
     WindowGroup {
       RootView()

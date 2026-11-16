@@ -153,7 +153,7 @@ func TestSQLPrepareEveryStatement(t *testing.T) {
 		t.Fatalf("postgres unreachable: %v", err)
 	}
 	const name = "lgtest_sqlprepare"
-	if err := admin.ExecSimple("DROP DATABASE IF EXISTS " + name); err != nil {
+	if err := admin.ExecSimple("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := admin.ExecSimple("CREATE DATABASE " + name); err != nil {

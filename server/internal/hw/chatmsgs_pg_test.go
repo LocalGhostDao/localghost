@@ -26,7 +26,7 @@ func TestChatMessagesCarryThinkingSourcesAndState(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_chatmsgs")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_chatmsgs WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_chatmsgs"); err != nil {
 		t.Fatal(err)
 	}

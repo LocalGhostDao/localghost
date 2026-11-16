@@ -30,7 +30,7 @@ func TestRederiveTurnsAMisfiledHEICBackIntoAPhoto(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_rekind")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_rekind WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_rekind"); err != nil {
 		t.Fatal(err)
 	}

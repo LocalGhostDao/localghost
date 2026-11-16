@@ -1,12 +1,37 @@
 # LocalGhost (iOS)
 
-The native iOS client for LocalGhost. The current target includes the application shell and the
-offline enrolment flow: scan a v2/v3 box QR, review the address and fingerprint, then store the
-device certificate and private key in the device-only Keychain.
+The native iOS client for LocalGhost. The Android app (`app/android`) is the reference: where the
+two differ, Android's behaviour and the box's code (`server/internal/secd`) are the contract.
 
-The pinned mTLS channel and product screens will land as separate changes. The imported private key
-is box-generated, so it cannot gain Secure Enclave non-exportability after enrolment; the Keychain
-record is instead restricted to this device and to periods when the device is unlocked.
+## What it does
+
+- **Enrolment.** Scan the box's QR (v2/v3 links, the rotating LGQR2 frames included), check the
+  address and the fingerprint, enrol. The QR's private key goes into the Keychain as a key, beside
+  its certificate, so the two make an identity TLS can present; the enrolment record keeps only
+  the key's tag. All of it is on this device only and readable only while the iPhone is unlocked.
+- **The channel** (`BoxChannel.swift`). Mutual TLS: the box is trusted when the SHA-256 of the
+  certificate it presents equals the fingerprint from the QR, and nothing else is trusted; the
+  phone presents its identity. No redirect is followed, nothing is cached. The box answers every
+  refusal (locked, no session, a retired certificate) with the same 503 page, and the app says
+  one thing for all of them: the box did not answer.
+- **The unlock** (`BoxModel.swift`, `BoxView.swift`). The PIN to `POST /v1/unlock`, then a poll a
+  second (`GET /v1/unlock/poll?run=`) showing each step, and the session token from the poll that
+  says done, kept in the Keychain until it expires (two days).
+- **The key replaced** (`DeviceKeys.swift`). Anyone who photographed the QR holds a copy of its
+  key, so after the first unlock the phone makes a key of its own in the Secure Enclave (a
+  Keychain key in the simulator, which has none), signs the proof `secd/rekey.go` asks for, and
+  the box signs a certificate for that key. The phone confirms over the new certificate, the box
+  retires the QR's, and its key is deleted here. The same once a day after an unlock, so a phone
+  in use never reaches the end of its two-week certificate. A confirmation whose answer was lost
+  is confirmed again at the next start; if the box had already retired the old certificate, the
+  unlock is tried over the new one.
+- **Box status.** `GET /v1/status`: the daemons and the datastores.
+- **Forget this box.** Deletes the device key, its certificate and the session from this iPhone.
+  The box still lists the iPhone until it is retired there.
+- **Reinstalling forgets too.** Keychain items outlive the app on iOS; the first launch after an
+  install deletes whatever an earlier install left there (`InstallMark`).
+
+Not built yet: the rest of the Android app's screens, notifications, uploads.
 
 ## Requirements
 
@@ -22,9 +47,12 @@ xcodebuild \
   -project LocalGhost.xcodeproj \
   -scheme LocalGhost \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  test \
-  CODE_SIGNING_ALLOWED=NO
+  test
 ```
 
-The app intentionally has no external dependencies.
+Leave code signing on: the simulator build is signed to run locally (no team needed), and the
+Keychain refuses an app with no signature at all, so the tests that store credentials fail with
+`CODE_SIGNING_ALLOWED=NO`. CI runs the same command (`.github/workflows/ios.yml`) whenever
+`app/ios` changes.
 
+The app intentionally has no external dependencies.

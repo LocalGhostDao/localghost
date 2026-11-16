@@ -30,7 +30,7 @@ func TestCalendarStoreAgainstPostgres(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_calendar")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_calendar WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_calendar"); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestCalendarStoreAgainstPostgres(t *testing.T) {
 	if !strings.HasPrefix(line, "Fri 16 Oct 13:00–14:00 Lunch with Paul and Ana · Dishoom · with Paul") || strings.Contains(line, "vlad@") {
 		t.Fatalf("line: %q", line)
 	}
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_calendar")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_calendar WITH (FORCE)")
 }
 
 func TestCalendarLine(t *testing.T) {

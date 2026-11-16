@@ -27,7 +27,7 @@ func TestTrailAnswersInTheStore(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_trailanswers")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_trailanswers WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_trailanswers"); err != nil {
 		t.Fatal(err)
 	}

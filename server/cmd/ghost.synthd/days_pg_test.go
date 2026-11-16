@@ -44,7 +44,7 @@ func pgFresh(t *testing.T, name string) *poltergres.ReadWrite {
 	if err := admin.Ping(); err != nil {
 		t.Fatalf("postgres unreachable: %v", err)
 	}
-	if err := admin.ExecSimple("DROP DATABASE IF EXISTS " + name); err != nil {
+	if err := admin.ExecSimple("DROP DATABASE IF EXISTS " + name + " WITH (FORCE)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := admin.ExecSimple("CREATE DATABASE " + name); err != nil {

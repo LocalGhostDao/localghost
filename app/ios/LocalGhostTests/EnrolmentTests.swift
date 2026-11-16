@@ -80,7 +80,8 @@ struct EnrolmentLinkTests {
   @MainActor
   func setupStoresScannedCredentialsAtomically() throws {
     let store = RecordingCredentialStore()
-    let model = SetupModel(credentialStore: store, deviceName: "My iPhone")
+    let keyring = RecordingKeyring()
+    let model = SetupModel(credentialStore: store, keyring: keyring, deviceName: "My iPhone")
     let certificate = "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----\n"
     let privateKey = "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n"
     let raw = "localghost://enroll?v=2&host=box.local&fp=\(fingerprint)&cert=\(Data(certificate.utf8).base64URLString)&key=\(Data(privateKey.utf8).base64URLString)"
@@ -93,7 +94,29 @@ struct EnrolmentLinkTests {
     #expect(stored?.baseURL == "https://vpn.example:8443")
     #expect(stored?.deviceName == "My iPhone")
     #expect(stored?.deviceCertificatePEM == certificate)
-    #expect(stored?.devicePrivateKeyPEM == privateKey)
+    // the key went into the Keychain as a key; the record keeps its tag and not the key
+    #expect(stored?.devicePrivateKeyPEM == nil)
+    #expect(stored?.keyTag == "qr-1")
+    #expect(keyring.installed.count == 1)
+    #expect(keyring.installed.first?.key == privateKey)
+    #expect(keyring.installed.first?.certificate == certificate)
+  }
+
+  @Test
+  @MainActor
+  func aKeyThatCannotBeInstalledLeavesNothingStored() throws {
+    let store = RecordingCredentialStore()
+    let keyring = RecordingKeyring()
+    keyring.refuseInstall = true
+    let model = SetupModel(credentialStore: store, keyring: keyring, deviceName: "My iPhone")
+    let certificate = "-----BEGIN CERTIFICATE-----\ncert\n-----END CERTIFICATE-----\n"
+    let privateKey = "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----\n"
+    let raw = "localghost://enroll?v=2&host=box.local&fp=\(fingerprint)&cert=\(Data(certificate.utf8).base64URLString)&key=\(Data(privateKey.utf8).base64URLString)"
+
+    #expect(model.acceptEnrolmentPayload(raw))
+    #expect(!model.pair())
+    #expect(store.credentials == nil)
+    #expect(model.errorMessage != nil)
   }
 
   @Test

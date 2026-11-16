@@ -26,7 +26,7 @@ func TestRemovedFeaturesDropped(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_leftovers")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_leftovers WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_leftovers"); err != nil {
 		t.Fatal(err)
 	}

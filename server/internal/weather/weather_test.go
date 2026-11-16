@@ -163,7 +163,7 @@ func TestPassNearestByNamePG(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_weather")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_weather WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_weather"); err != nil {
 		t.Fatal(err)
 	}

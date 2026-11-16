@@ -28,7 +28,7 @@ func TestMemoriesListWholeFirstAndPartsByRef(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_memlist")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_memlist WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_memlist"); err != nil {
 		t.Fatal(err)
 	}

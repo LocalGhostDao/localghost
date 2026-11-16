@@ -29,7 +29,7 @@ func TestFramesListPagesThroughABurst(t *testing.T) {
 		user = "postgres"
 	}
 	admin := poltergres.NewReadWrite(dir, port, user, "", "postgres")
-	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_frameslist")
+	_ = admin.ExecSimple("DROP DATABASE IF EXISTS lgtest_frameslist WITH (FORCE)")
 	if err := admin.ExecSimple("CREATE DATABASE lgtest_frameslist"); err != nil {
 		t.Fatal(err)
 	}

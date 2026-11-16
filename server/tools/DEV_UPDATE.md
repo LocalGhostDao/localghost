@@ -534,3 +534,79 @@ described are in the header of `tools/release.sh`; day to day a box is brought c
   out stays an outing; Vlad was asked whether those should be trips too.
 - Main's copy of this file had the iOS lines twice (a merge brought the joined heading back on
   top of the split one). This copy has them once.
+
+## 15 November 2026 , iOS enrolment from the QR (David, pull request #18)
+- David (0ex-d) added the iOS setup: the enrol link parsed as `pair.EnrollLink` writes it (v2
+  and v3), a VisionKit scanner with its own LGQR2 assembler (the Cauchy rows and the CRCs as
+  `pair/qrstream.go`; binary parity frames read from the QR's byte-mode codewords), the
+  certificate and key stored in the Keychain on this device only, a setup screen in the app's
+  terminal look. An 8 of 8 enrolment on a physical iPhone, by his account.
+- Reviewed before the merge (project doc of 15 November): his test's eleven frames are frames
+  the box makes today and rebuild its test payload through the server's own decoder; nothing
+  outside `app/ios` changed but the iOS CI step. Merged by Vlad as `d1712cd`.
+
+## 16 November 2026 , iOS: the channel, the unlock, the key replaced, Box Status; what the review found
+- Vlad: "ok, i've merged the thing, let's fix the things", then "also let's implement a bit more
+  of the functionality, and let's have a look at the tests that fail". Written here without a
+  Mac: the Swift is not compiled in this sandbox (a Swift toolchain was downloaded and not
+  allowed to run), so the first build is CI's (`ios.yml`) or Xcode's. The Xcode project file was
+  parsed and every reference checked.
+- What the review found, fixed:
+  - Keychain items outlive the app on iOS, so the box-made key stayed after an uninstall and a
+    reinstall said "enrolled" with no way back. `InstallMark`: the first launch after an install
+    (no mark in UserDefaults, which an uninstall does take) deletes every key, certificate and
+    the stored records first; the mark is set only when that worked. An iPhone enrolled with
+    the merged build enrols again once.
+  - "Forget this box" on the box screen and on the unreadable-credentials screen (that one also
+    has "try again"), with a confirmation that says the box still lists the iPhone until it is
+    retired there.
+  - The scanner asks for the camera through AVFoundation (VisionKit's `isAvailable` is false
+    both before the question and after a refusal, and the screen stayed dark either way), says
+    when it is refused, opens Settings, and starts by itself on the way back. "Cancel / Type
+    instead" is "Cancel": typing could never enrol.
+  - Both READMEs passed `CODE_SIGNING_ALLOWED=NO`, under which the Keychain tests cannot pass.
+- The key no longer sits in the record. At enrolment it goes into the Keychain as a key (the
+  box's PKCS#8 read by CryptoKit, written as X9.63) beside its certificate, which the Keychain
+  pairs into an identity; the record keeps the key's tag (`DeviceKeys.swift`).
+- `BoxChannel.swift`: URLSession with a delegate that trusts the server whose leaf certificate's
+  SHA-256 is the QR's fingerprint (constant-time) and nothing else, presents the identity for
+  the client certificate, follows no redirect; ephemeral, no cache, no cookies, TLS 1.2 or
+  newer. A 503 or 502 is "the box did not answer", whatever the box's reason. `BoxCalls` is the
+  protocol the model talks to, so the tests give it a fake.
+- `BoxModel.swift`, `BoxView.swift`: the PIN to `/v1/unlock`, one poll a second with the steps
+  named as the Android app names them, the session from the poll that says done (Keychain,
+  device only). Then the rekey `secd/rekey.go` asks for: a key made in the Secure Enclave (a
+  Keychain key in the simulator), its SPKI, the v2 proof ("localghost rekey v2\n" + hex SHA-256
+  of the presented certificate + "\n" + SPKI, ECDSA-SHA256 DER), the new certificate kept as a
+  pending hand-over before the confirmation over it, the old key deleted after. Again once a
+  day after an unlock (the box's `renewAfterHours`). A confirmation whose answer was lost is
+  sent again at the next start; and since the box answers a retired certificate as if it were
+  down, an unlock that gets that answer with a hand-over pending is tried over the new one.
+  Then `/v1/status`: the daemons and the datastores.
+- Checked against the box's Go: the P-256 SPKI prefix (`x509.MarshalPKIXPublicKey`), the rekey
+  message for a known certificate, the RFC 3339 expiry. The Swift tests (`BoxTests.swift`,
+  `EnrolmentTests.swift`) carry those vectors and run the model's order against fakes: a PIN
+  that opens and a key replaced (which identity each call went over), a refused PIN, a lost
+  confirmation, a retired certificate, a key made today, forgetting, the install mark.
+- CI: the iOS job is its own workflow, `ios.yml`, on pull requests and pushes that touch
+  `app/ios` (a drop committed straight to main is built too), `checkout@v7` (v4 ran on the
+  Node 20 GitHub is retiring), one simulator booted before the tests and parallel testing off
+  (a clone that does not boot in time is a common timeout on busy macOS runners), test time
+  allowances, a 30 minute limit. `ci.yml`'s jobs have limits too (server 20, app 30), so a hang
+  fails named within minutes instead of holding a runner for six hours.
+- The tests that fail. The last run on pull request #18 was green on all three jobs (server
+  1m22s, app 2m48s, ios 3m09s); David's "CI test fails mostly due to timeout" was about the
+  runs before it, whose logs are not readable from here. The Go suite was run here as CI runs
+  it, with Postgres, under busy loops on two cores: once whole (passed), and fifteen packages
+  with timed waits eight times each under four loops. One real failure:
+  `TestAnswerIsSavedWhileItIsWritten` fails every run after the first in one process, `pg ERROR
+  55006: database "lgtest_answers" is being accessed by other users`, after Postgres's 5 s wait
+  for the earlier run's connections (the answer saver's) to go. CI runs each test once, so it
+  never shows there, but `go test -count=N`, the way to hunt a flaky test, failed on it every
+  time. Every test database (26 drops in 24 files) is now dropped `WITH (FORCE)` (Postgres 13
+  and newer; the box, CI's runner and this sandbox are 16), and the test passes five runs in a
+  row; main's version fails the second. The other failures were the load's: internal/hw and
+  cmd/ghost.synthd running eight times in a row past an 8 minute limit, one and three seconds
+  into a test. Nothing else failed, so nothing else changed. A red run's `--- FAIL` lines would
+  name David's.
+- Not exercised: any of the iOS work on an iPhone or against a box; the first compile.
