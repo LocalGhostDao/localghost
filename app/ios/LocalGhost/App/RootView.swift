@@ -1,10 +1,11 @@
+import Foundation
 import SwiftUI
 
 enum AppPhase: Equatable {
   case setup
   /// Enrolled: the box is opened with the PIN from here (BoxView).
   case locked
-  case credentialError
+  case credentialError(String)
 
   static let initial = AppPhase.setup
 }
@@ -42,11 +43,11 @@ struct RootView: View {
         BoxView(model: boxModel) {
           phase = .setup
         }
-      case .credentialError:
+      case .credentialError(let detail):
         TerminalStateView(
           heading: "CREDENTIALS UNAVAILABLE",
           message: forgetError
-            ?? "LocalGhost could not read this iPhone's device credentials. Nothing was changed.",
+            ?? detail,
           warning: true
         ) {
           GhostButton(title: "Try again") {
@@ -81,7 +82,15 @@ struct RootView: View {
     } catch {
       // Fail closed: an unreadable Keychain record must not look like a fresh install and invite
       // the user to overwrite an existing device identity.
-      return .credentialError
+      let detail = String(reflecting: error)
+      #if DEBUG
+        NSLog("[LocalGhost Credentials] load failed: %@", detail)
+        return .credentialError(detail)
+      #else
+        return .credentialError(
+          "LocalGhost could not read this iPhone's device credentials. Nothing was changed."
+        )
+      #endif
     }
   }
 }

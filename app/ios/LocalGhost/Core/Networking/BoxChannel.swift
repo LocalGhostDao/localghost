@@ -288,6 +288,13 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
     do {
       (data, response) = try await session.data(for: request)
     } catch let error as URLError {
+      #if DEBUG
+        NSLog(
+          "[LocalGhost Network] request failed: code=%ld detail=%@",
+          error.errorCode,
+          error.localizedDescription
+        )
+      #endif
       throw BoxChannelError.unreachable(Self.describe(error))
     }
     guard let http = response as? HTTPURLResponse else { throw BoxChannelError.malformed }
