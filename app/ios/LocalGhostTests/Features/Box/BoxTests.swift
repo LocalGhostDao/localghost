@@ -32,6 +32,40 @@ struct BoxPinTests {
   }
 }
 
+struct BoxTrustDelegateTests {
+  @Test
+  func taskLevelClientCertificateChallengeUsesTheDeviceCredential() throws {
+    let credential = URLCredential(user: "device", password: "test", persistence: .forSession)
+    let delegate = BoxTrustDelegate(pin: Data(repeating: 0, count: 32), clientCredential: credential)
+    let protectionSpace = URLProtectionSpace(
+      host: "box.local",
+      port: 8443,
+      protocol: "https",
+      realm: nil,
+      authenticationMethod: NSURLAuthenticationMethodClientCertificate
+    )
+    let challenge = URLAuthenticationChallenge(
+      protectionSpace: protectionSpace,
+      proposedCredential: nil,
+      previousFailureCount: 0,
+      failureResponse: nil,
+      error: nil,
+      sender: ChallengeSender()
+    )
+    let task = URLSession.shared.dataTask(with: try #require(URL(string: "https://box.local:8443/")))
+    defer { task.cancel() }
+
+    let capture = ChallengeCapture()
+    delegate.urlSession(URLSession.shared, task: task, didReceive: challenge) {
+      capture.disposition = $0
+      capture.credential = $1
+    }
+
+    #expect(capture.disposition == .useCredential)
+    #expect(capture.credential === credential)
+  }
+}
+
 struct RekeyProofTests {
   @Test
   func theSPKIIsP256() throws {
@@ -312,6 +346,19 @@ final class MemoryCredentialStore: CredentialStoring, @unchecked Sendable {
   func load() throws -> EnrolmentCredentials? { lock.withLock { stored } }
   func save(_ credentials: EnrolmentCredentials) throws { lock.withLock { stored = credentials } }
   func clear() throws { lock.withLock { stored = nil } }
+}
+
+private final class ChallengeSender: NSObject, URLAuthenticationChallengeSender {
+  func use(_: URLCredential, for _: URLAuthenticationChallenge) {}
+  func continueWithoutCredential(for _: URLAuthenticationChallenge) {}
+  func cancel(_: URLAuthenticationChallenge) {}
+  func performDefaultHandling(for _: URLAuthenticationChallenge) {}
+  func rejectProtectionSpaceAndContinue(with _: URLAuthenticationChallenge) {}
+}
+
+private nonisolated final class ChallengeCapture: @unchecked Sendable {
+  var disposition: URLSession.AuthChallengeDisposition?
+  var credential: URLCredential?
 }
 
 final class MemorySessionStore: SessionStoring, @unchecked Sendable {

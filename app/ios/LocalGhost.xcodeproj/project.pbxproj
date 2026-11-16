@@ -80,16 +80,10 @@
 		A70000000000000000000002 /* LocalGhost */ = {
 			isa = PBXGroup;
 			children = (
-				A30000000000000000000001 /* LocalGhostApp.swift */,
-				A30000000000000000000002 /* RootView.swift */,
-				A30000000000000000000006 /* Enrolment.swift */,
-				A30000000000000000000007 /* SetupView.swift */,
-				A30000000000000000000008 /* QRScannerView.swift */,
-				A3000000000000000000000A /* GhostTheme.swift */,
-				A3000000000000000000000B /* DeviceKeys.swift */,
-				A3000000000000000000000C /* BoxChannel.swift */,
-				A3000000000000000000000D /* BoxModel.swift */,
-				A3000000000000000000000E /* BoxView.swift */,
+				B70000000000000000000001 /* App */,
+				B70000000000000000000002 /* Core */,
+				B70000000000000000000005 /* DesignSystem */,
+				B70000000000000000000006 /* Features */,
 			);
 			path = LocalGhost;
 			sourceTree = "<group>";
@@ -97,9 +91,8 @@
 		A70000000000000000000003 /* LocalGhostTests */ = {
 			isa = PBXGroup;
 			children = (
-				A30000000000000000000003 /* AppPhaseTests.swift */,
-				A30000000000000000000009 /* EnrolmentTests.swift */,
-				A3000000000000000000000F /* BoxTests.swift */,
+				B70000000000000000000009 /* App */,
+				B7000000000000000000000A /* Features */,
 			);
 			path = LocalGhostTests;
 			sourceTree = "<group>";
@@ -111,6 +104,109 @@
 				A30000000000000000000005 /* LocalGhostTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000001 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000001 /* LocalGhostApp.swift */,
+				A30000000000000000000002 /* RootView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000002 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000003 /* Networking */,
+				B70000000000000000000004 /* Security */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000003 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000000C /* BoxChannel.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000004 /* Security */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000000B /* DeviceKeys.swift */,
+			);
+			path = Security;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000005 /* DesignSystem */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000000A /* GhostTheme.swift */,
+			);
+			path = DesignSystem;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000006 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				B70000000000000000000007 /* Box */,
+				B70000000000000000000008 /* Enrolment */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000007 /* Box */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000000D /* BoxModel.swift */,
+				A3000000000000000000000E /* BoxView.swift */,
+			);
+			path = Box;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000008 /* Enrolment */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000006 /* Enrolment.swift */,
+				A30000000000000000000008 /* QRScannerView.swift */,
+				A30000000000000000000007 /* SetupView.swift */,
+			);
+			path = Enrolment;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000009 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000003 /* AppPhaseTests.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		B7000000000000000000000A /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				B7000000000000000000000B /* Box */,
+				B7000000000000000000000C /* Enrolment */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		B7000000000000000000000B /* Box */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000000F /* BoxTests.swift */,
+			);
+			path = Box;
+			sourceTree = "<group>";
+		};
+		B7000000000000000000000C /* Enrolment */ = {
+			isa = PBXGroup;
+			children = (
+				A30000000000000000000009 /* EnrolmentTests.swift */,
+			);
+			path = Enrolment;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

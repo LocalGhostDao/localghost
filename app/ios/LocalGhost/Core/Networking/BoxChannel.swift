@@ -64,19 +64,51 @@ nonisolated enum BoxPin {
 
 /// The URLSession delegate that makes the two decisions above.
 nonisolated final class BoxTrustDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-  // immutable after init; SecIdentity is a CF object the Security framework reads from any thread
   private let pin: Data
-  private let identity: SecIdentity
+  private let clientCredential: URLCredential
 
   init(pin: Data, identity: SecIdentity) {
     self.pin = pin
-    self.identity = identity
+    clientCredential = URLCredential(
+      identity: identity,
+      certificates: nil,
+      persistence: .forSession
+    )
+  }
+
+  /// Test seam for proving that request-specific challenges receive the client credential. The
+  /// production path above always constructs this from a Keychain SecIdentity.
+  init(pin: Data, clientCredential: URLCredential) {
+    self.pin = pin
+    self.clientCredential = clientCredential
   }
 
   func urlSession(
     _ session: URLSession,
     didReceive challenge: URLAuthenticationChallenge
   ) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+    answer(challenge)
+  }
+
+  /// Foundation sends request-specific authentication here and does not fall back to the
+  /// session-level callback when this method is absent. Client-certificate selection therefore
+  /// has to be handled on the task delegate path as well as server trust above.
+  func urlSession(
+    _ session: URLSession,
+    task: URLSessionTask,
+    didReceive challenge: URLAuthenticationChallenge,
+    completionHandler: @escaping @Sendable (
+      URLSession.AuthChallengeDisposition,
+      URLCredential?
+    ) -> Void
+  ) {
+    let result = answer(challenge)
+    completionHandler(result.0, result.1)
+  }
+
+  private func answer(
+    _ challenge: URLAuthenticationChallenge
+  ) -> (URLSession.AuthChallengeDisposition, URLCredential?) {
     switch challenge.protectionSpace.authenticationMethod {
     case NSURLAuthenticationMethodServerTrust:
       guard let trust = challenge.protectionSpace.serverTrust,
@@ -88,7 +120,7 @@ nonisolated final class BoxTrustDelegate: NSObject, URLSessionTaskDelegate, @unc
       }
       return (.useCredential, URLCredential(trust: trust))
     case NSURLAuthenticationMethodClientCertificate:
-      return (.useCredential, URLCredential(identity: identity, certificates: nil, persistence: .forSession))
+      return (.useCredential, clientCredential)
     default:
       return (.cancelAuthenticationChallenge, nil)
     }
@@ -98,9 +130,11 @@ nonisolated final class BoxTrustDelegate: NSObject, URLSessionTaskDelegate, @unc
     _ session: URLSession,
     task: URLSessionTask,
     willPerformHTTPRedirection response: HTTPURLResponse,
-    newRequest request: URLRequest
-  ) async -> URLRequest? {
-    nil // the box never redirects; an answer that says "go elsewhere" is not followed
+    newRequest request: URLRequest,
+    completionHandler: @escaping @Sendable (URLRequest?) -> Void
+  ) {
+    // The box never redirects; an answer that says "go elsewhere" is not followed.
+    completionHandler(nil)
   }
 }
 
