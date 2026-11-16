@@ -1,7 +1,12 @@
 # LocalGhost (iOS)
 
-The native iOS client for LocalGhost. This first target only establishes the application shell;
-pairing, the pinned mTLS channel and product screens will land as separate changes.
+The native iOS client for LocalGhost. The current target includes the application shell and the
+offline enrolment flow: scan a v2/v3 box QR, review the address and fingerprint, then store the
+device certificate and private key in the device-only Keychain.
+
+The pinned mTLS channel and product screens will land as separate changes. The imported private key
+is box-generated, so it cannot gain Secure Enclave non-exportability after enrolment; the Keychain
+record is instead restricted to this device and to periods when the device is unlocked.
 
 ## Requirements
 
@@ -10,7 +15,7 @@ pairing, the pinned mTLS channel and product screens will land as separate chang
 
 ## Build and test
 
-Open `LocalGhost.xcodeproj` in Xcode, or use a simulator from the command line:
+Open `LocalGhost.xcodeproj` in Xcode, connect your iOS device or use a simulator from the command line:
 
 ```sh
 xcodebuild \

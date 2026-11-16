@@ -99,5 +99,4 @@ jobs:
             -project LocalGhost.xcodeproj \
             -scheme LocalGhost \
             -destination "platform=iOS Simulator,id=$simulator_id" \
-            test \
-            CODE_SIGNING_ALLOWED=NO
+            test
