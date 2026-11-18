@@ -40,7 +40,8 @@ class RoadTileGeomTest {
         // what shows when: rivers with the major tiles, streams with the streets
         assertTrue(RoadTileGeom.showsWater(RoadTileGeom.CLASS_RIVER, RoadTileGeom.MAJOR_PXZ))
         assertFalse(RoadTileGeom.showsWater(RoadTileGeom.CLASS_STREAM, RoadTileGeom.FINE_PXZ))
-        assertTrue(RoadTileGeom.showsWater(RoadTileGeom.CLASS_STREAM, RoadTileGeom.FINE_PXZ * 3))
+        assertFalse(RoadTileGeom.showsWater(RoadTileGeom.CLASS_STREAM, RoadTileGeom.FINE_PXZ * 3))
+        assertTrue(RoadTileGeom.showsWater(RoadTileGeom.CLASS_STREAM, RoadTileGeom.minPxzFor(6)))
         assertFalse(RoadTileGeom.showsWater(6, RoadTileGeom.FINE_PXZ * 3))
     }
 
@@ -93,11 +94,69 @@ class RoadTileGeomTest {
         assertEquals(two.toList(), RoadTileGeom.simplify(two, 1000).toList())
     }
 
+    // the classes a zoom draws, as the map's screen sees them: px is pxz, cls 1..9
+    private fun drawn(px: Float) = (1..9).filter { RoadTileGeom.emphasisFor(it, px) != null }
+
     @Test fun classesByZoom() {
-        assertEquals(4, RoadTileGeom.maxClassFor(RoadTileGeom.MAJOR_PXZ.toFloat()))
-        assertEquals(4, RoadTileGeom.maxClassFor(RoadTileGeom.FINE_PXZ - 1f))
-        assertEquals(6, RoadTileGeom.maxClassFor(RoadTileGeom.FINE_PXZ * 2f))
-        assertEquals(7, RoadTileGeom.maxClassFor(RoadTileGeom.FINE_PXZ * 3f))
-        assertEquals(9, RoadTileGeom.maxClassFor(RoadTileGeom.FINE_PXZ * 10f))
+        val major = RoadTileGeom.MAJOR_PXZ; val fine = RoadTileGeom.FINE_PXZ
+        // the country: motorways and trunk roads only
+        assertEquals(listOf(1, 2), drawn(major))
+        // a region: the primaries come in
+        assertEquals(listOf(1, 2, 3), drawn(major * 3f))
+        // a city 25 km across a phone 1,080 pixels wide in London (Vlad's first screenshot), and
+        // in to 17 km: no streets, no secondaries yet
+        assertEquals(listOf(1, 2, 3), drawn(fine * 0.7f))
+        assertEquals(listOf(1, 2, 3), drawn(fine - 1f))
+        // a district 12 km across (the second): the secondaries, and still no streets
+        assertEquals(listOf(1, 2, 3, 4), drawn(fine * 1.5f))
+        assertEquals(listOf(1, 2, 3, 4, 5), drawn(fine * 2f))
+        // the streets from about 4 km across, tracks and paths closer, service roads last
+        assertEquals(listOf(1, 2, 3, 4, 5, 6), drawn(fine * 4f))
+        assertEquals(listOf(1, 2, 3, 4, 5, 6, 8, 9), drawn(fine * 8f))
+        // zoomed right in: everything
+        assertEquals((1..9).toList(), drawn(fine * 10f))
+        assertEquals((1..9).toList(), drawn(MapPick.MAX_ZOOM))
+        // water is no road, and a class the box does not cut is never drawn
+        assertNull(RoadTileGeom.emphasisFor(RoadTileGeom.CLASS_RIVER, fine * 100f))
+        assertNull(RoadTileGeom.emphasisFor(0, fine * 100f))
+        assertNull(RoadTileGeom.emphasisFor(3, Float.NaN))
+    }
+
+    @Test fun aClassFadesInOverTwoDoublings() {
+        val m = RoadTileGeom.minPxzFor(6)
+        assertNull(RoadTileGeom.emphasisFor(6, m * 0.99f))
+        assertEquals(0f, RoadTileGeom.emphasisFor(6, m)!!, 1e-6f)
+        assertEquals(0.5f, RoadTileGeom.emphasisFor(6, m * 2f)!!, 1e-4f)
+        assertEquals(1f, RoadTileGeom.emphasisFor(6, m * 4f)!!, 1e-4f)
+        assertEquals(1f, RoadTileGeom.emphasisFor(6, m * 400f)!!, 0f)
+        // rising all the way, never past 1
+        var last = -1f
+        var px = m
+        while (px < m * 8f) {
+            val e = RoadTileGeom.emphasisFor(6, px)!!
+            assertTrue(e >= last && e <= 1f); last = e; px *= 1.1f
+        }
+        // the bigger the road the earlier it comes in
+        for (c in 1..5) assertTrue(RoadTileGeom.minPxzFor(c) <= RoadTileGeom.minPxzFor(c + 1))
+    }
+
+    @Test fun namesWaitForTheirRoadInFull() {
+        val fine = RoadTileGeom.FINE_PXZ
+        // nothing named before NAME_PXZ, whatever the class
+        assertFalse(RoadTileGeom.namesShow(1, RoadTileGeom.NAME_PXZ - 1f))
+        assertTrue(RoadTileGeom.namesShow(1, RoadTileGeom.NAME_PXZ))
+        assertTrue(RoadTileGeom.namesShow(3, RoadTileGeom.NAME_PXZ))
+        // a district 6 km across: the main roads named, the streets not
+        assertFalse(RoadTileGeom.namesShow(6, RoadTileGeom.NAME_PXZ))
+        assertFalse(RoadTileGeom.namesShow(5, RoadTileGeom.NAME_PXZ))
+        // a street's name once the street is drawn in full
+        assertFalse(RoadTileGeom.namesShow(6, fine * 15f))
+        assertTrue(RoadTileGeom.namesShow(6, fine * 16f))
+        // every class: named from the later of its road in full and NAME_PXZ, not a step before
+        for (c in 1..9) {
+            val from = maxOf(RoadTileGeom.minPxzFor(c) * 4f, RoadTileGeom.NAME_PXZ)
+            assertFalse(RoadTileGeom.namesShow(c, from * 0.99f))
+            assertTrue(RoadTileGeom.namesShow(c, from))
+        }
     }
 }

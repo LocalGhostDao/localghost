@@ -669,3 +669,33 @@ described are in the header of `tools/release.sh`; day to day a box is brought c
 - Reviewed before the merge (17 November): nothing outside `app/ios`, built on main `3a74708`,
   so it merges as it stands. The iOS README now points at the folders and says why the task
   delegate answers.
+
+## 18 November 2026 , the map quieter: each road at its own zoom, no amber but the trail
+- Vlad, with two screenshots of London about 25 km and 12 km across: "I find the maps still very
+  loud at zoom levels that should not show that much detail, it's hard to trace my route and I
+  don't want the route more visible i want the map simpler". Two causes. Every street came in at
+  one zoom (`FINE_PXZ`, about 17 km across a phone 1,080 pixels wide in London), A and B roads in
+  full before it, and every street's name from about 6 km. And the motorways and trunk roads
+  were drawn in amber (E8A24A, E0B36A), the trail's own colour (D9A441): a day on a motorway was
+  a line drawn on a line of the same colour.
+- Each class comes in at its own zoom (`RoadTileGeom.minPxzFor`), in pixels a map unit, here as
+  the width of that phone's screen in London: motorways and trunk roads from the country view
+  (175 km), primaries from 58 km, secondaries from 17 km, tertiary from 9 km, residential streets
+  from 4.4 km, tracks from 2.9 km, paths from 2.2 km, service roads from 1.75 km. They used to be:
+  motorway to secondary from 175 km, tertiary and residential from 17 km, service from 7 km,
+  tracks and paths from 2.9 km.
+- A class fades in (`emphasisFor`): at its zoom it is drawn at four tenths of its strength and a
+  little over half its width, with no casing, and in full two doublings of zoom later. Nothing
+  appears whole at one pinch, and a class only just in reads as a faint line under the trail.
+- A road's name shows once its road is drawn in full (`namesShow`), and never before 6 km: the
+  primaries and secondaries from 6 and 4.4 km, tertiary from 2.2 km, the streets from 1.1 km.
+  Streams come in with the streets.
+- The roads are greys, lighter and wider the bigger the road; tracks a muted brown, paths a
+  muted green, both dashed as before. The widths a little narrower (motorway 4 pixels, was 4.5;
+  a street 1.6, was 2). The trail is as it was, its colour and its width.
+- Zoomed right in, every class is drawn in full as before. The box's tiles, their grids and the
+  zoom the street tiles are fetched from are unchanged; the street tiles still bring the water
+  from 17 km.
+- Tests: `RoadTileGeomTest` (which classes each zoom draws, the two screenshots' widths among
+  them; the fade, rising and capped; the bigger road never later than the smaller; names from
+  the later of the road in full and `NAME_PXZ`, for every class). Not yet looked at on a phone.

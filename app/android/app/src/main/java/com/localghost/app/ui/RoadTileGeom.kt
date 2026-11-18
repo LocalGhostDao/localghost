@@ -2,6 +2,7 @@ package com.localghost.app.ui
 
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlin.math.ln
 
 /**
  * THE ROADS, in two grids. The box cuts OpenStreetMap's roads (internal/roadtiles) into major
@@ -19,8 +20,9 @@ internal object RoadTileGeom {
     const val MAJOR_COLS = 360; const val MAJOR_ROWS = 180
     const val FINE_COLS = 3600; const val FINE_ROWS = 1800
 
-    /** Major roads draw from the same zoom the coast tiles do; streets from ten times closer
-     *  (about 0.25° across a phone, 25 km), names from thirty times. */
+    /** The major tiles are fetched from the same zoom the coast tiles are; the street tiles from
+     *  ten times closer (about 0.25° across a phone, 17 km in London), names from thirty times.
+     *  Which classes a zoom draws is each class's own (minPxzFor). */
     const val MAJOR_PXZ = LandTileGeom.TILE_PXZ
     const val FINE_PXZ = LandTileGeom.TILE_PXZ * 10
     const val NAME_PXZ = LandTileGeom.TILE_PXZ * 30
@@ -127,16 +129,42 @@ internal object RoadTileGeom {
     /** Whether a water class shows at a zoom: areas, rivers and canals from the major tiles' zoom,
      *  streams from the zoom that shows the residential streets. */
     fun showsWater(cls: Int, pxz: Float): Boolean = when (cls) {
-        CLASS_STREAM -> pxz >= FINE_PXZ * 2.5f
+        CLASS_STREAM -> pxz >= minPxzFor(6)
         else -> isWater(cls) && pxz >= MAJOR_PXZ
     }
 
-    /** Which classes a zoom shows: the coarser the view, the fewer. Class numbers as the box
-     *  assigns them: 1 motorway … 4 secondary, 5 tertiary, 6 residential, 7 service, 8 track, 9 path. */
-    fun maxClassFor(pxz: Float): Int = when {
-        pxz < FINE_PXZ -> 4           // major tiles only: motorway to secondary
-        pxz < FINE_PXZ * 2.5f -> 6    // + tertiary, residential
-        pxz < FINE_PXZ * 6f -> 7      // + service
-        else -> 9                     // everything
+    /**
+     * WHEN A ROAD COMES IN. Each class has its own zoom, and the closer the view the more classes
+     * (18 November 2026, Vlad: "I want the highest level of detail at the lowest zoom but
+     * otherwise it should show maybe less"). Every street used to come in at FINE_PXZ, a city
+     * 17 km across drawn as a mesh with the trail lost in it. Across a phone 1,080 pixels wide in
+     * London, roughly: motorways and trunk roads from the country, primaries from 60 km, the
+     * secondaries from 17 km, tertiary from 9 km, the streets from 4 km, tracks and paths from 2 to
+     * 3 km, service roads from 1.7 km. Class numbers as the box assigns them: 1 motorway, 2 trunk,
+     * 3 primary, 4 secondary, 5 tertiary, 6 residential, 7 service, 8 track, 9 path.
+     */
+    fun minPxzFor(cls: Int): Float = when (cls) {
+        1, 2 -> MAJOR_PXZ
+        3 -> MAJOR_PXZ * 3f
+        4 -> FINE_PXZ
+        5 -> FINE_PXZ * 2f
+        6 -> FINE_PXZ * 4f
+        7 -> FINE_PXZ * 10f
+        8 -> FINE_PXZ * 6f
+        9 -> FINE_PXZ * 8f
+        else -> Float.POSITIVE_INFINITY
     }
+
+    /** How far in a class has come at a zoom: 0 where it starts (drawn faint and thin, no
+     *  casing), rising to 1 two doublings of zoom later (drawn in full); below its zoom, null, not
+     *  drawn at all. A class fades in rather than appearing whole at one pinch. */
+    fun emphasisFor(cls: Int, pxz: Float): Float? {
+        val m = minPxzFor(cls)
+        if (!(pxz >= m)) return null
+        return (ln(pxz / m) / ln(4f)).coerceIn(0f, 1f)
+    }
+
+    /** A road's name shows once the road is drawn in full, and never before NAME_PXZ: the
+     *  primaries named from about 6 km across, the streets from about 1 km. */
+    fun namesShow(cls: Int, pxz: Float): Boolean = pxz >= NAME_PXZ && pxz >= minPxzFor(cls) * 4f
 }

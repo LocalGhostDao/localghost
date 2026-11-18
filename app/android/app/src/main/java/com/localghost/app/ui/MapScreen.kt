@@ -745,9 +745,11 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
             "P" to namePaint(10.5f, android.graphics.Color.argb(0xFF, 0xC8, 0xC8, 0xC8), false, 0f),
         )
     }
-    // ROAD PAINTS: a colour and a width in screen pixels per class; the casing (a darker, wider
-    // stroke under the fill) is what makes a road read as a road on the land fill. Motorways
-    // warm, primaries pale, streets a shade above the land, paths dashed.
+    // ROAD PAINTS: a colour and a width in screen pixels per class, for a class drawn in full
+    // (RoadTileGeom.emphasisFor: a class coming in is fainter and thinner); the casing (a wider
+    // stroke under the fill) is what makes a road read as a road on the land fill. Greys, lighter
+    // and wider the bigger the road, paths dashed. No amber: that is the trail's colour, and the
+    // motorways were drawn in it (18 November 2026), so a route along one vanished into the road.
     class RoadPaint(val fill: androidx.compose.ui.graphics.Color, val casing: androidx.compose.ui.graphics.Color, val width: Float, val dashed: Boolean)
     val roadPaints = remember {
         // Color(0xAARRGGBB) is Compose's top-level factory function, not the Color companion; a
@@ -755,15 +757,15 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
         val c = { argb: Long -> androidx.compose.ui.graphics.Color(argb) }
         arrayOf(
             null,
-            RoadPaint(c(0xFFE8A24A), c(0xFF6B4A1A), 4.5f, false), // 1 motorway
-            RoadPaint(c(0xFFE0B36A), c(0xFF5E4A22), 4f, false),   // 2 trunk
-            RoadPaint(c(0xFFD8D0A0), c(0xFF4F4A30), 3.5f, false), // 3 primary
-            RoadPaint(c(0xFFC4C4B4), c(0xFF44443A), 3f, false),   // 4 secondary
-            RoadPaint(c(0xFFA8AAA0), c(0xFF3A3C36), 2.5f, false), // 5 tertiary
-            RoadPaint(c(0xFF8C9088), c(0xFF30332E), 2f, false),   // 6 residential
-            RoadPaint(c(0xFF6E736C), c(0xFF2A2C28), 1.5f, false), // 7 service
-            RoadPaint(c(0xFF7A6A50), c(0xFF2A2420), 1.5f, true),  // 8 track
-            RoadPaint(c(0xFF6A7A6A), c(0xFF243024), 1f, true),    // 9 path
+            RoadPaint(c(0xFFB4ADA0), c(0xFF3E3A34), 4f, false),   // 1 motorway
+            RoadPaint(c(0xFFA8A296), c(0xFF3A3731), 3.5f, false), // 2 trunk
+            RoadPaint(c(0xFF9C9A8E), c(0xFF36362F), 3f, false),   // 3 primary
+            RoadPaint(c(0xFF8E8E84), c(0xFF32332C), 2.5f, false), // 4 secondary
+            RoadPaint(c(0xFF80827A), c(0xFF2E302A), 2f, false),   // 5 tertiary
+            RoadPaint(c(0xFF6F736C), c(0xFF2A2D28), 1.6f, false), // 6 residential
+            RoadPaint(c(0xFF60645E), c(0xFF262925), 1.2f, false), // 7 service
+            RoadPaint(c(0xFF6A5E4A), c(0xFF27221D), 1.2f, true),  // 8 track
+            RoadPaint(c(0xFF5C6A5C), c(0xFF223022), 1f, true),    // 9 path
         )
     }
     val roadNamePaint = remember {
@@ -1061,13 +1063,15 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                 // THE ROADS, over the land and under the trails: for every road tile under the view
                 // (major tiles always, street tiles from FINE_PXZ), the classes this zoom shows, each
                 // class one Path per tile, casing first then fill, screen-space widths (given in map
-                // units, so widthPx / pxz). Street names along their middle segment at NAME_PXZ.
+                // units, so widthPx / pxz). A class comes in at its own zoom, faint, thin and with no
+                // casing, and is drawn in full two doublings later (RoadTileGeom.emphasisFor), so a
+                // city shows its main roads and the streets wait for the close view. Street names
+                // along their middle segment, once their road is drawn in full.
                 // THE WATER first, under the roads: the same tiles carry it (lakes and river banks as
                 // rings filled even-odd in the sea's colour with a shore line, rivers, canals and
                 // streams as lines); past FINE_PXZ it is drawn from the street tiles, which hold all
                 // of it, else from the major tiles, which hold the larger lakes and the rivers.
                 if (roadIndex != null && pxz >= RoadTileGeom.MAJOR_PXZ && wantRoads.isNotEmpty()) {
-                    val maxCls = RoadTileGeom.maxClassFor(pxz)
                     val tiles = wantRoads.mapNotNull { k ->
                         // a street tile's major roads are already in the major tile: draw only
                         // classes above MajorMax from level 0 where a major tile covers the cell
@@ -1102,9 +1106,12 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                         }
                     }
                     for (pass in 0..1) for (cls in 9 downTo 1) {
-                        if (cls > maxCls) continue
+                        val e = RoadTileGeom.emphasisFor(cls, pxz) ?: continue
+                        if (pass == 0 && e <= 0f) continue // no casing for a class just coming in
                         val rp = roadPaints[cls] ?: continue
-                        val w = if (pass == 0) rp.width + 2f else rp.width
+                        val fillW = rp.width * (0.55f + 0.45f * e)
+                        val w = if (pass == 0) fillW + 2f else fillW
+                        val alpha = if (pass == 0) e else 0.4f + 0.6f * e
                         val stroke = Stroke(width = w / pxz, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round,
                             pathEffect = if (rp.dashed && pass == 1) PathEffect.dashPathEffect(floatArrayOf(6f / pxz, 4f / pxz)) else null)
                         for ((t, lvl) in tiles) {
@@ -1113,7 +1120,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                             withTransform({
                                 translate(sx(t.ox), sy(t.oy))
                                 scale(pxz, pxz, pivot = Offset.Zero)
-                            }) { drawPath(path, if (pass == 0) rp.casing else rp.fill, style = stroke) }
+                            }) { drawPath(path, if (pass == 0) rp.casing else rp.fill, alpha = alpha, style = stroke) }
                         }
                     }
                     if (pxz >= RoadTileGeom.NAME_PXZ) {
@@ -1127,7 +1134,7 @@ fun MapScreen(openDay: String = "", onDayShown: () -> Unit = {}) {
                             if (lvl != 0) continue
                             for (nm in t.names) {
                                 val water = RoadTileGeom.isWater(nm.cls)
-                                if (!water && nm.cls > maxCls) continue
+                                if (!water && !RoadTileGeom.namesShow(nm.cls, pxz)) continue
                                 if (water && (nm.cls == RoadTileGeom.CLASS_STREAM || !RoadTileGeom.showsWater(nm.cls, pxz))) continue
                                 val ax = sx(t.ox + nm.x0); val ay = sy(t.oy + nm.y0)
                                 val bx = sx(t.ox + nm.x1); val by = sy(t.oy + nm.y1)
