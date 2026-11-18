@@ -20,6 +20,7 @@
 		A2000000000000000000000B /* BoxModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000D /* BoxModel.swift */; };
 		A2000000000000000000000C /* BoxView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000E /* BoxView.swift */; };
 		A2000000000000000000000D /* BoxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000000F /* BoxTests.swift */; };
+		A2000000000000000000000E /* AppShellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000010 /* AppShellView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -48,6 +49,7 @@
 		A3000000000000000000000D /* BoxModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxModel.swift; sourceTree = "<group>"; };
 		A3000000000000000000000E /* BoxView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxView.swift; sourceTree = "<group>"; };
 		A3000000000000000000000F /* BoxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BoxTests.swift; sourceTree = "<group>"; };
+		A30000000000000000000010 /* AppShellView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShellView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -111,6 +113,7 @@
 			children = (
 				A30000000000000000000001 /* LocalGhostApp.swift */,
 				A30000000000000000000002 /* RootView.swift */,
+				A30000000000000000000010 /* AppShellView.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
@@ -309,6 +312,7 @@
 			files = (
 				A20000000000000000000001 /* LocalGhostApp.swift in Sources */,
 				A20000000000000000000002 /* RootView.swift in Sources */,
+				A2000000000000000000000E /* AppShellView.swift in Sources */,
 				A20000000000000000000004 /* Enrolment.swift in Sources */,
 				A20000000000000000000005 /* SetupView.swift in Sources */,
 				A20000000000000000000006 /* QRScannerView.swift in Sources */,

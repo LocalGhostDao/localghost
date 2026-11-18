@@ -179,6 +179,19 @@ final class BoxModel {
     }
   }
 
+  /// Leave the signed-in shell and discard its bearer. Until biometric app locking exists on
+  /// iOS, returning to the box PIN is the only lock boundary that does not pretend to secure it.
+  func lock() {
+    try? sessions.clear()
+    pin = ""
+    status = nil
+    steps = []
+    errorMessage = nil
+    keyNote = nil
+    busy = false
+    screen = .unlock
+  }
+
   /// Forget this box: the device key, its certificate and the session leave this iPhone. The box
   /// still lists this iPhone until it is retired there.
   func forget() throws {
