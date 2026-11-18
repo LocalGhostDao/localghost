@@ -3,6 +3,7 @@ import SwiftUI
 enum AppDestination: String, CaseIterable, Identifiable {
   case home
   case chat
+  case chats
   case gallery
   case map
   case phrases
@@ -28,6 +29,7 @@ enum AppDestination: String, CaseIterable, Identifiable {
     switch self {
     case .home: "HOME"
     case .chat: "CHAT"
+    case .chats: "CHATS"
     case .gallery: "GALLERY"
     case .map: "MAP"
     case .phrases: "PHRASES"
@@ -53,6 +55,7 @@ enum AppDestination: String, CaseIterable, Identifiable {
     switch self {
     case .home: "⌂"
     case .chat: "›_"
+    case .chats: "◇"
     case .gallery: "▦"
     case .map: "◎"
     case .phrases: "»"
@@ -75,6 +78,8 @@ enum AppDestination: String, CaseIterable, Identifiable {
   }
 
   static let primary: [Self] = [.home, .chat]
+  /// Routes reached from contextual navigation rather than a permanent drawer row.
+  static let secondary: [Self] = [.chats]
   static let archive: [Self] = [.gallery, .map, .phrases, .health, .mail, .checkIn, .memories, .sync]
   static let box: [Self] = [.integrations, .boxStatus, .models, .notifications, .connectors, .codes]
   static let application: [Self] = [.settings, .permissions, .glossary, .about]
@@ -87,10 +92,31 @@ struct AppShellView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var destination: AppDestination = .home
   @State private var drawerOpen = false
+  @State private var homeDetail: HomeLink?
+  @State private var chatModel: ChatModel
+  @State private var homeModel: HomeModel
+  @State private var homeLocation: HomeLocationSource
 
   let boxModel: BoxModel
   let onLock: () -> Void
   let onForgotten: () -> Void
+
+  init(
+    boxModel: BoxModel,
+    onLock: @escaping () -> Void,
+    onForgotten: @escaping () -> Void
+  ) {
+    self.boxModel = boxModel
+    self.onLock = onLock
+    self.onForgotten = onForgotten
+    let location = HomeLocationSource()
+    _homeLocation = State(initialValue: location)
+    _chatModel = State(initialValue: ChatModel(client: { try boxModel.authenticatedClient() }))
+    _homeModel = State(initialValue: HomeModel(
+      client: { try boxModel.authenticatedClient() },
+      location: { location.latestAndRefresh() }
+    ))
+  }
 
   var body: some View {
     GeometryReader { proxy in
@@ -98,9 +124,19 @@ struct AppShellView: View {
 
       ZStack(alignment: .leading) {
         VStack(spacing: 0) {
-          AppTopBar(title: destination.label) {
-            setDrawer(open: true)
-          }
+          AppTopBar(
+            title: homeDetail.map(homeDetailTitle) ?? destination.label,
+            openMenu: { setDrawer(open: true) },
+            goHome: homeDetail == nil && destination == .home ? nil : {
+              homeDetail = nil
+              destination = .home
+            },
+            chatModel: homeDetail == nil && destination == .chat ? chatModel : nil,
+            onNewChat: {
+              chatModel.newConversation()
+              destination = .chat
+            }
+          )
 
           destinationView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -120,9 +156,25 @@ struct AppShellView: View {
         AppDrawer(
           selection: destination,
           connected: boxModel.status != nil,
+          conversations: chatModel.recentConversations,
+          activeChatID: chatModel.activeChatID,
           onSelect: select,
+          onSelectConversation: openConversation,
+          onNewConversation: {
+            chatModel.newConversation()
+            setDrawer(open: false)
+          },
+          onDeleteConversation: { id in
+            Task { await chatModel.deleteConversation(id) }
+          },
+          onSeeAllChats: {
+            homeDetail = nil
+            destination = .chats
+            setDrawer(open: false)
+          },
           onLock: {
             setDrawer(open: false)
+            chatModel.resetForLock()
             onLock()
           }
         )
@@ -158,19 +210,96 @@ struct AppShellView: View {
       .clipped()
     }
     .background(theme.background.ignoresSafeArea())
+    .task {
+      homeLocation.start()
+      await chatModel.start()
+    }
+    .onChange(of: homeLocation.latest) { old, new in
+      guard old == nil, new != nil else { return }
+      Task { await homeModel.refresh() }
+    }
   }
 
   @ViewBuilder
   private var destinationView: some View {
-    switch destination {
-    case .boxStatus:
-      BoxStatusView(model: boxModel, onForgotten: onForgotten)
+    if let homeDetail {
+      PendingFeatureView(label: homeDetailTitle(homeDetail))
+    } else {
+      switch destination {
+      case .home:
+        HomeView(
+          model: homeModel,
+          continuing: continuingPrompt,
+          onAsk: askFromHome,
+          onNewChat: { chatModel.newConversation() },
+          onOpenChat: { destination = .chat },
+          onOpen: openHomeLink
+        )
+      case .chat:
+        ChatView(model: chatModel)
+      case .chats:
+        ChatHistoryView(
+          model: chatModel,
+          onOpenConversation: { destination = .chat },
+          onNewConversation: { destination = .chat }
+        )
+      case .boxStatus:
+        BoxStatusView(model: boxModel) {
+          chatModel.resetForLock()
+          onForgotten()
+        }
+      default:
+        PendingDestinationView(destination: destination)
+      }
+    }
+  }
+
+  private var continuingPrompt: String {
+    guard let touched = chatModel.lastTouchedAt,
+          Date().timeIntervalSince(touched) <= 20 * 60
+    else { return "" }
+    return chatModel.lastUserPrompt ?? ""
+  }
+
+  private func askFromHome(_ question: String) -> Bool {
+    if chatModel.messages.isEmpty
+      || chatModel.lastTouchedAt.map({ Date().timeIntervalSince($0) > 20 * 60 }) != false
+    {
+      chatModel.newConversation()
+    }
+    guard chatModel.send(question) else { return false }
+    destination = .chat
+    return true
+  }
+
+  private func openConversation(_ id: Int64) {
+    homeDetail = nil
+    destination = .chat
+    setDrawer(open: false)
+    Task { await chatModel.openConversation(id) }
+  }
+
+  private func openHomeLink(_ link: HomeLink) {
+    switch link {
+    case .memories, .day, .memory:
+      select(.memories)
     default:
-      PendingDestinationView(destination: destination)
+      homeDetail = link
+    }
+  }
+
+  private func homeDetailTitle(_ link: HomeLink) -> String {
+    switch link {
+    case .crypto, .coin: "CRYPTO"
+    case .weather: "WEATHER"
+    case .calendar: "CALENDAR"
+    case .news, .story: "NEWS"
+    case .memories, .day, .memory: "MEMORIES"
     }
   }
 
   private func select(_ newDestination: AppDestination) {
+    homeDetail = nil
     destination = newDestination
     setDrawer(open: false)
   }
@@ -187,6 +316,9 @@ private struct AppTopBar: View {
 
   let title: String
   let openMenu: () -> Void
+  let goHome: (() -> Void)?
+  let chatModel: ChatModel?
+  let onNewChat: () -> Void
 
   var body: some View {
     HStack(spacing: 14) {
@@ -200,11 +332,51 @@ private struct AppTopBar: View {
       .accessibilityLabel("Open menu")
       .accessibilityIdentifier("shell.menu")
 
-      Text(title)
-        .font(theme.font(.headline))
-        .foregroundStyle(theme.text)
+      if let goHome {
+        Button(action: goHome) { titleContent(showBack: true) }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Back to Home")
+      } else {
+        titleContent(showBack: false)
+      }
 
       Spacer()
+
+      if let chatModel {
+        Button { chatModel.toggleIncognito() } label: {
+          VStack(spacing: 0) {
+            Text(chatModel.incognito ? "◉" : "◎")
+              .font(theme.font(.headline))
+            Text(chatModel.incognito ? "incognito" : "saved")
+              .font(theme.font(.caption2))
+          }
+          .foregroundStyle(chatModel.incognito ? theme.warning : theme.textDim)
+        }
+        .disabled(chatModel.isGenerating)
+        .accessibilityLabel(chatModel.incognito ? "Incognito on: not saved" : "Incognito off: saved on the box")
+        .accessibilityIdentifier("chat.incognito")
+
+        Button { chatModel.cycleAnswerLength() } label: {
+          VStack(spacing: 0) {
+            Text(chatModel.answerLength.glyph)
+              .font(theme.font(.headline))
+            Text(chatModel.answerLength.rawValue)
+              .font(theme.font(.caption2))
+          }
+          .foregroundStyle(chatModel.answerLength == .long ? theme.accent : theme.textDim)
+        }
+        .accessibilityLabel("Answer length: \(chatModel.answerLength.rawValue)")
+        .accessibilityIdentifier("chat.answer-length")
+
+        Button(action: onNewChat) {
+          Text("＋")
+            .font(theme.font(.title2))
+            .foregroundStyle(theme.accent)
+            .frame(width: 36, height: 44)
+        }
+        .accessibilityLabel("New chat")
+        .accessibilityIdentifier("chat.new")
+      }
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 4)
@@ -215,6 +387,19 @@ private struct AppTopBar: View {
         .frame(height: 1)
     }
   }
+
+  private func titleContent(showBack: Bool) -> some View {
+    HStack(spacing: 8) {
+      if showBack {
+        Text("‹").foregroundStyle(theme.accent)
+      }
+      GhostMark(width: 22)
+      Text(title)
+        .font(theme.font(.headline))
+        .foregroundStyle(theme.text)
+        .lineLimit(1)
+    }
+  }
 }
 
 private struct AppDrawer: View {
@@ -222,8 +407,16 @@ private struct AppDrawer: View {
 
   let selection: AppDestination
   let connected: Bool
+  let conversations: [ChatSummary]
+  let activeChatID: Int64?
   let onSelect: (AppDestination) -> Void
+  let onSelectConversation: (Int64) -> Void
+  let onNewConversation: () -> Void
+  let onDeleteConversation: (Int64) -> Void
+  let onSeeAllChats: () -> Void
   let onLock: () -> Void
+  @State private var showMoreChats = false
+  @State private var armedDeleteID: Int64?
 
   var body: some View {
     ScrollView {
@@ -247,6 +440,10 @@ private struct AppDrawer: View {
 
         ForEach(AppDestination.primary) { row($0) }
 
+        if !conversations.isEmpty {
+          recentChats
+        }
+
         drawerSection("YOUR ARCHIVE", destinations: AppDestination.archive)
         drawerSection("THE BOX", destinations: AppDestination.box)
 
@@ -267,6 +464,74 @@ private struct AppDrawer: View {
       Rectangle()
         .fill(theme.border)
         .frame(width: 1)
+    }
+  }
+
+  private var recentChats: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack {
+        Text("RECENT CHATS")
+          .foregroundStyle(theme.accentDim)
+        Spacer()
+        Button("＋ new", action: onNewConversation)
+          .foregroundStyle(theme.accent)
+      }
+      .font(theme.font(.caption))
+      .padding(.top, 20)
+      .padding(.bottom, 6)
+
+      ForEach(conversations.prefix(showMoreChats ? 10 : 5)) { conversation in
+        HStack(spacing: 8) {
+          Button { onSelectConversation(conversation.id) } label: {
+            VStack(alignment: .leading, spacing: 2) {
+              Text(conversation.title.isEmpty ? "(untitled)" : conversation.title)
+                .foregroundStyle(conversation.id == activeChatID ? theme.accent : theme.text)
+                .lineLimit(1)
+              Text("\(chatAge(conversation.updatedAt)) · \(conversation.messages) msgs")
+                .font(theme.font(.caption2))
+                .foregroundStyle(theme.textDim)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+          }
+          .buttonStyle(.plain)
+
+          Button(armedDeleteID == conversation.id ? "[ delete? ]" : "✕") {
+            if armedDeleteID == conversation.id {
+              armedDeleteID = nil
+              onDeleteConversation(conversation.id)
+            } else {
+              armedDeleteID = conversation.id
+            }
+          }
+          .font(theme.font(.caption2))
+          .foregroundStyle(armedDeleteID == conversation.id ? theme.warning : theme.textDim)
+          .buttonStyle(.plain)
+        }
+        .frame(minHeight: 48)
+      }
+
+      if !showMoreChats, conversations.count > 5 {
+        Button("view more ▾") { showMoreChats = true }
+          .foregroundStyle(theme.accentDim)
+          .font(theme.font(.caption))
+          .padding(.vertical, 4)
+      } else if showMoreChats || conversations.count > 10 {
+        Button("see all chats ›", action: onSeeAllChats)
+          .foregroundStyle(theme.accentDim)
+          .font(theme.font(.caption))
+          .padding(.vertical, 4)
+      }
+    }
+  }
+
+  private func chatAge(_ milliseconds: Int64) -> String {
+    let seconds = max(0, Int64(Date().timeIntervalSince1970) - milliseconds / 1_000)
+    return switch seconds {
+    case ..<90: "just now"
+    case ..<3_600: "\(seconds / 60)m ago"
+    case ..<86_400: "\(seconds / 3_600)h ago"
+    default: "\(seconds / 86_400)d ago"
     }
   }
 
@@ -322,14 +587,22 @@ private struct DrawerRow: View {
 }
 
 private struct PendingDestinationView: View {
+  let destination: AppDestination
+
+  var body: some View {
+    PendingFeatureView(label: destination.label)
+  }
+}
+
+private struct PendingFeatureView: View {
   @Environment(GhostTheme.self) private var theme
 
-  let destination: AppDestination
+  let label: String
 
   var body: some View {
     GhostScreen {
       VStack(alignment: .leading, spacing: 14) {
-        TerminalSectionLabel(text: destination.label)
+        TerminalSectionLabel(text: label)
         Text("This part of LocalGhost is not on iOS yet.")
           .font(theme.font(.body))
           .foregroundStyle(theme.textDim)

@@ -215,7 +215,9 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
     }
     let configuration = URLSessionConfiguration.ephemeral
     configuration.timeoutIntervalForRequest = 30
-    configuration.timeoutIntervalForResource = 90
+    // A model answer can legitimately run for several minutes. The per-request timeout still
+    // bounds ordinary calls; this resource ceiling must not terminate a healthy chat stream.
+    configuration.timeoutIntervalForResource = 15 * 60
     configuration.waitsForConnectivity = false
     configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
     configuration.urlCache = nil
@@ -237,7 +239,7 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
 
   /// POST /v1/unlock {"pin"}: the box starts opening and names the run.
   func unlockStart(pin: String) async throws -> String {
-    let answer: UnlockStarted = try await send("POST", "/v1/unlock", body: ["pin": pin])
+    let answer: UnlockStarted = try await post("/v1/unlock", body: ["pin": pin])
     guard let run = answer.run, !run.isEmpty else { throw BoxChannelError.malformed }
     return run
   }
@@ -247,18 +249,18 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
     var components = URLComponents()
     components.path = "/v1/unlock/poll"
     components.queryItems = [URLQueryItem(name: "run", value: run)]
-    return try await send("GET", components.string ?? "/v1/unlock/poll", body: nil)
+    return try await get(components.string ?? "/v1/unlock/poll")
   }
 
   /// GET /v1/status: the daemons, the datastores. Needs the session.
   func status() async throws -> BoxStatus {
-    try await send("GET", "/v1/status", body: nil)
+    try await get("/v1/status")
   }
 
   /// POST /v1/device/rekey: a certificate for a key this phone made, over the current identity.
   func rekey(spki: Data, signature: Data) async throws -> RekeyAnswer {
-    let answer: RekeyAnswer = try await send(
-      "POST", "/v1/device/rekey",
+    let answer: RekeyAnswer = try await post(
+      "/v1/device/rekey",
       body: ["spki": spki.base64EncodedString(), "sig": signature.base64EncodedString()]
     )
     guard answer.ok, !answer.cert.isEmpty else { throw BoxChannelError.malformed }
@@ -267,27 +269,93 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
 
   /// POST /v1/device/rekey/confirm, over the NEW identity: the box retires the old certificate.
   func rekeyConfirm() async throws {
-    let answer: OkAnswer = try await send("POST", "/v1/device/rekey/confirm", body: [String: String]())
+    let answer: OkAnswer = try await post("/v1/device/rekey/confirm", body: [String: String]())
     guard answer.ok else { throw BoxChannelError.malformed }
   }
 
-  private func send<Answer: Decodable>(_ method: String, _ path: String, body: [String: String]?) async throws -> Answer {
+  func get<Answer: Decodable & Sendable>(_ path: String, timeout: TimeInterval? = nil) async throws -> Answer {
+    let request = try makeRequest("GET", path, body: nil, timeout: timeout)
+    return try await answer(for: request)
+  }
+
+  func post<Body: Encodable & Sendable, Answer: Decodable & Sendable>(
+    _ path: String,
+    body: Body,
+    timeout: TimeInterval? = nil
+  ) async throws -> Answer {
+    let request = try makeRequest("POST", path, body: try JSONEncoder().encode(body), timeout: timeout)
+    return try await answer(for: request)
+  }
+
+  /// Complete lines from a streamed response. URLSession owns byte framing; callers own the
+  /// protocol carried by each line (chat uses SSE `data:` records). Cancelling iteration cancels
+  /// the request rather than leaving a model generation detached from its screen.
+  func streamLines<Body: Encodable & Sendable>(
+    _ path: String,
+    body: Body,
+    timeout: TimeInterval = 15 * 60
+  ) -> AsyncThrowingStream<String, Error> {
+    let request: URLRequest
+    do {
+      request = try makeRequest("POST", path, body: try JSONEncoder().encode(body), timeout: timeout)
+    } catch {
+      return AsyncThrowingStream { $0.finish(throwing: error) }
+    }
+
+    return AsyncThrowingStream { continuation in
+      let task = Task { [session] in
+        do {
+          let (bytes, response) = try await session.bytes(for: request)
+          try Self.validate(response)
+          for try await line in bytes.lines {
+            try Task.checkCancellation()
+            continuation.yield(line)
+          }
+          continuation.finish()
+        } catch is CancellationError {
+          continuation.finish()
+        } catch let error as URLError {
+          if error.code == .cancelled, Task.isCancelled {
+            continuation.finish()
+          } else {
+            continuation.finish(throwing: BoxChannelError.unreachable(Self.describe(error)))
+          }
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+      continuation.onTermination = { _ in task.cancel() }
+    }
+  }
+
+  private func makeRequest(
+    _ method: String,
+    _ path: String,
+    body: Data?,
+    timeout: TimeInterval?
+  ) throws -> URLRequest {
     guard let url = URL(string: path, relativeTo: base) else { throw BoxChannelError.malformed }
     var request = URLRequest(url: url)
     request.httpMethod = method
     request.setValue("application/json", forHTTPHeaderField: "Accept")
+    if let timeout { request.timeoutInterval = timeout }
     if let token {
       request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     }
     if let body {
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      request.httpBody = try JSONEncoder().encode(body)
+      request.httpBody = body
     }
+    return request
+  }
+
+  private func answer<Answer: Decodable & Sendable>(for request: URLRequest) async throws -> Answer {
     let data: Data
     let response: URLResponse
     do {
       (data, response) = try await session.data(for: request)
     } catch let error as URLError {
+      if error.code == .cancelled, Task.isCancelled { throw CancellationError() }
       #if DEBUG
         NSLog(
           "[LocalGhost Network] request failed: code=%ld detail=%@",
@@ -297,19 +365,20 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
       #endif
       throw BoxChannelError.unreachable(Self.describe(error))
     }
-    guard let http = response as? HTTPURLResponse else { throw BoxChannelError.malformed }
-    switch http.statusCode {
-    case 200..<300:
-      break
-    case 502, 503:
-      throw BoxChannelError.appearsDown
-    default:
-      throw BoxChannelError.unexpected(http.statusCode)
-    }
+    try Self.validate(response)
     do {
       return try JSONDecoder().decode(Answer.self, from: data)
     } catch {
       throw BoxChannelError.malformed
+    }
+  }
+
+  private static func validate(_ response: URLResponse) throws {
+    guard let http = response as? HTTPURLResponse else { throw BoxChannelError.malformed }
+    switch http.statusCode {
+    case 200..<300: return
+    case 502, 503: throw BoxChannelError.appearsDown
+    default: throw BoxChannelError.unexpected(http.statusCode)
     }
   }
 
