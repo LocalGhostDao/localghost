@@ -12,6 +12,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -511,6 +513,22 @@ private fun TopBar(
                     tint = when (web) { "on" -> TerminalGreen; "auto" -> TerminalDim; else -> GhostBorder },
                     modifier = Modifier.size(22.dp))
                 Text("web $web", color = if (web == "on") TerminalGreen else TerminalDim,
+                    style = MaterialTheme.typography.labelSmall)
+            }
+            // HOW MUCH ANSWER: short → medium → long. Long is the story, researched on the web
+            // (when web is not off) and in the box's own sources; medium is the chat as it was.
+            var length by remember { mutableStateOf(com.localghost.app.settings.AppSettings.answerLength(wctx)) }
+            Column(horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable {
+                    length = com.localghost.app.chat.AnswerLength.next(length)
+                    com.localghost.app.settings.AppSettings.setAnswerLength(wctx, length)
+                }.padding(horizontal = 8.dp)
+                    .semantics { this.contentDescription = "Answer length: $length" }) {
+                Text(when (length) { "short" -> "▁"; "long" -> "▆"; else -> "▃" },
+                    color = if (length == "long") TerminalGreen else TerminalDim,
+                    style = MaterialTheme.typography.titleMedium, modifier = Modifier.height(22.dp))
+                Text(com.localghost.app.chat.AnswerLength.label(length),
+                    color = if (length == "long") TerminalGreen else TerminalDim,
                     style = MaterialTheme.typography.labelSmall)
             }
             Spacer(Modifier.width(8.dp))

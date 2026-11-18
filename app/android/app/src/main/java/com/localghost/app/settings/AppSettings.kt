@@ -77,6 +77,13 @@ object AppSettings {
     fun webMode(ctx: Context): String = prefs(ctx).getString("web_mode", "auto") ?: "auto"
     fun setWebMode(ctx: Context, m: String) = prefs(ctx).edit().putString("web_mode", m).apply()
 
+    /** How much answer the chat asks for: "short", "medium" (what it always did) or "long" (the
+     *  story, researched on the web and in the box's own sources). Medium unless changed. */
+    fun answerLength(ctx: Context): String =
+        com.localghost.app.chat.AnswerLength.of(prefs(ctx).getString("answer_length", com.localghost.app.chat.AnswerLength.MEDIUM))
+    fun setAnswerLength(ctx: Context, l: String) =
+        prefs(ctx).edit().putString("answer_length", com.localghost.app.chat.AnswerLength.of(l)).apply()
+
     /** Which engine the phone searches with: "duckduckgo" (default, no key, scraped HTML) or
      *  "brave" (the Brave Search API with the person's own key , a real API, sturdier than a
      *  scraped page, a few dollars of free credit a month). Google offers neither: its results page

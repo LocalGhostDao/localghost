@@ -641,6 +641,9 @@ func applyThink(level, input string, maxTokens int) (prompt string, budget int, 
 	}
 }
 
+// maxChatTokens bounds a caller's budget for one streamed answer, reasoning included.
+const maxChatTokens = 16384
+
 // Turn is one prior exchange half, as the caller (synthd) reconstructs it from the persisted chat.
 // Role is "user" or "assistant"; anything else is dropped rather than forwarded to the template.
 type Turn struct {
@@ -658,9 +661,22 @@ type Turn struct {
 // them, so "and what about the second one?" was answered by a model that had never heard the first.
 // The think instruction, when any, wraps only the CURRENT prompt; prior turns go in verbatim.
 func (b *llamaBackend) StreamChat(ctx context.Context, history []Turn, prompt, think, imageB64 string) (io.ReadCloser, string, error) {
+	return b.StreamChatBudget(ctx, history, prompt, think, imageB64, 0)
+}
+
+// StreamChatBudget is StreamChat with the caller's token budget: 0 leaves the think level's own
+// (applyThink); more is the room a long answer asks for when the model thinks first (synthd's
+// chatLength.maxTokens). Bounded here, so a caller cannot ask for more than the cap.
+func (b *llamaBackend) StreamChatBudget(ctx context.Context, history []Turn, prompt, think, imageB64 string, maxTokens int) (io.ReadCloser, string, error) {
+	if maxTokens < 0 {
+		maxTokens = 0
+	}
+	if maxTokens > maxChatTokens {
+		maxTokens = maxChatTokens
+	}
 	// No separate ready gate: if llama-server is down or still loading, the POST below fails fast
 	// (refused connection / non-200) and the caller reports it , one truth source, no stale flag.
-	p, budget, thinking := applyThink(think, prompt, 0)
+	p, budget, thinking := applyThink(think, prompt, maxTokens)
 	// Text-only stays a plain string; with an image the content becomes OpenAI-style parts , the
 	// SAME shape inferMultimodal uses for captions, so the projector path is already proven.
 	var content any = p

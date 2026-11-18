@@ -99,6 +99,27 @@ func TestWikiFromTheBoxPG(t *testing.T) {
 	if items := wikiSource("/x/run", "tell me about my trip to Kassiopi"); items != nil {
 		t.Fatalf("my own things: %+v", items)
 	}
+	// the long answer: the opening and the article's sections after it, the one the question
+	// points at first, and an item cap that lets them through sanitize
+	long := wikiSourceLen("How tall is the Eiffel Tower?", "", lengthLong)
+	if len(long) != 1 || !strings.HasPrefix(long[0].Snippet, "Eiffel Tower: The Eiffel Tower is a wrought-iron") ||
+		!strings.Contains(long[0].Snippet, "\nDesign: ") || !strings.Contains(long[0].Why, "of its sections") || long[0].max == 0 {
+		t.Fatalf("long: %+v", long)
+	}
+	medium := wikiSourceLen("How tall is the Eiffel Tower?", "", lengthMedium)
+	if len(medium) != 1 || len(medium[0].Snippet) >= len(long[0].Snippet) || medium[0].max != 0 {
+		t.Fatalf("medium is the opening and one section at most: %d against %d", len(medium[0].Snippet), len(long[0].Snippet))
+	}
+	if kept := sanitize(long[0]); len(kept.Snippet) < len(sanitize(medium[0]).Snippet) {
+		t.Fatalf("the long one's cap: %d", len(kept.Snippet))
+	}
+	// "tell me about" has no detail in it: medium stays at the opening, long goes on
+	if m := wikiSourceLen("Tell me about the Eiffel Tower", "", lengthMedium); len(m) != 1 || strings.Contains(m[0].Snippet, "\n") {
+		t.Fatalf("medium tell-me-about: %+v", m)
+	}
+	if l := wikiSourceLen("Tell me about the Eiffel Tower", "", lengthLong); len(l) != 1 || !strings.Contains(l[0].Snippet, "\n") {
+		t.Fatalf("long tell-me-about: %+v", l)
+	}
 	// the box has it: the phone searches nothing. A page of meanings, a subject the copy lacks,
 	// a relation ("of") and a question about now all leave the web its turn.
 	if why, ok := wikiCovers("what is Kassiopi?"); !ok || !strings.Contains(why, "Kassiopi") {

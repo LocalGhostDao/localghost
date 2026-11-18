@@ -164,6 +164,12 @@ func TestNeighboursPGLinksGroundingFrontPage(t *testing.T) {
 	if n := p.one("SELECT count(*) FROM memories WHERE touched_at > 0"); n != "2" {
 		t.Fatalf("%s memories touched: only the two that matched should be", n)
 	}
+	// a long answer brings more of them: all three that hold the word, the lone old note too,
+	// and the neighbour after them
+	long, err := memoriesForN(db, []string{"boat"}, now.UnixMilli(), 5)
+	if err != nil || len(long) != 4 || !strings.HasPrefix(long[2].Snippet, "The old boat") || !strings.Contains(long[3].Why, "kept with") {
+		t.Fatalf("long: %v %+v", err, long)
+	}
 	// an anchor wins a tie outright, and says so
 	p.exec("UPDATE memories SET anchored_at = 5 WHERE id = $1", old)
 	items, _ = memoriesFor(db, []string{"sold", "anchor"}, now.UnixMilli())

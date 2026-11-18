@@ -334,6 +334,9 @@ func main() {
 			Think   string         `json:"think"`
 			Image   string         `json:"image,omitempty"`   // base64 jpeg/png , flows to llama as a data URI
 			History []oracled.Turn `json:"history,omitempty"` // prior turns, oldest first (synthd's cut)
+			// the answer's room when the model thinks first and a long answer was asked for; 0
+			// is the think level's own budget (StreamChatBudget bounds it)
+			MaxTokens int `json:"maxTokens,omitempty"`
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -344,7 +347,7 @@ func main() {
 		// the stream ends, plus a short grace for the follow-up question).
 		broker.Pause()
 		defer broker.Resume()
-		out, model, err := llama.StreamChat(r.Context(), q.History, q.Prompt, q.Think, q.Image)
+		out, model, err := llama.StreamChatBudget(r.Context(), q.History, q.Prompt, q.Think, q.Image, q.MaxTokens)
 		if err != nil {
 			lg.Warn("chat stream start failed", "fn", "chat", "err", err)
 			http.Error(w, err.Error(), http.StatusBadGateway)

@@ -178,12 +178,17 @@ object PhoneReader {
 
     /** No box: the phone's model answers from what it read. Streams through [onText]. */
     suspend fun answerAlone(ctx: Context, question: String, read: List<WebSearch.Hit>,
-                            history: List<Pair<Boolean, String>> = emptyList(), onText: (String) -> Boolean): String? {
+                            history: List<Pair<Boolean, String>> = emptyList(),
+                            length: String = com.localghost.app.chat.AnswerLength.MEDIUM,
+                            onText: (String) -> Boolean): String? {
         val useful = read.filter { it.excerpt.isNotBlank() || it.quote.isNotBlank() }
             .map { if (it.kind == "note" && it.excerpt.isBlank()) WebSearch.Hit(it.title, it.url, it.snippet, it.quote, "page", it.source, it.published) else it }
-        val prompt = if (useful.isEmpty()) question else Plan.answerPrompt(question, useful)
+        // how much answer: a word for the model before the question, and its room (AnswerLength)
+        val how = com.localghost.app.chat.AnswerLength.phoneInstruction(length)
+        val asked = if (how.isEmpty()) question else how + "\n" + question
+        val prompt = if (useful.isEmpty()) asked else Plan.answerPrompt(asked, useful)
         // the conversation so far rides in front, so "and in euros?" is read after the question it follows
         return LocalModel.complete(ctx, LocalModel.LIFEBOAT_SYSTEM, Transcript.withHistory(prompt, history),
-            maxTokens = 320, temperature = 0.3f, onText = onText)?.text
+            maxTokens = com.localghost.app.chat.AnswerLength.phoneMaxTokens(length), temperature = 0.3f, onText = onText)?.text
     }
 }

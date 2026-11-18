@@ -115,6 +115,27 @@ func TestSectionsAndTheBestOne(t *testing.T) {
 	if h, txt := SectionFor(body, "how tall is it", 300); h != "Design" || !strings.Contains(txt, "330 metres") {
 		t.Fatalf("section for: %q %q", h, txt)
 	}
+	// a long answer takes several: the one the question points at first, then the article's order
+	secsFor := SectionsFor(body, "how tall is it", 2000, 6000)
+	if len(secsFor) != 3 || secsFor[0].Heading != "Design" || secsFor[1].Heading != back[0].Heading || secsFor[2].Heading != back[2].Heading {
+		t.Fatalf("sections for a long answer: %+v", secsFor)
+	}
+	// no section pointed at: the article's order
+	if s := SectionsFor(body, "tell me everything", 2000, 6000); len(s) != 3 || s[0].Heading != back[0].Heading {
+		t.Fatalf("in order: %+v", s)
+	}
+	// the total holds, and a stub is not added
+	small := SectionsFor(body, "how tall is it", 2000, 260)
+	n := 0
+	for _, s := range small {
+		n += len(s.Heading) + 2 + len(s.Text)
+	}
+	if len(small) == 0 || n > 260 {
+		t.Fatalf("within 260: %d chars in %+v", n, small)
+	}
+	if SectionsFor("", "x", 100, 100) != nil || SectionsFor(body, "x", 0, 100) != nil {
+		t.Fatal("nothing to give is nothing")
+	}
 }
 
 func TestNamesInAQuestion(t *testing.T) {

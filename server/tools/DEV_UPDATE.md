@@ -610,3 +610,62 @@ described are in the header of `tools/release.sh`; day to day a box is brought c
   into a test. Nothing else failed, so nothing else changed. A red run's `--- FAIL` lines would
   name David's.
 - Not exercised: any of the iOS work on an iPhone or against a box; the first compile.
+
+## 16 November 2026 , the chat asks how much answer: short, medium, long
+- Vlad: "can we have a bit more of a setting on our chat where we want an answer or a story. For
+  example if I ask about something or some place I want to choose if it's short answer, medium
+  or long and on long I want research with internet and local sources".
+- The app: a third switch in the chat's top bar, beside incognito and web, cycling short →
+  medium → long (`AnswerLength`, `AppSettings.answerLength`, medium unless changed). It rides on
+  every `/v1/chat` as `length`. Medium changes nothing: no word added to the prompt, the same
+  search as before (five results kept, three pages read, the plan's first two searches).
+- Short: one search at most, two pages read (`WebSearch.Depth.QUICK`); the box tells the model
+  one to three sentences, no headings, no lists.
+- Long, on the phone: `AnswerLength.wantWeb` searches in auto although the box's plan said
+  nothing outside was needed, when the plan still wrote searches (the box's `guardQueries` vetted
+  them) and withheld none; with no plan in time it searches unless the guards that follow stop it
+  (a question about the person, a follow-up that may not borrow, the box's own numbers). Web off
+  is never overridden; the trail says why a long answer did not search. `Depth.DEEP`: all the
+  plan's searches at once, eight results kept, six pages read; nothing is left for the box's
+  second round, so none is offered.
+- Long, on the box (`cmd/ghost.synthd/length.go`): five of the person's memories instead of two
+  (`memoriesForN`), twelve context items instead of six, the Wikipedia article's opening and its
+  sections after it, the one the question points at first, up to 6,000 characters
+  (`wiki.SectionsFor`; the item carries its own cap past sanitize), the instruction for the long
+  answer (the answer first, then the story, short headings, web findings cited [n], the box's
+  Wikipedia and the memories named, gaps not filled), a line in the trail. After a brief think a
+  long answer gets 6,144 tokens and after a deep one 12,288 (oracled `StreamChatBudget`, capped
+  at 16,384); without thinking there is no cap, as before. `webMaxHits` 8 → 12, which the deeper
+  search and a second round fill.
+- Found on the way: the Wikipedia item's cap was the opening's length (900 + 120), so the
+  section added after a long opening was cut to a few words for every question. The cap now has
+  room for the section; `sanitize` cuts on a rune boundary.
+- secd forwards `length` when it is one of the three words. The prompt's assembly is a function
+  now (`chatInput`), so its order is tested: the context, how to use it, the length's words,
+  the question.
+- Tests: `length_test.go` (the words, the instruction's place for each length, with and without
+  context, for a follow-up), the long Wikipedia item against the Eiffel Tower fixture (the
+  sections, the cap, "tell me about" going past the opening only when long), `memoriesForN` on
+  Postgres (the lone old note comes too), oracled's caller budget and its cap, `SectionsFor`,
+  `AnswerLengthTest` in the app (the cycle, the depth, medium deciding as before, long keeping
+  every guard, the phone model's room).
+
+## 16 November 2026 , iOS: the client certificate on the task delegate, the sources in folders (David, pull request #19)
+- David (0ex-d), closing issue #11 ("Implement the pinned mTLS connection to the box"), on top of
+  the iOS channel of the same day. `BoxTrustDelegate` answers the challenges on the task delegate
+  too (`urlSession(_:task:didReceive:completionHandler:)`), with the same answer as the session
+  one: server trust only by the pin, the client certificate from the Keychain identity, built
+  once. His note: Foundation hands a request's challenge to the task delegate and does not fall
+  back to the session's when that method is missing. The redirect refusal moved to the
+  completion-handler form. A test proves a client-certificate challenge on the task path gets
+  the device's credential (a seam takes a `URLCredential` in place of the Keychain identity).
+- The sources in folders: `App/`, `Core/Networking`, `Core/Security`, `DesignSystem/`,
+  `Features/Box`, `Features/Enrolment`, and the tests the same way. The Xcode project changed
+  only in its groups; every file resolves and every source is in its target.
+- Debug builds only: the unreadable-credentials screen shows the error's own text and logs it,
+  and a failed request logs its URLError code. The release build says what it said before.
+  Neither prints a credential: the error is a Keychain status or a decoding error's path, and
+  a URLError's description carries no request body.
+- Reviewed before the merge (17 November): nothing outside `app/ios`, built on main `3a74708`,
+  so it merges as it stands. The iOS README now points at the folders and says why the task
+  delegate answers.

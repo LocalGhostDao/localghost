@@ -419,6 +419,7 @@ object BoxClient {
         need: String = "",                 // what the box's model said the question needs (chatPlan); the box ranks the pages' paragraphs against it
         round: Int = 0,                    // 1 on the first ask with findings, 2 after the box asked for more
         spare: List<String> = emptyList(), // the plan's searches not run yet, for the box to ask for
+        length: String = com.localghost.app.chat.AnswerLength.MEDIUM, // short, medium or long: how much answer (AnswerLength)
     ): Flow<ChatChunk> = kotlinx.coroutines.flow.channelFlow {
         // REAL STREAMING end-to-end: app -> secd -> ghost.synthd (context injection + transparency)
         // -> ghost.oracled -> llama-server, tokens flowing back as they generate. Event protocol,
@@ -446,6 +447,7 @@ object BoxClient {
             BoxHttp.postStreamLines(ctx, "/v1/chat",
                 org.json.JSONObject().put("prompt", prompt).put("think", think)
                     .put("incognito", incognito).put("chatId", chatId)
+                    .put("length", com.localghost.app.chat.AnswerLength.of(length))
                     .apply { if (historyJson.length() > 0) put("history", historyJson) }
                     .apply { if (imageB64.isNotBlank()) put("imageB64", imageB64) }
                     .apply { if (web != null && web.length() > 0) put("web", web) }

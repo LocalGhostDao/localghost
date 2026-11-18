@@ -387,11 +387,14 @@ func main() {
 			Need  string   `json:"need,omitempty"`
 			Round int      `json:"round,omitempty"`
 			Spare []string `json:"spare,omitempty"`
+			// HOW MUCH ANSWER (length.go): short, medium or long; absent is medium
+			Length string `json:"length,omitempty"`
 		}
 		if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&q) != nil || q.Prompt == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
+		length := parseLength(q.Length)
 		mount := filepath.Dir(runDir)
 		// THE CONVERSATION, not the sentence. Every turn was persisted and none was ever shown to
 		// the model , each message opened as a one-shot with no memory of the last, which reads
@@ -413,11 +416,11 @@ func main() {
 			}
 			history = trimHistory(vals)
 		}
-		items := gatherContext(runDir, q.Prompt)
+		items := gatherContextFor(runDir, q.Prompt, length)
 		// the box's Wikipedia by what the plan said the question needs, when the question's own
 		// words named no article (a follow-up, a name typed loosely): wikiSourceFor
 		if q.Need != "" && !hasSource(items, "wikipedia") {
-			for _, it := range wikiSourceFor(q.Prompt, q.Need) {
+			for _, it := range wikiSourceLen(q.Prompt, q.Need, length) {
 				if it.Snippet != "" {
 					items = append(items, sanitize(it))
 				}
@@ -483,24 +486,11 @@ func main() {
 			}
 			items = append(items, sanitize(ctxItem{When: h.Fetched, Source: "web", Snippet: fmt.Sprintf("[%d] %s , %s", i+1, h.Title, h.URL), Why: why}))
 		}
-		input := q.Prompt
 		block := formatContext(items)
 		if wb := formatWeb(web); wb != "" {
 			block += wb
 		}
-		if block != "" {
-			ask := "answer:"
-			if len(history) > 0 {
-				// the web findings are loud; the conversation is what says what a short follow-up
-				// ("how about now?") is asking, so it is named here, with the need when there is one
-				ask = "answer the next message of the conversation above, read as its next turn (a short one repeats or adjusts the last question)"
-				if n := strings.TrimSpace(q.Need); n != "" {
-					ask += "; what it asks for: " + clip(n, 300)
-				}
-				ask += ":"
-			}
-			input = block + "\n\nUsing the context above only where it is actually relevant (say which source when you use one), " + ask + "\n" + q.Prompt
-		}
+		input := chatInput(block, q.Prompt, q.Need, len(history) > 0, length)
 		// who the box is and who is asking: "LocalGhost" in a question is the box itself
 		input = chatIdentity(mount) + "\n\n" + input
 		// Persist the question FIRST (incognito conversations never touch the tables), then the
@@ -528,7 +518,11 @@ func main() {
 		}
 		genCtx, endGen := answerContext(r.Context(), chatID, saver != nil)
 		defer endGen()
-		body, _ := json.Marshal(map[string]any{"prompt": input, "think": q.Think, "image": q.Image, "history": history})
+		up := map[string]any{"prompt": input, "think": q.Think, "image": q.Image, "history": history}
+		if n := length.maxTokens(q.Think); n > 0 {
+			up["maxTokens"] = n // a long answer after the model thinks: room for both
+		}
+		body, _ := json.Marshal(up)
 		req, err := http.NewRequestWithContext(genCtx, http.MethodPost,
 			"http://ghost/chat", bytes.NewReader(body))
 		if err != nil {
@@ -557,7 +551,11 @@ func main() {
 		fl, _ := w.(http.Flusher)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
-		ev := map[string]any{"context": items, "steps": chatSteps(items, web, webNote)}
+		steps := chatSteps(items, web, webNote)
+		if line := length.step(); line != "" {
+			steps = append([]string{line}, steps...)
+		}
+		ev := map[string]any{"context": items, "steps": steps}
 		if !speed.at.IsZero() {
 			if note := readingNote(speed, len(input)+histChars, trimmed); note != "" {
 				ev["note"] = note
@@ -1196,6 +1194,9 @@ type ctxItem struct {
 	Snippet string  `json:"snippet"`         // what the model actually saw (truncated, sanitised)
 	Why     string  `json:"why"`             // human-readable reason it was selected
 	Score   float64 `json:"score,omitempty"` // retrieval score when the source has one
+	// max is the item's own cap on what the model sees, when its source's usual one is too
+	// small (the long answer's Wikipedia); 0 for the usual (sanitize)
+	max int
 }
 
 // chatReply is the chat command's wire shape: the answer plus the transparency record.
@@ -1207,17 +1208,25 @@ type chatReply struct {
 
 type contextSource func(runDir, prompt string) []ctxItem
 
-var contextSources = []contextSource{
-	memoriesSource,    // FIRST: what the box knows about the PERSON outranks document search
-	photoDigestSource, // the matched photo SET, summarised by category , one item, always fits
-	wikiSource,        // "what is X": the article's lead from the box's own Wikipedia (wikipedia.go)
-	searchdSource,
-	// PLACEHOLDER recentChatsSource: last N turns of this conversation (needs chat storage first ,
-	//   see docs/context-injection-design.md phase 3).
-	// PLACEHOLDER locationDaySource: "where was I on <date>" prompts answered from framed's day
-	//   GeoJSON , cheap, no model, high precision for a narrow question class.
-	// PLACEHOLDER calendarish sources as noted/voiced start producing text.
+var contextSources = sourcesFor(lengthMedium)
+
+// sourcesFor is the sources in their order for an answer of a length: a long one brings more of
+// the person's memories (chatLength.memories).
+func sourcesFor(l chatLength) []contextSource {
+	return []contextSource{
+		func(runDir, prompt string) []ctxItem { return memoriesSourceN(runDir, prompt, l.memories()) }, // FIRST: what the box knows about the PERSON outranks document search
+		photoDigestSource, // the matched photo SET, summarised by category , one item, always fits
+		wikiSource,        // "what is X": the article's lead from the box's own Wikipedia (wikipedia.go)
+		searchdSource,
+	}
 }
+
+// Sources still to come, for the list above:
+//   PLACEHOLDER recentChatsSource: last N turns of this conversation (needs chat storage first ,
+//     see docs/context-injection-design.md phase 3).
+//   PLACEHOLDER locationDaySource: "where was I on <date>" prompts answered from framed's day
+//     GeoJSON , cheap, no model, high precision for a narrow question class.
+//   PLACEHOLDER calendarish sources as noted/voiced start producing text.
 
 // factSources are the box's own figures: its market numbers for a money question (rates.go) and
 // the news it gathered (news.go). They say nothing unless the question is about them, and when
@@ -1232,7 +1241,13 @@ const maxFacts = 4
 // gatherContext runs the sources under one budget and caps the total. Order matters: earlier
 // sources get first claim on the cap; the facts and the box's Wikipedia keep their places.
 func gatherContext(runDir, prompt string) []ctxItem {
-	const maxItems = 6
+	return gatherContextFor(runDir, prompt, lengthMedium)
+}
+
+// gatherContextFor is gatherContext for an answer of a length (length.go): a long one takes more
+// items, more memories and more of the Wikipedia article.
+func gatherContextFor(runDir, prompt string, l chatLength) []ctxItem {
+	maxItems := l.maxItems()
 	var facts []ctxItem
 	for _, src := range factSources {
 		for _, it := range src(runDir, prompt) {
@@ -1245,13 +1260,13 @@ func gatherContext(runDir, prompt string) []ctxItem {
 	// the backbone and the memories are the personal layer, and six memories used to fill the
 	// cap before the wiki source had its turn (4 Oct 2026)
 	var wiki []ctxItem
-	for _, it := range wikiSource(runDir, prompt) {
+	for _, it := range wikiSourceLen(prompt, "", l) {
 		if it.Snippet != "" {
 			wiki = append(wiki, sanitize(it))
 		}
 	}
 	out := facts
-	for _, src := range contextSources {
+	for _, src := range sourcesFor(l) {
 		if len(out)+len(wiki) >= maxItems+len(facts) {
 			break
 		}
@@ -1364,7 +1379,9 @@ func sanitize(it ctxItem) ctxItem {
 		limit = 600 // one line for the whole matched set, eleven categories at most
 	}
 	if it.Source == "wikipedia" {
-		limit = wikiChatLead + 120 // the article's lead, which is what was asked for
+		// the article's lead and the section the question points at: until 16 November 2026 the
+		// cap was the lead's alone, so the section added after a long lead was cut to a few words
+		limit = wikiChatLead + wikiChatSection + 160
 	}
 	if it.Source == "weather" {
 		limit = 700 // now and four days, one line each
@@ -1372,8 +1389,11 @@ func sanitize(it ctxItem) ctxItem {
 	if it.Source == "calendar" || it.Source == "contacts" {
 		limit = 400 // one event: when, what, where, with whom, a little of its notes
 	}
+	if it.max > 0 {
+		limit = it.max
+	}
 	if len(s) > limit {
-		s = s[:limit] + "…"
+		s = clip(s, limit)
 	}
 	it.Snippet = s
 	return it
@@ -1522,7 +1542,9 @@ type webHit struct {
 }
 
 const (
-	webMaxHits    = 8
+	// a long answer's deeper search (length.go) reads up to eight pages with the tools' findings
+	// beside them, and a second round adds its own; 8 cut those (16 November 2026)
+	webMaxHits    = 12
 	webMaxExcerpt = 1500
 	webMaxSnippet = 300
 )
@@ -1992,6 +2014,12 @@ var memDB *poltergres.ReadWrite
 // What was matched is TOUCHED: the person asked about it, so it and its neighbourhood are warm
 // again. The neighbour brought along is not: it was not asked for.
 func memoriesSource(runDir, prompt string) []ctxItem {
+	return memoriesSourceN(runDir, prompt, 2)
+}
+
+// memoriesSourceN is memoriesSource with the number of best matches to bring (a long answer's
+// is larger, chatLength.memories).
+func memoriesSourceN(runDir, prompt string, n int) []ctxItem {
 	terms := memoryTerms(prompt) // the words that carry meaning; "the" matched every memory
 	if len(terms) == 0 {
 		return nil
@@ -2005,7 +2033,7 @@ func memoriesSource(runDir, prompt string) []ctxItem {
 		memDB = poltergres.NewReadWrite(hw.SocketForMount(mount), cfg.Postgres.Port,
 			cfg.Postgres.RWUser, cfg.Postgres.RWPass, cfg.Postgres.Name)
 	}
-	out, err := memoriesFor(memDB, terms, time.Now().UnixMilli())
+	out, err := memoriesForN(memDB, terms, time.Now().UnixMilli(), n)
 	if err != nil {
 		memDB = nil
 		return nil
@@ -2066,6 +2094,14 @@ func memWhen(ms int64) string {
 // memoriesFor is memoriesSource against a database: the two best matches and the best one's
 // heaviest neighbour.
 func memoriesFor(db *poltergres.ReadWrite, terms []string, nowMs int64) ([]ctxItem, error) {
+	return memoriesForN(db, terms, nowMs, 2)
+}
+
+// memoriesForN is memoriesFor with the number of best matches (at least one).
+func memoriesForN(db *poltergres.ReadWrite, terms []string, nowMs int64, top int) ([]ctxItem, error) {
+	if top < 1 {
+		top = 1
+	}
 	var sb strings.Builder
 	args := make([]any, 0, len(terms))
 	sb.WriteString("SELECT id, title, body, created_at, (anchored_at IS NOT NULL) FROM memories WHERE NOT tombstoned AND (meta IS NULL OR NOT jsonb_exists(meta, 'doubt')) AND (")
@@ -2108,11 +2144,11 @@ func memoriesFor(db *poltergres.ReadWrite, terms []string, nowMs int64) ([]ctxIt
 		}
 	}
 	ranked := rankMemories(cands)
-	if len(ranked) > 2 {
-		ranked = ranked[:2]
+	if len(ranked) > top {
+		ranked = ranked[:top]
 	}
-	out := make([]ctxItem, 0, 3)
-	touched := make([]string, 0, 2)
+	out := make([]ctxItem, 0, top+1)
+	touched := make([]string, 0, top)
 	for _, c := range ranked {
 		why := "remembered , matched " + strconv.Itoa(c.hits) + " of your words"
 		if c.anchored {

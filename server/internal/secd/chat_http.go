@@ -65,6 +65,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		Need  string   `json:"need,omitempty"`
 		Round int      `json:"round,omitempty"`
 		Spare []string `json:"spare,omitempty"`
+		// How much answer: short, medium or long (synthd length.go). Forwarded when it is one of
+		// the three; anything else is dropped, and synthd answers medium.
+		Length string `json:"length,omitempty"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<20)).Decode(&req); err != nil || req.Prompt == "" {
 		s.appearsDown(w)
@@ -101,6 +104,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			fwd["spare"] = req.Spare
 		}
+	}
+	switch req.Length {
+	case "short", "medium", "long":
+		fwd["length"] = req.Length
 	}
 	if h := req.Here; h != nil && h.Lat >= -90 && h.Lat <= 90 && h.Lon >= -180 && h.Lon <= 180 {
 		fwd["here"] = map[string]float64{"lat": h.Lat, "lon": h.Lon}

@@ -665,6 +665,52 @@ func SectionFor(body, question string, max int) (string, string) {
 	return best.Heading, cutAt(best.Text, max)
 }
 
+// SectionsFor is several of an article's sections, for a long answer: the one the question
+// points at first (BestSection), then the rest in the article's order, each cut to perSection,
+// until total characters are taken. The bookkeeping sections were left out when the body was
+// stored. Empty when the body has no sections.
+func SectionsFor(body, question string, perSection, total int) []Section {
+	secs := parseBody(body)
+	if len(secs) == 0 || perSection <= 0 || total <= 0 {
+		return nil
+	}
+	order := make([]int, 0, len(secs))
+	best := -1
+	if b := BestSection(secs, question); b != nil {
+		for i := range secs {
+			if &secs[i] == b {
+				best = i
+				order = append(order, i)
+				break
+			}
+		}
+	}
+	for i := range secs {
+		if i != best {
+			order = append(order, i)
+		}
+	}
+	var out []Section
+	used := 0
+	for _, i := range order {
+		text := strings.TrimSpace(secs[i].Text)
+		if text == "" {
+			continue
+		}
+		room := total - used - len(secs[i].Heading) - 2
+		if room < 200 {
+			break // what is left would be a sentence's stub, not a section
+		}
+		if room > perSection {
+			room = perSection
+		}
+		text = cutAt(text, room)
+		out = append(out, Section{Heading: secs[i].Heading, Text: text})
+		used += len(secs[i].Heading) + 2 + len(text)
+	}
+	return out
+}
+
 // parseBody reads the sections back from a stored body ("== Heading ==" lines).
 func parseBody(body string) []Section {
 	var out []Section

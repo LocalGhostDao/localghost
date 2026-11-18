@@ -657,12 +657,12 @@ class MainActivity : ComponentActivity() {
             BoxClient.chatPlan(this, text, messages.toList())
         } else null
         val plan = planAnswer?.plan
-        var wantWeb = when {
-            mode == "on" -> true
-            mode != "auto" -> false
-            plan != null -> plan.search // "this needs nothing from outside" is final in auto
-            else -> com.localghost.app.net.WebSearch.looksFresh(text)
-        }
+        // HOW MUCH ANSWER (AnswerLength): a long one researches, in auto too, when the box wrote
+        // searches for the question; off stays off, and the guards below still hold
+        val length = AppSettings.answerLength(this)
+        var wantWeb = com.localghost.app.chat.AnswerLength.wantWeb(mode, length, plan?.search, plan?.queries?.size ?: 0,
+            plan?.withheld ?: "", if (plan == null) com.localghost.app.net.WebSearch.looksFresh(text) else false)
+        if (length == com.localghost.app.chat.AnswerLength.LONG && wantWeb && plan != null && !plan.search) status("the long answer: searching the web too")
         if (plan != null && plan.withheld.isNotBlank() && mode != "off") status("no web search , ${plan.withheld}")
         // WHAT THE BOX KEEPS is never searched for, in any mode: a coin's price, the top coins,
         // crypto as a whole, a rate between currencies, the day's headlines. The box puts its own
@@ -689,8 +689,11 @@ class MainActivity : ComponentActivity() {
                 ((plan?.need?.takeIf { it.isNotBlank() } ?: ownNeed.takeIf { it.isNotBlank() })?.let { " for: $it" } ?: "") + "…")
             // the searches are shown before they leave (and stay in the trail under the answer)
             plan?.first?.takeIf { it.isNotEmpty() }?.let { status("searches: " + it.joinToString("  ·  ")) }
-            webHits = com.localghost.app.net.WebSearch.search(searchText, engine, plan?.first?.takeIf { it.isNotEmpty() }, plan?.need ?: ownNeed,
-                subject = plan?.queries?.getOrNull(2) ?: "")
+            // a long answer runs every search the box planned (the spare too) and reads more pages
+            val depth = com.localghost.app.chat.AnswerLength.depth(length)
+            val planned = if (depth == com.localghost.app.net.WebSearch.Depth.DEEP) plan?.queries else plan?.first
+            webHits = com.localghost.app.net.WebSearch.search(searchText, engine, planned?.takeIf { it.isNotEmpty() }, plan?.need ?: ownNeed,
+                runAll = depth == com.localghost.app.net.WebSearch.Depth.DEEP, subject = plan?.queries?.getOrNull(2) ?: "", depth = depth)
             // WHO READS THE PAGES: the box on its GPU reads them in seconds and gets the
             // paragraphs; a box on its CPU (or one that did not answer the plan in time) gets the
             // phone's model's notes instead, checked against the pages, with a verbatim quote each.
@@ -713,6 +716,8 @@ class MainActivity : ComponentActivity() {
                     else "${webHits.size} found, $read read on this phone , asking your box…")
             }
         } else {
+            com.localghost.app.chat.AnswerLength.noSearchNote(mode, length, false, plan?.search, plan?.queries?.size ?: 0)
+                .takeIf { it.isNotEmpty() }?.let { step(it) }
             status("asking your box…")
         }
         var round = if (wantWeb) 1 else 0
@@ -721,7 +726,9 @@ class MainActivity : ComponentActivity() {
             more = null
             BoxClient.chat(incognito = incognitoState, chatId = if (incognitoState) 0L else currentChatId, messages.toList(), text, activeConvId, atts, chatCaps, imageB64 = imageB64, web = web,
                 here = fix?.let { it.lat to it.lon }, need = plan?.need ?: ownNeed, round = round,
-                spare = if (round == 1) (plan?.spare ?: emptyList()) else emptyList()).collect { chunk ->
+                // the deep search ran the spare already: nothing is left for a second round
+                spare = if (round == 1 && length != com.localghost.app.chat.AnswerLength.LONG) (plan?.spare ?: emptyList()) else emptyList(),
+                length = length).collect { chunk ->
                 when (chunk) {
                     is BoxClient.ChatChunk.Memories -> mems = chunk.ids
                     is BoxClient.ChatChunk.More -> { more = chunk.queries; status("the box read the findings and wants more: ${chunk.queries.joinToString(" · ")} , searching again…") }
@@ -774,7 +781,8 @@ class MainActivity : ComponentActivity() {
             val again = more
             if (again == null || round != 1 || !streaming) break
             // round two: the searches the box asked for, all of them, merged with the first round
-            val second = com.localghost.app.net.WebSearch.search(searchText, engine, again, plan?.need ?: ownNeed, runAll = true)
+            val second = com.localghost.app.net.WebSearch.search(searchText, engine, again, plan?.need ?: ownNeed, runAll = true,
+                depth = com.localghost.app.chat.AnswerLength.depth(length))
             webHits = com.localghost.app.net.WebSearch.merge(webHits, second)
             web = if (webHits.isNotEmpty()) com.localghost.app.net.WebSearch.toJson(webHits) else null
             status("${second.size} more found , asking your box again…")
@@ -832,8 +840,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         val mode = AppSettings.webMode(this)
+        val length = AppSettings.answerLength(this)
         var hits: List<com.localghost.app.net.WebSearch.Hit> = emptyList()
-        if (com.localghost.app.net.WebSearch.shouldSearch(mode, text)) {
+        if (com.localghost.app.net.WebSearch.shouldSearch(mode, text) ||
+            (mode == "auto" && length == com.localghost.app.chat.AnswerLength.LONG)) {
             say("", "no box , searching the web on this phone…")
             val engine = com.localghost.app.net.WebSearch.Engine(AppSettings.searchEngine(this), AppSettings.braveKey(this))
             // a follow-up ("how about now?") searched with the question before it
@@ -842,7 +852,7 @@ class MainActivity : ComponentActivity() {
             // a follow-up does not carry a private question to the web (auto only)
             val found = if (mode == "auto" && (com.localghost.app.net.FollowUp.looksPersonal(q) ||
                     (q != text && !com.localghost.app.net.FollowUp.mayBorrow(earlier, com.localghost.app.net.WebSearch::looksFresh)))) emptyList()
-                else com.localghost.app.net.WebSearch.search(q, engine)
+                else com.localghost.app.net.WebSearch.search(q, engine, depth = com.localghost.app.chat.AnswerLength.depth(length))
             if (found.isNotEmpty()) {
                 val read = com.localghost.app.local.PhoneReader.digest(this, com.localghost.app.net.WebSearch.cleanQuery(text), found) { say("", it) }
                 hits = read.hits
@@ -854,7 +864,7 @@ class MainActivity : ComponentActivity() {
         val history = messages.dropLast(1).filter { it.text.isNotBlank() }
             .let { if (it.lastOrNull()?.role == Message.Role.USER && it.last().text == text) it.dropLast(1) else it }
             .map { (it.role == Message.Role.USER) to it.text }
-        val answer = com.localghost.app.local.PhoneReader.answerAlone(this, text, hits, history) { whole ->
+        val answer = com.localghost.app.local.PhoneReader.answerAlone(this, text, hits, history, length) { whole ->
             // called on the model's thread: the transcript is changed on the main one
             reply = whole
             runOnUiThread { say(whole, "", hits) }

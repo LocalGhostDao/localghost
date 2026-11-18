@@ -9,16 +9,19 @@ two differ, Android's behaviour and the box's code (`server/internal/secd`) are 
   address and the fingerprint, enrol. The QR's private key goes into the Keychain as a key, beside
   its certificate, so the two make an identity TLS can present; the enrolment record keeps only
   the key's tag. All of it is on this device only and readable only while the iPhone is unlocked.
-- **The channel** (`BoxChannel.swift`). Mutual TLS: the box is trusted when the SHA-256 of the
-  certificate it presents equals the fingerprint from the QR, and nothing else is trusted; the
-  phone presents its identity. No redirect is followed, nothing is cached. The box answers every
-  refusal (locked, no session, a retired certificate) with the same 503 page, and the app says
-  one thing for all of them: the box did not answer.
-- **The unlock** (`BoxModel.swift`, `BoxView.swift`). The PIN to `POST /v1/unlock`, then a poll a
-  second (`GET /v1/unlock/poll?run=`) showing each step, and the session token from the poll that
-  says done, kept in the Keychain until it expires (two days).
-- **The key replaced** (`DeviceKeys.swift`). Anyone who photographed the QR holds a copy of its
-  key, so after the first unlock the phone makes a key of its own in the Secure Enclave (a
+- **The channel** (`Core/Networking/BoxChannel.swift`). Mutual TLS: the box is trusted when the
+  SHA-256 of the certificate it presents equals the fingerprint from the QR, and nothing else is
+  trusted; the phone presents its identity. The challenges are answered on the task delegate as
+  well as the session one, the same answer either way: Foundation hands a request's challenge to
+  the task delegate and does not fall back when that method is missing (David's finding, pull
+  request #19). No redirect is followed, nothing is cached. The box answers every refusal
+  (locked, no session, a retired certificate) with the same 503 page, and the app says one thing
+  for all of them: the box did not answer.
+- **The unlock** (`Features/Box/BoxModel.swift`, `BoxView.swift`). The PIN to `POST /v1/unlock`,
+  then a poll a second (`GET /v1/unlock/poll?run=`) showing each step, and the session token from
+  the poll that says done, kept in the Keychain until it expires (two days).
+- **The key replaced** (`Core/Security/DeviceKeys.swift`). Anyone who photographed the QR holds a
+  copy of its key, so after the first unlock the phone makes a key of its own in the Secure Enclave (a
   Keychain key in the simulator, which has none), signs the proof `secd/rekey.go` asks for, and
   the box signs a certificate for that key. The phone confirms over the new certificate, the box
   retires the QR's, and its key is deleted here. The same once a day after an unlock, so a phone
@@ -32,6 +35,21 @@ two differ, Android's behaviour and the box's code (`server/internal/secd`) are 
   install deletes whatever an earlier install left there (`InstallMark`).
 
 Not built yet: the rest of the Android app's screens, notifications, uploads.
+
+## Where things are
+
+```
+LocalGhost/
+├── App/                  the entry point and the root view (setup, the box, credentials unreadable)
+├── Core/
+│   ├── Networking/       the channel to the box: the pin, the client identity, the calls
+│   └── Security/         the device keys, the rekey proof, the session, the install mark
+├── DesignSystem/         the terminal look shared by every screen
+└── Features/
+    ├── Box/              the unlock, the rekey, Box Status
+    └── Enrolment/        the QR link, the scanner, the setup screen
+LocalGhostTests/          the same folders, a test file beside each feature
+```
 
 ## Requirements
 

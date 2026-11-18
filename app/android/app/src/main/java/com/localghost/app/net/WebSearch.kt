@@ -96,8 +96,16 @@ object WebSearch {
     class BoxSpeed(val known: Boolean, val onGPU: Boolean, val promptTps: Double, val genTps: Double)
 
     private const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
-    private const val MAX_HITS = 5
-    private const val FETCH_TOP = 3
+    /** How hard one question is searched (the chat's answer length, AnswerLength): how many
+     *  results are kept, how many pages are read, and whether only the first search runs. */
+    enum class Depth(val maxHits: Int, val fetchTop: Int, val firstOnly: Boolean) {
+        QUICK(3, 2, true),
+        NORMAL(5, 3, false),
+        DEEP(8, 6, false),
+    }
+
+    /** Results asked of the engine per search; the depth decides how many of all of them are kept. */
+    private const val RESULTS_PER_SEARCH = 5
     private const val PAGE_CAP = 400 * 1024
     private const val EXCERPT_CHARS = 1400
     private const val PARAS_PER_PAGE = 12
@@ -207,11 +215,12 @@ object WebSearch {
      *  the first came back thin, or all of them when [runAll]. [need] steers which paragraphs of a
      *  page are worth sending: the box's one sentence beats the question's words. */
     suspend fun search(question: String, engine: Engine = Engine(), queries: List<String>? = null,
-                       need: String = "", runAll: Boolean = false, subject: String = ""): List<Hit> = withContext(Dispatchers.IO) {
+                       need: String = "", runAll: Boolean = false, subject: String = "",
+                       depth: Depth = Depth.NORMAL): List<Hit> = withContext(Dispatchers.IO) {
         val key = cacheKey(question) + (if (engine.brave) "#b" else "") + (queries?.joinToString("|", prefix = "#") ?: "") + (if (runAll) "#all" else "") +
-            (if (subject.isNotBlank()) "#s$subject" else "")
+            (if (subject.isNotBlank()) "#s$subject" else "") + "#" + depth.name
         synchronized(cache) { cache[key]?.let { (at, hits) -> if (System.currentTimeMillis() - at < CACHE_TTL_MS) return@withContext hits } }
-        val out = run(question, engine, queries, need, runAll, subject)
+        val out = run(question, engine, queries, need, runAll, subject, depth)
         if (out.isNotEmpty()) synchronized(cache) { cache[key] = System.currentTimeMillis() to out }
         out
     }
@@ -224,8 +233,9 @@ object WebSearch {
         return out
     }
 
-    private fun run(question: String, engine: Engine = Engine(), planned: List<String>? = null, need: String = "", runAll: Boolean = false, subject: String = ""): List<Hit> {
-        val pool = Executors.newFixedThreadPool(FETCH_TOP + 2)
+    private fun run(question: String, engine: Engine = Engine(), planned: List<String>? = null, need: String = "", runAll: Boolean = false, subject: String = "",
+                    depth: Depth = Depth.NORMAL): List<Hit> {
+        val pool = Executors.newFixedThreadPool(depth.fetchTop + 2)
         try {
             // Tools and the first search leave together; the extra queries only when the first
             // came back thin. Every future is bounded on its own, so one slow host costs its own
@@ -236,7 +246,8 @@ object WebSearch {
             // paragraph beside the search results
             val toolList = Tools.forQuestion(question).ifEmpty { Tools.forSubject(subject) }
             val toolFutures: List<Future<Hit?>> = toolList.map { t -> pool.submit(Callable { runCatching { t.call() }.getOrNull() }) }
-            val queries = if (planned != null && planned.isNotEmpty()) planned.mapIndexed { i, q -> Query(q, runAll || i == 0) } else plan(question)
+            val queries = (if (planned != null && planned.isNotEmpty()) planned.mapIndexed { i, q -> Query(q, runAll || i == 0) } else plan(question))
+                .let { if (depth.firstOnly) it.take(1) else it }
             val pages = ArrayList<Hit>()
             val agree = HashMap<String, Int>()
             for (q in queries) {
@@ -250,9 +261,9 @@ object WebSearch {
                 }
             }
             // Several queries agreeing on a page moves it up; otherwise the search engine's order.
-            val ordered = pages.withIndex().sortedWith(compareByDescending<IndexedValue<Hit>> { agree[it.value.url] ?: 1 }.thenBy { it.index }).map { it.value }.take(MAX_HITS)
+            val ordered = pages.withIndex().sortedWith(compareByDescending<IndexedValue<Hit>> { agree[it.value.url] ?: 1 }.thenBy { it.index }).map { it.value }.take(depth.maxHits)
             val termList = terms(cleanQuery(question)) + (if (need.isNotBlank()) terms(need) else emptyList())
-            val reads = ordered.take(FETCH_TOP).map { h -> pool.submit(Callable { read(h, termList) }) }
+            val reads = ordered.take(depth.fetchTop).map { h -> pool.submit(Callable { read(h, termList) }) }
             for (f in reads) runCatching { f.get(8, TimeUnit.SECONDS) }
             val tools = toolFutures.mapNotNull { f -> runCatching { f.get(6, TimeUnit.SECONDS) }.getOrNull() }
             return tools + ordered
@@ -311,7 +322,7 @@ object WebSearch {
 
     /** The Brave Search API: GET /res/v1/web/search with the key in X-Subscription-Token; JSON back. */
     private fun brave(query: String, key: String): List<Hit> {
-        val conn = (URL("https://api.search.brave.com/res/v1/web/search?count=$MAX_HITS&q=" + URLEncoder.encode(query, "UTF-8"))
+        val conn = (URL("https://api.search.brave.com/res/v1/web/search?count=$RESULTS_PER_SEARCH&q=" + URLEncoder.encode(query, "UTF-8"))
             .openConnection() as HttpURLConnection).apply {
             connectTimeout = 6000; readTimeout = 6000
             setRequestProperty("Accept", "application/json")
@@ -342,7 +353,7 @@ object WebSearch {
             val snippet = clean(o.optString("description").replace(Regex("<[^>]+>"), ""))
             val age = o.optString("page_age").takeIf { it.length >= 10 }?.substring(0, 10) ?: ""
             out.add(Hit(title.ifBlank { url }, url, snippet, "", "page", "brave", age))
-            if (out.size == MAX_HITS) break
+            if (out.size == RESULTS_PER_SEARCH) break
         }
         return out
     }
@@ -402,7 +413,7 @@ object WebSearch {
             if (url.isEmpty() || title.isEmpty() || !url.startsWith("http") || !seen.add(url)) continue
             if (url.contains("duckduckgo.com")) continue // ads and internal links
             out.add(Hit(title, url, snippets.getOrNull(i) ?: ""))
-            if (out.size == MAX_HITS) break
+            if (out.size == RESULTS_PER_SEARCH) break
         }
         return out
     }

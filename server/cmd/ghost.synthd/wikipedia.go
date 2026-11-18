@@ -523,6 +523,13 @@ func wikiSource(runDir, prompt string) []ctxItem {
 // question about a tower becomes "the height of the Eiffel Tower"). The section is still chosen
 // by the question.
 func wikiSourceFor(prompt, need string) []ctxItem {
+	return wikiSourceLen(prompt, need, lengthMedium)
+}
+
+// wikiSourceLen is wikiSourceFor for an answer of a length: a long one takes the article's
+// sections after the lead (the one the question points at first, then the rest in order), up to
+// chatLength.wikiSections, whatever the question's shape.
+func wikiSourceLen(prompt, need string, l chatLength) []ctxItem {
 	s, edition, ready := wikiReady()
 	if !ready {
 		return nil
@@ -542,16 +549,33 @@ func wikiSourceFor(prompt, need string) []ctxItem {
 		why += " , a page of meanings; say which one is meant"
 	}
 	snippet := h.Title + ": " + h.Lead
-	// the section the question points at, when it asks for more than what the thing is
-	if !h.Disamb && (wikiSubject(prompt) == "" || reDetailAsk.MatchString(prompt)) {
+	item := ctxItem{Source: "wikipedia", Why: why}
+	switch {
+	case h.Disamb:
+	case l == lengthLong:
+		// the long answer: the article beyond its opening, the part the question points at first
+		per, total := l.wikiSections()
+		if a, got, err := s.Article(h.Idx); err == nil && got && a.Body != "" {
+			secs := wiki.SectionsFor(a.Body, prompt, per, total)
+			for _, sec := range secs {
+				snippet += "\n" + sec.Heading + ": " + sec.Text
+			}
+			if len(secs) > 0 {
+				item.Why += fmt.Sprintf(" , its opening and %d of its sections", len(secs))
+			}
+		}
+		item.max = wikiChatLead + total + 200
+	case wikiSubject(prompt) == "" || reDetailAsk.MatchString(prompt):
+		// the section the question points at, when it asks for more than what the thing is
 		if a, got, err := s.Article(h.Idx); err == nil && got && a.Body != "" {
 			if heading, text := wiki.SectionFor(a.Body, prompt, wikiChatSection); text != "" {
 				snippet += "\n" + heading + ": " + text
 			}
 		}
 	}
+	item.Snippet = snippet
 	wikiAnswers.Add(1)
-	return []ctxItem{{Source: "wikipedia", Snippet: snippet, Why: why}}
+	return []ctxItem{item}
 }
 
 // reDetailAsk is a question that asks for a particular of a thing, not what it is: a section

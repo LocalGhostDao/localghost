@@ -93,4 +93,31 @@ func TestStreamChatCarriesHistory(t *testing.T) {
 	if c, _ := got.Messages[0].Content.(string); !strings.Contains(c, "at length") {
 		t.Fatalf("deep: prompt %q", c)
 	}
+	// a long answer after a brief think: the caller's room, not the brief think's 2,048
+	got.MaxTokens = 0
+	out, _, err = b.StreamChatBudget(context.Background(), nil, "tell me the whole story", "brief", "", 6144)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = out.Close()
+	if got.MaxTokens != 6144 {
+		t.Fatalf("caller's budget: %d", got.MaxTokens)
+	}
+	// bounded: no caller gets more than the cap, and a negative is no budget of its own
+	out, _, err = b.StreamChatBudget(context.Background(), nil, "x", "deep", "", 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = out.Close()
+	if got.MaxTokens != maxChatTokens {
+		t.Fatalf("capped: %d", got.MaxTokens)
+	}
+	out, _, err = b.StreamChatBudget(context.Background(), nil, "x", "deep", "", -5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = out.Close()
+	if got.MaxTokens != 8192 {
+		t.Fatalf("negative: %d", got.MaxTokens)
+	}
 }
