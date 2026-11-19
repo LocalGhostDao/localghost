@@ -248,6 +248,10 @@ struct AppShellView: View {
           chatModel.resetForLock()
           onForgotten()
         }
+      case .glossary:
+        GlossaryView()
+      case .about:
+        AboutView()
       default:
         PendingDestinationView(destination: destination)
       }

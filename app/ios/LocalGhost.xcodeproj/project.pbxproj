@@ -31,6 +31,9 @@
 		A20000000000000000000016 /* ChatTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000018 /* ChatTests.swift */; };
 		A20000000000000000000017 /* HomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000019 /* HomeTests.swift */; };
 		A20000000000000000000018 /* HomeLocationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000001A /* HomeLocationSource.swift */; };
+		A20000000000000000000019 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000001B /* AboutView.swift */; };
+		A2000000000000000000001A /* GlossaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000001C /* GlossaryView.swift */; };
+		A2000000000000000000001B /* StaticContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000001D /* StaticContentTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -70,6 +73,9 @@
 		A30000000000000000000018 /* ChatTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000019 /* HomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeTests.swift; sourceTree = "<group>"; };
 		A3000000000000000000001A /* HomeLocationSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeLocationSource.swift; sourceTree = "<group>"; };
+		A3000000000000000000001B /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
+		A3000000000000000000001C /* GlossaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlossaryView.swift; sourceTree = "<group>"; };
+		A3000000000000000000001D /* StaticContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaticContentTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,9 +182,11 @@
 		B70000000000000000000006 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				B70000000000000000000011 /* About */,
 				B70000000000000000000007 /* Box */,
 				B7000000000000000000000D /* Chat */,
 				B70000000000000000000008 /* Enrolment */,
+				B70000000000000000000012 /* Glossary */,
 				B7000000000000000000000E /* Home */,
 			);
 			path = Features;
@@ -223,6 +231,22 @@
 			path = Home;
 			sourceTree = "<group>";
 		};
+		B70000000000000000000011 /* About */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000001B /* AboutView.swift */,
+			);
+			path = About;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000012 /* Glossary */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000001C /* GlossaryView.swift */,
+			);
+			path = Glossary;
+			sourceTree = "<group>";
+		};
 		B70000000000000000000009 /* App */ = {
 			isa = PBXGroup;
 			children = (
@@ -238,6 +262,7 @@
 				B7000000000000000000000F /* Chat */,
 				B7000000000000000000000C /* Enrolment */,
 				B70000000000000000000010 /* Home */,
+				B70000000000000000000013 /* StaticContent */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -272,6 +297,14 @@
 				A30000000000000000000019 /* HomeTests.swift */,
 			);
 			path = Home;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000013 /* StaticContent */ = {
+			isa = PBXGroup;
+			children = (
+				A3000000000000000000001D /* StaticContentTests.swift */,
+			);
+			path = StaticContent;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -391,6 +424,8 @@
 				A20000000000000000000018 /* HomeLocationSource.swift in Sources */,
 				A20000000000000000000014 /* HomeModel.swift in Sources */,
 				A20000000000000000000015 /* HomeView.swift in Sources */,
+				A20000000000000000000019 /* AboutView.swift in Sources */,
+				A2000000000000000000001A /* GlossaryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -403,6 +438,7 @@
 				A2000000000000000000000D /* BoxTests.swift in Sources */,
 				A20000000000000000000016 /* ChatTests.swift in Sources */,
 				A20000000000000000000017 /* HomeTests.swift in Sources */,
+				A2000000000000000000001B /* StaticContentTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
