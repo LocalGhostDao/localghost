@@ -32,6 +32,24 @@ struct BoxPinTests {
   }
 }
 
+struct BoxAddressTests {
+  @Test
+  func aCallGoesToTheBoxsOwnOriginOnly() throws {
+    let base = try #require(URL(string: "https://box.local:8443"))
+    #expect(BoxClient.address("/v1/status", on: base)?.absoluteString == "https://box.local:8443/v1/status")
+    #expect(
+      BoxClient.address("/v1/unlock/poll?run=abc", on: base)?.absoluteString
+        == "https://box.local:8443/v1/unlock/poll?run=abc"
+    )
+    // a path that is a whole address would be asked for with the session's bearer
+    #expect(BoxClient.address("https://elsewhere.example/v1/status", on: base) == nil)
+    #expect(BoxClient.address("//elsewhere.example/v1/status", on: base) == nil)
+    #expect(BoxClient.address("https://box.local:8443@elsewhere.example/", on: base) == nil)
+    #expect(BoxClient.address("https://box.local:9443/v1/status", on: base) == nil)
+    #expect(BoxClient.address("http://box.local:8443/v1/status", on: base) == nil)
+  }
+}
+
 struct BoxTrustDelegateTests {
   @Test
   func taskLevelClientCertificateChallengeUsesTheDeviceCredential() throws {
@@ -179,7 +197,9 @@ struct BoxModelTests {
     _ credentials: MemoryCredentialStore,
     _ keyring: RecordingKeyring,
     _ sessions: MemorySessionStore,
-    _ box: FakeBox
+    _ box: FakeBox,
+    signedIn: SignedInRecorder = SignedInRecorder(),
+    leftovers: LeftoverCount = LeftoverCount()
   ) -> BoxModel {
     let now = self.now
     return BoxModel(
@@ -187,9 +207,186 @@ struct BoxModelTests {
       keyring: keyring,
       sessions: sessions,
       connect: { _, tag, token in box.over(tag: tag, token: token) },
+      signedInConnect: { _, tag, token, refused in
+        signedIn.connect(tag: tag, token: token, refused: refused)
+      },
+      forgetLeftovers: { leftovers.cleared += 1 },
       now: { now },
       pollEvery: .zero
     )
+  }
+
+  /// Enrolled, the key made an hour ago (so nothing is rekeyed), a session in hand.
+  private func signedInModel(
+    _ sessions: MemorySessionStore,
+    _ box: FakeBox,
+    _ recorder: SignedInRecorder
+  ) -> BoxModel {
+    var stored = EnrolmentFixture.credentials(tag: "made-0")
+    stored.rekeyedAt = now.addingTimeInterval(-3600)
+    return makeModel(MemoryCredentialStore(stored), RecordingKeyring(), sessions, box, signedIn: recorder)
+  }
+
+  @Test
+  func theSignedInChannelIsKeptForTheSession() throws {
+    let recorder = SignedInRecorder()
+    let model = signedInModel(
+      MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture)),
+      FakeBox(),
+      recorder
+    )
+
+    _ = try model.authenticatedClient()
+    _ = try model.authenticatedClient()
+    _ = try model.authenticatedClient()
+
+    // one channel however often it is asked for, over the device key and the session's bearer,
+    // and it was given the way to say the box refused a call
+    #expect(recorder.made == ["made-0/tok"])
+    let hooked = recorder.refused != nil
+    #expect(hooked)
+  }
+
+  @Test
+  func theSignedInChannelEndsWithTheLock() throws {
+    let recorder = SignedInRecorder()
+    let model = signedInModel(
+      MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture)),
+      FakeBox(),
+      recorder
+    )
+    _ = try model.authenticatedClient()
+
+    model.lock()
+
+    var refused = false
+    do { _ = try model.authenticatedClient() } catch { refused = true }
+    #expect(refused) // no session, no channel
+    #expect(recorder.made == ["made-0/tok"]) // and none made for the asking
+  }
+
+  @Test
+  func aReplacedKeyMakesANewSignedInChannel() async throws {
+    let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
+    let recorder = SignedInRecorder()
+    let model = makeModel(
+      credentials,
+      RecordingKeyring(),
+      MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture)),
+      FakeBox(),
+      signedIn: recorder
+    )
+    _ = try model.authenticatedClient()
+
+    // the box signs for the new key and retires the QR's certificate, which the channel presents
+    await model.renewKeyIfDue()
+    _ = try model.authenticatedClient()
+
+    #expect(try credentials.load()?.keyTag == "made-1")
+    #expect(recorder.made == ["qr/tok", "made-1/tok"])
+  }
+
+  @Test
+  func aRefusedCallGoesBackToThePINWhenTheStatusIsRefusedToo() async throws {
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
+    let box = FakeBox()
+    let recorder = SignedInRecorder()
+    let model = signedInModel(sessions, box, recorder)
+    await model.start()
+    #expect(model.screen == .open)
+    _ = try model.authenticatedClient()
+
+    // the box locks: it answers every call as if it were down, the status among them
+    box.downFor = ["made-0"]
+    await model.signedInCallRefused()
+
+    #expect(model.screen == .unlock)
+    #expect(sessions.load() == nil)
+    #expect(model.status == nil)
+    var refused = false
+    do { _ = try model.authenticatedClient() } catch { refused = true }
+    #expect(refused)
+    #expect(recorder.made == ["made-0/tok"])
+  }
+
+  @Test
+  func aRefusedCallWithAnAnsweredStatusChangesNothing() async throws {
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
+    let box = FakeBox()
+    let recorder = SignedInRecorder()
+    let model = signedInModel(sessions, box, recorder)
+    await model.start()
+    _ = try model.authenticatedClient()
+
+    // one endpoint answered 503 for its own reasons; the box is open and says so
+    await model.signedInCallRefused()
+
+    #expect(model.screen == .open)
+    #expect(sessions.load() == BoxSession(token: "tok", expiresAt: .distantFuture))
+    #expect(box.calls == ["status@made-0", "status@made-0"])
+    _ = try model.authenticatedClient()
+    #expect(recorder.made == ["made-0/tok"]) // the same channel still
+  }
+
+  @Test
+  func aLostConfirmationIsRepairedWhenACallIsRefused() async throws {
+    let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
+    let keyring = RecordingKeyring()
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
+    let box = FakeBox()
+    box.confirmFails = 1
+    let recorder = SignedInRecorder()
+    let model = makeModel(credentials, keyring, sessions, box, signedIn: recorder)
+    await model.start() // the box signs for the new key; the confirmation's answer is lost
+    #expect(model.screen == .open)
+    #expect(try credentials.load()?.pendingKeyTag == "made-1")
+    _ = try model.authenticatedClient()
+
+    // the box did confirm, so the QR's certificate is retired and its calls are refused
+    box.downFor = ["qr"]
+    await model.signedInCallRefused()
+
+    #expect(model.screen == .open) // no PIN: confirmed again, then the status over the new key
+    #expect(sessions.load() != nil)
+    #expect(try credentials.load()?.keyTag == "made-1")
+    #expect(try credentials.load()?.pendingKeyTag == nil)
+    #expect(box.calls.suffix(2) == ["confirm@made-1", "status@made-1"])
+    _ = try model.authenticatedClient()
+    #expect(recorder.made == ["qr/tok", "made-1/tok"])
+  }
+
+  @Test
+  func aSessionPastItsEndGoesBackToThePINWithoutAskingTheBox() async throws {
+    let clock = TestClock(now)
+    var stored = EnrolmentFixture.credentials(tag: "made-0")
+    stored.rekeyedAt = now.addingTimeInterval(-3600)
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: now.addingTimeInterval(3600)))
+    let box = FakeBox()
+    let recorder = SignedInRecorder()
+    let model = BoxModel(
+      credentialStore: MemoryCredentialStore(stored),
+      keyring: RecordingKeyring(),
+      sessions: sessions,
+      connect: { _, tag, token in box.over(tag: tag, token: token) },
+      signedInConnect: { _, tag, token, refused in
+        recorder.connect(tag: tag, token: token, refused: refused)
+      },
+      forgetLeftovers: {},
+      now: { clock.now },
+      pollEvery: .zero
+    )
+    await model.start()
+    _ = try model.authenticatedClient()
+
+    clock.now = now.addingTimeInterval(3600) // the session's end
+    var refused = false
+    do { _ = try model.authenticatedClient() } catch { refused = true }
+
+    #expect(refused)
+    #expect(model.screen == .unlock)
+    #expect(sessions.load() == nil)
+    #expect(box.calls == ["status@made-0"]) // nothing more was asked of the box
+    #expect(recorder.made == ["made-0/tok"])
   }
 
   @Test
@@ -329,13 +526,40 @@ struct BoxModelTests {
     let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
     let keyring = RecordingKeyring()
     let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
-    let model = makeModel(credentials, keyring, sessions, FakeBox())
+    let leftovers = LeftoverCount()
+    let model = makeModel(credentials, keyring, sessions, FakeBox(), leftovers: leftovers)
 
     try model.forget()
 
     #expect(try credentials.load() == nil)
     #expect(sessions.load() == nil)
     #expect(keyring.removedAll == 1)
+    #expect(leftovers.cleared == 1) // the chat last opened and Home's cache
+  }
+}
+
+@MainActor
+struct SignedInLeftoversTests {
+  @Test
+  func theLastChatAndHomesCacheGoAndThePreferencesStay() throws {
+    let suite = "ai.localghost.tests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(42, forKey: "chat.last-id")
+    defaults.set("long", forKey: "chat.answer-length")
+    let file = FileManager.default.temporaryDirectory
+      .appendingPathComponent("localghost-home-\(UUID().uuidString).json")
+    try Data("{}".utf8).write(to: file)
+
+    SignedInLeftovers.clear(preferences: defaults, homeCache: file)
+
+    #expect(defaults.integer(forKey: "chat.last-id") == 0)
+    #expect(defaults.string(forKey: "chat.answer-length") == "long") // this person's, not the box's
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+
+    // with nothing left to remove it is not an error
+    SignedInLeftovers.clear(preferences: defaults, homeCache: file)
+    #expect(!FileManager.default.fileExists(atPath: file.path))
   }
 }
 
@@ -453,6 +677,53 @@ final class RecordingKeyring: DeviceKeyring, @unchecked Sendable {
       _removedAll += 1
     }
   }
+}
+
+/// The signed-in channel as the model asks for it: the key and the bearer each one was made over,
+/// and the way the last one was given to say the box refused a call.
+@MainActor
+final class SignedInRecorder {
+  private(set) var made: [String] = []
+  private(set) var refused: (@Sendable () -> Void)?
+
+  func connect(tag: String, token: String, refused: @escaping @Sendable () -> Void) -> any SignedInCalls {
+    made.append("\(tag)/\(token)")
+    self.refused = refused
+    return QuietChannel()
+  }
+}
+
+/// How often forgetting the box cleared what the signed-in screens left on the phone.
+@MainActor
+final class LeftoverCount {
+  var cleared = 0
+}
+
+/// The time, moved by the test (read and set on the main actor only).
+nonisolated final class TestClock: @unchecked Sendable {
+  var now: Date
+
+  init(_ now: Date) { self.now = now }
+}
+
+/// A signed-in channel that answers nothing: the model's tests count the channels, not the calls.
+private nonisolated final class QuietChannel: ChatCalling, HomeServing, @unchecked Sendable {
+  func streamChat(_: ChatRequest) -> AsyncThrowingStream<ChatEvent, Error> {
+    AsyncThrowingStream { $0.finish() }
+  }
+
+  func chats(query _: String, beforeUpdated _: Int64, limit _: Int) async throws -> [ChatSummary] { [] }
+  func chatMessages(chatID _: Int64, beforeID _: Int64, limit _: Int) async throws -> [SavedChatMessage] { [] }
+  func stopChat(chatID _: Int64) async throws -> Bool { true }
+  func renameChat(chatID _: Int64, title _: String) async throws {}
+  func deleteChat(chatID _: Int64) async throws {}
+
+  func fetchHome() async throws -> HomeSnapshot { throw BoxChannelError.appearsDown }
+  func fetchRates() async throws -> HomeRates { throw BoxChannelError.appearsDown }
+  func fetchFastRates() async throws -> HomeFastRates { throw BoxChannelError.appearsDown }
+  func fetchNews(since _: Int64) async throws -> HomeNews { throw BoxChannelError.appearsDown }
+  func fetchWeather(at _: HomeLocation) async throws -> HomeWeather { throw BoxChannelError.appearsDown }
+  func writeNewsBrief() async throws -> HomeBriefResult { throw BoxChannelError.appearsDown }
 }
 
 /// The box as the model sees it: answers per identity tag, and a log of what was asked over which.

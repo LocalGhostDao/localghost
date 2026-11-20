@@ -60,14 +60,29 @@ final class BoxModel {
   private let keyring: any DeviceKeyring
   private let sessions: any SessionStoring
   private let connect: BoxConnect
+  private let signedInConnect: SignedInConnect
+  private let forgetLeftovers: @MainActor () -> Void
   private let now: () -> Date
   private let pollEvery: Duration
+
+  /// THE SIGNED-IN CHANNEL, one for the session. Home asks the box every five seconds and a chat
+  /// being written every second and a half; a channel made for each call (20 November 2026, as
+  /// merged) read the Keychain four times on the main actor and shook hands with the box again,
+  /// client certificate and all, every time. It is made at the first call after an unlock and
+  /// let go when what it was made from changes: the lock, the forgetting, a new unlock, the
+  /// device key replaced (the box retires the certificate this one presents), a status the box
+  /// refused, the session's end.
+  @ObservationIgnored private var signedIn: (channel: any SignedInCalls, session: BoxSession)?
+  @ObservationIgnored private var checkingRefusal = false
+  @ObservationIgnored private var renewingKey = false
 
   init(
     credentialStore: any CredentialStoring,
     keyring: any DeviceKeyring,
     sessions: any SessionStoring,
     connect: BoxConnect? = nil,
+    signedInConnect: SignedInConnect? = nil,
+    forgetLeftovers: @escaping @MainActor () -> Void = { SignedInLeftovers.clear() },
     now: @escaping () -> Date = { Date() },
     pollEvery: Duration = .seconds(1)
   ) {
@@ -75,6 +90,8 @@ final class BoxModel {
     self.keyring = keyring
     self.sessions = sessions
     self.connect = connect ?? Self.overTLS(keyring: keyring)
+    self.signedInConnect = signedInConnect ?? Self.signedInOverTLS(keyring: keyring)
+    self.forgetLeftovers = forgetLeftovers
     self.now = now
     self.pollEvery = pollEvery
   }
@@ -91,24 +108,75 @@ final class BoxModel {
     }
   }
 
+  /// The real signed-in channel: BoxClient over the identity whose key has the tag, with the
+  /// session's bearer, telling the model when the box refuses a call.
+  static func signedInOverTLS(keyring: any DeviceKeyring) -> SignedInConnect {
+    { credentials, tag, token, refused in
+      try BoxClient(
+        baseURL: credentials.baseURL,
+        fingerprint: credentials.certificateFingerprint,
+        identity: keyring.identity(tag: tag),
+        token: token,
+        onRefused: refused
+      )
+    }
+  }
+
   var canUnlock: Bool { !busy && !pin.isEmpty }
 
-  /// A fresh authenticated channel for signed-in features. Feature models keep only the factory,
-  /// never credentials or bearer material, and each call inherits the same pinned-mTLS rules.
-  func authenticatedClient() throws -> BoxClient {
-    guard let credentials = loadCredentials(),
-          let tag = credentials.keyTag,
-          let session = sessions.load(),
-          session.isValid(at: now())
-    else {
+  /// The authenticated channel for the signed-in features, the same one for the whole session.
+  /// Feature models keep only this factory, never credentials or bearer material, and every call
+  /// is under the same pinned-mTLS rules. With no session, or one past its end, there is none:
+  /// this iPhone goes back to the PIN.
+  func authenticatedClient() throws -> any SignedInCalls {
+    if let signedIn, signedIn.session.isValid(at: now()) {
+      return signedIn.channel
+    }
+    signedIn = nil
+    guard let credentials = loadCredentials(), let tag = credentials.keyTag else {
+      throw BoxChannelError.appearsDown // loadCredentials has said why
+    }
+    guard let session = sessions.load(), session.isValid(at: now()) else {
+      if screen == .open {
+        try? sessions.clear()
+        status = nil
+        screen = .unlock
+        errorMessage = "the session ended: open the box with the PIN"
+      }
       throw BoxChannelError.appearsDown
     }
-    return try BoxClient(
-      baseURL: credentials.baseURL,
-      fingerprint: credentials.certificateFingerprint,
-      identity: keyring.identity(tag: tag),
-      token: session.token
-    )
+    // called from the channel's own queue when the box answers 502 or 503
+    let refused: @Sendable () -> Void = { [weak self] in
+      _ = Task { @MainActor [weak self] in
+        await self?.signedInCallRefused()
+      }
+    }
+    let channel = try signedInConnect(credentials, tag, session.token, refused)
+    signedIn = (channel, session)
+    return channel
+  }
+
+  /// The box answered a signed-in call as if it were down. One endpoint can do that for its own
+  /// reasons, so the status is asked: refused too (locked, the session ended there, the
+  /// certificate retired), the session is cleared and this iPhone is back at the PIN; answered,
+  /// nothing changes. One check at a time, however many calls were refused together.
+  ///
+  /// Not while the device key is being replaced: the box retires the old certificate when it
+  /// confirms, calls already on their way over the old one come back refused, and the status
+  /// asked before the confirmation's answer is kept here would be asked over the old one too.
+  /// The refusal is expected and the next call goes over the new key; a box that really locked
+  /// is refused again five seconds later.
+  func signedInCallRefused() async {
+    guard screen == .open, !checkingRefusal, !renewingKey else { return }
+    checkingRefusal = true
+    defer { checkingRefusal = false }
+    // a hand-over whose confirmation was lost: the box has retired the certificate in use, so
+    // it is confirmed again first (the box says it already did) and the status goes over the
+    // new one
+    if (try? credentialStore.load())?.pendingKeyTag != nil {
+      await renewKeyIfDue()
+    }
+    await refresh()
   }
 
   /// At launch: a session still good goes straight to the status; otherwise the PIN.
@@ -129,6 +197,7 @@ final class BoxModel {
     guard canUnlock, let credentials = loadCredentials() else { return }
     let pin = self.pin
     self.pin = "" // not kept a moment longer than the request needs it
+    signedIn = nil // a new session is a new channel
     busy = true
     errorMessage = nil
     steps = []
@@ -188,6 +257,7 @@ final class BoxModel {
       errorMessage = nil
     } catch BoxChannelError.appearsDown {
       // a locked box, a session that ended, a certificate retired: the PIN again
+      signedIn = nil
       try? sessions.clear()
       status = nil
       screen = .unlock
@@ -200,6 +270,7 @@ final class BoxModel {
   /// Leave the signed-in shell and discard its bearer. Until biometric app locking exists on
   /// iOS, returning to the box PIN is the only lock boundary that does not pretend to secure it.
   func lock() {
+    signedIn = nil
     try? sessions.clear()
     pin = ""
     status = nil
@@ -210,12 +281,15 @@ final class BoxModel {
     screen = .unlock
   }
 
-  /// Forget this box: the device key, its certificate and the session leave this iPhone. The box
-  /// still lists this iPhone until it is retired there.
+  /// Forget this box: the device key, its certificate and the session leave this iPhone, and so
+  /// does what the signed-in screens kept outside the Keychain (Home's cache, the chat last
+  /// opened). The box still lists this iPhone until it is retired there.
   func forget() throws {
+    signedIn = nil
     try sessions.clear()
     try keyring.removeAll()
     try credentialStore.clear()
+    forgetLeftovers()
   }
 
   // --- the device key ---
@@ -223,6 +297,9 @@ final class BoxModel {
   /// The key in use is the QR's, or a day old: make one here and have the box sign for it. A
   /// hand-over the box answered and this iPhone never confirmed is confirmed first.
   func renewKeyIfDue() async {
+    guard !renewingKey else { return }
+    renewingKey = true
+    defer { renewingKey = false }
     guard var credentials = loadCredentials(), let session = sessions.load(), session.isValid(at: now()) else { return }
     do {
       if credentials.pendingKeyTag != nil {
@@ -275,6 +352,9 @@ final class BoxModel {
     credentials.pendingKeyTag = nil
     credentials.pendingCertificatePEM = nil
     try credentialStore.save(credentials)
+    // the box has retired the certificate the signed-in channel presents: the next call makes
+    // one over the new key
+    signedIn = nil
     if let old, old != tag {
       keyring.remove(tag: old)
     }
@@ -324,3 +404,23 @@ enum UnlockFailure: Error, Equatable {
 
 /// Makes the calls to the box over the identity whose key has the tag (the tests give their own).
 typealias BoxConnect = @MainActor (EnrolmentCredentials, String, String?) throws -> any BoxCalls
+
+/// What the signed-in screens ask of the box: the chat's calls and Home's.
+typealias SignedInCalls = ChatCalling & HomeServing
+
+/// Makes the signed-in channel: the credentials, the key's tag, the session's bearer, and what to
+/// call when the box refuses a call (the tests give their own).
+typealias SignedInConnect = @MainActor (
+  EnrolmentCredentials, String, String, @escaping @Sendable () -> Void
+) throws -> any SignedInCalls
+
+/// What the signed-in screens keep on this iPhone outside the Keychain: the chat last opened (an
+/// id in the preferences) and Home's cache (the news, the prices and the last forecast, which
+/// names the place it was for). Forgetting the box removes both; until 20 November 2026 they
+/// stayed, and the next box enrolled was asked for the last one's chat.
+enum SignedInLeftovers {
+  static func clear(preferences: UserDefaults = .standard, homeCache: URL = homeCacheFileURL()) {
+    ChatModel.forgetLastChat(in: preferences)
+    try? FileManager.default.removeItem(at: homeCache)
+  }
+}

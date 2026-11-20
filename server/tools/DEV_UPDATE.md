@@ -699,3 +699,76 @@ described are in the header of `tools/release.sh`; day to day a box is brought c
 - Tests: `RoadTileGeomTest` (which classes each zoom draws, the two screenshots' widths among
   them; the fade, rising and capped; the bigger road never later than the smaller; names from
   the later of the road in full and `NAME_PXZ`, for every class). Not yet looked at on a phone.
+
+## 20 November 2026 , iOS: the drawer, Home, Chat, About and the Glossary (David, pull request #20)
+- David (0ex-d), three commits on main `b420c31`, 21 files and some 6,700 lines, all under
+  `app/ios`. The signed-in shell with Android's drawer (`App/AppShellView.swift`; a screen not
+  built yet says so), HOME (the prices, CRYPTO50, the brief, the day's stories, FOR YOU, what
+  is next in the calendar, the weather), the chat over `/v1/chat` with its saved conversations
+  (open, rename, delete, stop, incognito, short/medium/long), ABOUT and the GLOSSARY in
+  Android's words. `BoxClient` gained `get`, `post` and `streamLines`; its resource timeout
+  went from 90 seconds to 15 minutes so a long answer is not cut. 72 tests where there were 25.
+- The iPhone fetches the box's public sources as Android's `BoxFetch` does (`/v1/phone/net`,
+  `/v1/fetch/list`, then `/v1/rates/fetched` and `/v1/news/fetched`), on a pull to refresh when
+  the box's feed mark is half an hour old. Its own session: the system's trust, no cookie, no
+  credential, no cache, no proxy, never the box's certificate or bearer. David ported the box's
+  destination rule (`egress/guard.go`) to it, which Android does not have: https only, no
+  userinfo, no local names, public addresses only, five redirects, each checked again. iOS
+  cannot see the peer it connected to, so the lookup is before the request, as the code says.
+- The position: when in use, to the kilometre, in memory, to `/v1/weather` on the box only. The
+  chat keeps no transcript on the phone; a link in an answer is text, a source opens only as
+  http or https with no userinfo; a copied answer stays on the device and expires in ten
+  minutes. Home's cache (`Caches/LocalGhost/home.json`) holds the public part only: FOR YOU and
+  the calendar are dropped before the encoder.
+- Reviewed before the merge (20 November), read from git: nothing outside `app/ios`, the Xcode
+  project changed only by its new files and the location's usage line, every route there in
+  secd and the shapes spot-checked against `hw.HomeSnap`, `hw.ForYou`, `hw.RatesSnapshot`, the
+  fast rates and the chat's request. Safe to merge; what the review asked for is the next entry.
+
+## 20 November 2026 , iOS after pull request #20: one channel for the session, back to the PIN, forgetting forgets all
+- ONE CHANNEL. `BoxModel.authenticatedClient()` made a `BoxClient` for every call: the
+  credentials, the session and the identity read from the Keychain on the main actor, a new
+  `URLSession`, a new handshake with the client certificate. Home asks every five seconds and a
+  chat being written every second and a half. The model now keeps one signed-in channel
+  (`SignedInCalls`, the chat's calls and Home's) from the first call after an unlock, and lets it
+  go at the lock, the forgetting, a new unlock, a status the box refused, the session's end,
+  and when the device key is replaced: the box retires the certificate the channel presents,
+  and `start()` rekeys while Home is already asking. It is made through a seam
+  (`SignedInConnect`) as the unlock's is, so the tests count the channels.
+- BACK TO THE PIN. A box that locked, or a session that ended, left the shell up saying "the box
+  did not answer" and asking again every five seconds. `BoxClient` takes a hook it calls on a
+  502 or a 503; the signed-in channel's asks the status once (`signedInCallRefused`): refused
+  too, the session is cleared and the PIN screen is back; answered, nothing changes, because
+  one endpoint can answer 503 for its own reasons. A session past its end goes back to the PIN
+  without asking the box anything.
+- Not while the key is being replaced. The box retires the old certificate when it confirms,
+  and Home is already asking by then (the shell is up before the rekey ends): a call on its way
+  over the old certificate comes back refused, and a status asked before the confirmation's
+  answer was kept would have gone over the old one too and ended the session, at the first
+  unlock after enrolling of all moments. `renewKeyIfDue` marks itself as running and the check
+  waits it out; the channel is made again over the new key as soon as it is kept. And a
+  confirmation whose answer was lost is repaired there and then: a refused call with a
+  hand-over pending confirms it again first (the box says it already did), so the status goes
+  over the new key and no PIN is asked for.
+- FORGETTING FORGETS ALL. "Forget this box" left Home's cache (the news, the prices, the last
+  forecast with the place it was for) and the id of the chat last opened, which the next box
+  enrolled was then asked for. `SignedInLeftovers.clear` removes both; the answer's length is
+  the person's and stays.
+- NAT64. The destination rule refused `64:ff9b::/96` whole, as the box's does. A box is never
+  behind NAT64; a phone on an IPv6-only mobile network is, and every IPv4-only feed resolves
+  into that prefix there. It is judged by the IPv4 address it carries, as an IPv4-mapped one
+  already was: `64:ff9b::101:101` passes, `64:ff9b::7f00:1` does not. The local-use prefix
+  beside it (`64:ff9b:1::/48`) is still refused.
+- THE BOX'S OWN ORIGIN. The calls are general now, and a path that is a whole address would
+  have been asked for with the bearer. The pin refuses another host's certificate and iOS
+  refuses plain http; `BoxClient.address` refuses the request before it is made.
+- Left as it is: the position is asked for as soon as the box opens, since Home is the first
+  screen either way.
+- Tests, ten more (82): one channel however often it is asked for; none after the lock; a new
+  one over the new key after a rekey; a refused call with a refused status back at the PIN with
+  no session; a refused call with an answered status changing nothing; a lost confirmation
+  repaired by a refused call; a session past its end back at the PIN with nothing asked; the
+  leftovers gone and the preference kept; the NAT64 addresses; the box's origin. The race with
+  the rekey has no test: the fakes answer in order. No new file, so the Xcode project is as it
+  was. Not compiled here (there is no Swift toolchain in the workspace): the iOS job on the
+  push is the first compile, and none of the iOS app has been tried against a box.

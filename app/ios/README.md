@@ -28,26 +28,62 @@ two differ, Android's behaviour and the box's code (`server/internal/secd`) are 
   in use never reaches the end of its two-week certificate. A confirmation whose answer was lost
   is confirmed again at the next start; if the box had already retired the old certificate, the
   unlock is tried over the new one.
+- **The shell** (`App/AppShellView.swift`). Signed in, Android's drawer: the same destinations in
+  the same groups. A screen that is not built yet says so.
+- **One channel for the session** (`BoxModel.authenticatedClient`). Home and the chat share one
+  pinned client from the first call after an unlock. It is let go at the lock, at forgetting,
+  at a new unlock and when the device key is replaced. When the box answers a call as if it
+  were down (502, 503) the status is asked once: refused too, the session is cleared and the PIN
+  screen is back (not while the key is being replaced, when a refusal over the old certificate
+  is expected). A session past its end goes back to the PIN without asking. A call can only go
+  to the box's own origin (`BoxClient.address`).
+- **Home** (`Features/Home`). `GET /v1/home`, `/v1/rates`, `/v1/news` each minute and
+  `/v1/rates/fast` every five seconds while it is on screen: the prices, CRYPTO50, the brief,
+  the day's stories, FOR YOU, what is next in the calendar. The weather is for where the iPhone
+  is: the position is asked for when in use, to the kilometre, kept in memory, and sent to
+  `/v1/weather` on the box and nowhere else. The last public answers are kept in Caches for the
+  next launch (`HomeCache`); FOR YOU and the calendar are never written.
+- **The phone fetches for the box** (`HomeFeedRefresher`). On a pull to refresh, when the box's
+  feeds are half an hour old, the iPhone fetches the public sources the box lists
+  (`/v1/fetch/list`) and hands the bytes over (`/v1/rates/fetched`, `/v1/news/fetched`), as the
+  Android app does. Its own session: the system's trust, no cookie, no credential, no proxy,
+  never the box's certificate or bearer. Only https, only public addresses, five redirects at
+  most, each checked again (`HomePublicDestinationPolicy`, the box's own rule; an address in
+  the NAT64 prefix is judged by the IPv4 address it carries).
+- **Chat** (`Features/Chat`). `POST /v1/chat`, streamed; the saved conversations (open, rename,
+  delete), stop, incognito, short/medium/long. Nothing of a conversation is kept on the phone.
+  A link in an answer is text; a source opens only as http or https. A copied answer stays on
+  this device and expires in ten minutes. No web search, attachments or voice yet.
 - **Box status.** `GET /v1/status`: the daemons and the datastores.
-- **Forget this box.** Deletes the device key, its certificate and the session from this iPhone.
-  The box still lists the iPhone until it is retired there.
+- **About and the Glossary.** The Android app's words.
+- **Forget this box.** Deletes the device key, its certificate and the session from this iPhone,
+  and what the signed-in screens kept outside the Keychain: Home's cache and the chat last
+  opened (`SignedInLeftovers`). The box still lists the iPhone until it is retired there.
 - **Reinstalling forgets too.** Keychain items outlive the app on iOS; the first launch after an
   install deletes whatever an earlier install left there (`InstallMark`).
 
-Not built yet: the rest of the Android app's screens, notifications, uploads.
+Not built yet: the gallery, the map, memories, mail, health, check-in, phrases, sync, the box's
+other screens, settings, notifications, uploads, the chat's web search. None of it has been
+tried against a box.
 
 ## Where things are
 
 ```
 LocalGhost/
-├── App/                  the entry point and the root view (setup, the box, credentials unreadable)
+├── App/                  the entry point, the root view (setup, the box, credentials unreadable),
+│                         the signed-in shell and its drawer
 ├── Core/
-│   ├── Networking/       the channel to the box: the pin, the client identity, the calls
+│   ├── Networking/       the channel to the box (the pin, the client identity, the calls), the
+│   │                     chat's and Home's calls, the public feed fetch and its destination rule
 │   └── Security/         the device keys, the rekey proof, the session, the install mark
 ├── DesignSystem/         the terminal look shared by every screen
 └── Features/
-    ├── Box/              the unlock, the rekey, Box Status
-    └── Enrolment/        the QR link, the scanner, the setup screen
+    ├── About/            what the app is and what leaves the box
+    ├── Box/              the unlock, the rekey, the signed-in channel, Box Status
+    ├── Chat/             the chat and the saved conversations
+    ├── Enrolment/        the QR link, the scanner, the setup screen
+    ├── Glossary/         every word, plain and technical
+    └── Home/             Home, its cache, the position for the weather
 LocalGhostTests/          the same folders, a test file beside each feature
 ```
 

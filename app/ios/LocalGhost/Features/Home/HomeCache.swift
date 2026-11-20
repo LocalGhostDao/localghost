@@ -14,6 +14,16 @@ nonisolated struct HomeCachedState: Codable, Sendable, Equatable {
   }
 }
 
+/// Where Home's cache is kept: in Caches, which iOS may empty and no backup carries. Forgetting
+/// the box removes the file (SignedInLeftovers).
+nonisolated func homeCacheFileURL() -> URL {
+  let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
+    ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+  return root
+    .appendingPathComponent("LocalGhost", isDirectory: true)
+    .appendingPathComponent("home.json", isDirectory: false)
+}
+
 /// The public feed data and last forecast used for an immediate Home render. Personal
 /// recommendations, calendar rows and coordinates never cross this actor's encoder.
 actor HomeCache {
@@ -26,11 +36,7 @@ actor HomeCache {
   }
 
   init() {
-    let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-      ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-    fileURL = root
-      .appendingPathComponent("LocalGhost", isDirectory: true)
-      .appendingPathComponent("home.json", isDirectory: false)
+    fileURL = homeCacheFileURL()
   }
 
   func load() -> HomeCachedState? {

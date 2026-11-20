@@ -654,6 +654,12 @@ final class ChatModel {
     return error.localizedDescription
   }
 
+  /// Forgetting the box: the chat last opened was that box's, and its id means another chat (or
+  /// none) on the next one. How long an answer should be is this person's and stays.
+  static func forgetLastChat(in preferences: UserDefaults = .standard) {
+    preferences.removeObject(forKey: lastChatIDKey)
+  }
+
   private static let answerLengthKey = "chat.answer-length"
   private static let lastChatIDKey = "chat.last-id"
 }

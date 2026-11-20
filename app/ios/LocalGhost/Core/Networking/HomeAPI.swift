@@ -606,8 +606,13 @@ nonisolated enum HomePublicDestinationPolicy {
     }
     if bytes[0] == 0xfe && bytes[1] & 0xc0 == 0xc0 { return false } // retired site-local
     if bytes[0] == 0x00 && bytes[1] == 0x64 && bytes[2] == 0xff && bytes[3] == 0x9b {
-      if bytes[4..<12].allSatisfy({ $0 == 0 }) { return false } // 64:ff9b::/96
-      if bytes[4] == 0x00 && bytes[5] == 0x01 { return false } // 64:ff9b:1::/48
+      // 64:ff9b::/96, the well-known NAT64 prefix: an IPv4 address in its last four bytes. The
+      // box refuses the whole prefix, and a box is never behind NAT64; a phone on an IPv6-only
+      // mobile network is, and there every IPv4-only feed resolves into it. So it is judged by
+      // the address it carries, the way an IPv4-mapped one is above: a public one passes, and
+      // 64:ff9b::7f00:1 (127.0.0.1 in disguise) does not.
+      if bytes[4..<12].allSatisfy({ $0 == 0 }) { return ipv4IsPublic(Array(bytes[12..<16])) }
+      if bytes[4] == 0x00 && bytes[5] == 0x01 { return false } // 64:ff9b:1::/48, local use
     }
     if bytes[0] == 0x20 && bytes[1] == 0x02 { return false } // 6to4
     if bytes[0...3] == [0x20, 0x01, 0x00, 0x00] { return false } // Teredo

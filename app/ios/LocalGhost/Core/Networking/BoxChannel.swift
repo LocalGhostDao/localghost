@@ -205,8 +205,18 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
   private let base: URL
   private let session: URLSession
   private let token: String?
+  /// Told when the box answers a call as if it were down (502, 503): locked, the session ended,
+  /// or the certificate retired. The signed-in channel gives one, so the app can go back to the
+  /// PIN; the unlock's own client gives none.
+  private let refused: (@Sendable () -> Void)?
 
-  init(baseURL: String, fingerprint: String, identity: SecIdentity, token: String?) throws {
+  init(
+    baseURL: String,
+    fingerprint: String,
+    identity: SecIdentity,
+    token: String?,
+    onRefused: (@Sendable () -> Void)? = nil
+  ) throws {
     guard let base = URL(string: baseURL), base.scheme?.lowercased() == "https", base.host != nil else {
       throw BoxChannelError.notEnrolled
     }
@@ -226,6 +236,7 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
     configuration.tlsMinimumSupportedProtocolVersion = .TLSv12
     self.base = base
     self.token = token
+    refused = onRefused
     session = URLSession(
       configuration: configuration,
       delegate: BoxTrustDelegate(pin: pin, identity: identity),
@@ -303,10 +314,10 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
     }
 
     return AsyncThrowingStream { continuation in
-      let task = Task { [session] in
+      let task = Task { [session, refused] in
         do {
           let (bytes, response) = try await session.bytes(for: request)
-          try Self.validate(response)
+          try Self.validate(response, onRefused: refused)
           for try await line in bytes.lines {
             try Task.checkCancellation()
             continuation.yield(line)
@@ -334,7 +345,7 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
     body: Data?,
     timeout: TimeInterval?
   ) throws -> URLRequest {
-    guard let url = URL(string: path, relativeTo: base) else { throw BoxChannelError.malformed }
+    guard let url = Self.address(path, on: base) else { throw BoxChannelError.malformed }
     var request = URLRequest(url: url)
     request.httpMethod = method
     request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -365,7 +376,7 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
       #endif
       throw BoxChannelError.unreachable(Self.describe(error))
     }
-    try Self.validate(response)
+    try Self.validate(response, onRefused: refused)
     do {
       return try JSONDecoder().decode(Answer.self, from: data)
     } catch {
@@ -373,13 +384,28 @@ nonisolated final class BoxClient: BoxCalls, Sendable {
     }
   }
 
-  private static func validate(_ response: URLResponse) throws {
+  private static func validate(_ response: URLResponse, onRefused: (@Sendable () -> Void)?) throws {
     guard let http = response as? HTTPURLResponse else { throw BoxChannelError.malformed }
     switch http.statusCode {
     case 200..<300: return
-    case 502, 503: throw BoxChannelError.appearsDown
+    case 502, 503:
+      onRefused?()
+      throw BoxChannelError.appearsDown
     default: throw BoxChannelError.unexpected(http.statusCode)
     }
+  }
+
+  /// Where a call goes: the path on the box's own origin, or nil. The calls are general now
+  /// (get, post, streamLines), and a path that is a whole address ("https://elsewhere/",
+  /// "//elsewhere/") would otherwise be asked for with the session's bearer. The pin already
+  /// refuses another host's certificate; this refuses the request before it is made.
+  static func address(_ path: String, on base: URL) -> URL? {
+    guard let url = URL(string: path, relativeTo: base)?.absoluteURL,
+          url.scheme?.lowercased() == "https",
+          url.host == base.host,
+          url.port == base.port
+    else { return nil }
+    return url
   }
 
   private static func describe(_ error: URLError) -> String {

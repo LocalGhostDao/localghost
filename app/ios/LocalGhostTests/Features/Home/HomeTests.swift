@@ -280,6 +280,21 @@ struct HomeWireModelTests {
   }
 
   @Test
+  func aNAT64AddressIsJudgedByTheIPv4AddressItCarries() {
+    // an IPv6-only mobile network hands an IPv4-only feed's address over inside 64:ff9b::/96
+    #expect(HomePublicDestinationPolicy.addressesArePublic(["64:ff9b::101:101"])) // 1.1.1.1
+    #expect(HomePublicDestinationPolicy.addressesArePublic(["64:ff9b::5db8:d822"])) // 93.184.216.34
+    #expect(!HomePublicDestinationPolicy.addressesArePublic(["64:ff9b::7f00:1"])) // 127.0.0.1
+    #expect(!HomePublicDestinationPolicy.addressesArePublic(["64:ff9b::a00:1"])) // 10.0.0.1
+    #expect(!HomePublicDestinationPolicy.addressesArePublic(["64:ff9b::c0a8:101"])) // 192.168.1.1
+    #expect(!HomePublicDestinationPolicy.addressesArePublic(["64:ff9b::a9fe:a9fe"])) // 169.254.169.254
+    // the local-use prefix beside it carries whatever a network likes: still refused
+    #expect(!HomePublicDestinationPolicy.addressesArePublic(["64:ff9b:1::101:101"]))
+    // and one private answer among public ones refuses the name, as before
+    #expect(!HomePublicDestinationPolicy.addressesArePublic(["64:ff9b::101:101", "64:ff9b::c0a8:101"]))
+  }
+
+  @Test
   func redirectsUseTheSameDestinationRuleAndStopAfterFiveHops() {
     #expect(
       HomePublicDestinationPolicy.validatedRedirectURL(
