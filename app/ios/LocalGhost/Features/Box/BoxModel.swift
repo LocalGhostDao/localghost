@@ -93,6 +93,24 @@ final class BoxModel {
 
   var canUnlock: Bool { !busy && !pin.isEmpty }
 
+  /// A fresh authenticated channel for signed-in features. Feature models keep only the factory,
+  /// never credentials or bearer material, and each call inherits the same pinned-mTLS rules.
+  func authenticatedClient() throws -> BoxClient {
+    guard let credentials = loadCredentials(),
+          let tag = credentials.keyTag,
+          let session = sessions.load(),
+          session.isValid(at: now())
+    else {
+      throw BoxChannelError.appearsDown
+    }
+    return try BoxClient(
+      baseURL: credentials.baseURL,
+      fingerprint: credentials.certificateFingerprint,
+      identity: keyring.identity(tag: tag),
+      token: session.token
+    )
+  }
+
   /// At launch: a session still good goes straight to the status; otherwise the PIN.
   func start() async {
     guard let session = sessions.load(), session.isValid(at: now()) else {
@@ -177,6 +195,19 @@ final class BoxModel {
     } catch {
       errorMessage = Self.words(for: error)
     }
+  }
+
+  /// Leave the signed-in shell and discard its bearer. Until biometric app locking exists on
+  /// iOS, returning to the box PIN is the only lock boundary that does not pretend to secure it.
+  func lock() {
+    try? sessions.clear()
+    pin = ""
+    status = nil
+    steps = []
+    errorMessage = nil
+    keyNote = nil
+    busy = false
+    screen = .unlock
   }
 
   /// Forget this box: the device key, its certificate and the session leave this iPhone. The box

@@ -193,6 +193,24 @@ struct BoxModelTests {
   }
 
   @Test
+  func lockingTheShellDropsTheBearerAndReturnsToThePIN() {
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
+    let model = makeModel(
+      MemoryCredentialStore(EnrolmentFixture.credentials(tag: "device")),
+      RecordingKeyring(),
+      sessions,
+      FakeBox()
+    )
+    model.pin = "123456"
+
+    model.lock()
+
+    #expect(model.screen == .unlock)
+    #expect(model.pin.isEmpty)
+    #expect(sessions.load() == nil)
+  }
+
+  @Test
   func thePINOpensTheBoxAndTheQRsKeyIsReplaced() async throws {
     let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
     let keyring = RecordingKeyring()

@@ -13,6 +13,24 @@ struct BoxView: View {
     + "The box still lists this iPhone until it is retired there; enrolling again takes a new QR from the box."
 
   var body: some View {
+    Group {
+      if model.screen == .open {
+        AppShellView(
+          boxModel: model,
+          onLock: { model.lock() },
+          onForgotten: onForgotten
+        )
+      } else {
+        accessView
+      }
+    }
+    .toolbar(.hidden, for: .navigationBar)
+    .task {
+      await model.start()
+    }
+  }
+
+  private var accessView: some View {
     GhostScreen {
       ScrollView {
         VStack(alignment: .leading, spacing: 0) {
@@ -22,7 +40,7 @@ struct BoxView: View {
           case .opening:
             openingSection
           case .open:
-            statusSection
+            EmptyView()
           }
 
           if let message = forgetError ?? model.errorMessage {
@@ -51,10 +69,6 @@ struct BoxView: View {
         .padding(.bottom, 28)
       }
       .scrollDismissesKeyboard(.interactively)
-    }
-    .toolbar(.hidden, for: .navigationBar)
-    .task {
-      await model.start()
     }
     .confirmationDialog("Forget this box?", isPresented: $confirmingForget, titleVisibility: .visible) {
       Button("Forget this box", role: .destructive) {
@@ -130,49 +144,97 @@ struct BoxView: View {
     }
   }
 
-  private var statusSection: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      TerminalSectionLabel(text: "Box status")
+}
 
-      if let status = model.status {
-        ForEach(status.services, id: \.name) { service in
-          VStack(alignment: .leading, spacing: 2) {
-            HStack {
-              Text(service.name)
-                .foregroundStyle(theme.text)
-              Spacer()
-              Text(service.state.lowercased())
-                .foregroundStyle(Self.isWell(service.state) ? theme.accent : theme.warning)
-            }
-            if let detail = service.detail ?? service.lastErr, !detail.isEmpty {
-              Text(detail)
-                .font(theme.font(.caption))
-                .foregroundStyle(theme.textDim)
-            }
-          }
-          .font(theme.font(.callout))
-        }
-        ForEach(status.datastores ?? [], id: \.name) { store in
-          HStack {
-            Text(store.name)
-              .foregroundStyle(theme.text)
-            Spacer()
-            Text(store.state.lowercased())
-              .foregroundStyle(Self.isWell(store.state) ? theme.accent : theme.warning)
-          }
-          .font(theme.font(.callout))
-        }
-      } else {
-        Text("> asking the box...")
-          .font(theme.font(.callout))
-          .foregroundStyle(theme.textDim)
-      }
+struct BoxStatusView: View {
+  @Environment(GhostTheme.self) private var theme
+  @State private var confirmingForget = false
+  @State private var forgetError: String?
 
-      GhostButton(title: "Refresh") {
-        Task { await model.refresh() }
+  let model: BoxModel
+  let onForgotten: () -> Void
+
+  var body: some View {
+    GhostScreen {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 10) {
+          TerminalSectionLabel(text: "Box status")
+
+          if let status = model.status {
+            ForEach(status.services, id: \.name) { service in
+              VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                  Text(service.name)
+                    .foregroundStyle(theme.text)
+                  Spacer()
+                  Text(service.state.lowercased())
+                    .foregroundStyle(Self.isWell(service.state) ? theme.accent : theme.warning)
+                }
+                if let detail = service.detail ?? service.lastErr, !detail.isEmpty {
+                  Text(detail)
+                    .font(theme.font(.caption))
+                    .foregroundStyle(theme.textDim)
+                }
+              }
+              .font(theme.font(.callout))
+            }
+            ForEach(status.datastores ?? [], id: \.name) { store in
+              HStack {
+                Text(store.name)
+                  .foregroundStyle(theme.text)
+                Spacer()
+                Text(store.state.lowercased())
+                  .foregroundStyle(Self.isWell(store.state) ? theme.accent : theme.warning)
+              }
+              .font(theme.font(.callout))
+            }
+          } else {
+            Text("> asking the box...")
+              .font(theme.font(.callout))
+              .foregroundStyle(theme.textDim)
+          }
+
+          if let message = forgetError ?? model.errorMessage {
+            GhostErrorBanner(message: message)
+              .accessibilityIdentifier("box.error")
+              .padding(.top, 8)
+          }
+
+          if let note = model.keyNote {
+            Text("> \(note)")
+              .font(theme.font(.caption))
+              .foregroundStyle(theme.accentDim)
+              .padding(.top, 8)
+          }
+
+          GhostButton(title: "Refresh") {
+            Task { await model.refresh() }
+          }
+          .accessibilityIdentifier("box.refresh")
+          .padding(.top, 18)
+
+          GhostButton(title: "Forget this box") {
+            confirmingForget = true
+          }
+          .accessibilityIdentifier("box.forget")
+          .padding(.top, 20)
+        }
+        .padding(20)
+        .padding(.bottom, 20)
       }
-      .accessibilityIdentifier("box.refresh")
-      .padding(.top, 18)
+    }
+    .confirmationDialog("Forget this box?", isPresented: $confirmingForget, titleVisibility: .visible) {
+      Button("Forget this box", role: .destructive) {
+        do {
+          try model.forget()
+          onForgotten()
+        } catch {
+          forgetError = error.localizedDescription
+        }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(BoxView.forgetWords)
     }
   }
 

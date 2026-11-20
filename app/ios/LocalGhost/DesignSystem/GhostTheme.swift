@@ -176,20 +176,24 @@ struct GhostErrorBanner: View {
 struct GhostMark: View {
   @Environment(GhostTheme.self) private var theme
 
+  var width: CGFloat = 62
+
   var body: some View {
+    let height = width * 72 / 62
+
     ZStack(alignment: .top) {
       GhostBody()
         .fill(theme.accent)
 
-      HStack(spacing: 12) {
+      HStack(spacing: width * 12 / 62) {
         Circle()
         Circle()
       }
       .foregroundStyle(theme.background)
-      .frame(width: 30, height: 8)
-      .padding(.top, 15)
+      .frame(width: width * 30 / 62, height: width * 8 / 62)
+      .padding(.top, width * 15 / 62)
     }
-    .frame(width: 62, height: 72)
+    .frame(width: width, height: height)
     .accessibilityHidden(true)
   }
 }
