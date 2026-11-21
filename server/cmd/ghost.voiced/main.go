@@ -38,6 +38,7 @@ import (
 	"github.com/LocalGhostDao/localghost/server/internal/rotlog"
 	"github.com/LocalGhostDao/localghost/server/internal/svcconf"
 	"github.com/LocalGhostDao/localghost/server/internal/voiced"
+	"github.com/LocalGhostDao/localghost/server/internal/workcount"
 )
 
 const service = "ghost.voiced"
@@ -84,6 +85,7 @@ func main() {
 			Mount: mount,
 			Log:   lg,
 			Find:  voiced.FindEngine,
+			Work:  workcount.New(),
 			Open: func() (voiced.DB, error) {
 				cfg, err := hw.LoadServicesConfig(mount)
 				if err != nil {
@@ -134,11 +136,20 @@ func main() {
 			if err != nil {
 				return ctlsock.Response{}, err
 			}
-			text, err := voiced.Report(db, d.Stat())
+			text, err := voiced.Report(db, d.Stat(), d.AsksSoFar())
 			if err != nil {
 				return ctlsock.Response{}, err
 			}
 			return ctlsock.Response{OK: true, Text: text}, nil
+		})
+		// work , what the daemon did since it started (questions heard, notes transcribed, a note
+		// set aside for a question) and how long a question takes: secd's Box Status drill-in
+		ctl.Handle("work", func(json.RawMessage) (ctlsock.Response, error) {
+			data, err := json.Marshal(map[string]any{"work": d.Work.Snapshot(), "asks": d.AsksSoFar()})
+			if err != nil {
+				return ctlsock.Response{}, err
+			}
+			return ctlsock.Response{OK: true, Data: data}, nil
 		})
 		// voice-again id=<id>|failed , back in the queue (a better model arrived, or a note failed)
 		ctl.Handle("voice-again", func(args json.RawMessage) (ctlsock.Response, error) {

@@ -117,11 +117,21 @@ func (c *Client) OnGPU() (bool, error) {
 // ArbiterInfo is what oracled says of the arbiter's own model, in its `models` answer: whether
 // the box has a second model for ghost.shadowd's cold read, whether its process is up, and
 // which model a cold read asked for now would be read by.
+//
+// The field names are its own on purpose. This sits inside oracled's `models` answer, which
+// the tools read with sed and grep for the MAIN model's "ready", "verdict", "speed" and
+// "tokPerSecLast" (tools/update.sh waits on "ready": true; tools/gpu.sh times tokPerSecLast).
+// A second "ready" here, sorted ahead of the first, would answer for the wrong model.
 type ArbiterInfo struct {
 	Has   bool   `json:"has"`             // the box has a second model for the arbiter
 	Model string `json:"model,omitempty"` // its name
-	Ready bool   `json:"ready"`
-	Why   string `json:"why,omitempty"` // why it is not up
+	Up    bool   `json:"up"`              // its process is serving
+	Why   string `json:"why,omitempty"`   // why it is not up
+	// What it has done since it started: how many questions it answered, how fast it
+	// writes, and when it last did.
+	Answers         int     `json:"answers,omitempty"`
+	TokensPerSecond float64 `json:"tokensPerSecond,omitempty"`
+	LastAnswerAt    string  `json:"lastAnswerAt,omitempty"`
 	// ServedBy is which model reads now: the second model's name, "the main model", or
 	// "nothing yet: waiting for <name>" while a second model starts.
 	ServedBy string `json:"servedBy"`

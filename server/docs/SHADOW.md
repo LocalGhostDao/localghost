@@ -245,6 +245,22 @@ from before the page opens Box Status as it did.
 None of them changes a threshold or a mute: those go through secd, signed in, so that every
 change is logged with the rest.
 
+## Where it shows
+
+| Where | What |
+|---|---|
+| Box Status › ghost.shadowd (the app; `GET /v1/daemon?name=`) | which model the cold read is by, then the counts: answers looked at, read cold, where the cold read differed, named in thirty days, settings changed |
+| Box Status › ghost.oracled | the arbiter's own model: its name, up or why not, how many questions it has answered and how fast; on a box with none, that the main model reads and what a second one would change |
+| Box Status › the GPU | "on the CPU by choice" lists the arbiter's model beside the embeddings and the speech engine |
+| `tools/health.sh` | under ghost.oracled, `arbiter's model: …`; under ghost.shadowd, what it named in thirty days, the next reset, and which model reads cold |
+| `ghost-cli ghost.oracled models` | the `arbiter` block: `has`, `model`, `up`, `why`, `answers`, `tokensPerSecond`, `lastAnswerAt`, `servedBy` |
+| ghost.oracled's health line | stays OK, with "the arbiter's model (…) is not up: …" when it is not |
+
+The `arbiter` block's names are its own on purpose. The tools read `models` with sed and grep
+for the main model's `ready`, `verdict`, `speed` and `tokPerSecLast` (`tools/update.sh` waits
+on `"ready": true`), and a second `ready` in the same answer would have answered for the
+wrong model. A test holds the names apart.
+
 ## The tables
 
 `shadow_observations` (one row per thing named, unique on detector and subject, so nothing is

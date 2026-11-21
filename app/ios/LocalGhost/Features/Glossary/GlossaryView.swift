@@ -196,8 +196,8 @@ enum GlossaryContent {
       ),
       GlossaryTerm(
         name: "ghost.shadowd",
-        technical: "Scans messages for manipulation patterns and flags them.",
-        plain: "Watches for messages trying to manipulate you and warns you."
+        technical: "The arbiter and a fleet of detectors. Asks a saved question again with nothing about you and compares (the cold read), reads a chat for the box giving way, pressing or leading, and counts what the box already holds. Names what it sees; blocks nothing.",
+        plain: "Checks the box itself: whether it only tells you what you want to hear. It tells you what it sees and stops."
       ),
       GlossaryTerm(
         name: "ghost.synthd",

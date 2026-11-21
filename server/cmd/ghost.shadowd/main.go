@@ -191,13 +191,31 @@ var passMu sync.Mutex
 //	try            the self-test: nine written cases through the arbiter's model, with what it
 //	               said where a case did not pass. Run it after the model is changed.
 //
+// namedLately is how much the fleet has named in thirty days, and how many answers the arbiter
+// has looked at, in a line.
+func namedLately(db *poltergres.ReadWrite, now time.Time) string {
+	n := func(q string, args ...any) string {
+		rows, err := db.Query(q, args...)
+		if err != nil || len(rows.Vals) != 1 || rows.Vals[0][0] == nil {
+			return "0"
+		}
+		return *rows.Vals[0][0]
+	}
+	since := now.Add(-30 * 24 * time.Hour).Unix()
+	return fmt.Sprintf("named in thirty days: %s (%s while muted) · answers looked at: %s, read cold: %s",
+		n("SELECT count(*) FROM shadow_observations WHERE ts >= $1", since),
+		n("SELECT count(*) FROM shadow_observations WHERE muted AND ts >= $1", since),
+		n("SELECT count(*) FROM shadow_reads"),
+		n("SELECT count(*) FROM shadow_reads WHERE cold <> ''"))
+}
+
 // readBy says which model the cold read is read by, for a terminal.
 func readBy(oc *oracle.Client) string {
 	a, err := oc.Arbiter()
 	switch {
 	case err != nil:
 		return "the cold read is by: unknown, ghost.oracled does not answer (" + err.Error() + ")"
-	case a.Has && a.Ready:
+	case a.Has && a.Up:
 		return "the cold read is by: " + a.Model + ", a second model beside " + a.Main
 	case a.Has:
 		return "the cold read is by: " + a.ServedBy + " (" + a.Model + " is not up: " + a.Why + ")"
@@ -236,6 +254,8 @@ func bindCommands(ctl *ctlsock.Server, db *poltergres.ReadWrite, oc *oracle.Clie
 			}
 			b.WriteString(line + "\n")
 		}
+		// the last three lines are what tools/health.sh prints: named lately, the reset, who reads
+		b.WriteString(namedLately(db, now) + "\n")
 		b.WriteString("thresholds go back to their baseline on " + time.Unix(shadow.NextReset(db, now), 0).Format("2 January 2006") + "\n")
 		b.WriteString(readBy(oc) + "\n")
 		return words(b.String())

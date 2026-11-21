@@ -2713,6 +2713,19 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 		add("charter", "surfaces reflections from your life , offerings, not homework")
 		add("episodes to draw from", one("SELECT count(*) FROM memories WHERE kind = 'episode' AND NOT tombstoned"))
 		key("last reflection", one("SELECT coalesce(value,'never') FROM settings WHERE key = 'cued_reflected'"))
+	case "ghost.voiced":
+		// What the daemon did since it started (questions asked aloud, notes transcribed) is put
+		// ahead of these by secd from the daemon's own count; a question leaves no row here.
+		add("charter", "your own voice, heard on the box: a note is kept with its words, a question is heard and forgotten")
+		key("voice notes", one("SELECT count(*) FROM voice_notes"))
+		add("transcribed", one("SELECT count(*) FROM voice_notes WHERE status = 'done'"))
+		add("waiting", one("SELECT count(*) FROM voice_notes WHERE status = 'pending'"))
+		add("failed", one("SELECT count(*) FROM voice_notes WHERE status = 'failed'"))
+		add("audio kept", one("SELECT to_char(coalesce(sum(duration_ms), 0) / 3600000.0, 'FM999990.0') || ' hours' FROM voice_notes"))
+		add("languages heard", one(`SELECT coalesce(string_agg(l || ' ' || n, ' · ' ORDER BY n DESC, l), 'none yet')
+			FROM (SELECT lang AS l, count(*) AS n FROM voice_notes WHERE status = 'done' AND lang <> '' GROUP BY lang) x`))
+		add("speech model", one("SELECT coalesce((SELECT model FROM voice_notes WHERE status = 'done' AND model <> '' ORDER BY transcribed_at DESC LIMIT 1), 'none used yet')"))
+		add("where it runs", "on the CPU: the card's memory is the chat model's. A note waits its turn at low priority; a question asked aloud goes first")
 	case "ghost.oracled":
 		key("role", "the only daemon that talks to the model; everyone else asks it")
 		add("queue + model state", "see Box Status sparklines (stats sampler)")

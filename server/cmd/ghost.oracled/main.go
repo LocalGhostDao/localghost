@@ -163,11 +163,13 @@ func main() {
 		arbName = oracled.ArbiterName(arbPath)
 	}
 	var arbStop func()
+	var arbStats func() oracled.StatsSummary // nil on a box with one model
 	if arbPath == "" {
 		lg.Info("no second model for the arbiter on this box (no ai-models/arbiter-*.gguf): ghost.shadowd's cold read is by the main model, and says so", "fn", "main")
 	} else {
 		arb := oracled.NewArbiterBackend(cfg.LlamaBin, arbPath, arbName, cfg.ArbiterPort, cfg.ArbiterArgs)
 		arbStop = arb.Stop
+		arbStats = arb.Stats
 		go func() {
 			for !modelReady.Load() {
 				select {
@@ -342,7 +344,13 @@ func main() {
 		}
 		// the arbiter's own model: whether the box has one, whether it is up, and which model
 		// a cold read asked for now would be read by
-		m["arbiter"] = lanes.Arbiter()
+		a := lanes.Arbiter()
+		a.Main = cfg.ModelName
+		if arbStats != nil {
+			st := arbStats()
+			a.Answers, a.TokensPerSecond, a.LastAnswerAt = st.Inferences, st.TokPerSecAvg, st.LastAt
+		}
+		m["arbiter"] = a
 		data, _ := json.Marshal(m)
 		return ctlsock.Response{OK: true, Data: data}, nil
 	})
@@ -363,7 +371,7 @@ func main() {
 			if vis, why := llama.Vision(); !vis {
 				detail = append(detail, "text only, no photo is described: "+why)
 			}
-			if a := lanes.Arbiter(); a.Has && !a.Ready {
+			if a := lanes.Arbiter(); a.Has && !a.Up {
 				detail = append(detail, "the arbiter's model ("+a.Model+") is not up: "+a.Why)
 			}
 			return ghosthealth.Health{Code: ghosthealth.OK, Name: service, Detail: strings.Join(detail, "; ")}

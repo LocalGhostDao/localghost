@@ -31,7 +31,7 @@ class ShadowTextTest {
       ],
       "nextReset": 1800000000, "resetDays": 90, "maxMuteHours": 72,
       "changes": [{"at":1795000000,"detector":"praise-openers","what":"threshold","old":"0.25","new":"0.3","quieter":true}],
-      "arbiter": {"has":false,"ready":false,"servedBy":"the main model","main":"gemma-4-12b"}
+      "arbiter": {"has":false,"up":false,"servedBy":"the main model","main":"gemma-4-12b"}
     }"""
 
     @Test fun theFleet() {

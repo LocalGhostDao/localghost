@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
+	"github.com/LocalGhostDao/localghost/server/internal/workcount"
 )
 
 // DB is the part of the Postgres client the daemon uses (a *poltergres.ReadWrite).
@@ -76,7 +77,83 @@ type Daemon struct {
 	queueStop context.CancelFunc // stops the queue's whisper; nil when it runs none
 	setAside  bool               // the queue's whisper was stopped for a question
 	langs     []string           // the languages this box has heard its person speak, most first (read every pass)
+	// Work counts what the daemon did since it started (questions heard, notes transcribed, a
+	// note set aside), for the Box Status drill-in; nil counts nothing. A question leaves no
+	// row, so these counts and the timings beside them are the only account of one.
+	Work     *workcount.Counter
+	askLast  Ask             // the last question heard
+	askTook  []time.Duration // how long each of the last twenty took
+	askCount int
 }
+
+// Ask is one question asked aloud as the daemon remembers it: when, how much was said, how
+// long the words took, and in what language. Not the words: a question is heard and forgotten.
+type Ask struct {
+	At      int64  `json:"at"`      // unix seconds
+	AudioMS int64  `json:"audioMs"` // how much was said
+	TookMS  int64  `json:"tookMs"`  // how long whisper took, both hearings when it was heard twice
+	Lang    string `json:"lang,omitempty"`
+	Words   int    `json:"words"`
+	Again   bool   `json:"again,omitempty"` // heard a second time, in the person's own language
+}
+
+// Asks is the questions asked aloud since the daemon started: how many whisper heard, the
+// last one, and how long one takes on this box (the mean of the last twenty).
+type Asks struct {
+	N         int   `json:"n"`
+	Last      *Ask  `json:"last,omitempty"`
+	AvgTookMS int64 `json:"avgTookMs,omitempty"`
+	Over      int   `json:"over,omitempty"` // how many the mean is over
+}
+
+// AsksSoFar reports the questions since the daemon started.
+func (d *Daemon) AsksSoFar() Asks {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := Asks{N: d.askCount, Over: len(d.askTook)}
+	if d.askCount > 0 {
+		last := d.askLast
+		out.Last = &last
+	}
+	var sum time.Duration
+	for _, t := range d.askTook {
+		sum += t
+	}
+	if len(d.askTook) > 0 {
+		out.AvgTookMS = (sum / time.Duration(len(d.askTook))).Milliseconds()
+	}
+	return out
+}
+
+func (d *Daemon) noteAsk(a Ask, took time.Duration) {
+	d.mu.Lock()
+	d.askCount++
+	d.askLast = a
+	d.askTook = append(d.askTook, took)
+	if len(d.askTook) > 20 {
+		d.askTook = d.askTook[len(d.askTook)-20:]
+	}
+	d.mu.Unlock()
+}
+
+// Line says the questions in a sentence, for the terminal and the phone's Speech card; "" when
+// none has been asked since the daemon started.
+func (a Asks) Line() string {
+	if a.N == 0 || a.Last == nil {
+		return ""
+	}
+	s := fmt.Sprintf("%d heard since the daemon started · the last was %s of speech, heard in %s", a.N, secs(a.Last.AudioMS), secs(a.Last.TookMS))
+	if a.Last.Lang != "" {
+		s += " (" + a.Last.Lang + ")"
+	}
+	if a.Over > 1 {
+		s += fmt.Sprintf(" · %s on average over the last %d", secs(a.AvgTookMS), a.Over)
+	}
+	return s
+}
+
+// secs writes milliseconds as seconds to one place: 3.2 s.
+func secs(ms int64) string { return strconv.FormatFloat(float64(ms)/1000, 'f', 1, 64) + " s" }
 
 // State is what the phone is told beside each waiting note: why nothing is being transcribed, or
 // which note is being transcribed now. voiced rewrites it every 15 s at <mount>/voiced/state.json
@@ -86,7 +163,9 @@ type State struct {
 	Why     string `json:"why,omitempty"`
 	Working string `json:"working,omitempty"`
 	Pending int    `json:"pending"`
-	At      int64  `json:"at"` // unix ms of the write
+	// Asks: the questions asked aloud since the daemon started, in a sentence ("" none yet)
+	Asks string `json:"asks,omitempty"`
+	At   int64  `json:"at"` // unix ms of the write
 }
 
 // StateFresh: how old the state file may be before voiced counts as not running.
@@ -106,8 +185,9 @@ func ReadState(mount string) (State, bool) {
 }
 
 func (d *Daemon) writeState() {
+	asks := d.AsksSoFar().Line()
 	d.mu.Lock()
-	st := State{Engine: d.stat.Engine, Why: d.stat.Why, Working: d.working, Pending: d.stat.Pending, At: time.Now().UnixMilli()}
+	st := State{Engine: d.stat.Engine, Why: d.stat.Why, Working: d.working, Pending: d.stat.Pending, Asks: asks, At: time.Now().UnixMilli()}
 	d.mu.Unlock()
 	b, _ := json.Marshal(st)
 	p := StatePath(d.Mount)
@@ -400,6 +480,7 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 		stop()
 		if terr != nil && aside && ctx.Err() == nil {
 			d.Log.Info("voice note set aside for a question asked aloud; taken up again after it", "fn", "TranscribeNext", "id", id[:min(8, len(id))])
+			d.Work.Add("note set aside", 1)
 			continue // not the note's fault: no try counted
 		}
 		break
@@ -415,6 +496,7 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 		_ = db.Exec(`UPDATE voice_notes SET tries = tries + 1, error = $2,
 			status = CASE WHEN tries + 1 >= $3 THEN 'failed' ELSE 'pending' END WHERE id = $1`, id, msg, MaxTries)
 		d.setLast("failed on " + id[:8])
+		d.Work.Add("note failed", 1)
 		return false, fmt.Errorf("%s: %w", id[:8], terr)
 	}
 	d.mu.Lock()
@@ -440,6 +522,7 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 	d.Log.Info("voice note transcribed", "fn", "TranscribeNext", "id", id[:8], "lang", res.Lang,
 		"words", len(strings.Fields(res.Text)), "took", res.Took.Round(time.Second).String())
 	d.setLast(fmt.Sprintf("transcribed %s (%d words, %s)", id[:8], len(strings.Fields(res.Text)), res.Took.Round(time.Second)))
+	d.Work.Add("note transcribed", 1)
 	return true, nil
 }
 
@@ -539,6 +622,7 @@ func (d *Daemon) Hear(ctx context.Context, path string, langs []string) (Result,
 			if loud, lerr := LoudestTenth(f, info); lerr == nil && loud < SilenceFloor {
 				f.Close()
 				d.Log.Info("question had no sound in it; not given to whisper", "fn", "Hear", "loudest", fmt.Sprintf("%.4f", loud), "audio", audio.Round(100*time.Millisecond).String())
+				d.Work.Add("question no sound", 1)
 				return Result{}, nil
 			}
 		}
@@ -563,8 +647,10 @@ func (d *Daemon) Hear(ctx context.Context, path string, langs []string) (Result,
 	defer d.engMu.Unlock()
 	res, err := d.transcribeFile(ctx, path, "ask-"+id, eng)
 	if err != nil {
+		d.Work.Add("question failed", 1)
 		return Result{}, err
 	}
+	heardAgain := false
 	if res.Lang != "" && len(spoken) > 0 && audio <= guessWindow && !hasLang(spoken, res.Lang) {
 		// heard as a language this person has never spoken to the box, nor set their phone to
 		eng.Lang = spoken[0]
@@ -573,9 +659,18 @@ func (d *Daemon) Hear(ctx context.Context, path string, langs []string) (Result,
 			again.Took += res.Took
 			again.Lang = eng.Lang
 			res = again
+			heardAgain = true
+			d.Work.Add("question heard again", 1)
 		}
 	}
 	res.Text, _ = FixNames(res.Text, names)
+	words := len(strings.Fields(res.Text))
+	if words > 0 {
+		d.Work.Add("question heard", 1)
+	} else {
+		d.Work.Add("question no words", 1)
+	}
+	d.noteAsk(Ask{At: time.Now().Unix(), AudioMS: audio.Milliseconds(), TookMS: res.Took.Milliseconds(), Lang: res.Lang, Words: words, Again: heardAgain}, res.Took)
 	d.Log.Info("question heard", "fn", "Hear", "lang", res.Lang, "words", len(strings.Fields(res.Text)), "audio", audio.Round(100*time.Millisecond).String(), "took", res.Took.Round(100*time.Millisecond).String())
 	return res, nil
 }
@@ -697,13 +792,19 @@ func Again(db DB, id string) (int, error) {
 }
 
 // Report is the `voice` control command's text: the counts, the engine, the newest notes.
-func Report(db DB, st Stat) (string, error) {
+func Report(db DB, st Stat, asks Asks) (string, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "voice notes: %d pending, %d transcribed, %d failed\n", st.Pending, st.Done, st.Failed)
 	if st.Engine != "" {
-		fmt.Fprintf(&b, "engine: whisper.cpp with %s (threads %d, CPU, nice 10)\n", st.Engine, Threads())
+		fmt.Fprintf(&b, "engine: whisper.cpp with %s (CPU; a note on %d threads at nice 10, a question on %d at the ordinary priority)\n", st.Engine, Threads(), UrgentThreads())
 	} else {
 		fmt.Fprintf(&b, "engine: none , %s\n", st.Why)
+	}
+	// the third line, always: tools/health.sh prints the first three
+	if line := asks.Line(); line != "" {
+		fmt.Fprintf(&b, "questions asked aloud: %s\n", line)
+	} else {
+		b.WriteString("questions asked aloud: none since the daemon started\n")
 	}
 	if st.Last != "" {
 		fmt.Fprintf(&b, "last: %s\n", st.Last)

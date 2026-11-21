@@ -909,7 +909,7 @@ the app had no page. Five things, in the order they were built.
 - `KeepArbiter` is the main model's supervise loop again (start, a rejected flag dropped,
   backoff, watched, started again), written beside it and not through it: that loop has a year
   of incidents in it and no test, and was left alone.
-- `models` says `arbiter` (has, model, ready, why, servedBy); the health line stays OK and says
+- `models` says `arbiter` (has, model, up, why, servedBy); the health line stays OK and says
   when the second model is down. `oracle.Client.Arbiter()` reads it; `GET /v1/shadow` carries
   it; `ghost-cli ghost.shadowd fleet` prints it.
 - WHICH MODEL is not in the code. `tools/setup_llama.sh` asks the mirror for a set `arbiter`
@@ -1020,4 +1020,41 @@ and the cut, the line's words, the phone's languages. Go: a silent file never re
 engine, the language heard again and when not, a note three seconds into whisper set aside
 for a question heard in under two and then finished with no try counted (with -race), the
 header through secd.
+
+## 21 November 2026 , the status views: questions asked aloud, the arbiter's model, shadowd
+
+Vlad: "did we add it to the health view and everwhere else?" No. Each of the round's three
+additions had a page of its own and was missing from the views a person checks a box by.
+
+- ghost.voiced HAD NO DRILL-IN ("no drill-in for this daemon yet"). It has one: from the
+  database the notes (count, transcribed, waiting, failed, hours kept, languages heard, the
+  speech model, where it runs), and ahead of them what the daemon did since it started. A
+  question asked aloud leaves no row anywhere, so the daemon now counts
+  (`internal/workcount`: heard, heard again in your language, no words, no sound, failed; a
+  note transcribed, set aside, failed) and times them (`Daemon.AsksSoFar`: the last one's
+  length, time and language, the mean of the last twenty; never the words). It answers `work`
+  like framed and searchd; secd's `workRows` labels the kinds and `askRows` adds the timings.
+- THE SAME FACTS in `ghost-cli ghost.voiced voice` (its third line, always, since
+  `tools/health.sh` prints three), in the state file (`State.Asks`), and so on the Speech card
+  under INTEGRATIONS.
+- THE ARBITER'S MODEL under ghost.oracled (`arbiterRows`: name, up or why not, answers, tok/s,
+  last; or none and who reads instead), under the GPU ("on the CPU by choice"), and in
+  `health.sh` and `gpu.sh` (the latter only to say it is not what the script judges).
+  `models` gained the arbiter's own figures.
+- WHICH MODEL READS COLD at the top of ghost.shadowd's drill-in (`readByRows`), and in
+  `health.sh` with what it named in thirty days and the next reset (`fleet`'s last three lines).
+- A FAULT OF THE FIRST DROP, found here. `tools/update.sh` waits for the model with
+  `grep -q '"ready": *true'` on oracled's `models`, and `gpu.sh` reads `tokPerSecLast` with
+  `head -1`. The arbiter's block had a `ready` of its own and sorts first: with a second model
+  up and the main one starting again, the update would have stopped waiting. The block's
+  field is `up`, its figures are `answers`, `tokensPerSecond`, `lastAnswerAt`, and a test
+  fails if it ever uses a name the tools read as the main model's. (The Android app reads
+  `up`.)
+- Box Status rows come from the box, so neither app changes for them.
+
+Tests: the voice drill-in's SQL against Postgres (an empty box in words, five notes, the
+languages most first); the daemon's counts, timings, state line and report; the arbiter's rows
+in each state; the GPU row; the labels; the names held apart. The two scripts' new parsing was
+run against the four shapes `models` can have (a second model up, down, none, an oracled from
+before).
 

@@ -91,7 +91,7 @@ func TestTheArbiterHasALaneOfItsOwn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go l.KeepArbiter(ctx, child)
-	until(t, "the second model up", func() bool { return l.Arbiter().Ready })
+	until(t, "the second model up", func() bool { return l.Arbiter().Up })
 
 	caption, _ := l.Submit(oracle.Request{Capability: "caption", Priority: oracle.PriorityBackground, DeadlineMS: 60_000})
 	wait(t, main.started, "caption") // the main model is busy
@@ -131,7 +131,7 @@ func TestOnSharedCoresTheArbiterStepsAside(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go l.KeepArbiter(ctx, child)
-	until(t, "the second model up", func() bool { return l.Arbiter().Ready })
+	until(t, "the second model up", func() bool { return l.Arbiter().Up })
 
 	cold, _ := l.Submit(oracle.Request{Capability: "cold", Class: oracle.ClassArbiter, Priority: oracle.PriorityBackground, DeadlineMS: 60_000})
 	wait(t, child.started, "cold")
@@ -194,10 +194,10 @@ func TestTheSecondModelComesAndGoes(t *testing.T) {
 	if r := ask(); r.Err != oracle.ErrArbiterDown {
 		t.Fatalf("while it starts: %+v", r)
 	}
-	if st := l.Arbiter(); !st.Has || st.Ready || !strings.Contains(st.ServedBy, "waiting for other-lab-4b") {
+	if st := l.Arbiter(); !st.Has || st.Up || !strings.Contains(st.ServedBy, "waiting for other-lab-4b") {
 		t.Fatalf("state while starting: %+v", st)
 	}
-	until(t, "the second start", func() bool { return l.Arbiter().Ready })
+	until(t, "the second start", func() bool { return l.Arbiter().Up })
 	close(child.release)
 	if r := ask(); r.Err != "" || r.Served != oracle.ClassArbiter {
 		t.Fatalf("once up: %+v", r)
@@ -210,7 +210,7 @@ func TestTheSecondModelComesAndGoes(t *testing.T) {
 	child.mu.Unlock()
 	arbiterGrace = 40 * time.Millisecond
 	child.kill()
-	until(t, "its death seen", func() bool { return !l.Arbiter().Ready })
+	until(t, "its death seen", func() bool { return !l.Arbiter().Up })
 	if st := l.Arbiter(); !strings.Contains(st.Why, "died after") && !strings.Contains(st.Why, "not running") {
 		t.Fatalf("why: %+v", st)
 	}

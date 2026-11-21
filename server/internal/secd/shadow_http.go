@@ -46,7 +46,7 @@ type shadowDoc struct {
 	MaxMuteHours int                   `json:"maxMuteHours"`
 	Changes      []shadow.ConfigChange `json:"changes"`
 	// Arbiter is which model the cold read is read by: a second model of the box's own (has,
-	// model, ready), or the main model with nothing about the person. Absent when ghost.oracled
+	// model, up), or the main model with nothing about the person. Absent when ghost.oracled
 	// does not answer.
 	Arbiter *oracle.ArbiterInfo `json:"arbiter,omitempty"`
 }

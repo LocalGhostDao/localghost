@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
+	"github.com/LocalGhostDao/localghost/server/internal/workcount"
 )
 
 // writeWav writes n frames of a 440 Hz tone at the given format; header can be left unfinished
@@ -368,6 +369,67 @@ func TestAQuestionOfSilenceIsNotGivenToWhisper(t *testing.T) {
 	}
 }
 
+// What the daemon remembers of the questions asked aloud: how many, the last one's length and
+// time, the mean. Never the words. It is the only account of a question there is, and it is
+// what Box Status, `ghost-cli ghost.voiced voice` and the phone's Speech card show.
+func TestQuestionsAreCountedAndTimedNotKept(t *testing.T) {
+	_, mount := fakeEngine(t)
+	t.Setenv("FAKE_WHISPER_MODE", "json")
+	d := &Daemon{Mount: mount, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Find: FindEngine, Work: workcount.New()}
+	if a := d.AsksSoFar(); a.N != 0 || a.Last != nil || a.Line() != "" {
+		t.Fatalf("before any: %+v", a)
+	}
+	ask := AskDir(mount)
+	_ = os.MkdirAll(ask, 0o750)
+	for i := 0; i < 2; i++ {
+		p := filepath.Join(ask, "q.wav")
+		writeWav(t, p, 16000, 1, 3*16000, false)
+		if _, err := d.Hear(context.Background(), p, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// and one of silence: counted as that, and not as a question whisper heard
+	quiet := filepath.Join(ask, "quiet.wav")
+	if err := os.WriteFile(quiet, append(WavHeader(16000, 1, 16, 32000), make([]byte, 32000)...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.Hear(context.Background(), quiet, nil); err != nil {
+		t.Fatal(err)
+	}
+	a := d.AsksSoFar()
+	if a.N != 2 || a.Last == nil || a.Last.AudioMS != 3000 || a.Last.Lang != "en" || a.Last.Words != 7 || a.Over != 2 {
+		t.Fatalf("after two and a silence: %+v last %+v", a, a.Last)
+	}
+	line := a.Line()
+	if !strings.HasPrefix(line, "2 heard since the daemon started · the last was 3.0 s of speech, heard in ") || !strings.Contains(line, "(en)") || !strings.Contains(line, "on average over the last 2") {
+		t.Fatalf("line: %s", line)
+	}
+	if strings.Contains(line, "harbour") {
+		t.Fatal("the words of a question were kept")
+	}
+	kinds := map[string]int64{}
+	for _, k := range d.Work.Snapshot().Kinds {
+		kinds[k.Kind] = k.Total
+	}
+	if kinds["question heard"] != 2 || kinds["question no sound"] != 1 || len(kinds) != 2 {
+		t.Fatalf("counted: %v", kinds)
+	}
+	// the state file carries the sentence to the phone's Speech card
+	d.writeState()
+	if st, ok := ReadState(mount); !ok || st.Asks != line {
+		t.Fatalf("state: %+v", st)
+	}
+	// the report: the third line is the questions, whatever else there is (health.sh prints three)
+	rep, err := Report(&noteDB{done: true}, Stat{Pending: 1, Done: 4, Engine: "ggml-large-v3-turbo-q5_0"}, a)
+	lines := strings.Split(rep, "\n")
+	if err != nil || len(lines) < 3 || !strings.HasPrefix(lines[0], "voice notes: 1 pending, 4 transcribed") || !strings.HasPrefix(lines[2], "questions asked aloud: 2 heard since the daemon started") {
+		t.Fatalf("report: %v\n%s", err, rep)
+	}
+	if rep, _ := Report(&noteDB{done: true}, Stat{}, Asks{}); !strings.Contains(strings.Split(rep, "\n")[2], "questions asked aloud: none since the daemon started") {
+		t.Fatalf("report with none:\n%s", rep)
+	}
+}
+
 // The language of a few seconds of speech is a guess. Heard as one this person has never spoken
 // to the box, nor set their phone to, a short question is heard again as the one they speak
 // most; heard as one of theirs, it is left alone; a long one is trusted.
@@ -470,7 +532,7 @@ func TestAQuestionSetsTheNoteQueueAside(t *testing.T) {
 	t.Setenv("FAKE_WHISPER_RUNS", ran)
 	t.Setenv("FAKE_WHISPER_NOTE_SLEEP", "3")
 	t.Setenv("FAKE_WHISPER_MODE", "json")
-	d := &Daemon{Mount: mount, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Find: FindEngine}
+	d := &Daemon{Mount: mount, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Find: FindEngine, Work: workcount.New()}
 	_ = os.MkdirAll(filepath.Join(mount, "voiced", "archive"), 0o750)
 	writeWav(t, filepath.Join(mount, "voiced", "archive", "note.wav"), 16000, 1, 16000, false)
 	db := &noteDB{path: filepath.Join("voiced", "archive", "note.wav")}
@@ -500,6 +562,16 @@ func TestAQuestionSetsTheNoteQueueAside(t *testing.T) {
 	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if n := func() int64 {
+		for _, k := range d.Work.Snapshot().Kinds {
+			if k.Kind == "note set aside" {
+				return k.Total
+			}
+		}
+		return 0
+	}(); n != 1 {
+		t.Fatalf("set aside counted %d times", n)
+	}
 	if !db.done || db.tries != 0 || db.result != "Walked to the harbour. Tired but good." {
 		t.Fatalf("the note afterwards: done %v, tries %d, %q", db.done, db.tries, db.result)
 	}

@@ -69,7 +69,7 @@ object ShadowText {
             Change(c.optLong("at"), c.optString("detector"), c.optString("what"), c.optString("old"), c.optString("new"), c.optBoolean("quieter"))
         }
         val arb = o.optJSONObject("arbiter")?.let { a ->
-            Arbiter(a.optBoolean("has"), a.optString("model"), a.optBoolean("ready"), a.optString("why"), a.optString("servedBy"), a.optString("main"))
+            Arbiter(a.optBoolean("has"), a.optString("model"), a.optBoolean("up"), a.optString("why"), a.optString("servedBy"), a.optString("main"))
         }
         return Fleet(cat, dets, o.optLong("nextReset"), o.optInt("resetDays", 90), o.optInt("maxMuteHours", 72), changes, arb)
     }

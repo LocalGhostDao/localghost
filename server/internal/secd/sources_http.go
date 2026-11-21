@@ -418,6 +418,9 @@ func (s *Server) sources(mount, runDir string) []sourceDoc {
 	}}
 	if st, ok := voiced.ReadState(mount); ok && st.Engine != "" {
 		d.State, d.Line = "ready", "whisper.cpp with "+st.Engine+" · voice notes and questions asked aloud are heard on the box"
+		if st.Asks != "" {
+			d.Line += " · questions: " + st.Asks
+		}
 		d.From[1].Role = "the engine and the speech model (" + st.Engine + "), signed"
 		d.Label = "refresh from the mirror"
 	} else if ok && st.Why != "" {

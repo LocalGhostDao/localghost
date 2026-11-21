@@ -146,6 +146,11 @@ if models=$("$CLI" ghost.oracled models 2>&1); then
         *) bad "$v";;
     esac
     [ -n "$sp" ] && echo "  speed: $sp"
+    # a second model for ghost.shadowd's arbiter runs on the CPU by choice (docs/SHADOW.md): not
+    # the model this script judges, and not a fault that it is off the card
+    case "$(echo "$models" | tr -d ' \n')" in
+        *'"arbiter":{'*'"has":true'*) echo "  (the arbiter's own model is on the CPU by choice: it is not what this checks)";;
+    esac
 else
     unclear "oracled did not answer: $models"
 fi

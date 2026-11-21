@@ -133,6 +133,22 @@ for svc in $CHECK; do
                 sp=$(echo "$m" | sed -n 's/.*"speed":"\([^"]*\)".*/\1/p' | head -1)
                 [ -n "$v" ] && printf '  model %s\n' "$v"
                 [ -n "$sp" ] && printf '  %s\n' "$sp"
+                # THE ARBITER'S OWN MODEL: a second model on the CPU that ghost.shadowd's cold read is
+                # asked of (docs/SHADOW.md). Its block in `models` has names of its own ("up", never
+                # "ready" or "verdict"), so the two lines above keep reading the main model's.
+                ab=$(echo "$m" | sed -n 's/.*"arbiter":{\([^}]*\)}.*/\1/p')
+                if [ -n "$ab" ]; then
+                    am=$(echo "$ab" | sed -n 's/.*"model":"\([^"]*\)".*/\1/p')
+                    case "$ab" in
+                        *'"has":true'*'"up":true'*)
+                            an=$(echo "$ab" | sed -n 's/.*"answers":\([0-9]*\).*/\1/p')
+                            printf "  arbiter's model: %s , up, on the CPU, %s answers since start\n" "$am" "${an:-0}" ;;
+                        *'"has":true'*)
+                            aw=$(echo "$ab" | sed -n 's/.*"why":"\([^"]*\)".*/\1/p')
+                            printf "  arbiter's model: %s , NOT up: %s\n" "$am" "${aw:-starting}" ;;
+                        *)  printf "  arbiter's model: none , the cold read is by the main model (ai-models/arbiter-<name>.gguf adds one)\n" ;;
+                    esac
+                fi
                 # Which llama.cpp the engine was built from (setup_llama.sh records the mirror's
                 # tarball; a git checkout here means a box set up before the mirror , rerun setup_llama.sh)
                 ld=/opt/localghost/llama.cpp
@@ -169,8 +185,15 @@ for svc in $CHECK; do
             fi
             if [ "$svc" = "ghost.voiced" ]; then
                 # The voice notes: how many wait, and the speech engine (whisper.cpp + a ggml model on
-                # the volume; none until the mirror's sets whisper and speech are fetched)
-                "$CLI" ghost.voiced voice 2>/dev/null | head -2 | sed 's/^/  /'
+                # the volume; none until the mirror's sets whisper and speech are fetched). The third
+                # line is the questions asked aloud: how many since the daemon started, and how long
+                # the last one took (a question leaves no row; the daemon's count is all there is).
+                "$CLI" ghost.voiced voice 2>/dev/null | head -3 | sed 's/^/  /'
+            fi
+            if [ "$svc" = "ghost.shadowd" ]; then
+                # What it has named lately, when the thresholds next go back to their baseline, and
+                # which model the cold read is by (the last three lines of its fleet)
+                "$CLI" ghost.shadowd fleet 2>/dev/null | tail -3 | sed 's/^/  /'
             fi
             if [ "$svc" = "ghost.framed" ]; then
                 # What the MAP can draw from this box: the Natural Earth cuts under geo/, and the

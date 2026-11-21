@@ -15,6 +15,8 @@ import (
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/gpu"
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/oracle"
+	"github.com/LocalGhostDao/localghost/server/internal/voiced"
 	"github.com/LocalGhostDao/localghost/server/internal/workcount"
 )
 
@@ -48,6 +50,18 @@ var workLabels = map[string][][2]string{
 		{"categorize failed", "categorize failed"},
 		{"embed_text failed", "embed batches failed"},
 	},
+	// a question asked aloud leaves no row anywhere (it is heard and forgotten), so what the
+	// daemon counted since it started is the only account of one
+	"ghost.voiced": {
+		{"question heard", "questions asked aloud, heard"},
+		{"question heard again", "heard again in your own language"},
+		{"question no words", "questions with no words in them"},
+		{"question no sound", "questions with no sound (not given to whisper)"},
+		{"question failed", "questions that failed"},
+		{"note transcribed", "voice notes transcribed"},
+		{"note set aside", "a voice note set aside for a question"},
+		{"note failed", "voice notes failed"},
+	},
 }
 
 // workRows asks service for its `work` and turns the answer into rows: when the count began,
@@ -72,6 +86,7 @@ func workRows(service, runDir string) []hw.DaemonKV {
 			Resting bool
 			Why     string
 		} `json:"captionLane"`
+		Asks voiced.Asks `json:"asks"` // ghost.voiced: how long a question asked aloud takes
 	}
 	if json.Unmarshal(resp.Data, &m) != nil {
 		return []hw.DaemonKV{{K: "work", V: "answered something this build does not read"}}
@@ -86,8 +101,36 @@ func workRows(service, runDir string) []hw.DaemonKV {
 		if m.CaptionLane.Resting {
 			rows = append(rows, hw.DaemonKV{K: "descriptions paused", V: m.CaptionLane.Why, Key: true})
 		}
+		if service == "ghost.voiced" {
+			rows = append(rows, askRows(m.Asks, time.Now())...)
+		}
 		return rows
 	})
+}
+
+// askRows is how long a question asked aloud takes on this box: the last one, and the mean of
+// the last twenty (pure, for the tests). Nothing until one has been asked since the daemon started.
+func askRows(a voiced.Asks, now time.Time) []hw.DaemonKV {
+	if a.N == 0 || a.Last == nil {
+		return []hw.DaemonKV{{K: "a question takes", V: "none asked aloud since the daemon started"}}
+	}
+	sec := func(ms int64) string { return fmt.Sprintf("%.1f s", float64(ms)/1000) }
+	last := sec(a.Last.AudioMS) + " of speech · heard in " + sec(a.Last.TookMS)
+	if a.Last.Lang != "" {
+		last += " · " + a.Last.Lang
+	}
+	if a.Last.Again {
+		last += " (heard twice: the first guess at the language was not one of yours)"
+	}
+	if a.Last.Words == 0 {
+		last += " · no words in it"
+	}
+	last += " · " + span(now.Sub(time.Unix(a.Last.At, 0))) + " ago"
+	rows := []hw.DaemonKV{{K: "the last question", V: last, Key: true}}
+	if a.Over > 1 {
+		rows = append(rows, hw.DaemonKV{K: "a question takes", V: fmt.Sprintf("%s on average over the last %d", sec(a.AvgTookMS), a.Over), Key: true})
+	}
+	return rows
 }
 
 // formatWork is the rows for one snapshot (pure, for the tests).
@@ -180,15 +223,68 @@ func gpuUseRows(runDir string) []hw.DaemonKV {
 		Engine    struct {
 			GPUMiB float64 `json:"gpuMiB"`
 		} `json:"engine"`
+		Arbiter *oracle.ArbiterInfo `json:"arbiter"`
 	}
 	if json.Unmarshal(resp.Data, &m) != nil {
 		return nil
 	}
-	return formatGPUUse(m.Model, m.Ready, m.OnGPU, m.Vision, m.VisionWhy, m.Engine.GPUMiB, gpu.CapsNow().MemoryMiB)
+	arbiter := ""
+	if m.Arbiter != nil && m.Arbiter.Has {
+		arbiter = m.Arbiter.Model
+	}
+	return formatGPUUse(m.Model, m.Ready, m.OnGPU, m.Vision, m.VisionWhy, m.Engine.GPUMiB, gpu.CapsNow().MemoryMiB, arbiter)
+}
+
+// arbiterRows is the arbiter's own model as ghost.oracled's drill-in says it (pure, for the
+// tests): which model, where it runs, whether it is up and what it has done; or that the box
+// has none and which model reads cold instead. nil for an oracled from before it said.
+func arbiterRows(a *oracle.ArbiterInfo) []hw.DaemonKV {
+	if a == nil {
+		return nil
+	}
+	if !a.Has {
+		return []hw.DaemonKV{{K: "the arbiter's model", V: "none on this box: ghost.shadowd's cold read is by " + orWord(a.Main, "the main model") +
+			", with nothing about you. A second model at ai-models/arbiter-<name>.gguf makes it a second opinion (docs/SHADOW.md)"}}
+	}
+	if !a.Up {
+		return []hw.DaemonKV{
+			{K: "the arbiter's model", V: a.Model + " · NOT up: " + orWord(a.Why, "starting"), Key: true},
+			{K: "the cold read is by", V: a.ServedBy},
+		}
+	}
+	rows := []hw.DaemonKV{{K: "the arbiter's model", V: a.Model + " · up, on the CPU beside " + orWord(a.Main, "the main model") + ", in a queue of its own", Key: true}}
+	if a.Answers > 0 {
+		rows = append(rows, hw.DaemonKV{K: "it has answered", V: fmt.Sprintf("%d since start · %.1f tok/s · last %s", a.Answers, a.TokensPerSecond, a.LastAnswerAt)})
+	} else {
+		rows = append(rows, hw.DaemonKV{K: "it has answered", V: "nothing yet since it started"})
+	}
+	return rows
+}
+
+func orWord(s, otherwise string) string {
+	if strings.TrimSpace(s) == "" {
+		return otherwise
+	}
+	return s
+}
+
+// readByRows is which model ghost.shadowd's cold read is by, for its own drill-in.
+func readByRows(runDir string) []hw.DaemonKV {
+	a, err := oracle.NewClient(runDir, 2*time.Second).Arbiter()
+	if err != nil {
+		return []hw.DaemonKV{{K: "the cold read is by", V: "unknown: ghost.oracled is not answering"}}
+	}
+	switch {
+	case a.Has && a.Up:
+		return []hw.DaemonKV{{K: "the cold read is by", V: a.Model + ", a second model beside " + orWord(a.Main, "the main one"), Key: true}}
+	case a.Has:
+		return []hw.DaemonKV{{K: "the cold read is by", V: a.ServedBy + " (" + a.Model + " is not up: " + orWord(a.Why, "starting") + ")", Key: true}}
+	}
+	return []hw.DaemonKV{{K: "the cold read is by", V: orWord(a.Main, "the main model") + ", the box's one model, with nothing about you (not a second opinion: docs/SHADOW.md)", Key: true}}
 }
 
 // formatGPUUse is the rows (pure, for the tests). vision is nil for an oracled that does not say.
-func formatGPUUse(model string, ready, onGPU bool, vision *bool, visionWhy string, gpuMiB, totalMiB float64) []hw.DaemonKV {
+func formatGPUUse(model string, ready, onGPU bool, vision *bool, visionWhy string, gpuMiB, totalMiB float64, arbiter string) []hw.DaemonKV {
 	var rows []hw.DaemonKV
 	state := "loading"
 	switch {
@@ -213,6 +309,10 @@ func formatGPUUse(model string, ready, onGPU bool, vision *bool, visionWhy strin
 			rows = append(rows, hw.DaemonKV{K: "sees photos", V: "NO , " + visionWhy, Key: true})
 		}
 	}
-	rows = append(rows, hw.DaemonKV{K: "on the CPU by choice", V: "search embeddings and voice transcription (the card's memory is the chat model's)"})
+	byChoice := "search embeddings and voice transcription"
+	if arbiter != "" {
+		byChoice += ", and the arbiter's own model (" + arbiter + ")"
+	}
+	rows = append(rows, hw.DaemonKV{K: "on the CPU by choice", V: byChoice + " (the card's memory is the chat model's)"})
 	return rows
 }

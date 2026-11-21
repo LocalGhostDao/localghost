@@ -23,6 +23,7 @@ import (
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/gpu"
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/oracle"
 	"github.com/LocalGhostDao/localghost/server/internal/tally"
 	"io"
 	"net/http"
@@ -1550,9 +1551,13 @@ func (s *Server) handleDaemonSummary(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if name == "ghost.framed" || name == "ghost.searchd" {
+	if name == "ghost.framed" || name == "ghost.searchd" || name == "ghost.voiced" {
 		// what the daemon did in the last hour and since it started, ahead of the database's totals
 		kv = append(workRows(name, fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)), kv...)
+	}
+	if name == "ghost.shadowd" {
+		// which model reads cold: a second one of the box's own, or the main one with nothing about the person
+		kv = append(readByRows(fmt.Sprintf("%s/mnt/slot%d/run", s.cfg.StateDir, mounted)), kv...)
 	}
 	if name == "ghost.oracled" {
 		// The GPU question, answered by oracled itself (its `models` command: what llama-server
@@ -1593,9 +1598,13 @@ func engineRows(runDir string) []hw.DaemonKV {
 			PromptTokPerSec float64 `json:"promptTokPerSec"`
 			LastAt          string  `json:"lastAt"`
 		} `json:"stats"`
+		Arbiter *oracle.ArbiterInfo `json:"arbiter"`
 	}
 	if json.Unmarshal(resp.Data, &m) != nil {
 		return []hw.DaemonKV{{K: "engine", V: "oracled answered something this build does not read"}}
+	}
+	if m.Arbiter != nil {
+		m.Arbiter.Main = m.Model
 	}
 	rows := []hw.DaemonKV{
 		{K: "model", V: m.Model + map[bool]string{true: " · ready", false: " · loading"}[m.Ready], Key: true},
@@ -1615,6 +1624,8 @@ func engineRows(runDir string) []hw.DaemonKV {
 	for _, w := range m.Engine.Warnings {
 		rows = append(rows, hw.DaemonKV{K: "llama-server said", V: w})
 	}
+	// the second model, when the box has one: ghost.shadowd's cold read is asked of it
+	rows = append(rows, arbiterRows(m.Arbiter)...)
 	return rows
 }
 

@@ -121,7 +121,7 @@ func (l *Lanes) Resume() {
 func (l *Lanes) Arbiter() oracle.ArbiterInfo {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	st := oracle.ArbiterInfo{Has: l.has, Model: l.name, Ready: l.up, ServedBy: "the main model"}
+	st := oracle.ArbiterInfo{Has: l.has, Model: l.name, Up: l.up, ServedBy: "the main model"}
 	switch {
 	case l.has && l.up:
 		st.ServedBy = l.name
