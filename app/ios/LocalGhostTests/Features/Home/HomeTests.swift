@@ -77,6 +77,59 @@ struct HomePrivacyTests {
     #expect(restored?.weather == weather)
   }
 
+  @Test(arguments: [false, true])
+  @MainActor
+  func aLateHomeResponseCannotRewriteAForgottenCache(enrolAgain: Bool) async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("localghost-forgotten-cache-tests-\(UUID().uuidString)", isDirectory: true)
+    let file = directory.appendingPathComponent("home.json")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let oldCache = HomeCache(fileURL: file)
+    try await oldCache.save(snapshot: fixture(), rates: nil, news: nil, weather: nil)
+    let gate = HomeTestGate()
+    let client = BlockingHomeClient(gate: gate)
+    let model = HomeModel(client: { client }, cache: oldCache)
+    let refresh = Task { await model.refresh() }
+    await gate.waitUntilBlocked()
+
+    try await oldCache.invalidate()
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+    let newCache = HomeCache(fileURL: file)
+    let weather = homeWeatherFixture()
+    if enrolAgain {
+      try await newCache.save(snapshot: nil, rates: nil, news: nil, weather: weather)
+    }
+
+    // This refresh is deliberately not cancelled: old responses can arrive after teardown.
+    await gate.release()
+    await refresh.value
+    #expect(await oldCache.load() == nil)
+    if enrolAgain {
+      #expect(await newCache.load()?.weather == weather)
+    } else {
+      #expect(!FileManager.default.fileExists(atPath: file.path))
+    }
+  }
+
+  @Test
+  func forgettingSerializesWithConcurrentCacheSaves() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("localghost-cache-save-race-tests-\(UUID().uuidString)", isDirectory: true)
+    let file = directory.appendingPathComponent("home.json")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let cache = HomeCache(fileURL: file)
+    try await cache.save(snapshot: nil, rates: nil, news: nil, weather: nil)
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      for _ in 0..<20 {
+        group.addTask { try await cache.save(snapshot: nil, rates: nil, news: nil, weather: nil) }
+      }
+      try await cache.invalidate()
+      try await group.waitForAll()
+    }
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+    try await cache.invalidate() // Repeating a forget is harmless.
+  }
+
   @Test
   func cacheDecodesFilesWrittenBeforeWeatherWasAdded() async throws {
     let directory = FileManager.default.temporaryDirectory

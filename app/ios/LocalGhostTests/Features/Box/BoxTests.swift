@@ -210,7 +210,10 @@ struct BoxModelTests {
       signedInConnect: { _, tag, token, refused in
         signedIn.connect(tag: tag, token: token, refused: refused)
       },
-      forgetLeftovers: { leftovers.cleared += 1 },
+      forgetLeftovers: { cache in
+        try await cache.invalidate()
+        leftovers.cleared += 1
+      },
       now: { now },
       pollEvery: .zero
     )
@@ -328,6 +331,46 @@ struct BoxModelTests {
     #expect(recorder.made == ["made-0/tok"]) // the same channel still
   }
 
+  @Test(arguments: [true, false])
+  func anOldRefusalCheckCannotChangeANewSession(refused: Bool) async throws {
+    let sessions = MemorySessionStore(BoxSession(token: "old", expiresAt: .distantFuture))
+    let box = FakeBox()
+    let recorder = SignedInRecorder()
+    let model = signedInModel(sessions, box, recorder)
+    await model.start()
+    _ = try model.authenticatedClient()
+    let gate = BoxStatusGate()
+    box.nextStatus = { try await gate.answer() }
+    let oldCheck = Task { await model.signedInCallRefused() }
+    await gate.waitUntilRequested()
+
+    model.lock()
+    model.pin = "123456"
+    box.polls = [UnlockPoll(stages: [], done: true, failed: nil,
+      token: "new", expiresAt: "2099-01-01T00:00:00Z")]
+    await model.unlock()
+    let newStatus = model.status
+    let newSession = sessions.load()
+    _ = try model.authenticatedClient()
+
+    gate.resume(refused: refused)
+    await oldCheck.value
+
+    #expect(model.screen == .open)
+    #expect(sessions.load() == newSession)
+    #expect(sessions.load()?.token == "new")
+    #expect(model.status == newStatus)
+    #expect(model.errorMessage == nil)
+    _ = try model.authenticatedClient()
+    #expect(recorder.made == ["made-0/old", "made-0/new"])
+
+    // An old check's defer must also leave the new session able to detect a real refusal.
+    box.downFor = ["made-0"]
+    await model.signedInCallRefused()
+    #expect(model.screen == .unlock)
+    #expect(sessions.load() == nil)
+  }
+
   @Test
   func aLostConfirmationIsRepairedWhenACallIsRefused() async throws {
     let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
@@ -371,7 +414,7 @@ struct BoxModelTests {
       signedInConnect: { _, tag, token, refused in
         recorder.connect(tag: tag, token: token, refused: refused)
       },
-      forgetLeftovers: {},
+      forgetLeftovers: { _ in },
       now: { clock.now },
       pollEvery: .zero
     )
@@ -522,14 +565,14 @@ struct BoxModelTests {
   }
 
   @Test
-  func forgettingRemovesEverything() throws {
+  func forgettingRemovesEverything() async throws {
     let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
     let keyring = RecordingKeyring()
     let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
     let leftovers = LeftoverCount()
     let model = makeModel(credentials, keyring, sessions, FakeBox(), leftovers: leftovers)
 
-    try model.forget()
+    try await model.forget()
 
     #expect(try credentials.load() == nil)
     #expect(sessions.load() == nil)
@@ -541,7 +584,7 @@ struct BoxModelTests {
 @MainActor
 struct SignedInLeftoversTests {
   @Test
-  func theLastChatAndHomesCacheGoAndThePreferencesStay() throws {
+  func theLastChatAndHomesCacheGoAndThePreferencesStay() async throws {
     let suite = "ai.localghost.tests.\(UUID().uuidString)"
     let defaults = try #require(UserDefaults(suiteName: suite))
     defer { defaults.removePersistentDomain(forName: suite) }
@@ -550,15 +593,16 @@ struct SignedInLeftoversTests {
     let file = FileManager.default.temporaryDirectory
       .appendingPathComponent("localghost-home-\(UUID().uuidString).json")
     try Data("{}".utf8).write(to: file)
+    let cache = HomeCache(fileURL: file)
 
-    SignedInLeftovers.clear(preferences: defaults, homeCache: file)
+    try await SignedInLeftovers.clear(preferences: defaults, homeCache: cache)
 
     #expect(defaults.integer(forKey: "chat.last-id") == 0)
     #expect(defaults.string(forKey: "chat.answer-length") == "long") // this person's, not the box's
     #expect(!FileManager.default.fileExists(atPath: file.path))
 
     // with nothing left to remove it is not an error
-    SignedInLeftovers.clear(preferences: defaults, homeCache: file)
+    try await SignedInLeftovers.clear(preferences: defaults, homeCache: cache)
     #expect(!FileManager.default.fileExists(atPath: file.path))
   }
 }
@@ -734,6 +778,7 @@ final class FakeBox {
   var polls: [UnlockPoll] = []
   var downFor: Set<String> = []
   var confirmFails = 0
+  var nextStatus: (@MainActor () async throws -> BoxStatus)?
   private(set) var calls: [String] = []
   private(set) var pins: [String] = []
   private(set) var rekeyed: [(spki: Data, signature: Data)] = []
@@ -776,6 +821,10 @@ final class FakeBox {
 
     func status() async throws -> BoxStatus {
       try box.record("status", tag)
+      if let reply = box.nextStatus {
+        box.nextStatus = nil
+        return try await reply()
+      }
       return BoxStatus(services: [], datastores: nil)
     }
 
@@ -789,5 +838,34 @@ final class FakeBox {
       try box.record("confirm", tag)
       if box.takeConfirmFailure() { throw BoxChannelError.unreachable("lost") }
     }
+  }
+}
+
+/// Deterministically hold a status response across a lock and another unlock.
+@MainActor
+private final class BoxStatusGate {
+  private var requested = false
+  private var observer: CheckedContinuation<Void, Never>?
+  private var response: CheckedContinuation<BoxStatus, any Error>?
+
+  func answer() async throws -> BoxStatus {
+    requested = true
+    observer?.resume()
+    observer = nil
+    return try await withCheckedThrowingContinuation { response = $0 }
+  }
+
+  func waitUntilRequested() async {
+    guard !requested else { return }
+    await withCheckedContinuation { observer = $0 }
+  }
+
+  func resume(refused: Bool) {
+    if refused {
+      response?.resume(throwing: BoxChannelError.appearsDown)
+    } else {
+      response?.resume(returning: BoxStatus(services: [], datastores: []))
+    }
+    response = nil
   }
 }
