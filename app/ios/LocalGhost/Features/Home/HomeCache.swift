@@ -27,6 +27,7 @@ nonisolated func homeCacheFileURL() -> URL {
 /// The public feed data and last forecast used for an immediate Home render. Personal
 /// recommendations, calendar rows and coordinates never cross this actor's encoder.
 actor HomeCache {
+  private var invalidated = false
   private let fileURL: URL
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
@@ -40,7 +41,7 @@ actor HomeCache {
   }
 
   func load() -> HomeCachedState? {
-    guard let data = try? Data(contentsOf: fileURL),
+    guard !invalidated, let data = try? Data(contentsOf: fileURL),
           let decoded = try? decoder.decode(HomeCachedState.self, from: data)
     else {
       return nil
@@ -65,7 +66,19 @@ actor HomeCache {
     try write(HomeCachedState(snapshot: snapshot, rates: rates, news: news, weather: weather))
   }
 
+  /// Serialized with writes: pending saves finish before deletion or are discarded afterwards.
+  /// This instance stays retired so late network responses cannot recreate the old box's file.
+  func invalidate() throws {
+    invalidated = true
+    do {
+      try FileManager.default.removeItem(at: fileURL)
+    } catch CocoaError.fileNoSuchFile {
+      // Already absent. Other deletion failures must be reported to the caller.
+    }
+  }
+
   private func write(_ payload: HomeCachedState) throws {
+    guard !invalidated else { return }
     let directory = fileURL.deletingLastPathComponent()
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let data = try encoder.encode(payload)

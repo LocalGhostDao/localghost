@@ -59,11 +59,13 @@ struct RootView: View {
         }
         .confirmationDialog("Forget this box?", isPresented: $confirmingForget, titleVisibility: .visible) {
           Button("Forget this box", role: .destructive) {
-            do {
-              try boxModel.forget()
-              phase = .setup
-            } catch {
-              forgetError = error.localizedDescription
+            Task {
+              do {
+                try await boxModel.forget()
+                phase = .setup
+              } catch {
+                forgetError = error.localizedDescription
+              }
             }
           }
           Button("Cancel", role: .cancel) {}
