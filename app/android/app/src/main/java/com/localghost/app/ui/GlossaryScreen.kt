@@ -124,8 +124,10 @@ private val GLOSSARY = listOf(
             "Surfaces reflections (patterns worth your attention drawn from the index).",
             "Notices patterns in your life and points them out when useful."),
         Term("ghost.shadowd",
-            "Scans messages for manipulation patterns and flags them.",
-            "Watches for messages trying to manipulate you and warns you."),
+            "The arbiter and a fleet of detectors. Asks a saved question again with nothing about you and compares " +
+            "(the cold read), reads a chat for the box giving way, pressing or leading, and counts what the box already " +
+            "holds. Names what it sees; blocks nothing. SHADOW in the menu.",
+            "Checks the box itself: whether it only tells you what you want to hear. It tells you what it sees and stops."),
         Term("ghost.synthd",
             "The chat brain. Retrieves relevant memories, injects them as context, and runs " +
             "the local model to answer. RAG over your life.",

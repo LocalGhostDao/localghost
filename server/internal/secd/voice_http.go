@@ -24,30 +24,38 @@ import (
 // askMaxBytes bounds a question asked aloud: 8 MB is four minutes of the phone's WAV.
 const askMaxBytes = 8 << 20
 
-// hearAsk hands a question's WAV to ghost.voiced and brings the words back; tests replace it.
-var hearAsk = func(runDir, path string) (string, string, error) {
-	resp, err := ctlsock.NewClientTimeout("ghost.voiced", runDir, 3*time.Minute).Call("hear", map[string]any{"path": path})
+// heardAsk is what ghost.voiced made of a question: the words, the language, how long it took.
+type heardAsk struct {
+	Text string `json:"text"`
+	Lang string `json:"lang"`
+	MS   int64  `json:"ms"`
+}
+
+// hearAsk hands a question's WAV to ghost.voiced, with the languages the phone is set to, and
+// brings the words back; tests replace it.
+var hearAsk = func(runDir, path string, langs []string) (heardAsk, error) {
+	resp, err := ctlsock.NewClientTimeout("ghost.voiced", runDir, 3*time.Minute).Call("hear", map[string]any{"path": path, "langs": langs})
 	if err != nil {
-		return "", "", err
+		return heardAsk{}, err
 	}
 	if !resp.OK {
-		return "", "", fmt.Errorf("%s", resp.Err)
+		return heardAsk{}, fmt.Errorf("%s", resp.Err)
 	}
-	var d struct {
-		Text string `json:"text"`
-		Lang string `json:"lang"`
-	}
+	var d heardAsk
 	_ = json.Unmarshal(resp.Data, &d)
 	if d.Text == "" {
 		d.Text = resp.Text
 	}
-	return d.Text, d.Lang, nil
+	return d, nil
 }
 
 // handleVoiceAsk , POST /v1/voice/ask , a question asked aloud: the WAV as the body, the words
-// back ({"text", "lang"}), for the chat to send as a typed question. Nothing is kept: the file
-// goes to <mount>/voiced/ask, ghost.voiced hears it and removes it, no row, no journal entry. A
-// box without a speech engine says so ({"ok": false, "why"}), and the phone falls back to typing.
+// back ({"text", "lang", "ms"}), for the chat to send as a typed question. Nothing is kept: the
+// file goes to <mount>/voiced/ask, ghost.voiced hears it and removes it, no row, no journal
+// entry. X-Ghost-Langs is the languages the phone is set to ("en,ro"): a few seconds of speech
+// are too little to tell a language by, and voiced uses them (with the languages of the
+// person's voice notes) to catch a wrong guess. A box without a speech engine says so
+// ({"ok": false, "why"}), and the phone falls back to typing.
 func (s *Server) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 	if !s.session.Valid(bearer(r)) || r.Method != http.MethodPost {
 		s.appearsDown(w)
@@ -94,15 +102,18 @@ func (s *Server) handleVoiceAsk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	runDir := filepath.Join(mount, "run")
-	text, lang, err := hearAsk(runDir, path)
+	langs := voiced.CleanLangs(strings.Split(r.Header.Get("X-Ghost-Langs"), ","))
+	t0 := time.Now()
+	h, err := hearAsk(runDir, path, langs)
 	_ = os.Remove(path) // voiced removes it too; one of the two is enough
 	if err != nil {
 		secdLog.Warn("a question asked aloud was not heard", "fn", "handleVoiceAsk", "bytes", n, "err", err)
 		writeJSON(w, map[string]any{"ok": false, "why": err.Error()})
 		return
 	}
-	text = strings.TrimSpace(text)
-	writeJSON(w, map[string]any{"ok": true, "text": text, "lang": lang, "heard": text != ""})
+	text := strings.TrimSpace(h.Text)
+	// ms: from the last byte of the upload to the words, which is what the person waited
+	writeJSON(w, map[string]any{"ok": true, "text": text, "lang": h.Lang, "heard": text != "", "ms": time.Since(t0).Milliseconds()})
 }
 
 // voiceMaxBytes bounds one note: 128 MB is 66 minutes of the phone's 16 kHz mono 16-bit WAV. The

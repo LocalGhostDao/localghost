@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -149,4 +150,41 @@ func TestAnswerOutlivesThePhoneButNotStop(t *testing.T) {
 		t.Fatal("the newer answer lost its STOP")
 	}
 	endB()
+}
+
+// What ghost.shadowd named about a chat is said at the top of the next answer's trail, once:
+// what was named since the person last wrote there, not what was muted, not another chat's.
+func TestTheNextAnswerSaysWhatTheArbiterNamed(t *testing.T) {
+	db := answersDB(t)
+	chatID := chatPersist("", 0, "user", "should I send the email?")
+	if got := shadowSaid(db, chatID); len(got) != 0 {
+		t.Fatalf("nothing named yet: %v", got)
+	}
+	named := func(subject, title string, muted bool, at time.Time) {
+		t.Helper()
+		if err := db.Exec(`INSERT INTO shadow_observations (detector, subject, ts, title, muted) VALUES ('cold-read', $1, $2, $3, $4)`,
+			subject, at.Unix(), title, muted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	soon := time.Now().Add(time.Minute)
+	named(fmt.Sprintf("chat:%d/msg:2", chatID), "read cold, the box answered differently", false, soon)
+	named(fmt.Sprintf("chat:%d/caved/4", chatID), "the box changed its answer when you pushed", true, soon)
+	named(fmt.Sprintf("chat:%d9/msg:7", chatID), "another chat's", false, soon)
+	named("mail:3", "this mail leans on pressure", false, soon)
+	got := shadowSaid(db, chatID)
+	if len(got) != 1 || got[0] != "ghost.shadowd, about an earlier answer in this chat: read cold, the box answered differently (its notification has both sides)" {
+		t.Fatalf("said: %q", got)
+	}
+	// the person writes again, later than the observation: it is not said a second time
+	if err := db.Exec(`INSERT INTO chat_messages (chat_id, role, content, ts) VALUES ($1, 'user', 'ok', $2)`,
+		strconv.FormatInt(chatID, 10), strconv.FormatInt(soon.Add(time.Minute).UnixMilli(), 10)); err != nil {
+		t.Fatal(err)
+	}
+	if got := shadowSaid(db, chatID); len(got) != 0 {
+		t.Fatalf("said twice: %v", got)
+	}
+	if got := shadowSaid(db, 0); got != nil {
+		t.Fatal("an unsaved chat has nothing named")
+	}
 }

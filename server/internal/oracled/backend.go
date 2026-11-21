@@ -51,6 +51,11 @@ type LlamaConfig struct {
 	LoadTimesPath string
 	// StrikesPath keeps the images the engine died on (strikes.go). Empty: in memory only.
 	StrikesPath string
+	// CPUOnly: no layer is offloaded (-ngl 0) and a start that is not on the GPU is not a
+	// warning. The arbiter's second model (lanes.go): the card is the main model's.
+	CPUOnly bool
+	// InferTimeout bounds one request to the child (0: 120 s). A model on the CPU needs longer.
+	InferTimeout time.Duration
 }
 
 // projector is the mmproj path to start with, or "" and why not.
@@ -145,10 +150,14 @@ func (b *llamaBackend) keyEnforced() (bool, error) {
 func NewLlamaBackend(cfg LlamaConfig) *llamaBackend {
 	info := newEngineInfoBox()
 	info.load = newLoadTracker(cfg.LoadTimesPath)
+	inferTimeout := 120 * time.Second // a 12B generation can be slow
+	if cfg.InferTimeout > 0 {
+		inferTimeout = cfg.InferTimeout
+	}
 	return &llamaBackend{
 		cfg:          cfg,
-		client:       &http.Client{Timeout: 120 * time.Second}, // a 12B generation can be slow
-		streamClient: &http.Client{},                           // streaming: context-cancelled, never clock-killed
+		client:       &http.Client{Timeout: inferTimeout},
+		streamClient: &http.Client{}, // streaming: context-cancelled, never clock-killed
 		addr:         "127.0.0.1:" + strconv.Itoa(cfg.Port),
 		info:         info,
 		stats:        NewEngineStats(),
@@ -223,6 +232,9 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 		// a box that genuinely lacks one.
 		"-ngl", "99",
 	}
+	if b.cfg.CPUOnly {
+		args[len(args)-1] = "0" // the card is the main model's; this one runs beside it on the CPU
+	}
 	// The projector, looked for at EVERY start: a configured-but-missing one degrades to TEXT-ONLY
 	// instead of handing llama-server a dead path and dying entirely (captions need it, nothing
 	// else does). It used to be dropped from the config for good at the first miss, so a projector
@@ -234,7 +246,7 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 		b.setVision(true, "")
 	} else {
 		b.setVision(false, note)
-		if note != "" {
+		if note != "" && !(b.cfg.CPUOnly && b.cfg.MmprojPath == "") { // the arbiter's model reads text and was never given one
 			slog.Warn("starting TEXT-ONLY: no photo will be described until the projector is back", "fn", "Start", "why", note)
 		}
 	}
@@ -297,7 +309,7 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 		}
 	}
 	// A log with nothing to say about the GPU (the mirror's v0.5.0): ask the driver instead.
-	if !b.info.get().OnGPU() && b.proc != nil {
+	if !b.cfg.CPUOnly && !b.info.get().OnGPU() && b.proc != nil {
 		if mib, ok := gpuMiBOfPID(b.proc.Pid); ok && mib > 0 {
 			b.info.seenOnGPU(mib)
 		}
@@ -307,6 +319,8 @@ func (b *llamaBackend) Start(ctx context.Context) error {
 	info := b.info.get()
 	if info.OnGPU() {
 		slog.Info("llama-server "+info.Verdict(), "fn", "Start", "devices", strings.Join(info.Devices, "; "), "offloaded", info.Offloaded, "gpuMiB", int(info.GPUMiB), "cpuMiB", int(info.CPUMiB))
+	} else if b.cfg.CPUOnly {
+		slog.Info("llama-server for "+b.cfg.ModelName+" is on the CPU, as it is meant to be", "fn", "Start", "cpuMiB", int(info.CPUMiB))
 	} else {
 		slog.Warn("llama-server "+info.Verdict(), "fn", "Start", "warnings", strings.Join(info.Warnings, " | "), "offloaded", info.Offloaded, "cpuMiB", int(info.CPUMiB))
 	}

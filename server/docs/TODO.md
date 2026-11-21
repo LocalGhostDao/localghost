@@ -68,6 +68,17 @@ of DONE (reverse chronological); open items live in TO DO until they move.
       completion (addiction by design), ghost-vs-human emotional-processing share (engagement
       loneliness), sunk-cost retrieval framing, topic-surface narrowing (filter bubble of one).
       Vlad ships no v1 without shadowd running.
+      21 Nov 2026: fourteen detectors over eleven entries, the cold-read arbiter and the conduct
+      audit (afterwards, quotes verified), the audit trail, thresholds in bounds, mutes of three
+      days, the capture log and the ninety-day reset, /v1/shadow (docs/SHADOW.md). Then, the
+      same day: the arbiter's own model (a second llama-server child in oracled, on the CPU,
+      its own lane: ai-models/arbiter-<name>.gguf), read-now, the self-test (`ghost-cli
+      ghost.shadowd try`), three detectors on the person's own account of other people
+      (recorded, never sent), SHADOW in the Android app. Seventeen detectors over fourteen
+      entries. STILL OPEN: WHICH second model, and its file on the mirror (set `arbiter`),
+      are Vlad's to choose; the self-test has not been run against a real model; the sixteen
+      entries that need conversations with other people or a classifier; material from
+      outside the box (entry 21); Ulysses contracts; SHADOW in the iOS app.
 - [ ] **32. Fleet gaps inventory** (per cmd READMEs, 2026-07-15): ghost.noted , first slice DONE
       (see 35), pullers/upload/mentions remain; ghost.voiced (audio -> transcripts ->
       noted; ephemeral live-capture vs kept voice-memos) , stub; ghost.tallyd (structured data ->

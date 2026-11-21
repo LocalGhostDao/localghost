@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"time"
 )
@@ -180,6 +181,55 @@ func ToSpeechFormat(src *os.File, info WavInfo, dst string) error {
 		binary.LittleEndian.PutUint16(out[44+j*2:], uint16(int16(v*32767)))
 	}
 	return os.WriteFile(dst, out, 0o600)
+}
+
+// SilenceFloor: a file whose loudest tenth of a second is below this holds no voice. About
+// -48 dB of full scale: a phone's microphone in a quiet room sits near -60, a quiet voice at
+// arm's length near -35. A covered microphone, or a tap by mistake, is under it.
+const SilenceFloor = 0.004
+
+// LoudestTenth is the loudest tenth of a second of a WAV: the root of the mean square of its
+// samples, 0..1 of full scale, the channels together. It is what tells a recording of nothing
+// from a recording of someone, before a speech model is asked to find words in it (a speech
+// model handed silence finds some).
+func LoudestTenth(f *os.File, info WavInfo) (float64, error) {
+	bps := info.Bits / 8
+	frame := bps * info.Channels
+	if frame <= 0 || info.Rate <= 0 {
+		return 0, errors.New("not a WAV with samples")
+	}
+	per := info.Rate / 10 * frame // the bytes of a tenth of a second
+	if per <= 0 {
+		return 0, errors.New("not a WAV with samples")
+	}
+	buf := make([]byte, per)
+	var loudest float64
+	for off := int64(0); off < info.DataLen; off += int64(per) {
+		want := int64(per)
+		if rest := info.DataLen - off; rest < want {
+			want = rest - rest%int64(frame)
+		}
+		if want < int64(frame) {
+			break
+		}
+		n, err := f.ReadAt(buf[:want], info.DataOff+off)
+		n -= n % frame
+		if n < frame {
+			if err != nil && !errors.Is(err, io.EOF) {
+				return loudest, err
+			}
+			break // a file shorter than its header says: what is there has been read
+		}
+		var sum float64
+		for i := 0; i+bps <= n; i += bps {
+			v := sample(buf[i:], info.Bits)
+			sum += v * v
+		}
+		if rms := math.Sqrt(sum / float64(n/bps)); rms > loudest {
+			loudest = rms
+		}
+	}
+	return loudest, nil
 }
 
 // sample reads one little-endian integer sample as -1..1.

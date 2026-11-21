@@ -38,6 +38,29 @@ object VoiceWav {
     fun durationMs(file: File, rate: Int = RATE): Long =
         (file.length() - HEADER).coerceAtLeast(0) * 1000 / (rate * 2)
 
+    /** How loud a stretch of samples is: the root of the mean square, 0..1 of full scale. A
+     *  cup put down has a high peak and a low one of these; a voice has both. */
+    fun rms(samples: ShortArray, n: Int): Float {
+        if (n <= 0) return 0f
+        var sum = 0.0
+        for (i in 0 until n) { val s = samples[i].toDouble(); sum += s * s }
+        return (Math.sqrt(sum / n) / 32768.0).toFloat()
+    }
+
+    /** Cut a finished WAV down to [fromMs, toMs) of itself, in place: what was said, without the
+     *  room at both ends. Whole samples only; a cut that would leave nothing leaves the file alone. */
+    fun trim(file: File, fromMs: Long, toMs: Long, rate: Int = RATE) {
+        val total = (file.length() - HEADER).coerceAtLeast(0)
+        val from = (fromMs.coerceAtLeast(0) * rate / 1000 * 2).coerceAtMost(total)
+        val to = (toMs * rate / 1000 * 2).coerceIn(from, total)
+        if (to - from < 2 || (from == 0L && to == total)) return
+        val keep = ByteArray((to - from).toInt())
+        RandomAccessFile(file, "r").use { raf -> raf.seek(HEADER + from); raf.readFully(keep) }
+        val tmp = File(file.parentFile, file.name + ".cut")
+        tmp.outputStream().use { out -> out.write(header(rate, 1, 16, keep.size.toLong())); out.write(keep) }
+        if (!tmp.renameTo(file)) { tmp.copyTo(file, overwrite = true); tmp.delete() }
+    }
+
     /** Little-endian samples into bytes; returns the loudest sample's magnitude (0..32768). */
     fun pack(samples: ShortArray, n: Int, out: ByteArray): Int {
         var peak = 0

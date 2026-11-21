@@ -173,3 +173,41 @@ func TestInteractiveRequestClearsTheWay(t *testing.T) {
 	be.release <- struct{}{}
 	_ = result(t, a2)
 }
+
+// namedBackend answers at once with its own name as the model.
+type namedBackend string
+
+func (n namedBackend) Name() string { return string(n) }
+func (n namedBackend) Infer(_ context.Context, req oracle.Request) (oracle.Response, error) {
+	return oracle.Response{Output: "ok", Model: string(n)}, nil
+}
+
+// The arbiter's class (ghost.shadowd's cold reader) on a box with one model is served by that
+// model, and the answer says so: the record must never claim a second opinion it did not have.
+// With a backend of its own, that one answers.
+func TestTheArbiterClassFallsBackAndSaysSo(t *testing.T) {
+	b := NewBroker(16, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	b.SetBackend(oracle.ClassLocalSmall, namedBackend("local"))
+	b.Run()
+	defer b.Stop()
+
+	ch, _ := b.Submit(oracle.Request{Capability: "summarize", Class: oracle.ClassArbiter, DeadlineMS: 60_000})
+	if r := result(t, ch); r.Err != "" || r.Model != "local" || r.Served != oracle.ClassLocalSmall {
+		t.Fatalf("an arbiter with no backend of its own: %+v", r)
+	}
+	ch, _ = b.Submit(oracle.Request{Capability: "summarize", DeadlineMS: 60_000})
+	if r := result(t, ch); r.Served != oracle.ClassLocalSmall {
+		t.Fatalf("the default class: %+v", r)
+	}
+	// no other class falls back: a frontier nobody configured is still refused
+	ch, _ = b.Submit(oracle.Request{Capability: "summarize", Class: oracle.ClassFrontier, DeadlineMS: 60_000})
+	if r := result(t, ch); r.Err == "" {
+		t.Fatalf("a class with no backend was served: %+v", r)
+	}
+
+	b.SetBackend(oracle.ClassArbiter, namedBackend("elsewhere"))
+	ch, _ = b.Submit(oracle.Request{Capability: "summarize", Class: oracle.ClassArbiter, DeadlineMS: 60_000})
+	if r := result(t, ch); r.Model != "elsewhere" || r.Served != oracle.ClassArbiter {
+		t.Fatalf("an arbiter with its own backend: %+v", r)
+	}
+}

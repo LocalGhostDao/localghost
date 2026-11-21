@@ -969,6 +969,46 @@ object BoxClient {
         com.localghost.app.ui.ContactsText.parsePage(BoxHttp.getJson(ctx, "/v1/contacts" + if (qs.isEmpty()) "" else "?" + qs.joinToString("&")))
     } catch (_: Exception) { null }
 
+    // ---- SHADOW: ghost.shadowd's fleet, what it named, a chat's audit trail (ui/ShadowText) ----
+
+    /** The catalogue, the detectors as they stand, and which model reads cold; null when the box would not say. */
+    suspend fun shadowFleet(ctx: Context): com.localghost.app.ui.ShadowText.Fleet? = try {
+        com.localghost.app.ui.ShadowText.parseFleet(BoxHttp.getJson(ctx, "/v1/shadow"))
+    } catch (_: Exception) { null }
+
+    /** What was named: by one detector, about one thing ("chat:12", "mail:3"), or by the fleet, newest first. */
+    suspend fun shadowObservations(ctx: Context, detector: String = "", about: String = "", limit: Int = 50): List<com.localghost.app.ui.ShadowText.Observation>? = try {
+        val qs = ArrayList<String>()
+        if (detector.isNotBlank()) qs.add("detector=" + java.net.URLEncoder.encode(detector, "UTF-8"))
+        if (about.isNotBlank()) qs.add("about=" + java.net.URLEncoder.encode(about, "UTF-8"))
+        qs.add("limit=$limit")
+        com.localghost.app.ui.ShadowText.parseObservations(BoxHttp.getJson(ctx, "/v1/shadow/observations?" + qs.joinToString("&")))
+    } catch (_: Exception) { null }
+
+    /** A chat's audit trail: each answer with what the box asked, what it was given, and the arbiter's record. */
+    suspend fun shadowTrail(ctx: Context, chat: Long): com.localghost.app.ui.ShadowText.Trail? = try {
+        com.localghost.app.ui.ShadowText.parseTrail(BoxHttp.getJson(ctx, "/v1/shadow/chat?id=$chat"))
+    } catch (_: Exception) { null }
+
+    /** Ask the arbiter to read a chat now. The answer is at once; the trail says when it is done.
+     *  A pair: whether a reading is going, and why not when it is not. */
+    suspend fun shadowRead(ctx: Context, chat: Long): Pair<Boolean, String> = try {
+        val r = BoxHttp.postJson(ctx, "/v1/shadow/read", org.json.JSONObject().put("chat", chat))
+        (r.optBoolean("ok") && r.optBoolean("reading")) to r.optString("why")
+    } catch (_: Exception) { false to "the box did not answer" }
+
+    /** Move a detector's threshold (inside its bounds; the box refuses outside them). The value it now has, or null. */
+    suspend fun shadowThreshold(ctx: Context, detector: String, value: Double): Double? = try {
+        val r = BoxHttp.postJson(ctx, "/v1/shadow/threshold", org.json.JSONObject().put("detector", detector).put("value", value))
+        if (r.optBoolean("ok")) r.optDouble("threshold") else null
+    } catch (_: Exception) { null }
+
+    /** Mute a detector for some hours (72 at most; 0 lifts it). When the mute ends (unix seconds, 0 lifted), or null. */
+    suspend fun shadowMute(ctx: Context, detector: String, hours: Int): Long? = try {
+        val r = BoxHttp.postJson(ctx, "/v1/shadow/mute", org.json.JSONObject().put("detector", detector).put("hours", hours))
+        if (r.optBoolean("ok")) r.optLong("mutedUntil") else null
+    } catch (_: Exception) { null }
+
     suspend fun contactsForget(ctx: Context): Boolean = try {
         BoxHttp.postJson(ctx, "/v1/contacts/forget", org.json.JSONObject()).optBoolean("ok")
     } catch (_: Exception) { false }
@@ -1059,11 +1099,14 @@ object BoxClient {
     /** A question asked aloud (POST /v1/voice/ask): the WAV to the box, the words back. The box keeps
      *  nothing of it. ok false with [why] when the box cannot hear (no speech engine, out of reach);
      *  ok true with "" when nothing was said that it could hear. */
-    data class Heard(val ok: Boolean, val text: String, val why: String)
+    data class Heard(val ok: Boolean, val text: String, val why: String, val ms: Long = 0, val lang: String = "")
 
-    suspend fun voiceAsk(ctx: Context, wav: java.io.File): Heard = try {
-        val r = BoxHttp.postFileJson(ctx, "/v1/voice/ask", wav, "audio/wav", readTimeoutMs = 3 * 60_000)
-        if (r.optBoolean("ok")) Heard(true, r.optString("text", "").trim(), "")
+    /** [langs]: the phone's languages ("en,ro"), so a few seconds of speech are not taken for a
+     *  language the person does not speak; [Heard.ms] is how long the box took. */
+    suspend fun voiceAsk(ctx: Context, wav: java.io.File, langs: String = ""): Heard = try {
+        val r = BoxHttp.postFileJson(ctx, "/v1/voice/ask", wav, "audio/wav", readTimeoutMs = 3 * 60_000,
+            headers = if (langs.isNotEmpty()) mapOf("X-Ghost-Langs" to langs) else emptyMap())
+        if (r.optBoolean("ok")) Heard(true, r.optString("text", "").trim(), "", r.optLong("ms"), r.optString("lang"))
         else Heard(false, "", r.optString("why", "the box said no"))
     } catch (e: kotlinx.coroutines.CancellationException) {
         throw e

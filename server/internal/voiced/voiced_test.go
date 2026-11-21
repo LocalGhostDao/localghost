@@ -9,9 +9,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
 )
 
 // writeWav writes n frames of a 440 Hz tone at the given format; header can be left unfinished
@@ -143,23 +147,35 @@ func TestParseWhisperJSONAndClean(t *testing.T) {
 // fakeWhisper is a stand-in whisper-cli: it checks the arguments voiced passes, checks the input is
 // a 16 kHz mono WAV, and writes the JSON the real one writes (or only the .txt, or fails).
 const fakeWhisper = `#!/bin/sh
-of=""; f=""; m=""; lang=""; ng=0
+of=""; f=""; m=""; lang=""; ng=0; th=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -of) of="$2"; shift 2 ;;
     -f) f="$2"; shift 2 ;;
     -m) m="$2"; shift 2 ;;
     -l) lang="$2"; shift 2 ;;
+    -t) th="$2"; shift 2 ;;
     -ng) ng=1; shift ;;
     *) shift ;;
   esac
 done
 [ -s "$m" ] || { echo "no model $m" >&2; exit 2; }
-[ "$lang" = auto ] || { echo "language not auto" >&2; exit 2; }
+[ "$lang" = auto ] || [ -n "${FAKE_WHISPER_HEARS:-}" ] || { echo "language not auto" >&2; exit 2; }
 [ "$ng" = 1 ] || { echo "GPU not left alone" >&2; exit 2; }
+# what it was run with, one line a run, for the tests that ask: a question's file is under voiced/ask
+case "$f" in */voiced/ask/*) what=ask ;; *) what=note ;; esac
+[ -z "${FAKE_WHISPER_RUNS:-}" ] || echo "$what lang=$lang threads=$th" >> "$FAKE_WHISPER_RUNS"
+# a voice note takes its time (a question does not): the test that sets one aside for a question
+[ "$what" = ask ] || [ -z "${FAKE_WHISPER_NOTE_SLEEP:-}" ] || sleep "$FAKE_WHISPER_NOTE_SLEEP" >/dev/null 2>&1
 # bytes 22-27: channels (1) and rate (16000 = 80 3e)
 hdr=$(od -An -tx1 -j22 -N6 "$f" | tr -d ' \n')
 [ "$hdr" = "0100803e0000" ] || { echo "not 16 kHz mono: $hdr" >&2; exit 3; }
+# FAKE_WHISPER_HEARS=xx: left to itself it hears language xx; told a language, it hears that one
+if [ -n "${FAKE_WHISPER_HEARS:-}" ]; then
+  if [ "$lang" = auto ]; then printf '{"result":{"language":"%s"},"transcription":[{"text":" Beth yw r tywydd."}]}' "$FAKE_WHISPER_HEARS" > "$of.json"
+  else printf '{"result":{"language":"%s"},"transcription":[{"text":" What is the weather?"}]}' "$lang" > "$of.json"; fi
+  exit 0
+fi
 case "${FAKE_WHISPER_MODE:-json}" in
   json) printf '{"result":{"language":"en"},"transcription":[{"text":" Walked to the harbour."},{"text":" [BLANK_AUDIO]"},{"text":" Tired but good."}]}' > "$of.json" ;;
   txt) printf ' Walked to the harbour.\n Tired but good.\n' > "$of.txt"; printf '{"transcription":[{"text":"bad \001 control"}' > "$of.json" ;;
@@ -268,7 +284,7 @@ func TestHearAQuestion(t *testing.T) {
 	_ = os.MkdirAll(ask, 0o750)
 	wav := filepath.Join(ask, "q1.wav")
 	writeWav(t, wav, 16000, 1, 16000, false)
-	r, err := d.Hear(context.Background(), wav)
+	r, err := d.Hear(context.Background(), wav, nil)
 	if err != nil || r.Text != "Walked to the harbour. Tired but good." || r.Lang != "en" {
 		t.Fatalf("%+v %v", r, err)
 	}
@@ -287,10 +303,212 @@ func TestHearAQuestion(t *testing.T) {
 	other := filepath.Join(mount, "voiced", "inbox", "x.wav")
 	_ = os.MkdirAll(filepath.Dir(other), 0o750)
 	writeWav(t, other, 16000, 1, 16000, false)
-	if _, err := d.Hear(context.Background(), other); err == nil || !strings.Contains(err.Error(), "not a file of") {
+	if _, err := d.Hear(context.Background(), other, nil); err == nil || !strings.Contains(err.Error(), "not a file of") {
 		t.Fatalf("a file outside ask: %v", err)
 	}
-	if _, err := d.Hear(context.Background(), filepath.Join(ask, "..", "inbox", "x.wav")); err == nil {
+	if _, err := d.Hear(context.Background(), filepath.Join(ask, "..", "inbox", "x.wav"), nil); err == nil {
 		t.Fatal("a path climbing out of ask")
+	}
+}
+
+// runs reads what the fake whisper was run with, one line a run.
+func runs(t *testing.T, path string) []string {
+	t.Helper()
+	b, _ := os.ReadFile(path)
+	return strings.Fields(strings.ReplaceAll(strings.TrimSpace(string(b)), " ", "|"))
+}
+
+// A question with nobody in it: a covered microphone, a tap by mistake. A speech model handed
+// silence writes words of its own ("Thank you."); the box does not hand it over.
+func TestAQuestionOfSilenceIsNotGivenToWhisper(t *testing.T) {
+	_, mount := fakeEngine(t)
+	ran := filepath.Join(t.TempDir(), "runs")
+	t.Setenv("FAKE_WHISPER_RUNS", ran)
+	d := &Daemon{Mount: mount, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Find: FindEngine}
+	ask := AskDir(mount)
+	_ = os.MkdirAll(ask, 0o750)
+	quiet := filepath.Join(ask, "quiet.wav")
+	// two seconds of a room: a few parts in ten thousand of full scale
+	data := make([]byte, 2*16000*2)
+	for i := 0; i < 2*16000; i++ {
+		binary.LittleEndian.PutUint16(data[i*2:], uint16(int16(6*(i%5-2))))
+	}
+	if err := os.WriteFile(quiet, append(WavHeader(16000, 1, 16, uint32(len(data))), data...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := d.Hear(context.Background(), quiet, []string{"en"})
+	if err != nil || r.Text != "" {
+		t.Fatalf("silence: %+v %v", r, err)
+	}
+	if got := runs(t, ran); len(got) != 0 {
+		t.Fatalf("whisper was run on silence: %v", got)
+	}
+	if _, err := os.Stat(quiet); err == nil {
+		t.Fatal("the question's file was kept")
+	}
+	// the measure itself: a tone at a quarter scale, and the room above
+	loud := filepath.Join(ask, "loud.wav")
+	writeWav(t, loud, 44100, 2, 44100, false)
+	f, _ := os.Open(loud)
+	info, _ := ReadWavInfo(f)
+	l, err := LoudestTenth(f, info)
+	f.Close()
+	if err != nil || math.Abs(l-8000.0/32768/math.Sqrt2) > 0.003 {
+		t.Fatalf("a tone of 8000: %v %v", l, err)
+	}
+	if err := os.WriteFile(quiet, append(WavHeader(16000, 1, 16, uint32(len(data))), data...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, _ = os.Open(quiet)
+	info, _ = ReadWavInfo(f)
+	l, _ = LoudestTenth(f, info)
+	f.Close()
+	if l <= 0 || l >= SilenceFloor {
+		t.Fatalf("a room: %v", l)
+	}
+}
+
+// The language of a few seconds of speech is a guess. Heard as one this person has never spoken
+// to the box, nor set their phone to, a short question is heard again as the one they speak
+// most; heard as one of theirs, it is left alone; a long one is trusted.
+func TestAQuestionHeardInTheWrongLanguageIsHeardAgain(t *testing.T) {
+	_, mount := fakeEngine(t)
+	ran := filepath.Join(t.TempDir(), "runs")
+	t.Setenv("FAKE_WHISPER_RUNS", ran)
+	t.Setenv("FAKE_WHISPER_HEARS", "cy")
+	d := &Daemon{Mount: mount, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Find: FindEngine}
+	d.langs = []string{"en", "ro"} // what the box has heard in voice notes, most first
+	ask := AskDir(mount)
+	_ = os.MkdirAll(ask, 0o750)
+	q := func(seconds int) string {
+		p := filepath.Join(ask, "q.wav")
+		writeWav(t, p, 16000, 1, seconds*16000, false)
+		return p
+	}
+	r, err := d.Hear(context.Background(), q(3), []string{"ro-RO", "en-GB"})
+	if err != nil || r.Text != "What is the weather?" || r.Lang != "en" {
+		t.Fatalf("heard again: %+v %v", r, err)
+	}
+	want := []string{"ask|lang=auto|threads=" + itoa(UrgentThreads()), "ask|lang=en|threads=" + itoa(UrgentThreads())}
+	if got := runs(t, ran); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("runs: %v, want %v", got, want)
+	}
+	// a box that has heard nothing yet goes by the phone's languages, the first of them
+	_ = os.Remove(ran)
+	d.langs = nil
+	if r, _ := d.Hear(context.Background(), q(3), []string{"ro-RO", "en-GB"}); r.Lang != "ro" {
+		t.Fatalf("by the phone's languages: %+v", r)
+	}
+	// heard as one of theirs: once, and as heard
+	_ = os.Remove(ran)
+	t.Setenv("FAKE_WHISPER_HEARS", "ro")
+	if r, _ := d.Hear(context.Background(), q(3), []string{"ro-RO", "en-GB"}); r.Lang != "ro" || len(runs(t, ran)) != 1 {
+		t.Fatalf("one of theirs: %+v, runs %v", r, runs(t, ran))
+	}
+	// nothing known of what they speak: whisper's word stands
+	_ = os.Remove(ran)
+	t.Setenv("FAKE_WHISPER_HEARS", "cy")
+	if r, _ := d.Hear(context.Background(), q(3), nil); r.Lang != "cy" || len(runs(t, ran)) != 1 {
+		t.Fatalf("nothing known: %+v, runs %v", r, runs(t, ran))
+	}
+	// forty seconds is enough to tell a language by: trusted
+	_ = os.Remove(ran)
+	if r, _ := d.Hear(context.Background(), q(40), []string{"en"}); r.Lang != "cy" || len(runs(t, ran)) != 1 {
+		t.Fatalf("a long question: %+v, runs %v", r, runs(t, ran))
+	}
+	if got := strings.Join(CleanLangs([]string{"en-GB", " RO ", "en", "../etc", "x", "fil_PH", "12", "toolong"}), ","); got != "en,ro,fil" {
+		t.Fatalf("clean: %s", got)
+	}
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
+
+// noteDB is the two questions TranscribeNext asks of the database, answered for one pending note.
+type noteDB struct {
+	mu     sync.Mutex
+	path   string
+	done   bool
+	tries  int
+	lang   string
+	result string
+}
+
+func (n *noteDB) Exec(sql string, args ...any) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if strings.Contains(sql, "tries = tries + 1") {
+		n.tries++
+	}
+	return nil
+}
+
+func (n *noteDB) Query(sql string, args ...any) (*poltergres.Rows, error) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	s := func(v string) *string { return &v }
+	switch {
+	case strings.Contains(sql, "WHERE status = 'pending' ORDER BY taken_at"):
+		if n.done {
+			return &poltergres.Rows{}, nil
+		}
+		return &poltergres.Rows{Vals: [][]*string{{s("0123456789abcdef0123456789abcdef"), s(n.path), s("1000")}}}, nil
+	case strings.Contains(sql, "SET status = 'done'"):
+		n.done = true
+		n.result, _ = args[1].(string)
+		n.lang, _ = args[2].(string)
+		return &poltergres.Rows{Vals: [][]*string{{s("journal"), s("2026-11-21"), s("1795000000000"), s("1000")}}}, nil
+	}
+	return &poltergres.Rows{}, nil
+}
+
+// A QUESTION GOES FIRST. The queue is three seconds into a voice note when someone asks aloud:
+// the note's whisper is stopped, the question is heard at once, and the note is taken up again
+// afterwards and finished, with no attempt counted against it.
+func TestAQuestionSetsTheNoteQueueAside(t *testing.T) {
+	eng, mount := fakeEngine(t)
+	ran := filepath.Join(t.TempDir(), "runs")
+	t.Setenv("FAKE_WHISPER_RUNS", ran)
+	t.Setenv("FAKE_WHISPER_NOTE_SLEEP", "3")
+	t.Setenv("FAKE_WHISPER_MODE", "json")
+	d := &Daemon{Mount: mount, Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Find: FindEngine}
+	_ = os.MkdirAll(filepath.Join(mount, "voiced", "archive"), 0o750)
+	writeWav(t, filepath.Join(mount, "voiced", "archive", "note.wav"), 16000, 1, 16000, false)
+	db := &noteDB{path: filepath.Join("voiced", "archive", "note.wav")}
+	ask := AskDir(mount)
+	_ = os.MkdirAll(ask, 0o750)
+	q := filepath.Join(ask, "q.wav")
+	writeWav(t, q, 16000, 1, 16000, false)
+
+	queue := make(chan error, 1)
+	go func() { _, err := d.TranscribeNext(context.Background(), db, eng); queue <- err }()
+	// wait until the note's whisper is running
+	for end := time.Now().Add(5 * time.Second); len(runs(t, ran)) == 0; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatal("the queue never started on the note")
+		}
+	}
+	t0 := time.Now()
+	r, err := d.Hear(context.Background(), q, nil)
+	if err != nil || r.Text == "" {
+		t.Fatalf("the question: %+v %v", r, err)
+	}
+	if took := time.Since(t0); took > 2*time.Second {
+		t.Fatalf("the question waited %s behind a three-second note", took.Round(100*time.Millisecond))
+	}
+	if err := <-queue; err != nil {
+		t.Fatalf("the note: %v", err)
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if !db.done || db.tries != 0 || db.result != "Walked to the harbour. Tired but good." {
+		t.Fatalf("the note afterwards: done %v, tries %d, %q", db.done, db.tries, db.result)
+	}
+	// the note twice (stopped, then whole), the question once between them, on more cores
+	got := runs(t, ran)
+	if len(got) != 3 || !strings.HasPrefix(got[1], "ask|") || !strings.HasPrefix(got[0], "note|") || !strings.HasPrefix(got[2], "note|") {
+		t.Fatalf("runs: %v", got)
+	}
+	if !strings.HasSuffix(got[1], "threads="+itoa(UrgentThreads())) || !strings.HasSuffix(got[0], "threads="+itoa(Threads())) {
+		t.Fatalf("threads: %v", got)
 	}
 }

@@ -25,6 +25,18 @@ object VoiceNotes {
 
     private fun root(ctx: Context) = File(ctx.noBackupFilesDir, "voice")
     fun takesDir(ctx: Context) = File(root(ctx), "takes").apply { mkdirs() }
+    /** Questions asked aloud in the chat: recorded here, heard once by the box, deleted. Nothing
+     *  in this folder is ever queued or uploaded as a note. */
+    fun asksDir(ctx: Context) = File(root(ctx), "asks").apply { mkdirs() }
+
+    /** A question the app died holding (or left behind) is not a note: it goes. The one being
+     *  recorded or heard now is left alone. */
+    fun sweepAsks(ctx: Context) {
+        val active = VoiceCapture.activeId()
+        asksDir(ctx).listFiles()?.forEach { f ->
+            if (f.name.substringBefore('.') != active && System.currentTimeMillis() - f.lastModified() > 60_000) f.delete()
+        }
+    }
     private fun pendingDir(ctx: Context) = File(root(ctx), "pending").apply { mkdirs() }
 
     fun newId(): String = UUID.randomUUID().toString().replace("-", "")
@@ -95,6 +107,7 @@ object VoiceNotes {
 
     /** Send what waits. Returns how many the box took; the rest stay for the next try. */
     suspend fun uploadPending(ctx: Context): Int = uploading.withLock { withContext(Dispatchers.IO) {
+        sweepAsks(ctx)
         recoverOrphans(ctx)
         var sent = 0
         for (p in pending(ctx).sortedBy { it.takenAt }) {

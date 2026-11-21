@@ -72,6 +72,17 @@ fi
 # (both embedder names: the mirror's QAT build, and the one older boxes were set up with; whichever is
 # present is staged, and searchd prefers the QAT build when both are)
 WANTED="${GHOST_MODEL_FILES:-gemma-4-12b-it-Q4_K_M.gguf mmproj-F16.gguf embeddinggemma-300m-qat-Q8_0.gguf embeddinggemma-300m-q8.gguf}"
+# THE ARBITER'S MODEL, when the source holds one: a second model from another lab that
+# ghost.shadowd's cold read is asked of (docs/SHADOW.md). It is named for its job,
+# arbiter-<name>.gguf, and oracled takes the first by name; which model it is is not this script's
+# to know. Not looked for when GHOST_MODEL_FILES says exactly what to stage.
+if [ -z "${GHOST_MODEL_FILES:-}" ]; then
+    for f in "$SRC"/arbiter-*.gguf; do
+        [ -f "$f" ] || continue
+        case "$(basename "$f")" in *[[:space:]]*) echo "!! $(basename "$f"): a name with a space in it is not staged" >&2; continue ;; esac
+        WANTED="$WANTED $(basename "$f")"
+    done
+fi
 
 # Free-space preflight on the staging filesystem , /var is often a small separate partition, and
 # filling it takes the whole system's logging and databases down with it.

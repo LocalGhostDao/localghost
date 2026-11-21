@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/poltergres"
@@ -67,6 +68,14 @@ type Daemon struct {
 	// engMu: one whisper at a time, the queue's or a question's (Hear); two on the card would
 	// slow both and can run the memory out
 	engMu sync.Mutex
+	// A QUESTION GOES FIRST. asks counts the questions waiting or being heard; while it is not
+	// zero the queue starts nothing, and the note it is on is set aside (queueStop) and taken
+	// up again afterwards with no attempt counted. A person waiting for their own words in a
+	// chat does not wait behind twenty minutes of yesterday's voice note.
+	asks      atomic.Int32
+	queueStop context.CancelFunc // stops the queue's whisper; nil when it runs none
+	setAside  bool               // the queue's whisper was stopped for a question
+	langs     []string           // the languages this box has heard its person speak, most first (read every pass)
 }
 
 // State is what the phone is told beside each waiting note: why nothing is being transcribed, or
@@ -196,8 +205,10 @@ func (d *Daemon) Pass(ctx context.Context, db DB) error {
 	eng, why, ok := d.Find(d.Mount)
 	names := Names(db)
 	eng.Prompt = Prompt(names)
+	langs := HeardLangs(db)
 	d.mu.Lock()
 	d.names = names
+	d.langs = langs
 	if ok {
 		d.stat.Engine, d.stat.Why = eng.Name(), ""
 	} else {
@@ -361,9 +372,38 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 	id, rel := *rows.Vals[0][0], *rows.Vals[0][1]
 	d.setWorking(id)
 	defer d.setWorking("")
-	d.engMu.Lock()
-	res, terr := d.transcribeFile(ctx, filepath.Join(d.Mount, rel), id, eng)
-	d.engMu.Unlock()
+	var res Result
+	var terr error
+	for {
+		// a question waiting, or being heard: the note waits for it, and starts over after it
+		if err := d.waitForAsks(ctx); err != nil {
+			return false, err
+		}
+		qctx, stop := context.WithCancel(ctx)
+		d.engMu.Lock()
+		d.mu.Lock()
+		d.queueStop, d.setAside = stop, false
+		d.mu.Unlock()
+		if d.asks.Load() > 0 {
+			// one arrived between the wait and the lock, before there was anything to stop
+			d.mu.Lock()
+			d.setAside = true
+			d.mu.Unlock()
+			stop()
+		}
+		res, terr = d.transcribeFile(qctx, filepath.Join(d.Mount, rel), id, eng)
+		d.mu.Lock()
+		aside := d.setAside
+		d.queueStop, d.setAside = nil, false
+		d.mu.Unlock()
+		d.engMu.Unlock()
+		stop()
+		if terr != nil && aside && ctx.Err() == nil {
+			d.Log.Info("voice note set aside for a question asked aloud; taken up again after it", "fn", "TranscribeNext", "id", id[:min(8, len(id))])
+			continue // not the note's fault: no try counted
+		}
+		break
+	}
 	if terr != nil {
 		if ctx.Err() != nil {
 			return false, ctx.Err() // shutting down: not the note's fault, no try counted
@@ -406,11 +446,81 @@ func (d *Daemon) TranscribeNext(ctx context.Context, db DB, eng Engine) (did boo
 // AskDir is where secd puts a question asked aloud for Hear: <mount>/voiced/ask.
 func AskDir(mount string) string { return filepath.Join(mount, "voiced", "ask") }
 
+// waitForAsks holds the queue while a question is waiting or being heard.
+func (d *Daemon) waitForAsks(ctx context.Context) error {
+	for d.asks.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return ctx.Err()
+}
+
+// HeardLangs is the languages this box has heard its person speak, in voice notes that were
+// transcribed: the most spoken first, five at most. A question of a few seconds is too little
+// for a speech model to tell a language by; minutes of notes are not.
+func HeardLangs(db DB) []string {
+	rows, err := db.Query(`SELECT lang FROM voice_notes WHERE status = 'done' AND lang <> '' GROUP BY lang ORDER BY count(*) DESC, lang LIMIT 5`)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, v := range rows.Vals {
+		if len(v) > 0 && v[0] != nil {
+			out = append(out, *v[0])
+		}
+	}
+	return out
+}
+
+// CleanLangs keeps what is a language code of a list from outside (the phone's languages):
+// two or three lower-case letters, no repeats, five at most.
+func CleanLangs(in []string) []string {
+	var out []string
+	for _, l := range in {
+		l = strings.ToLower(strings.TrimSpace(l))
+		if i := strings.IndexAny(l, "-_"); i > 0 {
+			l = l[:i]
+		}
+		if len(l) < 2 || len(l) > 3 || strings.Trim(l, "abcdefghijklmnopqrstuvwxyz") != "" {
+			continue
+		}
+		dup := false
+		for _, o := range out {
+			dup = dup || o == l
+		}
+		if !dup {
+			out = append(out, l)
+		}
+		if len(out) == 5 {
+			break
+		}
+	}
+	return out
+}
+
+// guessWindow: a question up to this long is short enough for its language to be a guess.
+const guessWindow = 30 * time.Second
+
 // Hear transcribes one WAV under AskDir and keeps nothing: no row, no archive, no journal entry.
 // The file is removed whatever happens. A question asked aloud is heard once and goes into the
-// chat as words, like a typed one. The queue's whisper waits while it runs (engMu), and it waits
-// for the queue's.
-func (d *Daemon) Hear(ctx context.Context, path string) (Result, error) {
+// chat as words, like a typed one.
+//
+// A person is waiting, so it goes FIRST and it goes at full weight: a voice note the queue is
+// transcribing is set aside for it (and taken up again after, no attempt counted), and whisper
+// runs on more cores at the ordinary priority (Engine.Urgent).
+//
+// A file with no sound in it is answered at once with no words: a speech model handed silence
+// writes "Thank you." and the like.
+//
+// THE LANGUAGE of a few seconds of speech is a guess, and a wrong guess is a transcript in the
+// wrong language. langs is the languages the phone is set to; with the ones this box has heard
+// in voice notes they are the languages this person speaks. When whisper hears a short
+// question as some other language it is heard once more as the one they speak most, and that
+// hearing is the answer if it has words.
+func (d *Daemon) Hear(ctx context.Context, path string, langs []string) (Result, error) {
 	defer os.Remove(path)
 	ask := AskDir(d.Mount)
 	if rel, err := filepath.Rel(ask, path); err != nil || strings.HasPrefix(rel, "..") || strings.ContainsRune(rel, filepath.Separator) {
@@ -420,10 +530,34 @@ func (d *Daemon) Hear(ctx context.Context, path string) (Result, error) {
 	if !ok {
 		return Result{}, fmt.Errorf("no speech engine: %s", why)
 	}
+	// is anyone in it
+	var audio time.Duration
+	if f, err := os.Open(path); err == nil {
+		info, ierr := ReadWavInfo(f)
+		if ierr == nil {
+			audio = info.Duration()
+			if loud, lerr := LoudestTenth(f, info); lerr == nil && loud < SilenceFloor {
+				f.Close()
+				d.Log.Info("question had no sound in it; not given to whisper", "fn", "Hear", "loudest", fmt.Sprintf("%.4f", loud), "audio", audio.Round(100*time.Millisecond).String())
+				return Result{}, nil
+			}
+		}
+		f.Close()
+	}
 	d.mu.Lock()
 	names := d.names
+	spoken := append(append([]string(nil), d.langs...), CleanLangs(langs)...)
+	// the note the queue is on steps aside
+	d.asks.Add(1)
+	if d.queueStop != nil {
+		d.setAside = true
+		d.queueStop()
+	}
 	d.mu.Unlock()
+	defer d.asks.Add(-1)
+	spoken = CleanLangs(spoken)
 	eng.Prompt = Prompt(names)
+	eng.Urgent = true
 	id := strings.TrimSuffix(filepath.Base(path), ".wav")
 	d.engMu.Lock()
 	defer d.engMu.Unlock()
@@ -431,9 +565,28 @@ func (d *Daemon) Hear(ctx context.Context, path string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if res.Lang != "" && len(spoken) > 0 && audio <= guessWindow && !hasLang(spoken, res.Lang) {
+		// heard as a language this person has never spoken to the box, nor set their phone to
+		eng.Lang = spoken[0]
+		if again, aerr := d.transcribeFile(ctx, path, "ask-"+id, eng); aerr == nil && strings.TrimSpace(again.Text) != "" {
+			d.Log.Info("question heard as a language its person does not speak; heard again", "fn", "Hear", "first", res.Lang, "again", eng.Lang)
+			again.Took += res.Took
+			again.Lang = eng.Lang
+			res = again
+		}
+	}
 	res.Text, _ = FixNames(res.Text, names)
-	d.Log.Info("question heard", "fn", "Hear", "lang", res.Lang, "words", len(strings.Fields(res.Text)), "took", res.Took.Round(time.Second).String())
+	d.Log.Info("question heard", "fn", "Hear", "lang", res.Lang, "words", len(strings.Fields(res.Text)), "audio", audio.Round(100*time.Millisecond).String(), "took", res.Took.Round(100*time.Millisecond).String())
 	return res, nil
+}
+
+func hasLang(langs []string, l string) bool {
+	for _, x := range langs {
+		if x == l {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Daemon) transcribeFile(ctx context.Context, path, id string, eng Engine) (Result, error) {

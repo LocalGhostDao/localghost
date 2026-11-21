@@ -53,6 +53,15 @@ type conf struct {
 	// the longest side, in pixels, of an image the model is shown (0: 1024). A full-size phone
 	// photo aborts the mirror's llama.cpp v0.5.0; oracled scales every image down first.
 	ImageMaxSide int `json:"imageMaxSide"`
+	// THE ARBITER'S OWN MODEL (internal/oracled/lanes.go): a second model, from another lab than
+	// the main one, that ghost.shadowd's cold read is asked of. Empty path: the first
+	// ai-models/arbiter-*.gguf on the volume, and a box with none reads with its main model and
+	// says so. It runs on the CPU beside the main model; arbiterArgs are appended to its flags
+	// (threads, context; "-ngl 99" for a box with a card to spare).
+	ArbiterModelPath string   `json:"arbiterModelPath"`
+	ArbiterModelName string   `json:"arbiterModelName"` // reported in responses; empty: the file's name
+	ArbiterPort      int      `json:"arbiterPort"`      // loopback port for its llama-server
+	ArbiterArgs      []string `json:"arbiterArgs"`
 }
 
 func defaultConf(mount string) conf {
@@ -67,6 +76,8 @@ func defaultConf(mount string) conf {
 		MmprojPath: filepath.Join(mount, "ai-models", "mmproj-F16.gguf"),
 		ModelName:  "gemma-4-12b",
 		LlamaPort:  18080, // loopback only; not advertised
+		// 18081 is searchd's embedder
+		ArbiterPort: 18082,
 	}
 	return c
 }
@@ -119,7 +130,8 @@ func main() {
 
 	// Broker + the local llama-server backend, started EAGERLY so the weights-load cost is paid now
 	// (on unlock) rather than on a user's first request.
-	broker := oracled.NewBroker(cfg.QueueDepth, lg)
+	lanes := oracled.NewLanes(cfg.QueueDepth, lg)
+	broker := lanes.Main
 	llama := oracled.NewLlamaBackend(oracled.LlamaConfig{
 		BinPath:    cfg.LlamaBin,
 		ModelPath:  cfg.ModelPath,
@@ -138,6 +150,35 @@ func main() {
 	var modelReady atomic.Bool
 	var modelWhy atomic.Value // why the model is not up, for the health line
 	modelWhy.Store("model loading")
+	// a main model on the CPU shares its cores with the arbiter's: there a person's chat sets
+	// the arbiter's reading aside too. On the card the two do not meet.
+	lanes.Shares = func() bool { return !llama.Engine().OnGPU() }
+	// The arbiter's own model, when the box has one: started once the main model is up (two
+	// loads at once from one disk help neither), kept up, started again when it dies.
+	arbPath, arbName := cfg.ArbiterModelPath, cfg.ArbiterModelName
+	if arbPath == "" {
+		arbPath, _ = oracled.PickArbiter(filepath.Join(*mount, "ai-models"))
+	}
+	if arbPath != "" && arbName == "" {
+		arbName = oracled.ArbiterName(arbPath)
+	}
+	var arbStop func()
+	if arbPath == "" {
+		lg.Info("no second model for the arbiter on this box (no ai-models/arbiter-*.gguf): ghost.shadowd's cold read is by the main model, and says so", "fn", "main")
+	} else {
+		arb := oracled.NewArbiterBackend(cfg.LlamaBin, arbPath, arbName, cfg.ArbiterPort, cfg.ArbiterArgs)
+		arbStop = arb.Stop
+		go func() {
+			for !modelReady.Load() {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
+			}
+			lanes.KeepArbiter(ctx, arb)
+		}()
+	}
 	go func() {
 		// A start that fails is tried again, not given up on: on 29 Sep 2026 a new engine did not
 		// come up once and oracled sat there for hours without a model, captions and chat quietly
@@ -223,7 +264,7 @@ func main() {
 			}
 		}
 	}()
-	broker.Run()
+	lanes.Run()
 	// Shutdown order matters: the MODEL first, then the broker. The broker's Stop waits for its
 	// worker, and the worker is usually mid-inference now that captions run all day; waiting on
 	// llama to finish a caption before killing llama took longer than watchd's 5s grace, every
@@ -232,8 +273,11 @@ func main() {
 	// milliseconds; a bound on the wait keeps a surprise from becoming a wedge again.
 	defer func() {
 		llama.Stop()
+		if arbStop != nil {
+			arbStop()
+		}
 		done := make(chan struct{})
-		go func() { broker.Stop(); close(done) }()
+		go func() { lanes.Stop(); close(done) }()
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
@@ -255,6 +299,11 @@ func main() {
 			"queueDepth": "needs-restart",
 			"modelPath":  "needs-restart",
 			"llamaPort":  "needs-restart",
+			// the arbiter's model: a file put at ai-models/arbiter-<name>.gguf is taken up at
+			// the next start of this daemon, like the rest of the model wiring
+			"arbiterModelPath": "needs-restart",
+			"arbiterPort":      "needs-restart",
+			"arbiterArgs":      "needs-restart",
 		}
 		return fresh.Base, report, nil
 	})
@@ -263,7 +312,7 @@ func main() {
 		if err := json.Unmarshal(args, &req); err != nil {
 			return ctlsock.Response{}, err
 		}
-		ch, ok := broker.Submit(req)
+		ch, ok := lanes.Submit(req)
 		if !ok {
 			return ctlsock.Response{}, errFull
 		}
@@ -291,6 +340,9 @@ func main() {
 		if why != "" {
 			m["visionWhy"] = why
 		}
+		// the arbiter's own model: whether the box has one, whether it is up, and which model
+		// a cold read asked for now would be read by
+		m["arbiter"] = lanes.Arbiter()
 		data, _ := json.Marshal(m)
 		return ctlsock.Response{OK: true, Data: data}, nil
 	})
@@ -305,11 +357,16 @@ func main() {
 	rep := ghosthealth.ReporterFunc(func() ghosthealth.Health {
 		if modelReady.Load() {
 			// text only is still OK (chat and tags work, and the unlock and chat wait on this
-			// code), but the detail says so, where Box Status shows it
+			// code), but the detail says so, where Box Status shows it; so is a second model
+			// that is not up (the cold read waits for it, then is read by the main model)
+			var detail []string
 			if vis, why := llama.Vision(); !vis {
-				return ghosthealth.Health{Code: ghosthealth.OK, Name: service, Detail: "text only, no photo is described: " + why}
+				detail = append(detail, "text only, no photo is described: "+why)
 			}
-			return ghosthealth.Health{Code: ghosthealth.OK, Name: service}
+			if a := lanes.Arbiter(); a.Has && !a.Ready {
+				detail = append(detail, "the arbiter's model ("+a.Model+") is not up: "+a.Why)
+			}
+			return ghosthealth.Health{Code: ghosthealth.OK, Name: service, Detail: strings.Join(detail, "; ")}
 		}
 		why, _ := modelWhy.Load().(string)
 		return ghosthealth.Health{Code: ghosthealth.Degraded, Name: service, Detail: why}
@@ -345,8 +402,8 @@ func main() {
 		// A person is using the model: background work steps aside for the whole answer (a
 		// running caption is cancelled and requeued without losing an attempt; none starts until
 		// the stream ends, plus a short grace for the follow-up question).
-		broker.Pause()
-		defer broker.Resume()
+		lanes.Pause()
+		defer lanes.Resume()
 		out, model, err := llama.StreamChatBudget(r.Context(), q.History, q.Prompt, q.Think, q.Image, q.MaxTokens)
 		if err != nil {
 			lg.Warn("chat stream start failed", "fn", "chat", "err", err)

@@ -9,11 +9,12 @@ package com.localghost.app.ui
  */
 object NotifLink {
     /** [dest]: "map", "day", "memories", "checkin", "news", "status", "notification",
-     *  "notifications", "mail" or "" (nowhere); [arg]: a day for the map, a memory's id or "near" for
+     *  "notifications", "mail", "shadow" or "" (nowhere); [arg]: a day for the map, a memory's id or "near" for
      *  memories (the id opens that memory's page). */
     data class Target(val dest: String, val arg: String = "")
 
     private val day = Regex("""^\d{4}-\d{2}-\d{2}$""")
+    private val shadowArg = Regex("""^(chat:\d{1,18}|[a-z][a-z-]{1,40})$""")
 
     fun resolve(link: String, service: String, kind: String): Target {
         val l = link.trim()
@@ -25,6 +26,9 @@ object NotifLink {
                 "notification" -> return Target("notification", arg.takeIf { it.toLongOrNull() != null } ?: "")
                 "memories" -> return Target("memories", arg.takeIf { it == "near" || it.toLongOrNull() != null } ?: "")
                 "mail" -> return Target("mail", arg.takeIf { it.toLongOrNull() != null } ?: "")
+                // ghost.shadowd: "shadow:chat:<id>" is that chat's audit trail, "shadow:<detector>"
+                // the detector's page, "shadow" the fleet
+                "shadow" -> return Target("shadow", arg.takeIf { a -> a.isEmpty() || shadowArg.matches(a) } ?: "")
                 "checkin", "news", "status", "notifications", "calendar" -> return Target(head)
             }
         }

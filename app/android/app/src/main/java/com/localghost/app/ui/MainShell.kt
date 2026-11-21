@@ -54,6 +54,7 @@ enum class Dest(val label: String, val glyph: String) {
     NOTIFICATION("NOTIFICATION", "△"),
     NOTIFICATIONS("NOTIFICATIONS", "△"),
     HARNESS("BOX STATUS", "◉"),
+    SHADOW("SHADOW", "◑"),
     SYNC("SYNC", "⇅"),
     GALLERY("GALLERY", "▦"),
     MAP("MAP", "◎"),
@@ -186,6 +187,8 @@ fun MainShell(
         dest = Dest.NOTIFICATION
     }
     // one mail's page (a notification's tap): the id MAIL opens on, cleared once it has
+    // what SHADOW opens on: "chat:<id>" (that chat's audit trail), a detector's id, or "" (the fleet)
+    var shadowOpen by rememberSaveable { mutableStateOf("") }
     var mailOpen by rememberSaveable { mutableLongStateOf(0L) }
     fun openMail(id: Long) {
         mailOpen = id
@@ -203,6 +206,7 @@ fun MainShell(
             "calendar" -> dest = Dest.CALENDAR
             "news" -> { newsFocus = 0L; dest = Dest.NEWS }
             "status" -> dest = Dest.HARNESS
+            "shadow" -> { shadowOpen = t.arg; dest = Dest.SHADOW }
             "notifications" -> dest = Dest.NOTIFICATIONS
         }
     }
@@ -212,7 +216,7 @@ fun MainShell(
         when {
             // a notification's own place (the shade's tap): "map:<day>", "memories:<id>", "status"
             navRequest.startsWith("map") || navRequest.startsWith("memories") || navRequest.startsWith("day:") || navRequest.startsWith("mail") ||
-                navRequest.startsWith("notification:") || navRequest == "status" || navRequest == "checkin" ->
+                navRequest.startsWith("notification:") || navRequest.startsWith("shadow") || navRequest == "status" || navRequest == "checkin" ->
                 openTarget(NotifLink.resolve(navRequest, "", ""))
         }
         when (navRequest) {
@@ -325,7 +329,8 @@ fun MainShell(
                             onDelete = onDeleteConversation,
                             onOpenBoxChat = { id -> onOpenBoxChat(id); dest = Dest.CHAT },
                             onRenameBoxChat = onRenameBoxChat,
-                            onDeleteBoxChat = onDeleteBoxChat)
+                            onDeleteBoxChat = onDeleteBoxChat,
+                            onAuditBoxChat = { id -> shadowOpen = "chat:$id"; dest = Dest.SHADOW })
                         Dest.MEMORIES -> MemoriesScreen(lifeContext, open = memFocus, onOpened = { memFocus = "" },
                             onOpenDay = { d -> openDay(d) },
                             onOpenMemory = { id -> openMemory(id) })
@@ -364,6 +369,8 @@ fun MainShell(
                             onDay = { d -> openDay(d) },
                             onBack = { dest = Dest.NOTIFICATIONS })
                         Dest.HARNESS -> HarnessScreen(daemons, onRefresh = onRefreshDaemons)
+                        Dest.SHADOW -> ShadowScreen(open = shadowOpen, onOpened = { shadowOpen = "" },
+                            onOpenChat = { id -> onOpenBoxChat(id); dest = Dest.CHAT })
                         Dest.SYNC -> SyncScreen(sync, onSync, onRequestFullAccess, onTogglePause = onTogglePause)
                         Dest.GALLERY -> GalleryScreen()
                         Dest.MAP -> MapScreen(openDay = mapDay, onDayShown = { mapDay = "" })
@@ -645,7 +652,7 @@ private fun DrawerPanel(
             // open from its cards and from HOME), then the machine itself
             SectionLabel("THE BOX")
             DrawerRow(Dest.SOURCES, current in setOf(Dest.SOURCES, Dest.FEEDS, Dest.INTEGRATION, Dest.NEWS, Dest.CRYPTO, Dest.WIKIPEDIA, Dest.CALENDAR, Dest.CONTACTS)) { onSelect(Dest.SOURCES) }
-            listOf(Dest.HARNESS, Dest.MODELS, Dest.NOTIFICATIONS, Dest.CONNECTORS, Dest.CODES).forEach {
+            listOf(Dest.HARNESS, Dest.SHADOW, Dest.MODELS, Dest.NOTIFICATIONS, Dest.CONNECTORS, Dest.CODES).forEach {
                 DrawerRow(it, it == current) { onSelect(it) }
             }
 

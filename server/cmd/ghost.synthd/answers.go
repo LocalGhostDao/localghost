@@ -95,6 +95,44 @@ func newAnswerSaver(mount string, chatID, msgID int64) *answerSaver {
 	return s
 }
 
+// givenJSON is what the box had been given when it wrote an answer, as the saved row keeps it:
+// the trail's steps, and each context item's source and date. Never the items' words: those
+// stay where they came from. ghost.shadowd reads the dates to say how old the memories the box
+// brings are, and the chat's audit trail shows the steps (pure, for the tests).
+func givenJSON(steps []string, items []ctxItem) string {
+	type item struct {
+		Source string `json:"source"`
+		When   string `json:"when,omitempty"`
+	}
+	out := struct {
+		Steps []string `json:"steps"`
+		Items []item   `json:"items"`
+	}{Steps: steps, Items: make([]item, 0, len(items))}
+	if out.Steps == nil {
+		out.Steps = []string{}
+	}
+	for _, it := range items {
+		out.Items = append(out.Items, item{Source: it.Source, When: it.When})
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// given keeps what the answer was written from on its row. Best effort: an answer is not held
+// up for it, and a row without it is an answer from before this was kept.
+func (s *answerSaver) given(steps []string, items []ctxItem) {
+	db := chatStore(s.mount)
+	if db == nil || s.msgID == 0 {
+		return
+	}
+	if err := db.Exec(`UPDATE chat_messages SET given = $1 WHERE id = $2`, givenJSON(steps, items), strconv.FormatInt(s.msgID, 10)); err != nil {
+		slog.Warn("what the answer was given was not kept", "fn", "given", "err", err)
+	}
+}
+
 // update records the answer so far; final is "" while writing, else "done" or "stopped".
 func (s *answerSaver) update(text, think, final string) {
 	s.mu.Lock()

@@ -52,3 +52,19 @@ func TestChatInputCarriesTheLength(t *testing.T) {
 		t.Fatalf("long: %q", long)
 	}
 }
+
+// What an answer was given is kept on its row as the trail's steps and each item's source and
+// date, never an item's words (ghost.shadowd reads the dates; the chat's audit trail the steps).
+func TestGivenKeepsSourcesAndDatesNotWords(t *testing.T) {
+	got := givenJSON([]string{"2 of your memories"}, []ctxItem{
+		{When: "2024-07-12", Source: "memory", Snippet: "Vlad's private note about Cristina", Why: "matched 'cristina'"},
+		{Source: "wikipedia", Snippet: "Nicopolis was founded in 29 BC"},
+	})
+	want := `{"steps":["2 of your memories"],"items":[{"source":"memory","when":"2024-07-12"},{"source":"wikipedia"}]}`
+	if got != want {
+		t.Fatalf("given:\n got %s\nwant %s", got, want)
+	}
+	if got := givenJSON(nil, nil); got != `{"steps":[],"items":[]}` {
+		t.Fatalf("nothing given: %s", got)
+	}
+}

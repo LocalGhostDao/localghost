@@ -2696,11 +2696,19 @@ func DaemonSummaryFrom(c *poltergres.ReadWrite, name string) []DaemonKV {
 			add("earliest day", d)
 		}
 	case "ghost.shadowd":
-		add("charter", "anti-possession: watches usage patterns FOR you, never for engagement")
-		key("your messages (7d)", one("SELECT count(*) FROM chat_messages WHERE role = 'user' AND ts >= extract(epoch from now())::bigint - 7*86400"))
-		add("prior 7d", one("SELECT count(*) FROM chat_messages WHERE role = 'user' AND ts >= extract(epoch from now())::bigint - 14*86400 AND ts < extract(epoch from now())::bigint - 7*86400"))
-		add("days you talked (14d)", one("SELECT count(DISTINCT to_char(to_timestamp(ts),'YYYY-MM-DD')) FROM chat_messages WHERE role = 'user' AND ts >= extract(epoch from now())::bigint - 14*86400"))
-		add("detector", "interaction trend LIVE; next: sunk-cost, topic narrowing")
+		// the chat keeps its times in milliseconds; these lines compared them with seconds until
+		// 21 November 2026 and counted every message ever sent as this week's
+		add("charter", "names what it sees and stops: the box's own conduct first, then yours, then the mail's")
+		key("your messages (7d)", one("SELECT count(*) FROM chat_messages WHERE role = 'user' AND ts >= (extract(epoch from now())::bigint - 7*86400) * 1000"))
+		add("prior 7d", one("SELECT count(*) FROM chat_messages WHERE role = 'user' AND ts >= (extract(epoch from now())::bigint - 14*86400) * 1000 AND ts < (extract(epoch from now())::bigint - 7*86400) * 1000"))
+		add("days you talked (14d)", one("SELECT count(DISTINCT to_char(to_timestamp(ts / 1000),'YYYY-MM-DD')) FROM chat_messages WHERE role = 'user' AND ts >= (extract(epoch from now())::bigint - 14*86400) * 1000"))
+		key("answers looked at", one("SELECT count(*) FROM shadow_reads"))
+		add("read cold", one("SELECT count(*) FROM shadow_reads WHERE cold <> ''"))
+		add("where the cold read differed", one("SELECT count(*) FROM shadow_reads WHERE verdict = 'no'"))
+		key("observations (30d)", one("SELECT count(*) FROM shadow_observations WHERE ts >= extract(epoch from now())::bigint - 30*86400"))
+		add("of them made while muted", one("SELECT count(*) FROM shadow_observations WHERE muted AND ts >= extract(epoch from now())::bigint - 30*86400"))
+		add("settings changed", one("SELECT count(*) FROM shadow_config WHERE what <> 'reset'"))
+		add("detectors", "seventeen over fourteen of the catalogue's thirty patterns; the rest are listed as not built, each with its reason (docs/SHADOW.md)")
 	case "ghost.cued":
 		add("charter", "surfaces reflections from your life , offerings, not homework")
 		add("episodes to draw from", one("SELECT count(*) FROM memories WHERE kind = 'episode' AND NOT tombstoned"))

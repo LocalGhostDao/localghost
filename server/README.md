@@ -269,7 +269,9 @@ The mute is PER SCOPE: a GLOBAL mute (`*`) collapses the whole surface to "down"
 looks exactly like a down one); a PER-SERVICE mute (`ghost.synthd`, `ghost.shadowd`, `ghost.cued`, ...,
 one per notification-producing daemon) does NOT make the poll appear down , the app is not down, just
 quieter , it filters that service out of the returned list. A service is muted if the global mute OR
-its own per-service mute is active.
+its own per-service mute is active. One exception to "as long as you like": `ghost.shadowd` can be
+muted for three days at most (a week and "forever" are three days too), because its charter is mute,
+not disable; what it names while muted is kept (`docs/SHADOW.md`).
 
 Durations: presets `1h` / `1d` / `1w`, `forever`, or a custom length (days + hours + minutes). Control
 endpoint `POST /v1/notifications/mute` ({scope, preset|minutes/hours/days|clear|forever}); `GET`

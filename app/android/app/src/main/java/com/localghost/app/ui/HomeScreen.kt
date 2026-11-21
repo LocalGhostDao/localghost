@@ -378,6 +378,8 @@ private fun ForYouRow(title: String, line: String, more: String, onTap: () -> Un
 private fun AskBox(onAsk: (String) -> Unit) {
     var input by remember { mutableStateOf("") }
     var voiceNote by remember { mutableStateOf("") }
+    // "heard in 4 s" belongs to the words it came with: gone once they are sent or cleared
+    LaunchedEffect(input.isEmpty()) { if (input.isEmpty() && VoiceAskText.isHeardLine(voiceNote)) voiceNote = "" }
     val canSend = input.isNotBlank()
     Row(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RoundedCornerShape(22.dp))
         .background(VoidLighter, RoundedCornerShape(22.dp)).padding(horizontal = 10.dp, vertical = 4.dp),
@@ -402,8 +404,7 @@ private fun AskBox(onAsk: (String) -> Unit) {
             Text("›", color = if (canSend) Void else GhostTextDim, fontSize = 20.sp)
         }
     }
-    if (voiceNote.isNotEmpty()) Text(voiceNote, color = if (voiceNote.startsWith("!")) Warning else TerminalDim,
-        style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 12.dp, top = 2.dp))
+    VoiceAskLine(voiceNote, Modifier.padding(start = 12.dp, end = 12.dp, top = 2.dp))
 }
 
 /**

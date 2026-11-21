@@ -119,8 +119,9 @@ if ss -ltnH 2>/dev/null | grep -q '127.0.0.1:8443 '; then
     fi
 fi
 # the model servers ask for a key since 12 Nov 2026 (LLAMA_API_KEY in the child's environment,
-# made by oracled and searchd at each run): without it everything but /health is refused
-for p in 18080 18081; do
+# made by oracled and searchd at each run): without it everything but /health is refused.
+# 18082 is the arbiter's second model, when the box has one (oracled's, the same key rule).
+for p in 18080 18081 18082; do
     code=$(curl -s -m 2 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$p/props" 2>/dev/null) || code=000
     case "$code" in
         000) ;; # not listening (locked, or no model)

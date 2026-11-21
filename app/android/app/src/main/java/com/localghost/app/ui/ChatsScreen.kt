@@ -34,6 +34,8 @@ fun ChatsScreen(
     onOpenBoxChat: (Long) -> Unit = {},
     onRenameBoxChat: (Long, String) -> Unit = { _, _ -> },
     onDeleteBoxChat: (Long) -> Unit = {},
+    // a chat's audit trail (SHADOW): what the box asked there, what it had been given, the cold read
+    onAuditBoxChat: (Long) -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
     // THE BOX'S conversations , everything synthd persisted, searched server-side (titles AND
@@ -115,7 +117,8 @@ fun ChatsScreen(
                             BoxChatRow(c, active = c.id.toString() == activeConvId,
                                 onOpen = { onOpenBoxChat(c.id) },
                                 onRename = { t -> onRenameBoxChat(c.id, t) },
-                                onDelete = { onDeleteBoxChat(c.id) })
+                                onDelete = { onDeleteBoxChat(c.id) },
+                                onAudit = { onAuditBoxChat(c.id) })
                         }
                         if (!boxExhausted) item(key = "box-more") {
                             Text(if (boxLoading) "loading…" else "LOAD MORE ▾",
@@ -142,7 +145,8 @@ fun ChatsScreen(
 }
 
 @Composable
-private fun BoxChatRow(c: BoxClient.BoxChat, active: Boolean = false, onOpen: () -> Unit, onRename: (String) -> Unit = {}, onDelete: () -> Unit = {}) {
+private fun BoxChatRow(c: BoxClient.BoxChat, active: Boolean = false, onOpen: () -> Unit, onRename: (String) -> Unit = {}, onDelete: () -> Unit = {},
+                       onAudit: () -> Unit = {}) {
     // Inline rename: the pencil turns the title into an edit field in place , no dialog, terminal
     // style. Save sends the new title; the list refresh brings the box's truth back. The chat
     // open in CHAT right now is drawn in green so the list says where you are.
@@ -190,6 +194,9 @@ private fun BoxChatRow(c: BoxClient.BoxChat, active: Boolean = false, onOpen: ()
             Text("[ no ]", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable { confirmDel = false }.padding(start = 8.dp))
         } else {
+            // ◑ this chat's audit trail, in SHADOW
+            Text("◑", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.clickable { onAudit() }.padding(start = 8.dp, end = 2.dp))
             Text("✎", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.clickable { draft = c.title; editing = true }.padding(start = 8.dp, end = 6.dp))
             Text("✕", color = GhostTextDim, style = MaterialTheme.typography.labelMedium,

@@ -10,14 +10,29 @@
 // The contract, from the charter: NAMING IS THE ACTION. Detectors name the pattern, point at the
 // data, and stop. No blocking, no refusing, no lockouts unless the user wrote the rule themselves
 // (Ulysses contracts, parental controls). Detectors are individually tunable and mutable for
-// bounded windows, never disableable as a fleet. The first tractable detectors are the
-// [LOCALGHOST]-origin ones that read data the box already holds: total interaction time and
-// session-past-task-completion (addiction by design), share of emotional processing done with the
-// ghost vs humans (engagement-driven loneliness), sunk-cost retrieval framing, topic-surface
-// narrowing (filter bubble of one). ONE detector runs today: interaction time, this week's chat
-// messages against last week's, one observation per week when it has grown past the threshold
-// (interactionTrend). The other twenty-seven and the arbiter are not built, and the box will not
-// ship v1 without them.
+// bounded windows, never disableable as a fleet.
+//
+// WHAT RUNS (internal/shadow, where all of it lives; docs/SHADOW.md says it whole):
+//
+//   - THE ARBITER, afterwards. An answer to a question of judgement, once it has been done ten
+//     minutes, is asked again cold (no memories, no history, nothing about the person) and the
+//     two are compared. Where they part, the person is told what the cold read said. The
+//     conversation is read for the box giving way to a bare push, pressing past a reason the
+//     person gave, and asking its way to an answer; each finding must quote the box's own
+//     sentence from the chat or it is dropped. Lowest priority: a person using the model takes
+//     its place and the answer waits.
+//   - THE DETECTORS THAT COUNT, hourly, from what the box already holds: messages week on
+//     week, long and late sittings, the person's own sentences (what is spent, a label, how
+//     they feel), pressure in the mail that arrives, the age of the memories the box brings,
+//     how often it sides with the person, how often it opens with praise.
+//   - THE SETTINGS' OWN GUARD: every threshold and mute is logged, three changes in a row
+//     toward quiet are named, thresholds go back to the baseline every ninety days.
+//
+// Seventeen detectors over fourteen of the catalogue's thirty entries. The other sixteen are
+// listed as not built, each with its reason (they need the person's conversations with other
+// people, or a classifier nobody has). The arbiter reads with a second model when the box has
+// one (ai-models/arbiter-<name>.gguf, run by ghost.oracled on the CPU) and with the box's main
+// model when it has not, and its record says which it was.
 //
 // Runs only while the account is UNLOCKED (data lives on the encrypted volume). Spawned by ghost.watchd
 // from <mount>/bin/ghost.shadowd; its stdout/stderr go to <mount>/logs/ghost.shadowd.log.
@@ -25,6 +40,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/LocalGhostDao/localghost/server/internal/harden"
@@ -36,12 +52,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/ctlsock"
 	"github.com/LocalGhostDao/localghost/server/internal/ghosthealth"
+	"github.com/LocalGhostDao/localghost/server/internal/oracle"
 	"github.com/LocalGhostDao/localghost/server/internal/rotlog"
+	"github.com/LocalGhostDao/localghost/server/internal/shadow"
 	"github.com/LocalGhostDao/localghost/server/internal/svcconf"
 )
 
@@ -82,26 +102,30 @@ func main() {
 			runDir = filepath.Join(filepath.Dir(ld), "run")
 		}
 	}
-	// THE HEALTH LINE: what the detector watches and the observations it has made; "stub ok"
-	// was the first week's line.
+	// THE HEALTH LINE: how much of the catalogue runs, what it has said, how many answers the
+	// arbiter has read cold.
+	fleet := fmt.Sprintf("%d detectors over the catalogue's %d patterns", len(shadow.Detectors), len(shadow.Catalogue))
 	srv := ghosthealth.NewServer(service, ghosthealth.Cached(service, time.Minute, func() string {
 		mount := ""
 		if runDir != "" {
 			mount = findMount(filepath.Dir(runDir))
 		}
 		if mount == "" {
-			return "watches how much you talk to the ghost, week against week: no volume yet"
+			return fleet + ": no volume yet"
 		}
 		sc, err := hw.LoadServicesConfig(mount)
 		if err != nil {
 			return "the volume's database is not up"
 		}
 		db := poltergres.NewReadWrite(hw.SocketForMount(mount), sc.Postgres.Port, sc.Postgres.RWUser, sc.Postgres.RWPass, sc.Postgres.Name)
-		n := "0"
-		if rows, qerr := db.Query("SELECT count(*) FROM notifications WHERE service = 'ghost.shadowd'"); qerr == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
-			n = *rows.Vals[0][0]
+		n := func(q string) string {
+			if rows, qerr := db.Query(q); qerr == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil {
+				return *rows.Vals[0][0]
+			}
+			return "0"
 		}
-		return "watches how much you talk to the ghost, week against week · observations made " + n
+		return fleet + " · observations made " + n("SELECT count(*) FROM shadow_observations") +
+			" · answers read cold " + n("SELECT count(*) FROM shadow_reads WHERE cold <> ''")
 	}))
 	go func() {
 		if err := srv.Serve(*port); err != nil {
@@ -123,17 +147,14 @@ func main() {
 				lg.Error("control server exited", "fn", "main", "err", err)
 			}
 		}()
-		// FIRST REAL DETECTOR , interaction time. The charter in practice: shadowd reads how much
-		// the person talked to the ghost (their OWN messages, counted, never content-analysed
-		// here) and, when a week doubles the prior week past a floor, says so ONCE, factually.
-		// No streaks, no nudges to talk MORE , the only thing this daemon will ever sell you is
-		// your own reflection.
 		mount := findMount(filepath.Dir(runDir))
 		if mount != "" {
 			sc, err := hw.LoadServicesConfig(mount)
 			if err == nil {
 				db := poltergres.NewReadWrite(hw.SocketForMount(mount), sc.Postgres.Port, sc.Postgres.RWUser, sc.Postgres.RWPass, sc.Postgres.Name)
-				go detectorLoop(ctx, db, lg)
+				oc := oracle.NewClient(runDir, 3*time.Minute)
+				bindCommands(ctl, db, oc, lg)
+				go detectorLoop(ctx, db, oc, lg)
 			} else {
 				lg.Warn("no services config , detectors idle", "fn", "main", "err", err)
 			}
@@ -142,7 +163,7 @@ func main() {
 		}
 	}
 
-	lg.Info("up: one detector running (interaction time, week against week); the rest of the catalogue and the arbiter are not built", "fn", "main", "healthPort", *port)
+	lg.Info("up: "+fleet+"; the arbiter reads saved answers cold, afterwards", "fn", "main", "healthPort", *port)
 
 	<-ctx.Done()
 	lg.Info("shutting down", "fn", "main")
@@ -157,54 +178,204 @@ func envPort(key string) int {
 	return 0
 }
 
-// detectorLoop runs the usage-pattern detectors hourly. v1: interaction-time trend.
-func detectorLoop(ctx context.Context, db *poltergres.ReadWrite, lg *slog.Logger) {
-	t := time.NewTicker(1 * time.Hour)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if err := interactionTrend(db, lg); err != nil {
-				lg.Warn("interaction trend", "fn", "detectorLoop", "err", err)
-			}
-		}
+// one pass at a time: the loop's and one a person asked for do not run through each other
+var passMu sync.Mutex
+
+// bindCommands is the daemon by hand (ghost-cli ghost.shadowd <command>), and what secd calls
+// when the phone asks for a chat to be read now:
+//
+//	fleet          every detector: its threshold, its mute, how often it has spoken
+//	said           the last things named (detector=<id> for one detector's)
+//	detect         run the detectors that count now, not at the next hour
+//	read           run the arbiter's pass now; read chat=<id> reads that chat now, however fresh
+//	try            the self-test: nine written cases through the arbiter's model, with what it
+//	               said where a case did not pass. Run it after the model is changed.
+//
+// readBy says which model the cold read is read by, for a terminal.
+func readBy(oc *oracle.Client) string {
+	a, err := oc.Arbiter()
+	switch {
+	case err != nil:
+		return "the cold read is by: unknown, ghost.oracled does not answer (" + err.Error() + ")"
+	case a.Has && a.Ready:
+		return "the cold read is by: " + a.Model + ", a second model beside " + a.Main
+	case a.Has:
+		return "the cold read is by: " + a.ServedBy + " (" + a.Model + " is not up: " + a.Why + ")"
 	}
+	return "the cold read is by: " + a.Main + ", the box's one model, with nothing about you. A second model at ai-models/arbiter-<name>.gguf makes it a second opinion (docs/SHADOW.md)."
 }
 
-// interactionTrend , this week's user-message count vs the prior week's. Doubling past a floor of
-// 60 messages earns ONE factual observation per ISO week, and quiet weeks earn silence.
-func interactionTrend(db *poltergres.ReadWrite, lg *slog.Logger) error {
-	one := func(q string, args ...any) int64 {
-		rows, err := db.Query(q, args...)
-		if err != nil || len(rows.Vals) == 0 || rows.Vals[0][0] == nil {
+func bindCommands(ctl *ctlsock.Server, db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) {
+	data := func(v any, text string) (ctlsock.Response, error) {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return ctlsock.Response{}, err
+		}
+		return ctlsock.Response{OK: true, Text: text, Data: b}, nil
+	}
+	// for a terminal: ghost-cli prints the data after the text, so a command a person reads
+	// gives text alone
+	words := func(text string) (ctlsock.Response, error) { return ctlsock.Response{OK: true, Text: text}, nil }
+	said := func() int64 {
+		rows, err := db.Query("SELECT count(*) FROM shadow_observations")
+		if err != nil || len(rows.Vals) != 1 || rows.Vals[0][0] == nil {
 			return 0
 		}
 		n, _ := strconv.ParseInt(*rows.Vals[0][0], 10, 64)
 		return n
 	}
-	now := time.Now().Unix()
-	this7 := one("SELECT count(*) FROM chat_messages WHERE role = 'user' AND ts >= $1", now-7*86400)
-	prior7 := one("SELECT count(*) FROM chat_messages WHERE role = 'user' AND ts >= $1 AND ts < $2", now-14*86400, now-7*86400)
-	if prior7 == 0 || this7 < 60 || this7 < 2*prior7 {
-		return nil
+	ctl.Handle("fleet", func(json.RawMessage) (ctlsock.Response, error) {
+		now := time.Now()
+		st := shadow.State(db, now)
+		var b strings.Builder
+		for _, d := range st {
+			line := fmt.Sprintf("%-17s entry %2d  threshold %-5s (%s to %s)  spoken %d", d.ID, d.Entry,
+				strconv.FormatFloat(d.Threshold, 'f', -1, 64), strconv.FormatFloat(d.Min, 'f', -1, 64), strconv.FormatFloat(d.Max, 'f', -1, 64), d.Fired)
+			if d.MutedUntil > 0 {
+				line += "  muted until " + time.Unix(d.MutedUntil, 0).Format("2 Jan 15:04")
+			}
+			b.WriteString(line + "\n")
+		}
+		b.WriteString("thresholds go back to their baseline on " + time.Unix(shadow.NextReset(db, now), 0).Format("2 January 2006") + "\n")
+		b.WriteString(readBy(oc) + "\n")
+		return words(b.String())
+	})
+	ctl.Handle("said", func(args json.RawMessage) (ctlsock.Response, error) {
+		var q struct {
+			Detector string `json:"detector"`
+			Limit    int    `json:"limit"`
+		}
+		_ = json.Unmarshal(args, &q)
+		obs, err := shadow.Observations(db, q.Detector, q.Limit)
+		if err != nil {
+			return ctlsock.Response{}, err
+		}
+		var b strings.Builder
+		for _, o := range obs {
+			muted := ""
+			if o.Muted {
+				muted = " (while muted)"
+			}
+			b.WriteString(fmt.Sprintf("%s  %s%s\n  %s\n  %s\n", time.Unix(o.At, 0).Format("2 Jan 15:04"), o.Detector, muted, o.Title, o.Body))
+		}
+		if len(obs) == 0 {
+			b.WriteString("nothing named yet\n")
+		}
+		return words(b.String())
+	})
+	ctl.Handle("detect", func(json.RawMessage) (ctlsock.Response, error) {
+		passMu.Lock()
+		defer passMu.Unlock()
+		before := said()
+		err := shadow.Detect(db, time.Now(), lg)
+		n := said() - before
+		text := fmt.Sprintf("the detectors that count ran: %d new\n", n)
+		if err != nil {
+			text += "one of them failed: " + err.Error() + "\n"
+		}
+		return words(text)
+	})
+	ctl.Handle("read", func(args json.RawMessage) (ctlsock.Response, error) {
+		var q struct {
+			Chat int64 `json:"chat"`
+			// later: started and not waited for (the phone, through secd: a request held open for
+			// minutes does not survive a phone). Where it has got to is shadow.AskedFor.
+			Later bool `json:"later"`
+		}
+		_ = json.Unmarshal(args, &q)
+		if q.Chat > 0 && q.Later {
+			if !shadow.MarkAsked(db, q.Chat, time.Now()) {
+				return data(map[string]any{"started": false, "reading": true}, "")
+			}
+			go func() {
+				passMu.Lock()
+				defer passMu.Unlock()
+				n, err := shadow.ReadChat(db, oc, q.Chat, time.Now(), lg)
+				shadow.MarkRead(db, q.Chat, n, err, time.Now())
+				if err != nil {
+					lg.Info("a read asked for did not finish", "fn", "read", "chat", q.Chat, "read", n, "err", err)
+				}
+			}()
+			return data(map[string]any{"started": true, "reading": true}, "")
+		}
+		passMu.Lock()
+		defer passMu.Unlock()
+		before := said()
+		var n int
+		var err error
+		if q.Chat > 0 {
+			n, err = shadow.ReadChat(db, oc, q.Chat, time.Now(), lg)
+		} else {
+			n, err = shadow.ReadAnswers(db, oc, time.Now(), lg)
+		}
+		if err != nil {
+			return ctlsock.Response{}, fmt.Errorf("read %d, then: %w", n, err)
+		}
+		text := fmt.Sprintf("read %d, named %d\n", n, said()-before)
+		if q.Chat > 0 {
+			obs, _ := shadow.ObservationsAbout(db, fmt.Sprintf("chat:%d", q.Chat))
+			for _, o := range obs {
+				text += fmt.Sprintf("%s  %s\n  %s\n", o.Detector, o.Title, o.Body)
+			}
+		}
+		return words(text)
+	})
+	ctl.Handle("try", func(json.RawMessage) (ctlsock.Response, error) {
+		passMu.Lock()
+		defer passMu.Unlock()
+		ts, err := shadow.Trials(oc)
+		text := shadow.TrialsText(ts)
+		if err != nil {
+			text += "stopped: the model could not be asked: " + err.Error() + "\n"
+		}
+		return words(text)
+	})
+}
+
+// detectorLoop is the daemon's work, all of it in internal/shadow: the detectors that count,
+// once an hour (and two minutes after the start, so a box unlocked for ten minutes still gets
+// a pass); the arbiter's pass over saved answers, every ten minutes. Both are bounded and both
+// are safe to stop at any point: what has been said is said once, what has not is found again.
+func detectorLoop(ctx context.Context, db *poltergres.ReadWrite, oc *oracle.Client, lg *slog.Logger) {
+	count := time.NewTimer(2 * time.Minute)
+	read := time.NewTicker(10 * time.Minute)
+	defer count.Stop()
+	defer read.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-count.C:
+			count.Reset(time.Hour)
+			passMu.Lock()
+			err := shadow.Detect(db, time.Now(), lg)
+			passMu.Unlock()
+			if err != nil {
+				lg.Warn("detectors", "fn", "detectorLoop", "err", err)
+			}
+		case <-read.C:
+			// one answer at a time, the lock let go between them: a read a person asked for
+			// (the phone's "read it cold now") gets in after the answer in hand, not after
+			// the pass, which is minutes with a second model on the CPU
+			n := 0
+			for i := 0; i < 16 && n < 4 && ctx.Err() == nil; i++ {
+				passMu.Lock()
+				done, more, err := shadow.ReadNext(db, oc, time.Now(), lg)
+				passMu.Unlock()
+				n += done
+				if err != nil {
+					lg.Warn("the arbiter's pass", "fn", "detectorLoop", "err", err)
+					break
+				}
+				if !more {
+					break
+				}
+			}
+			if n > 0 {
+				lg.Info("answers looked at", "fn", "detectorLoop", "n", n)
+			}
+		}
 	}
-	y, w := time.Now().UTC().ISOWeek() // "2006-W02" was the day of the month (a Go layout)
-	wk := fmt.Sprintf("%d-W%02d", y, w)
-	rows, err := db.Query("SELECT value FROM settings WHERE key = 'shadow_interaction_note'")
-	if err == nil && len(rows.Vals) == 1 && rows.Vals[0][0] != nil && *rows.Vals[0][0] == wk {
-		return nil // this week already observed
-	}
-	if err := db.Exec(
-		"INSERT INTO notifications (service, kind, title, body, seen, options, created, link) VALUES ('ghost.shadowd','observation',$1,$2,FALSE,'',now(),'status')",
-		"an observation about this week",
-		fmt.Sprintf("you sent the ghost %d messages this week, up from %d the week before. Not a problem , just a fact you own. The graphs are on Box Status.", this7, prior7)); err != nil {
-		return err
-	}
-	lg.Info("interaction observation posted", "fn", "interactionTrend", "this7", this7, "prior7", prior7)
-	return db.Exec(
-		"INSERT INTO settings (key, value) VALUES ('shadow_interaction_note',$1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", wk)
 }
 
 // findMount walks UP from a run dir until it finds the directory that actually contains

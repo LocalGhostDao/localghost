@@ -28,7 +28,9 @@ import androidx.compose.ui.unit.sp
 import com.localghost.app.chat.Attachment
 import com.localghost.app.chat.Message
 import com.localghost.app.ui.theme.*
+import com.localghost.app.voice.VoiceCapture
 import com.localghost.app.voice.gist
+import kotlinx.coroutines.launch
 
 @Composable
 fun ChatScreen(
@@ -52,6 +54,8 @@ fun ChatScreen(
 ) {
     var input by remember { mutableStateOf("") }
     var voiceNote by remember { mutableStateOf("") } // the microphone's one line: listening, hearing, or why not
+    // "heard in 4 s" belongs to the words it came with: gone once they are sent or cleared
+    LaunchedEffect(input.isEmpty()) { if (input.isEmpty() && VoiceAskText.isHeardLine(voiceNote)) voiceNote = "" }
     val listState = rememberLazyListState()
     // FOLLOW THE TAIL, unless the person takes the wheel. followTail flips false the moment a user
     // drag leaves the bottom, and back true when they return there , so reading something upstream
@@ -181,7 +185,7 @@ fun ChatScreen(
                 )
 
                 // a question asked aloud: the box hears it and the words land in the field, sent
-                // like typed ones (nothing of the audio is kept)
+                // like typed ones (nothing of the audio is kept); a second go is added to the first
                 if (!streaming) VoiceAskButton(onWords = { w -> input = if (input.isBlank()) w else input.trimEnd() + " " + w },
                     onNote = { voiceNote = it })
 
@@ -200,73 +204,150 @@ fun ChatScreen(
                         color = Void, fontSize = if (streaming) 14.sp else 20.sp)
                 }
             }
-            if (voiceNote.isNotEmpty()) Text(voiceNote, color = if (voiceNote.startsWith("!")) Warning else TerminalDim,
-                style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(start = 12.dp, bottom = 4.dp))
+            VoiceAskLine(voiceNote, Modifier.padding(start = 12.dp, end = 12.dp, bottom = 4.dp))
         }
     }
 }
 
 /**
- * THE MICROPHONE IN THE COMPOSER. A tap records (the screen stays on: a locked phone gives an app
- * silence), a second tap stops; the take goes to the box, which hears it with its speech engine and
- * sends the words back, and keeps nothing: no file, no row, no journal entry. The words land in the
- * field for the person to read, fix and send, like typed ones. The recorder is the voice notes'
- * (VoiceCapture, one at a time); only a take started here is heard here.
+ * THE MICROPHONE IN THE COMPOSER. One tap and it listens; it stops by itself when the person has
+ * finished (VoiceEndpoint), and a second tap stops it at once. The take, cut to what was said,
+ * goes to the box, which hears it with its speech engine and sends the words back, and keeps
+ * nothing: no file, no row, no journal entry. The words land in the field for the person to read,
+ * fix and send, like typed ones; said in two goes, the second is added to the first.
+ *
+ * The line under the field ([onNote]) says what is happening at every step, with a clock, since
+ * a microphone that shows nothing is a microphone nobody trusts. Leaving the chat, or ✕ while
+ * the box works, drops the question: it is deleted on the phone and the request is abandoned.
+ * The recorder is the voice notes' (VoiceCapture, one at a time), told this is a question; a
+ * voice note waiting to be saved in CHECK-IN is never dropped to make room for one.
  */
 @Composable
 internal fun VoiceAskButton(onWords: (String) -> Unit, onNote: (String) -> Unit) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val rec by com.localghost.app.voice.VoiceCapture.gist.collectAsState(initial = com.localghost.app.voice.VoiceCapture.state.value.gist())
-    var askId by remember { mutableStateOf("") }
-    var hearing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val rec by VoiceCapture.gist.collectAsState(initial = VoiceCapture.state.value.gist())
+    var askId by remember { mutableStateOf("") }                              // the question this button started
+    var hearing by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) } // the box is working out the words
     val view = androidx.compose.ui.platform.LocalView.current
-    val mine = askId.isNotEmpty() && (com.localghost.app.voice.VoiceCapture.activeId() == askId)
-    DisposableEffect(rec.recording && mine) {
-        if (rec.recording && mine) view.keepScreenOn = true
-        onDispose { if (mine) view.keepScreenOn = false }
+    val mine = askId.isNotEmpty() && rec.id == askId
+    val listening = mine && rec.recording
+    DisposableEffect(listening) {
+        if (listening) view.keepScreenOn = true
+        onDispose { if (listening) view.keepScreenOn = false }
     }
+    // leaving the chat with a question in hand: it goes (a recording stops and leaves no take; a
+    // take the box is hearing is dropped when the request is, in the job's own finally)
+    DisposableEffect(Unit) { onDispose { VoiceCapture.dropAsk(askId) } }
     fun begin() {
-        if (com.localghost.app.voice.VoiceCapture.start(ctx)) {
-            askId = com.localghost.app.voice.VoiceCapture.activeId() ?: ""
-            onNote("● listening · tap ■ when you have asked")
-        } else onNote("! " + rec.error.ifEmpty { "the microphone did not start" })
+        val no = VoiceCapture.cannotAsk()
+        if (no.isNotEmpty()) { onNote("! $no"); return }
+        if (VoiceCapture.start(ctx, ask = true)) {
+            askId = VoiceCapture.state.value.id
+            onNote(VoiceAskText.listening(0, heard = false, speaking = false))
+        } else onNote("! " + VoiceCapture.state.value.error.ifEmpty { "the microphone did not start" })
     }
     val mic = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) begin() else onNote("! no microphone permission · allow it for LocalGhost in the phone's settings")
     }
-    // the recording stopped: the take is ours, the box hears it
-    val take = rec.take
-    LaunchedEffect(take?.id, mine) {
-        if (take == null || !mine || hearing) return@LaunchedEffect
-        hearing = true
-        onNote("your box is listening…")
-        val heard = com.localghost.app.net.BoxClient.voiceAsk(ctx, take.file)
-        com.localghost.app.voice.VoiceCapture.discard() // the audio is not kept on the phone either
-        askId = ""
-        hearing = false
-        when {
-            !heard.ok -> onNote("! not heard: " + heard.why)
-            heard.text.isEmpty() -> onNote("nothing your box could hear · try again, a little closer")
-            else -> { onWords(heard.text); onNote("") }
+    // the clock, and whether it hears anyone: once a second, and the moment speech starts or stops
+    if (listening) LaunchedEffect(rec.elapsedS, rec.heard, rec.speaking) { onNote(VoiceAskText.listening(rec.elapsedS, rec.heard, rec.speaking)) }
+    // the recording ended: by itself, by a tap, or with nothing said
+    LaunchedEffect(mine, rec.recording, rec.take?.id, rec.why, rec.error) {
+        if (!mine || rec.recording || hearing != null) return@LaunchedEffect
+        val take = rec.take
+        val id = askId
+        if (take == null || !take.ask) {
+            onNote(VoiceAskText.ended(rec.why, rec.error))
+            VoiceCapture.dropAsk(id)
+            askId = ""
+            return@LaunchedEffect
+        }
+        val atTheLimit = rec.why == "max"
+        hearing = scope.launch {
+            val clock = launch { var s = 0; while (true) { onNote(VoiceAskText.working(s)); kotlinx.coroutines.delay(1000); s++ } }
+            try {
+                val tags = androidx.core.os.LocaleListCompat.getAdjustedDefault().toLanguageTags().split(',')
+                val heard = com.localghost.app.net.BoxClient.voiceAsk(ctx, take.file, VoiceAskText.langs(tags))
+                clock.cancel()
+                when {
+                    !heard.ok -> onNote("! not heard: " + heard.why)
+                    heard.text.isEmpty() -> onNote(VoiceAskText.NOT_WORDS)
+                    else -> { onWords(heard.text); onNote(VoiceAskText.heardIn(heard.ms, atTheLimit)) }
+                }
+            } finally {
+                clock.cancel()
+                VoiceCapture.dropAsk(id) // the audio is not kept on the phone either
+                askId = ""
+                hearing = null
+            }
         }
     }
-    if (rec.recording && mine) {
-        LaunchedEffect(rec.elapsedS) { onNote("● " + com.localghost.app.checkin.Feelings.clock(rec.elapsedS * 1000) + " listening · tap ■ when you have asked") }
-    }
-    val busy = rec.recording && !mine // the check-in's recorder has the microphone
+    val busy = rec.recording && !mine // the check-in's recorder has the microphone: a tap says so
+    val working = hearing != null
     Box(
         Modifier.size(40.dp).clip(CircleShape)
-            .background(if (rec.recording && mine) Warning else androidx.compose.ui.graphics.Color.Transparent)
-            .clickable(enabled = !hearing && !busy) {
-                if (rec.recording && mine) com.localghost.app.voice.VoiceCapture.stop()
-                else if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) begin()
-                else mic.launch(android.Manifest.permission.RECORD_AUDIO)
+            .background(if (listening) Warning else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable {
+                when {
+                    working -> { hearing?.cancel(); onNote(VoiceAskText.DROPPED) }
+                    listening -> VoiceCapture.stop()
+                    androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED -> begin()
+                    else -> mic.launch(android.Manifest.permission.RECORD_AUDIO)
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
-        Text(when { hearing -> "…"; rec.recording && mine -> "■"; else -> "●" },
-            color = when { rec.recording && mine -> Void; busy -> GhostBorder; else -> TerminalGreen },
-            fontSize = if (rec.recording && mine) 14.sp else 18.sp)
+        when {
+            working -> Text("✕", color = GhostTextDim, fontSize = 16.sp)
+            listening -> Text("■", color = Void, fontSize = 14.sp)
+            else -> MicGlyph(if (busy) GhostBorder else TerminalGreen)
+        }
+    }
+}
+
+/** A microphone, drawn: the capsule, the cradle under it, the stem and the foot. The dot that
+ *  stood here said "record" to nobody. */
+@Composable
+private fun MicGlyph(color: androidx.compose.ui.graphics.Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val line = w * 0.09f
+        drawRoundRect(color, topLeft = androidx.compose.ui.geometry.Offset(w * 0.36f, h * 0.06f),
+            size = androidx.compose.ui.geometry.Size(w * 0.28f, h * 0.52f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.14f, w * 0.14f))
+        drawArc(color, startAngle = 0f, sweepAngle = 180f, useCenter = false,
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.22f, h * 0.20f),
+            size = androidx.compose.ui.geometry.Size(w * 0.56f, h * 0.52f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(line))
+        drawLine(color, androidx.compose.ui.geometry.Offset(w / 2, h * 0.72f), androidx.compose.ui.geometry.Offset(w / 2, h * 0.92f), line)
+        drawLine(color, androidx.compose.ui.geometry.Offset(w * 0.33f, h * 0.92f), androidx.compose.ui.geometry.Offset(w * 0.67f, h * 0.92f), line)
+    }
+}
+
+/** The microphone's one line (what VoiceAskButton says through onNote), with how loud it hears
+ *  you beside it while it listens. Nothing when there is nothing to say. */
+@Composable
+internal fun VoiceAskLine(note: String, modifier: Modifier = Modifier) {
+    if (note.isEmpty()) return
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = modifier) {
+        Text(note, color = if (note.startsWith("!")) Warning else TerminalDim,
+            style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f, fill = false))
+        VoiceAskLevel()
+    }
+}
+
+/** How loud the microphone hears it, while a question is being asked: a short bar beside the
+ *  line, green while it takes what it hears for speech. Ten times a second, so it is its own
+ *  small composable and nothing else is redrawn with it. */
+@Composable
+private fun VoiceAskLevel() {
+    val st by VoiceCapture.state.collectAsState()
+    if (!(st.recording && st.ask)) return
+    val shown = kotlin.math.sqrt(st.level.coerceIn(0f, 1f)).coerceIn(0.04f, 1f)
+    Box(Modifier.padding(start = 10.dp).width(64.dp).height(6.dp).background(GhostBorder)) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(shown).background(if (st.speaking) TerminalGreen else TerminalDim))
     }
 }
 

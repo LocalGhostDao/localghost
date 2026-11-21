@@ -22,6 +22,7 @@ import (
 // Broker owns the queue, the backends by class, and the worker.
 type Broker struct {
 	queue    *Queue
+	beMu     sync.Mutex // backends: set from the goroutine that starts a model, read by the worker
 	backends map[oracle.Class]Backend
 	log      *slog.Logger
 	stop     chan struct{}
@@ -86,7 +87,42 @@ func NewBroker(queueDepth int, log *slog.Logger) *Broker {
 // SetBackend registers the backend that serves a class. Called at start once the llama-server child is
 // healthy (for local-small) and/or a frontier backend is configured.
 func (b *Broker) SetBackend(class oracle.Class, be Backend) {
+	b.beMu.Lock()
 	b.backends[class] = be
+	b.beMu.Unlock()
+}
+
+// backend resolves a class: its own backend, or for the arbiter on a box with no second model
+// the local one (served says which answered).
+func (b *Broker) backend(class oracle.Class) (be Backend, served oracle.Class, ok bool) {
+	b.beMu.Lock()
+	defer b.beMu.Unlock()
+	served = class
+	be, ok = b.backends[served]
+	if !ok && served == oracle.ClassArbiter {
+		// no second model on this box: the cold read is the local model's, and the answer says so
+		served = oracle.ClassLocalSmall
+		be, ok = b.backends[served]
+	}
+	return be, served, ok
+}
+
+// Yield sets a running BACKGROUND inference aside for a person who is waiting (it is cancelled;
+// its caller gets oracle.ErrPreempted and retries later without losing an attempt) and holds
+// background work off for the grace that follows.
+func (b *Broker) Yield() {
+	b.runMu.Lock()
+	if b.running != nil && b.running.req.Priority < oracle.PriorityInteractive && b.runCancel != nil && !b.preempted {
+		b.preempted = true
+		b.runCancel()
+	}
+	if hold := time.Now().Add(resumeGrace); hold.After(b.holdUntil) {
+		b.holdUntil = hold
+	}
+	b.runMu.Unlock()
+	// and the queue is looked at again when the grace is over, or what was held would wait
+	// for the next submission to wake the worker
+	time.AfterFunc(resumeGrace+50*time.Millisecond, b.queue.signal)
 }
 
 // Submit enqueues a request; the caller waits on the returned channel. ok=false means the queue is
@@ -104,18 +140,7 @@ func (b *Broker) Submit(req oracle.Request) (<-chan oracle.Response, bool) {
 		// The running background work steps aside as it does for a streamed chat (cancelled,
 		// retried later without losing an attempt), and none starts for the grace, so the chat
 		// that follows the plan finds the model free.
-		b.runMu.Lock()
-		if b.running != nil && b.running.req.Priority < oracle.PriorityInteractive && b.runCancel != nil && !b.preempted {
-			b.preempted = true
-			b.runCancel()
-		}
-		if hold := time.Now().Add(resumeGrace); hold.After(b.holdUntil) {
-			b.holdUntil = hold
-		}
-		b.runMu.Unlock()
-		// and the queue is looked at again when the grace is over, or what was held would wait
-		// for the next submission to wake the worker
-		time.AfterFunc(resumeGrace+50*time.Millisecond, b.queue.signal)
+		b.Yield()
 	}
 	return ch, ok
 }
@@ -144,7 +169,7 @@ func (b *Broker) worker() {
 }
 
 func (b *Broker) serve(it *item) {
-	be, ok := b.backends[it.req.Class]
+	be, served, ok := b.backend(it.req.Class)
 	if !ok {
 		it.result <- oracle.Response{Err: "no backend for class " + string(it.req.Class)}
 		return
@@ -191,6 +216,7 @@ func (b *Broker) serve(it *item) {
 	}
 	b.log.Debug("inference served", "fn", "serve", "capability", it.req.Capability,
 		"model", resp.Model, "ms", time.Since(start).Milliseconds())
+	resp.Served = served
 	it.result <- resp
 }
 

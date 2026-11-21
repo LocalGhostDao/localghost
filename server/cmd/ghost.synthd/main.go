@@ -401,8 +401,11 @@ func main() {
 		// exactly like a chat that has stopped working. Box history outranks the phone's copy
 		// when a persisted chat exists; incognito hands the phone's copy through and stores none.
 		var history []chatTurn
+		var shadowLines []string
 		if !q.Incognito && q.ChatID != 0 {
 			history = chatHistory(mount, q.ChatID)
+			// before this question is saved: what the arbiter named since the last one (shadowsaid.go)
+			shadowLines = shadowSaid(chatStore(mount), q.ChatID)
 		}
 		if len(history) == 0 && len(q.History) > 0 {
 			vals := make([][]*string, 0, len(q.History))
@@ -554,6 +557,10 @@ func main() {
 		steps := chatSteps(items, web, webNote)
 		if line := length.step(); line != "" {
 			steps = append([]string{line}, steps...)
+		}
+		steps = append(shadowLines, steps...)
+		if saver != nil {
+			go saver.given(steps, items) // the audit trail's "what it had been given" (answers.go)
 		}
 		ev := map[string]any{"context": items, "steps": steps}
 		if !speed.at.IsZero() {

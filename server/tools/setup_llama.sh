@@ -297,6 +297,29 @@ if [ -z "$MODELS_DIR" ] && [ -z "$MODEL_URL" ] && [ -z "$MODEL_FILE$MMPROJ_FILE$
             fi
         fi
     fi
+    # THE ARBITER'S MODEL: a second model from another lab, which ghost.shadowd's cold read is
+    # asked of (docs/SHADOW.md). The mirror carries it in a set of its own, `arbiter`, as
+    # arbiter-<name>.gguf under the signed manifest; which model that is is the mirror's to say,
+    # so nothing here names one. A box without it reads cold with its main model and says so.
+    # Never from upstream: there is no pin here to check an upstream file against.
+    if ls "$DL"/arbiter-*.gguf >/dev/null 2>&1; then
+        echo "-- the arbiter's model already here: $(basename "$(ls "$DL"/arbiter-*.gguf | head -1)")"
+    else
+        arc=0; sh "$FETCH" arbiter "$DL" || arc=$?
+        set_notice arbiter
+        if [ "$arc" = 0 ] && ls "$DL"/arbiter-*.gguf >/dev/null 2>&1; then
+            for f in "$DL"/arbiter-*.gguf; do
+                echo "-- the arbiter's model from the mirror (signed manifest checked): $(basename "$f")"
+                pin_check "$f" || { rm -f "$f"; exit 4; }
+            done
+        elif [ "$arc" = 3 ] || [ "$arc" = 0 ]; then
+            echo "-- no second model for the arbiter on the mirror yet (set arbiter): the cold read is by the"
+            echo "   box's main model, and says so. Re-run when the mirror has one."
+        else
+            echo "-- the arbiter's model could not be taken from the mirror (above): the cold read is by the"
+            echo "   box's main model until it is. A rerun resumes."
+        fi
+    fi
     MODELS_DIR="$DL"
 elif [ -n "$MODEL_FILE" ] || [ -n "$MMPROJ_FILE" ] || [ -n "$EMBED_FILE" ]; then
     # files copied over one by one: each checked against its pin (by its NAME on the box), then

@@ -303,6 +303,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/news/brief", s.handleNewsBrief)              // the day's brief written now (home's button)
 	mux.HandleFunc("/v1/news/feeds", s.handleNewsFeeds)              // the feeds, listed and changed (add, remove, on/off)
 	mux.HandleFunc("/v1/weather", s.handleWeather)                   // the forecast nearest a position, from the box's daily pull
+	mux.HandleFunc("/v1/shadow", s.handleShadow)                     // ghost.shadowd: the catalogue and the fleet as they stand
+	mux.HandleFunc("/v1/shadow/observations", s.handleShadowObservations) // a detector's history, or what was named about one thing
+	mux.HandleFunc("/v1/shadow/chat", s.handleShadowTrail)           // a chat's audit trail: what the box asked, and what it had been given
+	mux.HandleFunc("/v1/shadow/read", s.handleShadowRead)            // the arbiter reads one chat now, because the person asked
+	mux.HandleFunc("/v1/shadow/threshold", s.handleShadowThreshold)  // a detector's threshold, inside its published bounds
+	mux.HandleFunc("/v1/shadow/mute", s.handleShadowMute)            // a detector muted, three days at most; it goes on recording
 	mux.HandleFunc("/v1/weather/metoffice", s.handleWeatherMetOffice) // the Met Office key and order for the box's own forecast
 	mux.HandleFunc("/v1/sources", s.handleSources)                   // what the box draws on, each with its state
 	mux.HandleFunc("/v1/sources/fetch", s.handleSourcesFetch)        // update.sh <step> from the mirror, started from the phone

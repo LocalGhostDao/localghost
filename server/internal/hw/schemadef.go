@@ -199,6 +199,10 @@ var schemaRegistry = []SchemaTable{
 		{"reasoning", "TEXT", true, "''"},
 		{"sources", "TEXT", true, "''"},
 		{"state", "TEXT", true, "'done'"},
+		// what the box had been given when it wrote this answer (JSON: the trail's steps and each
+		// context item's source and date, never the items' words): the audit trail's "why", and
+		// what ghost.shadowd reads to say how old the memories the box brings are
+		{"given", "TEXT", true, "''"},
 	}, Indexes: []string{
 		"CREATE INDEX IF NOT EXISTS chat_messages_chat ON chat_messages (chat_id, id)",
 	}},
@@ -713,6 +717,56 @@ var schemaRegistry = []SchemaTable{
 		{"at", "BIGINT", true, "0"},
 	}},
 	// DAEMON STATE , what a daemon wants the status screens to know about work in flight, as
+	// GHOST.SHADOWD (internal/shadow). An observation is one time a detector named something:
+	// what it is about (subject, once per detector), the words, the data behind them, the score
+	// and the threshold as it stood. One made while its detector was muted is kept and marked,
+	// not announced. shadowd is the writer; secd writes the person's own acts (a mute, a
+	// threshold) through the same package.
+	{Name: "shadow_observations", PK: "id", Unique: []string{"detector, subject"}, Cols: []SchemaCol{
+		{"id", "BIGSERIAL", true, ""},
+		{"detector", "TEXT", true, ""},
+		{"subject", "TEXT", true, ""},
+		{"ts", "BIGINT", true, ""},
+		{"title", "TEXT", true, "''"},
+		{"body", "TEXT", true, "''"},
+		{"data", "TEXT", true, "'{}'"},
+		{"score", "DOUBLE PRECISION", true, "0"},
+		{"threshold", "DOUBLE PRECISION", true, "0"},
+		{"muted", "BOOLEAN", true, "FALSE"},
+		{"link", "TEXT", true, "''"},
+	}, Indexes: []string{
+		"CREATE INDEX IF NOT EXISTS shadow_observations_detector ON shadow_observations (detector, id DESC)",
+	}},
+	// the arbiter's record, one row per answer it looked at: what kind of question it was, the
+	// cold read (the same question asked with nothing about the person), which model read it,
+	// whether the two answers agree, whether the box's answer sided with the asker, and what the
+	// conduct audit found in the conversation up to that answer
+	{Name: "shadow_reads", PK: "msg_id", Cols: []SchemaCol{
+		{"msg_id", "BIGINT", true, ""},
+		{"chat_id", "BIGINT", true, ""},
+		{"ts", "BIGINT", true, ""},
+		{"kind", "TEXT", true, "''"},
+		{"cold", "TEXT", true, "''"},
+		{"cold_model", "TEXT", true, "''"},
+		{"same_model", "BOOLEAN", true, "TRUE"},
+		{"verdict", "TEXT", true, "''"},
+		{"sided", "TEXT", true, "''"},
+		{"drift", "DOUBLE PRECISION", true, "0"},
+		{"conduct", "TEXT", true, "'[]'"},
+	}, Indexes: []string{
+		"CREATE INDEX IF NOT EXISTS shadow_reads_chat ON shadow_reads (chat_id, msg_id)",
+	}},
+	// every change to a detector's threshold or mute, and every reset to the baseline: the
+	// trail arbiter capture is read from (a year of small adjustments toward quiet)
+	{Name: "shadow_config", PK: "id", Cols: []SchemaCol{
+		{"id", "BIGSERIAL", true, ""},
+		{"ts", "BIGINT", true, ""},
+		{"detector", "TEXT", true, ""},
+		{"what", "TEXT", true, ""},
+		{"old", "TEXT", true, "''"},
+		{"new", "TEXT", true, "''"},
+		{"quieter", "BOOLEAN", true, "FALSE"},
+	}},
 	// one JSON value per key, written by that daemon only (rule 1: single writer). framed's
 	// "converge" key is the stock-take's live progress; the phone reads it through hw. A
 	// restart leaves the last value, so "last checked 3 minutes ago, all at the latest stage"

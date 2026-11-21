@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/LocalGhostDao/localghost/server/internal/hw"
+	"github.com/LocalGhostDao/localghost/server/internal/shadow"
 )
 
 // notificationServices is the allow-list of notification-producing daemons the mute can target. The
@@ -177,15 +178,29 @@ func (s *Server) handleMute(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case req.Clear:
 		err = s.mute.ClearMute(mounted, req.Scope)
-	case req.Preset == "forever":
-		err = s.mute.MuteForever(mounted, req.Scope)
 	default:
-		d, derr := muteDuration(req.Preset, req.Minutes, req.Hours, req.Days)
-		if derr != nil {
-			writeErr(w, http.StatusBadRequest, derr.Error())
-			return
+		forever := req.Preset == "forever"
+		var d time.Duration
+		if !forever {
+			var derr error
+			if d, derr = muteDuration(req.Preset, req.Minutes, req.Hours, req.Days); derr != nil {
+				writeErr(w, http.StatusBadRequest, derr.Error())
+				return
+			}
 		}
-		err = s.mute.SetMute(mounted, req.Scope, time.Now().Add(d))
+		// ghost.shadowd can be muted, not switched off: three days at most, whatever was asked
+		// (shadow_http.go). Its observations are kept all the same, and the mute is logged
+		// with the rest of its settings.
+		if d, forever = shadowMuteLength(req.Scope, forever, d); req.Scope == shadowService {
+			if db, derr := s.notif.DB(mounted); derr == nil {
+				_ = shadow.LogNotificationsMute(db, time.Now().Add(d).Unix(), time.Now())
+			}
+		}
+		if forever {
+			err = s.mute.MuteForever(mounted, req.Scope)
+		} else {
+			err = s.mute.SetMute(mounted, req.Scope, time.Now().Add(d))
+		}
 	}
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "mute update failed")

@@ -391,7 +391,7 @@ private fun CheckinForm(day: String, today: String, dayWord: String, history: Li
                 saveLabel = null, onSave = {})
         }
         Spacer(Modifier.height(12.dp))
-        val take = rec.take
+        val take = rec.take?.takeIf { !it.ask } // a question held for the chat is not this check-in's note
         val canSave = !saving && !rec.recording && (picked.isNotEmpty() || why.isNotBlank() || take != null)
         // what goes in, in one line, then the button
         val summary = buildList {
@@ -650,12 +650,16 @@ internal fun VoiceRecorder(hint: String, saveLabel: String?, onSave: (VoiceCaptu
             mic.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
-    val take = rec.take
+    // a question being asked in the chat has the microphone: it is not this card's take, and
+    // the card says so until the chat has done with it
+    val take = rec.take?.takeIf { !it.ask }
+    val asking = rec.ask && (rec.recording || rec.take != null)
     // THE BUTTONS are big: a voice note is said with the phone held away from the eye, so the
     // record, pause and stop are the size of a thumb, and the clock and the level read from arm's
     // length. One row: the main button, then the second (pause / resume while recording).
     Column(Modifier.fillMaxWidth()) {
         when {
+            asking -> Text("◍ the microphone is with a question in CHAT", color = TerminalDim, style = MaterialTheme.typography.labelMedium)
             rec.recording -> {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     BigVoiceButton("■", "stop", Warning, Modifier.weight(1f)) { VoiceCapture.stop() }
@@ -695,7 +699,7 @@ internal fun VoiceRecorder(hint: String, saveLabel: String?, onSave: (VoiceCaptu
                 Text(hint, color = TerminalDim, style = MaterialTheme.typography.labelSmall)
             }
         }
-        if (rec.error.isNotEmpty()) Text("! " + rec.error, color = TerminalDim, style = MaterialTheme.typography.labelMedium)
+        if (rec.error.isNotEmpty() && !rec.ask) Text("! " + rec.error, color = TerminalDim, style = MaterialTheme.typography.labelMedium)
         if (denied) Text("! no microphone permission · allow it for LocalGhost in the phone's settings to record",
             color = TerminalDim, style = MaterialTheme.typography.labelMedium)
     }

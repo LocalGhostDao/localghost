@@ -19,6 +19,17 @@ class NotifLinkTest {
         assertEquals(NotifLink.Target("memories", ""), NotifLink.resolve("memories:", "", ""))
     }
 
+    @Test fun whatShadowNamedOpensItsOwnPage() {
+        // a chat's audit trail, a detector's page, the fleet; and nothing that is neither
+        assertEquals(NotifLink.Target("shadow", "chat:12"), NotifLink.resolve("shadow:chat:12", "ghost.shadowd", "observation"))
+        assertEquals(NotifLink.Target("shadow", "cold-read"), NotifLink.resolve("shadow:cold-read", "ghost.shadowd", "observation"))
+        assertEquals(NotifLink.Target("shadow"), NotifLink.resolve("shadow", "ghost.shadowd", "observation"))
+        assertEquals(NotifLink.Target("shadow"), NotifLink.resolve("shadow:../../etc", "ghost.shadowd", "observation"))
+        assertEquals(NotifLink.Target("shadow"), NotifLink.resolve("shadow:chat:1;x", "ghost.shadowd", "observation"))
+        assertEquals("shadow:chat:12", NotifLink.nav("shadow:chat:12", "ghost.shadowd", "observation"))
+        assertEquals("shadow", NotifLink.nav("shadow", "ghost.shadowd", "observation"))
+    }
+
     @Test fun anOlderNotificationGoesByItsKind() {
         assertEquals(NotifLink.Target("map"), NotifLink.resolve("", "ghost.framed", "highlight"))
         assertEquals(NotifLink.Target("memories"), NotifLink.resolve("", "ghost.cued", "reflection"))

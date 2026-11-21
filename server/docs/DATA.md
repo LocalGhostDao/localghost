@@ -55,7 +55,17 @@ INGESTION (each daemon writes its own tables, nobody else's)
  and secd writes the person's own acts on one: add, edit, delete, anchor, open)
 
  chats ── chat_messages (chat_id soft ref, index (chat_id,id))
+          given TEXT: what an answer had been given (the trail's steps, each item's source and
+          date, never its words); written by synthd with the answer
  notifications
+
+ GHOST.SHADOWD (docs/SHADOW.md; shadowd writes, secd writes the person's own threshold and mute)
+
+ shadow_observations  UNIQUE(detector, subject) = a thing is named once
+ shadow_reads         msg_id PK , the arbiter's record of one answer (soft ref to chat_messages)
+ shadow_config        every threshold, mute and reset, in order
+ daemon_state         ('ghost.shadowd','read') where the arbiter's pass has got to;
+                      ('ghost.shadowd','asked') the reads a person asked for, per chat, for a day
 ```
 
 ## Access paths and their cost (the contract each screen holds)

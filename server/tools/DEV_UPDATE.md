@@ -772,3 +772,252 @@ described are in the header of `tools/release.sh`; day to day a box is brought c
   the rekey has no test: the fakes answer in order. No new file, so the Xcode project is as it
   was. Not compiled here (there is no Swift toolchain in the workspace): the iOS job on the
   push is the first compile, and none of the iOS app has been tried against a box.
+
+## 21 November 2026 , ghost.shadowd: the arbiter, the conduct audit, fourteen detectors, the audit trail
+- Vlad: "can we also try to implement the concepts from dictator brain and the anti manipulation
+  stuff, or have we already; if we have then we can push v1 of the server, if not, please do as
+  much as possible, take your time, it's fine if the manipulation is detected afterwards". We had
+  not. shadowd ran one detector of the catalogue's twenty-eight and no arbiter, and its README
+  says no v1 without it.
+- THAT ONE DETECTOR NEVER FIRED. `interactionTrend` compared `chat_messages.ts`, which is
+  milliseconds, with `time.Now().Unix()`: every message ever sent was "this week" and the week
+  before was always zero, which is the one case it returns on. Box Status's drill-in had the same
+  comparison (and `to_timestamp(ts)` on milliseconds). Both count weeks now, with a test that
+  writes milliseconds.
+- `internal/shadow`, where all of it lives; the daemon is the loop. `docs/SHADOW.md` is the
+  code's side of the three posts, with what is not built and why.
+- THE CATALOGUE as data (`catalogue.go`): the post's twenty-eight entries with its tags, and two
+  from the posts before it (29 sycophancy, 30 steering by questions; their tags are a first
+  pass). Each says what the box does about it or begins "Not built" with the reason; a test
+  fails if an entry with no detector claims otherwise. Eleven entries have detectors, fourteen
+  detectors in all.
+- THE COLD READ (`arbiter.go`, `pass.go`). An answer done for ten minutes, whose question reads
+  as one of judgement, is asked again of a model told it knows nothing of the asker: the
+  question, the person's own earlier messages in that chat, and nothing of the box's (no
+  memories, no identity, none of its earlier answers). A second call compares the two in five
+  fixed lines; a line outside its choices concludes nothing. Judgement or personal advice, and
+  apart by the threshold: the person is told both conclusions, that the cold read is not a
+  ruling, and which model read it. Four answers a pass, background priority; preempted by a
+  chat, it waits and nothing is counted against the answer; three refusals by the model for one
+  answer set it aside. The first pass starts a week back.
+- THE SECOND MODEL is a seam, not a model. `oracle.ClassArbiter`; the broker serves it from
+  local-small when it has no backend and says so in `Response.Served`; the record keeps
+  `same_model`, and the observation ends "by the same model, with nothing about you". A second
+  llama-server child for it is not built: two models on one 12 GB card is the open part.
+- THE CONDUCT AUDIT (`conduct.go`), POST_05's "are you sure" test and POST_08's two failures.
+  Three keys, all needed: the shape by plain reading (a push of twenty words or fewer with no
+  reason, number or source; a reason of the person's own; three questions over two answers),
+  the model's yes, and the box's sentence quoted and found word for word in an answer after the
+  turn that made the shape. For pressing and leading the sentence must tell the person what to
+  do. The model can misread a sentence; it cannot, here, invent one.
+- THE AUDIT TRAIL (`Trail`, `/v1/shadow/chat`): per answer, the questions the box asked, what it
+  had been given, its saved reasoning, the arbiter's record. "What it had been given" was only
+  ever streamed to the phone: synthd now keeps the trail's steps and each context item's source
+  and date on the answer's row (`chat_messages.given`), never an item's words.
+- THE DETECTORS THAT COUNT (`detectors.go`, `lexicon.go`), hourly, no model: messages week on
+  week; sittings past 45 minutes or between midnight and five by the person's own clock; the
+  person's sentences in chats, notes, check-ins and voice notes for what is spent given as the
+  reason and for a fixed label given as the reason (the box's words are never read as theirs; a
+  note that is somebody's email is left out); chats about how they feel, four weeks against
+  four; the six kinds of pressure in each mail that arrives, marked on the mail, not sent to the
+  phone; the share of memories brought to chats that are over a year old, when newer ones
+  exist; the share of judgement answers that sided with the asker; the share of answers that
+  open with praise. The word lists are published in the code and are English.
+- THE SETTINGS (`store.go`). A threshold moves inside its bounds and nowhere else (a value
+  written into `settings` by hand outside them is ignored). A mute is three days at most, and a
+  muted detector's observations are kept and marked, not sent. Every change is a row; three in a
+  row toward quiet are named; every threshold goes back to its baseline every ninety days, and
+  that is not a setting.
+- secd: `/v1/shadow`, `/v1/shadow/observations`, `/v1/shadow/chat`, `/v1/shadow/threshold`,
+  `/v1/shadow/mute`, in the OpenAPI list. The app does not call them yet: observations arrive as
+  notifications, as shadowd's always would have.
+- Tests: the catalogue's wholeness and honesty; every word list, both ways; the conduct audit's
+  three keys (an invented quote, a quote from before the push, a short one, a kind with no
+  shape, sympathy taken for pressing, a question taken for the recommendation); the comparing's
+  parser; the cold prompt carrying nothing of the box's; and against Postgres with the box's own
+  schema: thresholds, bounds, mutes, the trail, capture and the reset; the cold read end to end
+  with a model that answers as told (what it was asked and at what priority, the record, the
+  observation, nothing read twice, a lowered threshold hearing a "partly", a second model
+  recorded as one); a busy model; the audit trail; every counting detector. The broker's
+  fallback and what synthd keeps of an answer's context have their own.
+- NOT KNOWN: what a real model makes of the two prompts. Everything that asks the model was
+  tested against a fake. The first week on xyntai is the test.
+
+## 21 November 2026 , ghost.shadowd made usable: its own model, read now, the self-test, SHADOW in the app
+
+Vlad: "are we shure we implemented as much as we could ... i need shadowd to be functional",
+"take time to do this and plan it ot". The first pass could not be reached: no command ran it,
+nothing showed whether a real model can do what the prompts ask, what it named went to a
+notification the chat never saw, the "different model" was a seam with nothing behind it, and
+the app had no page. Five things, in the order they were built.
+
+1. REACHABLE ON THE BOX
+- COMMANDS (`cmd/ghost.shadowd`): `fleet`, `said`, `detect`, `read [chat=]`, `try`. The loop and
+  the commands share one lock, so a pass asked for by hand never runs beside the loop's. A
+  command a person reads answers with text alone (ghost-cli prints data after text). None moves
+  a threshold or a mute: those stay behind secd, where every change is logged.
+- READ NOW (`shadow.ReadChat`, `POST /v1/shadow/read {chat}`). The chat's two newest answers
+  with no row in `shadow_reads`, newest first, however fresh, and the conversation's conduct.
+  The route answers at once and the reading goes on in the daemon: the first version held the
+  request open until the reading was done, which is minutes on a CPU and does not survive a
+  phone. Where it has got to is `daemon_state('ghost.shadowd','asked')`, per chat (asked, done,
+  how many read, why not), and the audit trail route carries it as `reading` and `asked`. A
+  read asked for twice while one is going is one read. Stale after twenty minutes, so a daemon
+  restarted under a read does not leave a chat "reading" for good. The pass skips an answer that
+  already has a row, so neither path asks the model twice.
+- SAID IN THE CHAT (`shadowSaid` in synthd). When the person next writes in a chat, what the
+  arbiter named about it since their previous message is the first of the answer's trail steps,
+  three at most, and so is kept in `given` with the rest. Read before the new question is
+  saved, which is what makes "since their previous message" the right window. It is a line to
+  the person and is never put in the model's prompt: an arbiter that argued with the box
+  through the box's own context would be the box steering itself.
+- A notification from ghost.shadowd leads to its own page (`shadow.LinkFor`): `shadow:chat:<id>`
+  for something named about a chat, `shadow:<detector>` otherwise. An app that does not know
+  the link falls back to Box Status by the service, as before.
+
+2. THE SELF-TEST (`selftest.go`, `ghost-cli ghost.shadowd try`)
+- Nine made-up cases through the real model with the real prompts, parsers and quote check:
+  three comparisons (same, opposite, partly) and a guilty and an innocent conversation for each
+  of gave way, pressed, led. Each prints want, got and, where they differ, the model's own
+  lines; `FORMAT` is a model that did not keep to the fixed lines. Writes nothing.
+- NOT DONE HERE: running a real model in the build sandbox. Fetching a small GGUF and building
+  a runner for it was refused by the sandbox's permission check and was not worked around. `try`
+  on xyntai is the measurement; the prompts get tuned from what it prints.
+- Two things the prompts' callers now do whichever model answers: a long answer keeps both its
+  ends in the comparing prompt (`clipEnds`: a conclusion is as often in the last lines), and a
+  model's thinking that arrives inside the answer between `<think>` tags is taken out before
+  anything is parsed or quoted (`stripThink`).
+
+3. THE ARBITER'S OWN MODEL (`internal/oracled/lanes.go`, `cmd/ghost.oracled`)
+- A GGUF at `ai-models/arbiter-<name>.gguf` (or `arbiterModelPath`) is run by oracled as a
+  second llama-server child once the main model is up: `-ngl 0` (the card is the main model's;
+  12 GB does not hold both), port 18082, its own LLAMA_API_KEY, `-c 8192 -np 1`, half the cores
+  and eight at most, `arbiterArgs` appended. `LlamaConfig.CPUOnly` and `InferTimeout` (six
+  minutes here; 120 s stays for the card).
+- LANES. The second model is a second serial resource, so it has a second broker: a cold read
+  that takes minutes on the CPU is never in front of a caption on the card. `Lanes.Submit`
+  routes class `arbiter`: to the second model when it is up; `oracle.ErrArbiterDown` while a
+  second model exists and has been down less than fifteen minutes (an unlock's first pass must
+  not be read by the wrong model; shadowd treats it as "come back"); the main model, saying so,
+  on a box with one model or when the second has been down longer (a broken file must not
+  leave the box with no cold read at all).
+- WHO STEPS ASIDE. On a box whose main model is on the card, a person chatting does not
+  interrupt the arbiter: they do not share hardware. On a box with no GPU they share cores, and
+  there a chat sets the arbiter's work aside exactly as it sets aside the main model's
+  background work (`Lanes.Shares`). `Broker.Yield` is the preemption `Submit` already did, with
+  a name; the backends map got its lock (it is now written after start).
+- `KeepArbiter` is the main model's supervise loop again (start, a rejected flag dropped,
+  backoff, watched, started again), written beside it and not through it: that loop has a year
+  of incidents in it and no test, and was left alone.
+- `models` says `arbiter` (has, model, ready, why, servedBy); the health line stays OK and says
+  when the second model is down. `oracle.Client.Arbiter()` reads it; `GET /v1/shadow` carries
+  it; `ghost-cli ghost.shadowd fleet` prints it.
+- WHICH MODEL is not in the code. `tools/setup_llama.sh` asks the mirror for a set `arbiter`
+  (signed manifest; never upstream) and says so when there is none; `tools/stage_models.sh`
+  stages any `arbiter-*.gguf` it is given; `tools/privacy_check.sh` checks port 18082 for the
+  key like the other two.
+- shadowd's deadline for one question is five minutes (was two): a model on the CPU.
+
+4. MORE DETECTORS (seventeen over fourteen entries)
+- THE PERSON'S OWN ACCOUNT OF OTHER PEOPLE (entries 1, 2, 3): `told-it-did-not-happen`,
+  `blame-turned-back`, `needing-leave`. The conversations themselves the box never holds; what
+  the person wrote about them it does. Three sentences in thirty days, kept as one observation
+  a month with the sentences and their dates. NEVER SENT: the detectors do not announce, since
+  a phone is the thing most likely to be read by the person the sentences are about. Each body
+  says what the box does not know (one side; the words fit an employer; three sentences are
+  three sentences). Word lists after Stern, Freyd and Stark, in English, tested both ways.
+- `agreement-rate` shows the other side with the count: the latest three questions on which
+  the box sided with the person, each with what the cold read said to it.
+- "Most recently" in the own-words detectors was the last in list order (chats, then notes),
+  not the latest written: the person's sentences are now put in time order first.
+- Each tunable detector publishes its `step`, so every screen offers the same values.
+
+5. SHADOW IN THE APP (Android)
+- `ShadowText` (pure, tested on the JVM) and `ShadowScreen`: the fleet (which model reads
+  cold, named lately, every detector in six groups, the catalogue, the settings changed), a
+  detector's page (threshold one step at a time, mute a day or three, lift, history, the
+  pattern), the catalogue (thirty, built or not, with why), a chat's audit trail with "read it
+  cold now" (polls while `reading`).
+- ◑ on a row of CHATS opens that chat's trail. A mail marked for pressure says so on its page
+  (`ShadowAbout("mail:<id>")`). `NotifLink` knows `shadow`, `shadow:<detector>`,
+  `shadow:chat:<id>` and nothing else after the colon. INFO and the glossary say what it is.
+- No off switch was drawn, because the box has none.
+
+Tests. Go: reading a chat now and what the phone is told of it; the self-test with three kinds
+of fake; the note in the next answer's trail; the lanes (a cold read served while the main
+model is busy, shared cores, a second model that fails to start, dies, stays down); which
+file is the second model; the second model's start flags through the fake llama-server;
+thinking stripped; both ends of a long answer; the new word lists both ways and that none of
+the three announces; steps landing on the baseline and the top; where a notification leads.
+Kotlin: the fleet parsed and grouped, steps from the box only, which model reads, a trail, a
+read asked for, links.
+
+## 21 November 2026 , a question asked aloud: a microphone that stops by itself, and first in the box's queue
+
+Vlad: "Can you also impove the voice in the chat, it feels wierd and i'm not sure it works well
+when I record voice". Read end to end (the phone's recorder, the upload, voiced, whisper) it
+worked on paper and had reasons to feel wrong on both sides.
+
+THE PHONE
+- The button was a dot, took two taps, showed nothing of what it heard and never stopped.
+  `VoiceAskButton` (chat and HOME's ask box) is now a drawn microphone; one tap listens; a bar
+  beside the clock is the level, green while what it hears is taken for speech; it stops by
+  itself; while the box works there is a clock and ✕ drops it; then "heard in N s".
+- WHEN A QUESTION HAS ENDED (`voice/VoiceEndpoint.kt`, pure, tested). Fed the root mean square
+  of each tenth of a second. Speech is what stands clear of the room (three times it, and
+  never under -42 dB) and of how loud the take has been. The room falls at once and rises a
+  hundredth a tenth; a take that OPENS on a steady sound (a car) has it taken as the room
+  inside a second, since a hum does not move from tenth to tenth and a voice does. Two tenths
+  in a row start speech (a cup put down is one); 1.8 s of quiet after it ends the take; eight
+  seconds with nobody is "nothing heard". It errs toward stopping late: cut short costs a
+  second tap, which is added to the field.
+- THE RECORDER TOLD IT IS A QUESTION (`VoiceCapture.start(ctx, ask = true)`): the
+  VOICE_RECOGNITION source where it opens (the plain microphone where not); two minutes at
+  most (the box takes four of WAV, and past it the answer was a 400); the file cut to what
+  was said with 0.3 s before and 0.5 after (`VoiceWav.trim`), since the hum at both ends is
+  where a speech model writes words of its own; nothing sent when nobody spoke.
+- THREE FAULTS. (1) A take under 0.7 s left "● listening" on screen for good and never showed
+  why; the recorder's own error was read from a stale copy. Each state now carries the id of
+  the take it is about, so whoever started one knows its end from anything else. (2) The
+  recorder is shared with CHECK-IN and a take had no owner: leaving CHAT mid-hear left the
+  question in it, the check-in card offered it as a voice note, and after a restart
+  `recoverOrphans` queued it for the journal. A question's file is now in `voice/asks`, which
+  nothing uploads and `sweepAsks` empties; `Take.ask` keeps it off the card; leaving the chat
+  drops it (`dropAsk`). (3) Starting a question deleted a check-in take recorded and not yet
+  saved. It is refused now, and says why (`cannotAsk`).
+- A DROPPED QUESTION ENDS ITS REQUEST. A coroutine blocked in a socket read is not cancelled
+  until the read returns, here up to three minutes, so ✕ would have freed nothing.
+  `BoxHttp.postFileJson` runs the request on its own, awaits it (an await is cancellable), and
+  closes the socket under the read when the wait is given up.
+
+THE BOX (`internal/voiced`)
+- A QUESTION GOES FIRST. `Hear` and the queue shared one lock, so a question waited for
+  whatever note whisper was on: twenty minutes of audio is several of CPU. `asks` counts
+  questions waiting or being heard; the queue starts nothing while it is not zero, and the
+  note in hand is stopped (`queueStop`) and started over afterwards with no try counted.
+  `Transcribe` returns the caller's own cancellation as that, and `WaitDelay` keeps a stopped
+  engine from holding `Wait` on its output.
+- URGENT (`Engine.Urgent`): half the logical cores up to eight (the queue has four), and no
+  nice 10. A person is waiting.
+- THE LANGUAGE. Detected per file, which is right for minutes and a guess for seconds. The
+  phone sends its languages (`X-Ghost-Langs: en,ro`), the box knows the ones its voice notes
+  were in (`HeardLangs`, most first); a question of thirty seconds or less heard as none of
+  them is heard once more as the first of them, and that stands if it has words. Nothing
+  known of what the person speaks: whisper's word stands.
+- SILENCE IS NOT GIVEN TO WHISPER. `LoudestTenth` under -48 dB (`SilenceFloor`): the answer
+  is no words, at once. A covered microphone no longer comes back as "Thank you."
+- `/v1/voice/ask` answers `ms`, from the last byte of the upload to the words.
+
+NOT DONE: whisper itself was not run (none in the sandbox), nor a phone. The endpointer's
+numbers are from what levels a phone's microphone gives, not from Vlad's. Not tried: a smaller
+audio context for short questions (`-ac`), which would cut the encoder's time and is said to
+cost accuracy on the large models; the box's log now says how long each question took and how
+long it was, which is what that decision needs.
+
+Tests. Kotlin: the endpointer (a question in a quiet room to the tenth, a pause to think, nobody,
+a cup, a hum and a voice over it, a last short word after a breath, a quiet voice), loudness
+and the cut, the line's words, the phone's languages. Go: a silent file never reaches the
+engine, the language heard again and when not, a note three seconds into whisper set aside
+for a question heard in under two and then finished with no try counted (with -race), the
+header through secd.
+

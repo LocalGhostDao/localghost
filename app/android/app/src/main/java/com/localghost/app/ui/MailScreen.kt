@@ -231,6 +231,8 @@ private fun MailMessagePage(id: Long, onBack: () -> Unit, onReply: (MailText.Row
                 }
             }
         }
+        // what ghost.shadowd named about this mail (pressure: urgency, scarcity and the rest), if anything
+        if (r.direction == "in") item { ShadowAbout("mail:$id", Modifier.padding(top = 6.dp)) }
         // the text
         item {
             Column(Modifier.fillMaxWidth().border(1.dp, GhostBorder, RectangleShape).padding(14.dp)) {

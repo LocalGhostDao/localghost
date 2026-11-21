@@ -27,6 +27,12 @@ type Engine struct {
 	// Prompt is whisper's initial prompt, the people's names as the box spells them (names.go);
 	// "" asks for nothing.
 	Prompt string
+	// Lang is the language to hear it in ("en", "ro"); "" has whisper work it out, which is
+	// right for a note of minutes and a guess for a question of seconds (daemon.go, Hear).
+	Lang string
+	// Urgent: a person is waiting for the words (a question asked aloud in the chat). More
+	// cores, and the ordinary priority; a voice note is neither.
+	Urgent bool
 }
 
 // Name is the model's file name without its extension, as recorded beside each transcript.
@@ -120,10 +126,26 @@ func Threads() int {
 	return n
 }
 
+// UrgentThreads is for a question someone is waiting on: half the logical cores (the physical
+// ones on a CPU with two threads a core, past which whisper gains nothing), eight at most, two
+// at least. The queue's four is the floor a note gets; a person gets what the box has.
+func UrgentThreads() int {
+	n := runtime.NumCPU() / 2
+	if n > 8 {
+		n = 8
+	}
+	if n < 2 {
+		n = 2
+	}
+	return n
+}
+
 // Transcribe runs whisper-cli on a 16 kHz mono WAV and reads what it wrote. The output files go to
 // workDir, which is on the encrypted volume: a transcript is never written to the OS disk. The
-// language is detected per note (Vlad talks in English and Romanian). The GPU is left to the chat
-// model (-ng); the process runs at nice 10 for the same reason.
+// language is detected per note (Vlad talks in English and Romanian) unless the engine is given
+// one. The GPU is left to the chat model (-ng); the process runs at nice 10 for the same reason,
+// except for a question someone is waiting on (Urgent). A ctx ended by the caller is the
+// caller's error, not whisper's.
 func (e Engine) Transcribe(ctx context.Context, wav, workDir string, audio time.Duration) (Result, error) {
 	var r Result
 	if err := os.MkdirAll(workDir, 0o700); err != nil {
@@ -135,7 +157,14 @@ func (e Engine) Transcribe(ctx context.Context, wav, workDir string, audio time.
 	limit := 10*time.Minute + 4*audio
 	cctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
-	args := []string{"-m", e.Model, "-f", wav, "-l", "auto", "-t", fmt.Sprint(Threads()), "-oj", "-otxt", "-of", base, "-np"}
+	lang, threads := "auto", Threads()
+	if e.Lang != "" {
+		lang = e.Lang
+	}
+	if e.Urgent {
+		threads = UrgentThreads()
+	}
+	args := []string{"-m", e.Model, "-f", wav, "-l", lang, "-t", fmt.Sprint(threads), "-oj", "-otxt", "-of", base, "-np"}
 	if filepath.Base(e.Bin) == "whisper-cli" && os.Getenv("GHOST_WHISPER_GPU") != "1" {
 		args = append(args, "-ng")
 	}
@@ -143,6 +172,9 @@ func (e Engine) Transcribe(ctx context.Context, wav, workDir string, audio time.
 		args = append(args, "--prompt", e.Prompt)
 	}
 	cmd := exec.CommandContext(cctx, e.Bin, args...)
+	// stopped (set aside for a question, a deadline, shutting down), it is killed, and Wait does
+	// not then sit on its output for as long as anything it started still holds the pipe
+	cmd.WaitDelay = time.Second
 	var stderr tailBuffer
 	cmd.Stderr = &stderr
 	cmd.Stdout = &stderr
@@ -150,9 +182,14 @@ func (e Engine) Transcribe(ctx context.Context, wav, workDir string, audio time.
 	if err := cmd.Start(); err != nil {
 		return r, err
 	}
-	_ = syscall.Setpriority(syscall.PRIO_PROCESS, cmd.Process.Pid, 10)
+	if !e.Urgent {
+		_ = syscall.Setpriority(syscall.PRIO_PROCESS, cmd.Process.Pid, 10)
+	}
 	err := cmd.Wait()
 	r.Took = time.Since(t0)
+	if ctx.Err() != nil {
+		return r, ctx.Err() // stopped by whoever asked (set aside for a question, or shutting down): not whisper's failure
+	}
 	if cctx.Err() == context.DeadlineExceeded {
 		return r, fmt.Errorf("whisper-cli ran past %s on a %s note, stopped", limit.Round(time.Second), audio.Round(time.Second))
 	}

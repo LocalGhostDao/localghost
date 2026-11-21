@@ -2,6 +2,8 @@ package com.localghost.app.net
 
 import android.content.Context
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.localghost.app.security.BoxConfig
 import com.localghost.app.security.SessionStore
@@ -176,21 +178,38 @@ object BoxHttp {
     /** POST a file and read the JSON answer (a question asked aloud: the WAV up, the words back).
      *  [readTimeoutMs] covers the box's work on it. Throws on a transport failure or a non-200. */
     suspend fun postFileJson(ctx: Context, path: String, file: java.io.File, contentType: String,
-                             readTimeoutMs: Int = 60_000): JSONObject = withContext(Dispatchers.IO) {
-        val conn = open(ctx, path, "POST")
-        conn.doOutput = true
-        conn.readTimeout = readTimeoutMs
-        conn.setFixedLengthStreamingMode(file.length())
-        conn.setRequestProperty("Content-Type", contentType)
+                             readTimeoutMs: Int = 60_000, headers: Map<String, String> = emptyMap()): JSONObject {
+        // The request runs on its own, so that whoever asked can stop waiting AT ONCE (a question
+        // asked aloud, dropped while the box is still working out the words). A coroutine blocked
+        // in a socket read is not cancelled until the read returns, which here is up to three
+        // minutes; an await is. The socket is then closed under the read, so the request ends
+        // too and the box is not left answering nobody.
+        val conn = withContext(Dispatchers.IO) { open(ctx, path, "POST") }
+        val call = abandonable.async {
+            conn.doOutput = true
+            conn.readTimeout = readTimeoutMs
+            conn.setFixedLengthStreamingMode(file.length())
+            conn.setRequestProperty("Content-Type", contentType)
+            headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+            try {
+                file.inputStream().use { ins -> conn.outputStream.use { out -> ins.copyTo(out, 256 * 1024) } }
+                val code = conn.responseCode
+                if (code != 200) throw java.io.IOException("the box answered $code")
+                JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
+            } finally {
+                conn.disconnect()
+            }
+        }
         try {
-            file.inputStream().use { ins -> conn.outputStream.use { out -> ins.copyTo(out, 256 * 1024) } }
-            val code = conn.responseCode
-            if (code != 200) throw java.io.IOException("the box answered $code")
-            JSONObject(conn.inputStream.bufferedReader().use { it.readText() })
-        } finally {
-            conn.disconnect()
+            return call.await()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            abandonable.launch { runCatching { conn.disconnect() } } // off the main thread: closing a TLS socket writes
+            throw e
         }
     }
+
+    /** Requests that may be abandoned by whoever made them (postFileJson). */
+    private val abandonable = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
     /** GET streamed straight to DISK , the big-payload path (video originals). A bounded 512KB
      *  buffer is the entire RAM footprint no matter how large the file; onBytes reports progress.

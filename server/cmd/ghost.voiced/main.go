@@ -163,13 +163,16 @@ func main() {
 		ctl.Handle("hear", func(args json.RawMessage) (ctlsock.Response, error) {
 			var a struct {
 				Path string `json:"path"`
+				// the languages the phone is set to: with the ones heard in voice notes, the
+				// languages a short question may be in
+				Langs []string `json:"langs"`
 			}
 			if len(args) > 0 {
 				_ = json.Unmarshal(args, &a)
 			}
 			hctx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 			defer cancel()
-			res, err := d.Hear(hctx, strings.TrimSpace(a.Path))
+			res, err := d.Hear(hctx, strings.TrimSpace(a.Path), a.Langs)
 			if err != nil {
 				return ctlsock.Response{}, err
 			}
