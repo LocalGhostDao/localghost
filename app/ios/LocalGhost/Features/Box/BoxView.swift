@@ -72,11 +72,13 @@ struct BoxView: View {
     }
     .confirmationDialog("Forget this box?", isPresented: $confirmingForget, titleVisibility: .visible) {
       Button("Forget this box", role: .destructive) {
-        do {
-          try model.forget()
-          onForgotten()
-        } catch {
-          forgetError = error.localizedDescription
+        Task {
+          do {
+            try await model.forget()
+            onForgotten()
+          } catch {
+            forgetError = error.localizedDescription
+          }
         }
       }
       Button("Cancel", role: .cancel) {}
@@ -225,11 +227,13 @@ struct BoxStatusView: View {
     }
     .confirmationDialog("Forget this box?", isPresented: $confirmingForget, titleVisibility: .visible) {
       Button("Forget this box", role: .destructive) {
-        do {
-          try model.forget()
-          onForgotten()
-        } catch {
-          forgetError = error.localizedDescription
+        Task {
+          do {
+            try await model.forget()
+            onForgotten()
+          } catch {
+            forgetError = error.localizedDescription
+          }
         }
       }
       Button("Cancel", role: .cancel) {}

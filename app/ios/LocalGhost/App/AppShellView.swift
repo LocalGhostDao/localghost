@@ -114,7 +114,8 @@ struct AppShellView: View {
     _chatModel = State(initialValue: ChatModel(client: { try boxModel.authenticatedClient() }))
     _homeModel = State(initialValue: HomeModel(
       client: { try boxModel.authenticatedClient() },
-      location: { location.latestAndRefresh() }
+      location: { location.latestAndRefresh() },
+      cache: boxModel.homeCache
     ))
   }
 
