@@ -75,6 +75,9 @@ final class BoxModel {
   /// refused, the session's end.
   @ObservationIgnored private var signedIn: (channel: any SignedInCalls, session: BoxSession)?
   @ObservationIgnored private var sessionGeneration = UUID()
+  /// Changes when the box is forgotten. A key renewal that was on its way to the box under the
+  /// old one keeps nothing of what comes back (stillEnrolled).
+  @ObservationIgnored private var enrolmentGeneration = UUID()
   @ObservationIgnored private var checkingRefusal: UUID?
   @ObservationIgnored private var renewingKey = false
 
@@ -305,13 +308,39 @@ final class BoxModel {
   /// Forget this box: the device key, its certificate and the session leave this iPhone, and so
   /// does what the signed-in screens kept outside the Keychain (Home's cache, the chat last
   /// opened). The box still lists this iPhone until it is retired there.
+  ///
+  /// THE ORDER is what can be put back, first. The session goes, which costs a PIN; then what
+  /// the signed-in screens kept; and only then the keys and the enrolment, which nothing brings
+  /// back. A step that fails leaves a box that is still enrolled and locked, and the screen
+  /// says so. As merged on 22 November 2026 the keys and the enrolment went first and Home's
+  /// cache last, so a cache that would not go left an iPhone with no enrolment on a screen
+  /// saying the forgetting had failed.
   func forget() async throws {
     invalidateSession()
-    try sessions.clear()
-    try keyring.removeAll()
-    try credentialStore.clear()
-    try await forgetLeftovers(homeCache)
-    homeCache = HomeCache()
+    do {
+      try sessions.clear()
+      // back at the PIN whatever follows, with nothing of the signed-in screens left up
+      pin = ""
+      status = nil
+      steps = []
+      errorMessage = nil
+      keyNote = nil
+      busy = false
+      screen = .unlock
+      // the next shell, this box's or another's, is given a cache that works; the one in use
+      // is retired by the leftovers, so a Home answer still on its way writes nothing
+      let retired = homeCache
+      homeCache = HomeCache()
+      try await forgetLeftovers(retired)
+      // from here nothing is put back: a key renewal on its way to the box keeps nothing of
+      // what it is answered
+      enrolmentGeneration = UUID()
+      try keyring.removeAll()
+      try credentialStore.clear()
+    } catch {
+      errorMessage = "this box was not forgotten (\(Self.words(for: error))): open it with the PIN, or forget it again"
+      throw error
+    }
   }
 
   // --- the device key ---
@@ -323,24 +352,38 @@ final class BoxModel {
     renewingKey = true
     defer { renewingKey = false }
     guard var credentials = loadCredentials(), let session = sessions.load(), session.isValid(at: now()) else { return }
+    let enrolment = enrolmentGeneration
     do {
       if credentials.pendingKeyTag != nil {
-        try await confirmPending(&credentials, token: session.token)
+        try await confirmPending(&credentials, token: session.token, enrolment: enrolment)
       }
       if let made = credentials.rekeyedAt,
          now().timeIntervalSince(made) < Double(credentials.renewAfterHours ?? 24) * 3600 {
         return
       }
-      try await rekey(&credentials, token: session.token)
+      try await rekey(&credentials, token: session.token, enrolment: enrolment)
       keyNote = "this iPhone now uses a key it made itself, which never leaves it; the QR's key is retired"
+    } catch is KeyRenewalAbandoned {
+      // the box was forgotten while it was being asked: nothing was kept, and there is no key
+      // left on this iPhone to say anything about
     } catch {
+      guard enrolment == enrolmentGeneration else { return }
       keyNote = credentials.rekeyedAt == nil
         ? "the key from the QR is still in use; it is replaced at the next unlock (\(Self.words(for: error)))"
         : "the key was not renewed today; it is tried again at the next unlock (\(Self.words(for: error)))"
     }
   }
 
-  private func rekey(_ credentials: inout EnrolmentCredentials, token: String) async throws {
+  /// A key renewal asks the box twice and waits each time, and the box can be forgotten while
+  /// it waits. What comes back then is for an enrolment this iPhone no longer has: keeping it
+  /// would put the forgotten box's address, certificate and key tag back in the Keychain (over
+  /// a new box's, if one was enrolled meanwhile). Asked after each wait, before anything is
+  /// installed or saved.
+  private func stillEnrolled(_ enrolment: UUID) throws {
+    if enrolment != enrolmentGeneration { throw KeyRenewalAbandoned() }
+  }
+
+  private func rekey(_ credentials: inout EnrolmentCredentials, token: String, enrolment: UUID) async throws {
     guard let presented = PEM.der(from: credentials.deviceCertificatePEM, type: "CERTIFICATE") else {
       throw DeviceKeyError.badCertificate
     }
@@ -349,6 +392,7 @@ final class BoxModel {
     do {
       let signature = try keyring.sign(RekeyProof.message(presentedCertificateDER: presented, spki: key.spki), tag: key.tag)
       answer = try await client(for: credentials, tag: credentials.keyTag, token: token).rekey(spki: key.spki, signature: signature)
+      try stillEnrolled(enrolment)
       try keyring.installCertificate(pem: answer.cert, tag: key.tag)
     } catch {
       keyring.remove(tag: key.tag) // the box signed nothing for it, or it cannot be used
@@ -361,12 +405,13 @@ final class BoxModel {
     credentials.pendingCertificatePEM = answer.cert
     credentials.renewAfterHours = answer.renewAfterHours
     try credentialStore.save(credentials)
-    try await confirmPending(&credentials, token: token)
+    try await confirmPending(&credentials, token: token, enrolment: enrolment)
   }
 
-  private func confirmPending(_ credentials: inout EnrolmentCredentials, token: String) async throws {
+  private func confirmPending(_ credentials: inout EnrolmentCredentials, token: String, enrolment: UUID) async throws {
     guard let tag = credentials.pendingKeyTag, let certificate = credentials.pendingCertificatePEM else { return }
     try await client(for: credentials, tag: tag, token: token).rekeyConfirm()
+    try stillEnrolled(enrolment)
     let old = credentials.keyTag
     credentials.deviceCertificatePEM = certificate
     credentials.keyTag = tag
@@ -430,6 +475,10 @@ enum UnlockFailure: Error, Equatable {
   case failed(String)
   case noSession
 }
+
+/// A key renewal stopped because the box was forgotten while the box was being asked
+/// (BoxModel.stillEnrolled). Not a failure to show: there is no enrolment left to show it on.
+struct KeyRenewalAbandoned: Error {}
 
 /// Makes the calls to the box over the identity whose key has the tag (the tests give their own).
 typealias BoxConnect = @MainActor (EnrolmentCredentials, String, String?) throws -> any BoxCalls

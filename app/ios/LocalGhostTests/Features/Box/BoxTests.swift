@@ -211,6 +211,7 @@ struct BoxModelTests {
         signedIn.connect(tag: tag, token: token, refused: refused)
       },
       forgetLeftovers: { cache in
+        if leftovers.refuse { throw CocoaError(.fileWriteNoPermission) }
         try await cache.invalidate()
         leftovers.cleared += 1
       },
@@ -579,6 +580,141 @@ struct BoxModelTests {
     #expect(keyring.removedAll == 1)
     #expect(leftovers.cleared == 1) // the chat last opened and Home's cache
   }
+
+  /// The keys and the enrolment go last, after everything that can fail and be tried again. A
+  /// forgetting that stops part-way leaves a box that is still enrolled and locked, and says
+  /// so; it does not leave an iPhone with no enrolment on a screen saying it could not forget.
+  @Test
+  func aForgettingThatCannotFinishLeavesTheBoxEnrolledAndLocked() async throws {
+    var stored = EnrolmentFixture.credentials(tag: "made-0")
+    stored.rekeyedAt = now.addingTimeInterval(-3600)
+    let credentials = MemoryCredentialStore(stored)
+    let keyring = RecordingKeyring()
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
+    let leftovers = LeftoverCount()
+    leftovers.refuse = true
+    let model = makeModel(credentials, keyring, sessions, FakeBox(), leftovers: leftovers)
+    await model.start()
+    #expect(model.screen == .open)
+    #expect(model.status != nil)
+
+    var refused: (any Error)?
+    do {
+      try await model.forget()
+    } catch {
+      refused = error
+    }
+
+    #expect(refused is CocoaError)
+    // still enrolled, with its keys; the session is gone, which a PIN puts back
+    #expect(try credentials.load()?.keyTag == "made-0")
+    #expect(keyring.removedAll == 0)
+    #expect(sessions.load() == nil)
+    #expect(model.screen == .unlock)
+    #expect(model.status == nil)
+    #expect(model.errorMessage?.hasPrefix("this box was not forgotten") == true)
+
+    // forgotten again once what was in the way is gone
+    leftovers.refuse = false
+    try await model.forget()
+    #expect(try credentials.load() == nil)
+    #expect(keyring.removedAll == 1)
+    #expect(leftovers.cleared == 1)
+    #expect(model.errorMessage == nil)
+  }
+
+  /// What the signed-in screens showed does not stay on the model for the next box to open on.
+  @Test
+  func forgettingLeavesNothingOfTheSignedInScreens() async throws {
+    var stored = EnrolmentFixture.credentials(tag: "made-0")
+    stored.rekeyedAt = now.addingTimeInterval(-3600)
+    let model = makeModel(
+      MemoryCredentialStore(stored),
+      RecordingKeyring(),
+      MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture)),
+      FakeBox()
+    )
+    await model.start()
+    #expect(model.screen == .open)
+    #expect(model.status != nil)
+
+    try await model.forget()
+
+    #expect(model.screen == .unlock)
+    #expect(model.status == nil)
+    #expect(model.steps.isEmpty)
+    #expect(model.errorMessage == nil)
+    #expect(model.keyNote == nil)
+  }
+
+  /// A key renewal asks the box twice and waits each time. Forgotten while it waits, the box's
+  /// answer is for an enrolment this iPhone no longer has: before 22 November 2026 it was saved
+  /// all the same, and the forgotten box's address, certificate and key tag were back in the
+  /// Keychain a moment after they had been removed.
+  @Test(arguments: ["rekey", "confirm"])
+  func aRenewalOnItsWayCannotBringAForgottenBoxBack(heldAt: String) async throws {
+    let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
+    let keyring = RecordingKeyring()
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
+    let box = FakeBox()
+    let model = makeModel(credentials, keyring, sessions, box)
+    let held = HeldAnswer()
+    if heldAt == "rekey" {
+      box.holdRekey = { await held.hold() }
+    } else {
+      box.holdConfirm = { await held.hold() }
+    }
+    let renewal = Task { await model.renewKeyIfDue() }
+    await held.waitUntilHeld()
+
+    try await model.forget()
+    #expect(try credentials.load() == nil)
+
+    held.release()
+    await renewal.value
+
+    // nothing of the old box is back, and nothing is said about a key that is not there
+    #expect(try credentials.load() == nil)
+    #expect(sessions.load() == nil)
+    #expect(model.keyNote == nil)
+    #expect(model.screen == .unlock)
+    #expect(keyring.removedAll == 1)
+    if heldAt == "rekey" {
+      // the box signed after the forgetting: the confirmation is never asked, and the key
+      // made for it is not left behind
+      #expect(box.calls == ["rekey@qr"])
+      #expect(keyring.removed == ["made-1"])
+    } else {
+      // the box confirmed after the forgetting: the old key is not looked for, every key went
+      #expect(box.calls == ["rekey@qr", "confirm@made-1"])
+      #expect(keyring.removed.isEmpty)
+    }
+  }
+
+  /// The same renewal with the box only locked goes on as before: the hand-over the box has
+  /// begun is finished, so the next unlock is over the key the box now expects.
+  @Test
+  func aRenewalOnItsWayIsFinishedWhenTheBoxIsOnlyLocked() async throws {
+    let credentials = MemoryCredentialStore(EnrolmentFixture.credentials(tag: "qr"))
+    let keyring = RecordingKeyring()
+    let sessions = MemorySessionStore(BoxSession(token: "tok", expiresAt: .distantFuture))
+    let box = FakeBox()
+    let model = makeModel(credentials, keyring, sessions, box)
+    let held = HeldAnswer()
+    box.holdConfirm = { await held.hold() }
+    let renewal = Task { await model.renewKeyIfDue() }
+    await held.waitUntilHeld()
+
+    model.lock()
+    held.release()
+    await renewal.value
+
+    let after = try #require(try credentials.load())
+    #expect(after.keyTag == "made-1")
+    #expect(after.pendingKeyTag == nil)
+    #expect(keyring.removed == ["qr"])
+    #expect(model.screen == .unlock)
+  }
 }
 
 @MainActor
@@ -741,6 +877,8 @@ final class SignedInRecorder {
 @MainActor
 final class LeftoverCount {
   var cleared = 0
+  /// Set, the leftovers cannot be cleared: a cache file that will not go.
+  var refuse = false
 }
 
 /// The time, moved by the test (read and set on the main actor only).
@@ -779,6 +917,10 @@ final class FakeBox {
   var downFor: Set<String> = []
   var confirmFails = 0
   var nextStatus: (@MainActor () async throws -> BoxStatus)?
+  /// Awaited once, after the call is recorded and before it is answered: the tests hold the
+  /// box's answer to a rekey or to its confirmation while something else happens.
+  var holdRekey: (@MainActor () async -> Void)?
+  var holdConfirm: (@MainActor () async -> Void)?
   private(set) var calls: [String] = []
   private(set) var pins: [String] = []
   private(set) var rekeyed: [(spki: Data, signature: Data)] = []
@@ -831,11 +973,19 @@ final class FakeBox {
     func rekey(spki: Data, signature: Data) async throws -> RekeyAnswer {
       try box.record("rekey", tag)
       box.noteRekey(spki, signature)
+      if let hold = box.holdRekey {
+        box.holdRekey = nil
+        await hold()
+      }
       return RekeyAnswer(ok: true, cert: FakeBox.newCertificate, lifeDays: 14, renewAfterHours: 24)
     }
 
     func rekeyConfirm() async throws {
       try box.record("confirm", tag)
+      if let hold = box.holdConfirm {
+        box.holdConfirm = nil
+        await hold()
+      }
       if box.takeConfirmFailure() { throw BoxChannelError.unreachable("lost") }
     }
   }
@@ -867,5 +1017,30 @@ private final class BoxStatusGate {
       response?.resume(returning: BoxStatus(services: [], datastores: []))
     }
     response = nil
+  }
+}
+
+/// Deterministically hold one of the box's answers while something else happens on this iPhone.
+@MainActor
+private final class HeldAnswer {
+  private var requested = false
+  private var observer: CheckedContinuation<Void, Never>?
+  private var held: CheckedContinuation<Void, Never>?
+
+  func hold() async {
+    requested = true
+    observer?.resume()
+    observer = nil
+    await withCheckedContinuation { held = $0 }
+  }
+
+  func waitUntilHeld() async {
+    guard !requested else { return }
+    await withCheckedContinuation { observer = $0 }
+  }
+
+  func release() {
+    held?.resume()
+    held = nil
   }
 }

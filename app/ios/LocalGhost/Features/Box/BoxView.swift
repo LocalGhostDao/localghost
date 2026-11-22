@@ -77,7 +77,9 @@ struct BoxView: View {
             try await model.forget()
             onForgotten()
           } catch {
-            forgetError = error.localizedDescription
+            // the model says why, and what to do next (its errorMessage, shown below). A line
+            // kept here stayed over every later one, a wrong PIN's included.
+            forgetError = nil
           }
         }
       }
@@ -232,7 +234,9 @@ struct BoxStatusView: View {
             try await model.forget()
             onForgotten()
           } catch {
-            forgetError = error.localizedDescription
+            // the model says why, and what to do next (its errorMessage, shown below). A line
+            // kept here stayed over every later one, a wrong PIN's included.
+            forgetError = nil
           }
         }
       }

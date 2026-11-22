@@ -64,7 +64,8 @@ struct RootView: View {
                 try await boxModel.forget()
                 phase = .setup
               } catch {
-                forgetError = error.localizedDescription
+                // the model's words say what was and was not forgotten, and what to do next
+                forgetError = boxModel.errorMessage ?? error.localizedDescription
               }
             }
           }

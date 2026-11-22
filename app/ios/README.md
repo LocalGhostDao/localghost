@@ -58,7 +58,12 @@ two differ, Android's behaviour and the box's code (`server/internal/secd`) are 
 - **About and the Glossary.** The Android app's words.
 - **Forget this box.** Deletes the device key, its certificate and the session from this iPhone,
   and what the signed-in screens kept outside the Keychain: Home's cache and the chat last
-  opened (`SignedInLeftovers`). The box still lists the iPhone until it is retired there.
+  opened (`SignedInLeftovers`). The box still lists the iPhone until it is retired there. The
+  order is what can be put back, first: the session, then the leftovers, and the keys and the
+  enrolment last. A step that fails leaves a box still enrolled and locked, and the screen
+  says so. An answer from the box that arrives afterwards changes nothing: a status read or a
+  refusal from the old session is dropped, Home's retired cache writes nothing, and a key
+  renewal that was on its way keeps none of what it is answered (`BoxModel.stillEnrolled`).
 - **Reinstalling forgets too.** Keychain items outlive the app on iOS; the first launch after an
   install deletes whatever an earlier install left there (`InstallMark`).
 

@@ -1058,3 +1058,37 @@ in each state; the GPU row; the labels; the names held apart. The two scripts' n
 run against the four shapes `models` can have (a second model up, down, none, an oracled from
 before).
 
+## 22 November 2026 , iOS after pull request 22: forgetting finishes or says it did not, and a rekey on its way cannot bring the box back
+
+David's PR 22 (merged, 7029d6f) gave `BoxModel` a session generation, so a status read or a
+refusal from a session that has ended is dropped, and one `HomeCache` that forgetting retires.
+Two things from the review, on top.
+
+- THE KEY RENEWAL WAS NOT UNDER IT. `renewKeyIfDue` asks the box twice (sign this key, then
+  confirm) and waits each time. Forgotten while it waited, it carried on: the certificate was
+  installed and `credentialStore.save` put the forgotten box's address, certificate and key
+  tag back in the Keychain a moment after `forget()` had cleared them (over a new box's, had
+  one been enrolled meanwhile). An enrolment generation, changed only by forgetting;
+  `stillEnrolled` is asked after each wait, before anything is installed or saved, and throws
+  `KeyRenewalAbandoned`, which removes the key made for it and is not shown (there is no
+  enrolment left to show it on). A LOCK is deliberately not a reason to stop: the hand-over
+  the box has begun is finished, so the next unlock is over the key the box now expects.
+- FORGETTING REMOVED WHAT CANNOT BE PUT BACK FIRST. As merged: session, keys, enrolment, then
+  Home's cache, and a cache that would not go threw after the enrolment was gone, onto a
+  screen that said the forgetting had failed. Now the session (a PIN puts it back), then the
+  leftovers, then the keys and the enrolment. A step that fails leaves a box that is still
+  enrolled and locked; `errorMessage` says so and what to do.
+- `forget()` leaves nothing of the signed-in screens on the model (`screen`, `status`, the
+  steps, the key note), as `lock()` does. A box enrolled again in the same run used to open on
+  the old shell for a frame.
+- The views kept their own line for a failed forgetting, and it stayed over every later
+  message, a wrong PIN's included. The model's own is shown.
+
+Tests (`BoxTests.swift`): a forgetting that cannot finish, then one that can; nothing of the
+signed-in screens left; a renewal held at the rekey and at the confirmation across a
+forgetting; the same across a lock, which finishes. Held with a continuation gate
+(`HeldAnswer`), as David's are: no sleeps.
+
+NOT RUN: Swift is not compiled in the workspace. Checked by reading and by bracket balance;
+`ios.yml` on the branch is the first compile.
+
