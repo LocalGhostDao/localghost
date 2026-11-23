@@ -17,6 +17,7 @@ struct BoxView: View {
       if model.screen == .open {
         AppShellView(
           boxModel: model,
+          preferences: theme.preferences,
           onLock: { model.lock() },
           onForgotten: onForgotten
         )

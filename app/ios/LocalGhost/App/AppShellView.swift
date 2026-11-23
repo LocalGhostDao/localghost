@@ -96,6 +96,9 @@ struct AppShellView: View {
   @State private var chatModel: ChatModel
   @State private var homeModel: HomeModel
   @State private var homeLocation: HomeLocationSource
+  @State private var permissionsModel: PermissionsModel
+
+  let preferences: AppPreferences
 
   let boxModel: BoxModel
   let onLock: () -> Void
@@ -103,19 +106,23 @@ struct AppShellView: View {
 
   init(
     boxModel: BoxModel,
+    preferences: AppPreferences = AppPreferences(),
     onLock: @escaping () -> Void,
     onForgotten: @escaping () -> Void
   ) {
+    self.preferences = preferences
     self.boxModel = boxModel
     self.onLock = onLock
     self.onForgotten = onForgotten
     let location = HomeLocationSource()
     _homeLocation = State(initialValue: location)
+    _permissionsModel = State(initialValue: PermissionsModel(client: .live(location: location)))
     _chatModel = State(initialValue: ChatModel(client: { try boxModel.authenticatedClient() }))
     _homeModel = State(initialValue: HomeModel(
       client: { try boxModel.authenticatedClient() },
       location: { location.latestAndRefresh() },
-      cache: boxModel.homeCache
+      cache: boxModel.homeCache,
+      feedsEnabled: { preferences.fetchPublicFeeds }
     ))
   }
 
@@ -212,8 +219,15 @@ struct AppShellView: View {
     }
     .background(theme.background.ignoresSafeArea())
     .task {
+      homeLocation.setEnabled(preferences.weatherLocation)
       homeLocation.start()
       await chatModel.start()
+    }
+    .onChange(of: preferences.weatherLocation) { _, enabled in
+      homeLocation.setEnabled(enabled)
+    }
+    .onChange(of: preferences.fetchPublicFeeds) { _, enabled in
+      if !enabled { homeModel.cancelFeedRefresh() }
     }
     .onChange(of: homeLocation.latest) { old, new in
       guard old == nil, new != nil else { return }
@@ -249,6 +263,15 @@ struct AppShellView: View {
           chatModel.resetForLock()
           onForgotten()
         }
+      case .settings:
+        SettingsView(
+          box: boxModel, chat: chatModel, preferences: preferences,
+          onPermissions: { select(.permissions) },
+          onLock: { chatModel.resetForLock(); onLock() },
+          onForgotten: { chatModel.resetForLock(); onForgotten() }
+        )
+      case .permissions:
+        PermissionsView(model: permissionsModel)
       case .glossary:
         GlossaryView()
       case .about:
@@ -310,7 +333,7 @@ struct AppShellView: View {
   }
 
   private func setDrawer(open: Bool) {
-    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+    withAnimation((reduceMotion || preferences.reduceMotion) ? nil : .easeOut(duration: 0.2)) {
       drawerOpen = open
     }
   }

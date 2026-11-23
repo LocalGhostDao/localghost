@@ -45,6 +45,7 @@ struct ChatView: View {
   }
 
   @Environment(GhostTheme.self) private var theme
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var draft = ""
   @State private var notice: Notice?
   @State private var followTail = true
@@ -130,7 +131,7 @@ struct ChatView: View {
         if !followTail, !model.messages.isEmpty {
           Button {
             followTail = true
-            withAnimation(.easeOut(duration: 0.18)) {
+            withAnimation((reduceMotion || theme.preferences.reduceMotion) ? nil : .easeOut(duration: 0.18)) {
               proxy.scrollTo("chat-tail", anchor: .bottom)
             }
           } label: {

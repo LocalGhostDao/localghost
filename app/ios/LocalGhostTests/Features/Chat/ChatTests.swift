@@ -96,6 +96,25 @@ struct ChatSourceURLTests {
 @MainActor
 struct ChatAnswerLengthTests {
   @Test
+  func settingsDefaultsArePersistedAndUsedByTheNextQuestion() async throws {
+    let suite = "localghost-chat-settings-tests-\(UUID().uuidString)"
+    let preferences = try #require(UserDefaults(suiteName: suite))
+    defer { preferences.removePersistentDomain(forName: suite) }
+    let client = RequestRecordingChatClient()
+    let model = ChatModel(client: { client }, preferences: preferences)
+    #expect(model.thinking == .direct)
+    model.setThinking(.deep)
+    model.setAnswerLength(.short)
+    #expect(model.send("what should I focus on?"))
+    let request = await client.waitForRequest()
+    #expect(request.think == "deep")
+    #expect(request.length == "short")
+    let restored = ChatModel(client: { client }, preferences: preferences)
+    #expect(restored.thinking == .deep)
+    #expect(restored.answerLength == .short)
+  }
+
+  @Test
   func answerLengthCyclesPersistsAndRidesTheRequest() async throws {
     let suite = "localghost-chat-length-tests-\(UUID().uuidString)"
     let preferences = try #require(UserDefaults(suiteName: suite))
@@ -358,7 +377,16 @@ private nonisolated final class BlockingMessagesClient: EmptyChatClient, @unchec
 
 private actor ChatRequestRecorder {
   private var value: ChatRequest?
-  func set(_ request: ChatRequest) { value = request }
+  private var waiters: [CheckedContinuation<ChatRequest, Never>] = []
+  func set(_ request: ChatRequest) {
+    value = request
+    waiters.forEach { $0.resume(returning: request) }
+    waiters.removeAll()
+  }
+  func wait() async -> ChatRequest {
+    if let value { return value }
+    return await withCheckedContinuation { waiters.append($0) }
+  }
   func get() -> ChatRequest? { value }
 }
 
@@ -376,6 +404,7 @@ private nonisolated final class RequestRecordingChatClient: EmptyChatClient, @un
   }
 
   func requested() async -> ChatRequest? { await recorder.get() }
+  func waitForRequest() async -> ChatRequest { await recorder.wait() }
 }
 
 private nonisolated final class StoppableChatClient: EmptyChatClient, @unchecked Sendable {

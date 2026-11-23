@@ -291,6 +291,23 @@ final class BoxModel {
     }
   }
 
+  func settingsSnapshot() throws -> BoxSettingsSnapshot {
+    guard let credentials = try credentialStore.load() else { throw BoxChannelError.notEnrolled }
+    return BoxSettingsSnapshot(credentials: credentials, session: sessions.load())
+  }
+
+  /// A 200 response can still mean unmounting failed. Keep the local session in that case.
+  /// A response to an old session must never lock a later unlock on this phone.
+  @discardableResult
+  func lockBox() async throws -> Bool {
+    let generation = sessionGeneration
+    let answer = try await authenticatedClient().lockBox()
+    guard generation == sessionGeneration else { return false }
+    guard answer.locked else { throw SettingsError.lockRefused(answer.error) }
+    lock()
+    return true
+  }
+
   /// Leave the signed-in shell and discard its bearer. Until biometric app locking exists on
   /// iOS, returning to the box PIN is the only lock boundary that does not pretend to secure it.
   func lock() {
@@ -484,7 +501,7 @@ struct KeyRenewalAbandoned: Error {}
 typealias BoxConnect = @MainActor (EnrolmentCredentials, String, String?) throws -> any BoxCalls
 
 /// What the signed-in screens ask of the box: the chat's calls and Home's.
-typealias SignedInCalls = ChatCalling & HomeServing
+typealias SignedInCalls = ChatCalling & HomeServing & SettingsServing
 
 /// Makes the signed-in channel: the credentials, the key's tag, the session's bearer, and what to
 /// call when the box refuses a call (the tests give their own).

@@ -5,6 +5,12 @@ import UIKit
 @MainActor
 @Observable
 final class GhostTheme {
+  let preferences: AppPreferences
+
+  init(preferences: AppPreferences = AppPreferences()) {
+    self.preferences = preferences
+  }
+
   let background = Color(red: 17 / 255, green: 17 / 255, blue: 17 / 255)
   let surface = Color(red: 26 / 255, green: 26 / 255, blue: 26 / 255)
   let accent = Color(red: 51 / 255, green: 1, blue: 0)
@@ -49,6 +55,7 @@ struct TerminalSectionLabel: View {
 
 struct GhostButton: View {
   let title: String
+  var wrapsTitle = false
   let action: () -> Void
 
   var body: some View {
@@ -56,12 +63,13 @@ struct GhostButton: View {
       Text("[ \(title.uppercased()) ]")
         .frame(maxWidth: .infinity)
     }
-    .buttonStyle(GhostButtonStyle())
+    .buttonStyle(GhostButtonStyle(wrapsTitle: wrapsTitle))
     .accessibilityLabel(title)
   }
 }
 
 private struct GhostButtonStyle: ButtonStyle {
+  var wrapsTitle = false
   @Environment(GhostTheme.self) private var theme
   @Environment(\.isEnabled) private var isEnabled
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -69,10 +77,12 @@ private struct GhostButtonStyle: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
     configuration.label
       .font(theme.font(.body))
-      .lineLimit(1)
-      .minimumScaleFactor(0.72)
+      .lineLimit(wrapsTitle ? nil : 1)
+      .minimumScaleFactor(wrapsTitle ? 1 : 0.72)
+      .multilineTextAlignment(.center)
       .foregroundStyle(isEnabled ? theme.accent : theme.border)
       .padding(.horizontal, 10)
+      .padding(.vertical, wrapsTitle ? 12 : 0)
       .frame(minHeight: 54)
       .background(configuration.isPressed && isEnabled ? theme.surface : theme.background)
       .overlay {
@@ -80,9 +90,9 @@ private struct GhostButtonStyle: ButtonStyle {
           .stroke(isEnabled ? theme.accent : theme.border, lineWidth: 1)
       }
       .contentShape(Rectangle())
-      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+      .scaleEffect(configuration.isPressed && !(reduceMotion || theme.preferences.reduceMotion) ? 0.985 : 1)
       .animation(
-        reduceMotion ? nil : .easeOut(duration: 0.12),
+        (reduceMotion || theme.preferences.reduceMotion) ? nil : .easeOut(duration: 0.12),
         value: configuration.isPressed
       )
   }

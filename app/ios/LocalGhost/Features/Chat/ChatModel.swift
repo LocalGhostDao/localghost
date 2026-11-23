@@ -35,6 +35,20 @@ nonisolated enum ChatAnswerLength: String, CaseIterable, Sendable, Equatable {
   }
 }
 
+nonisolated enum ChatThinking: String, CaseIterable, Sendable {
+  case direct = ""
+  case brief
+  case deep
+
+  var label: String {
+    switch self {
+    case .direct: "Direct"
+    case .brief: "Brief"
+    case .deep: "Deep"
+    }
+  }
+}
+
 nonisolated struct ChatMessage: Identifiable, Sendable, Equatable {
   let id: String
   let serverID: Int64?
@@ -89,6 +103,7 @@ final class ChatModel {
   private(set) var lastTouchedAt: Date?
   private(set) var tailRevision = 0
   private(set) var incognito = false
+  private(set) var thinking: ChatThinking
   private(set) var answerLength: ChatAnswerLength
   private(set) var conversationErrorMessage: String?
 
@@ -116,6 +131,7 @@ final class ChatModel {
   ) {
     makeClient = client
     self.preferences = preferences
+    thinking = ChatThinking(rawValue: preferences.string(forKey: "chat.thinking") ?? "") ?? .direct
     answerLength = ChatAnswerLength(
       rawValue: preferences.string(forKey: Self.answerLengthKey) ?? ""
     ) ?? .medium
@@ -278,8 +294,17 @@ final class ChatModel {
   }
 
   func cycleAnswerLength() {
-    answerLength = answerLength.next
-    preferences.set(answerLength.rawValue, forKey: Self.answerLengthKey)
+    setAnswerLength(answerLength.next)
+  }
+
+  func setAnswerLength(_ value: ChatAnswerLength) {
+    answerLength = value
+    preferences.set(value.rawValue, forKey: Self.answerLengthKey)
+  }
+
+  func setThinking(_ value: ChatThinking) {
+    thinking = value
+    preferences.set(value.rawValue, forKey: "chat.thinking")
   }
 
   @discardableResult
@@ -306,7 +331,7 @@ final class ChatModel {
     let answerID = answer.id
     let request = ChatRequest(
       prompt: prompt,
-      think: "",
+      think: thinking.rawValue,
       incognito: incognito,
       chatId: incognito ? 0 : activeChatID ?? 0,
       history: prior,

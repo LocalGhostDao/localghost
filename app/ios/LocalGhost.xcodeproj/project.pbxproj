@@ -34,6 +34,13 @@
 		A20000000000000000000019 /* AboutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000001B /* AboutView.swift */; };
 		A2000000000000000000001A /* GlossaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000001C /* GlossaryView.swift */; };
 		A2000000000000000000001B /* StaticContentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3000000000000000000001D /* StaticContentTests.swift */; };
+		EB66F1CE192742A0B1CA8E27 /* AppPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9D8E881B9A34D2FA40AE6A1 /* AppPreferences.swift */; };
+		F9B1FC6DAA734D15B4191CEC /* SettingsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D92176E598F4AA1BCEFF6C7 /* SettingsAPI.swift */; };
+		413352675A4C4907A4E57609 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BC279391FB4428D939FD25E /* SettingsView.swift */; };
+		B61307B2EADC422EAF60C911 /* PermissionsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B027C1E36DE040D78CE6EEE4 /* PermissionsModel.swift */; };
+		F79F6DB0FAE24A4EA057ED93 /* PermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61B5C5C4AB644C999C6FC818 /* PermissionsView.swift */; };
+		816B642615414832B3BC6940 /* SettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9A5353D80694B328B0180CC /* SettingsTests.swift */; };
+		F769EDD9E6C0400BA369C6D3 /* PermissionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A1EBB32D37544E3B47D7615 /* PermissionsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +83,13 @@
 		A3000000000000000000001B /* AboutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutView.swift; sourceTree = "<group>"; };
 		A3000000000000000000001C /* GlossaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlossaryView.swift; sourceTree = "<group>"; };
 		A3000000000000000000001D /* StaticContentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StaticContentTests.swift; sourceTree = "<group>"; };
+		D9D8E881B9A34D2FA40AE6A1 /* AppPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppPreferences.swift; sourceTree = "<group>"; };
+		7D92176E598F4AA1BCEFF6C7 /* SettingsAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsAPI.swift; sourceTree = "<group>"; };
+		1BC279391FB4428D939FD25E /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		B027C1E36DE040D78CE6EEE4 /* PermissionsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsModel.swift; sourceTree = "<group>"; };
+		61B5C5C4AB644C999C6FC818 /* PermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsView.swift; sourceTree = "<group>"; };
+		F9A5353D80694B328B0180CC /* SettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTests.swift; sourceTree = "<group>"; };
+		2A1EBB32D37544E3B47D7615 /* PermissionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -182,6 +196,8 @@
 		B70000000000000000000006 /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				30E0CB005F294ECCACD02C10 /* Permissions */,
+				F459D84077434ACF8B1DBA09 /* Settings */,
 				B70000000000000000000011 /* About */,
 				B70000000000000000000007 /* Box */,
 				B7000000000000000000000D /* Chat */,
@@ -258,6 +274,8 @@
 		B7000000000000000000000A /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				841EF5E4F85E4A2683906AF3 /* Permissions */,
+				F36752138C2E44E49F7DE75C /* Settings */,
 				B7000000000000000000000B /* Box */,
 				B7000000000000000000000F /* Chat */,
 				B7000000000000000000000C /* Enrolment */,
@@ -305,6 +323,41 @@
 				A3000000000000000000001D /* StaticContentTests.swift */,
 			);
 			path = StaticContent;
+			sourceTree = "<group>";
+		};
+		F459D84077434ACF8B1DBA09 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				D9D8E881B9A34D2FA40AE6A1 /* AppPreferences.swift */,
+				7D92176E598F4AA1BCEFF6C7 /* SettingsAPI.swift */,
+				1BC279391FB4428D939FD25E /* SettingsView.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		30E0CB005F294ECCACD02C10 /* Permissions */ = {
+			isa = PBXGroup;
+			children = (
+				B027C1E36DE040D78CE6EEE4 /* PermissionsModel.swift */,
+				61B5C5C4AB644C999C6FC818 /* PermissionsView.swift */,
+			);
+			path = Permissions;
+			sourceTree = "<group>";
+		};
+		F36752138C2E44E49F7DE75C /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				F9A5353D80694B328B0180CC /* SettingsTests.swift */,
+			);
+			path = Settings;
+			sourceTree = "<group>";
+		};
+		841EF5E4F85E4A2683906AF3 /* Permissions */ = {
+			isa = PBXGroup;
+			children = (
+				2A1EBB32D37544E3B47D7615 /* PermissionsTests.swift */,
+			);
+			path = Permissions;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -405,6 +458,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F79F6DB0FAE24A4EA057ED93 /* PermissionsView.swift in Sources */,
+				B61307B2EADC422EAF60C911 /* PermissionsModel.swift in Sources */,
+				413352675A4C4907A4E57609 /* SettingsView.swift in Sources */,
+				F9B1FC6DAA734D15B4191CEC /* SettingsAPI.swift in Sources */,
+				EB66F1CE192742A0B1CA8E27 /* AppPreferences.swift in Sources */,
 				A20000000000000000000001 /* LocalGhostApp.swift in Sources */,
 				A20000000000000000000002 /* RootView.swift in Sources */,
 				A2000000000000000000000E /* AppShellView.swift in Sources */,
@@ -433,6 +491,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F769EDD9E6C0400BA369C6D3 /* PermissionsTests.swift in Sources */,
+				816B642615414832B3BC6940 /* SettingsTests.swift in Sources */,
 				A20000000000000000000003 /* AppPhaseTests.swift in Sources */,
 				A20000000000000000000007 /* EnrolmentTests.swift in Sources */,
 				A2000000000000000000000D /* BoxTests.swift in Sources */,

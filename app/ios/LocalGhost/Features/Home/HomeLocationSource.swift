@@ -1,57 +1,100 @@
 @preconcurrency import CoreLocation
 import Observation
 
-/// Keeps only the latest coarse fix in memory. Home sends it to the paired box when asking for
-/// weather; it is not written to the public Home cache.
+/// Keeps only the latest coarse fix in memory. Home sends it only to the paired box for weather.
+/// Initialising the manager or viewing Permissions must never start collection or show a prompt.
 @MainActor
 @Observable
 final class HomeLocationSource: NSObject, CLLocationManagerDelegate {
   private(set) var latest: HomeLocation?
+  private(set) var authorizationStatus: CLAuthorizationStatus = .notDetermined
+  private(set) var accuracyAuthorization: CLAccuracyAuthorization = .reducedAccuracy
 
   @ObservationIgnored private let manager = CLLocationManager()
+  @ObservationIgnored private var enabled = true
+  @ObservationIgnored private var started = false
 
   override init() {
     super.init()
+    authorizationStatus = manager.authorizationStatus
+    accuracyAuthorization = manager.accuracyAuthorization
     manager.delegate = self
     manager.desiredAccuracy = kCLLocationAccuracyKilometer
   }
 
-  func start() {
-    switch manager.authorizationStatus {
-    case .notDetermined:
-      manager.requestWhenInUseAuthorization()
-    case .authorizedAlways, .authorizedWhenInUse:
-      manager.requestLocation()
-    case .denied, .restricted:
+  func setEnabled(_ value: Bool) {
+    enabled = value
+    if !value {
       latest = nil
-    @unknown default:
-      latest = nil
+      manager.stopUpdatingLocation()
+    } else if started {
+      start()
     }
   }
 
-  /// Refresh opportunistically for the next Home poll and return the last authorised fix now.
-  func latestAndRefresh() -> HomeLocation? {
-    if manager.authorizationStatus == .authorizedAlways
-      || manager.authorizationStatus == .authorizedWhenInUse
-    {
-      manager.requestLocation()
+  func start() {
+    started = true
+    guard enabled else { return }
+    updateAuthorization()
+    if authorizationStatus == .notDetermined {
+      requestPermission()
+    } else {
+      requestFixIfAllowed()
     }
+  }
+
+  func requestPermission() {
+    if manager.authorizationStatus == .notDetermined {
+      manager.requestWhenInUseAuthorization()
+    }
+  }
+
+  func latestAndRefresh() -> HomeLocation? {
+    updateAuthorization()
+    guard enabled, started, authorised else {
+      latest = nil
+      return nil
+    }
+    manager.requestLocation()
     return latest
   }
 
+  private var authorised: Bool {
+    authorizationStatus == .authorizedAlways || authorizationStatus == .authorizedWhenInUse
+  }
+
+  private func updateAuthorization() {
+    authorizationStatus = manager.authorizationStatus
+    accuracyAuthorization = manager.accuracyAuthorization
+    if !authorised { latest = nil }
+  }
+
+  private func requestFixIfAllowed() {
+    guard enabled, started, authorised else { return }
+    manager.requestLocation()
+  }
+
   func locationManagerDidChangeAuthorization(_: CLLocationManager) {
-    start()
+    updateAuthorization()
+    requestFixIfAllowed()
   }
 
   func locationManager(_: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-    guard let location = locations.last, location.horizontalAccuracy >= 0 else { return }
-    latest = HomeLocation(
-      latitude: location.coordinate.latitude,
-      longitude: location.coordinate.longitude
+    updateAuthorization()
+    guard enabled, started, authorised,
+          let location = locations.last, location.horizontalAccuracy >= 0 else { return }
+    latest = Self.coarseLocation(location.coordinate)
+  }
+
+  /// desiredAccuracy is only a hint; do not retain a more precise fix if iOS supplies one.
+  nonisolated static func coarseLocation(_ coordinate: CLLocationCoordinate2D) -> HomeLocation {
+    HomeLocation(
+      latitude: (coordinate.latitude * 100).rounded() / 100,
+      longitude: (coordinate.longitude * 100).rounded() / 100
     )
   }
 
   func locationManager(_: CLLocationManager, didFailWithError _: Error) {
-    // Home keeps its last truthful forecast; the next minute poll asks for a fix again.
+    // Keep the last truthful forecast; the next Home poll tries for another fix.
   }
 }
