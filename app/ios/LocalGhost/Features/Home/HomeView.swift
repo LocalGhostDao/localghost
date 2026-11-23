@@ -454,6 +454,7 @@ struct HomeView: View {
 }
 
 private struct HomeTickingPrice: View {
+  @Environment(GhostTheme.self) private var theme
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   let text: String
@@ -473,7 +474,7 @@ private struct HomeTickingPrice: View {
         .font(font)
         .foregroundStyle(pulse ? movementColour : colour)
         .contentTransition(.numericText(value: value))
-        .animation(reduceMotion ? nil : .smooth(duration: 0.42), value: value)
+        .animation((reduceMotion || theme.preferences.reduceMotion) ? nil : .smooth(duration: 0.42), value: value)
 
       Text(direction >= 0 ? "▲" : "▼")
         .font(.system(size: 10, weight: .regular, design: .monospaced))
@@ -484,13 +485,13 @@ private struct HomeTickingPrice: View {
       guard oldValue > 0, newValue > 0, oldValue != newValue else { return }
       direction = newValue > oldValue ? 1 : -1
       revision &+= 1
-      withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) { pulse = true }
+      withAnimation((reduceMotion || theme.preferences.reduceMotion) ? nil : .easeOut(duration: 0.12)) { pulse = true }
     }
     .task(id: revision) {
       guard revision > 0 else { return }
       try? await Task.sleep(for: .seconds(2))
       guard !Task.isCancelled else { return }
-      withAnimation(reduceMotion ? nil : .easeOut(duration: 0.4)) { pulse = false }
+      withAnimation((reduceMotion || theme.preferences.reduceMotion) ? nil : .easeOut(duration: 0.4)) { pulse = false }
     }
   }
 

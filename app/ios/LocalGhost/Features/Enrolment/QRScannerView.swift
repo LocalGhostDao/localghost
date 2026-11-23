@@ -149,7 +149,7 @@ private struct ScannerReticle: View {
   private let scanTickDegreesPerSecond = 3.2 / 0.060
 
   var body: some View {
-    TimelineView(.animation(minimumInterval: 0.060, paused: reduceMotion)) { timeline in
+    TimelineView(.animation(minimumInterval: 0.060, paused: reduceMotion || theme.preferences.reduceMotion)) { timeline in
       ZStack {
         ForEach(0..<4, id: \.self) { index in
           Circle()
@@ -182,7 +182,7 @@ private struct ScannerReticle: View {
   }
 
   private func scanTickOffset(at date: Date) -> CGSize {
-    guard !reduceMotion else { return CGSize(width: 0, height: scanTickRadius) }
+    guard !(reduceMotion || theme.preferences.reduceMotion) else { return CGSize(width: 0, height: scanTickRadius) }
 
     let elapsed = max(0, date.timeIntervalSince(animationStartedAt))
     let angle = (-90 + elapsed * scanTickDegreesPerSecond) * .pi / 180

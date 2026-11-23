@@ -30,6 +30,7 @@ final class HomeModel {
   @ObservationIgnored private let clockEvery: Duration
   @ObservationIgnored private let feedRefresher: any HomeFeedRefreshing
   @ObservationIgnored private let feedSettleDelay: Duration
+  @ObservationIgnored private let feedsEnabled: @MainActor () -> Bool
   @ObservationIgnored private var loadedCache = false
   @ObservationIgnored private var refreshingFast = false
   @ObservationIgnored private var refreshAgain = false
@@ -45,7 +46,8 @@ final class HomeModel {
     fastEvery: Duration = .seconds(5),
     clockEvery: Duration = .seconds(1),
     feedRefresher: any HomeFeedRefreshing = HomeFeedRefresher(),
-    feedSettleDelay: Duration = .seconds(35)
+    feedSettleDelay: Duration = .seconds(35),
+    feedsEnabled: @escaping @MainActor () -> Bool = { true }
   ) {
     clientProvider = client
     locationProvider = location
@@ -57,6 +59,7 @@ final class HomeModel {
     self.clockEvery = clockEvery
     self.feedRefresher = feedRefresher
     self.feedSettleDelay = feedSettleDelay
+    self.feedsEnabled = feedsEnabled
   }
 
   /// Runs for exactly as long as the view's `.task` does. Cancellation stops all three cadences.
@@ -234,12 +237,19 @@ final class HomeModel {
     }
   }
 
+  func cancelFeedRefresh() {
+    feedTask?.cancel()
+    feedTask = nil
+    fetchingFeeds = false
+    feedMessage = nil
+  }
+
   private func startFeedRefresh() {
-    guard !fetchingFeeds else { return }
+    guard feedsEnabled(), !fetchingFeeds else { return }
     fetchingFeeds = true
     feedMessage = nil
     feedTask = Task { [weak self] in
-      guard let self else { return }
+      guard let self, !Task.isCancelled, self.feedsEnabled() else { return }
       let client: any HomeServing
       do {
         client = try self.clientProvider()

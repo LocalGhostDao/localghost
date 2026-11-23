@@ -55,6 +55,21 @@ two differ, Android's behaviour and the box's code (`server/internal/secd`) are 
   A link in an answer is text; a source opens only as http or https. A copied answer stays on
   this device and expires in ten minutes. No web search, attachments or voice yet.
 - **Box status.** `GET /v1/status`: the daemons and the datastores.
+- **Settings** (`Features/Settings`). This device's enrolment address, box fingerprint, session
+  deadline and device-key state (certificate expiry on iOS 18+); weather location (coordinates
+  rounded to two decimal places before retention or sending), public feed
+  fetching, chat answer length and thinking, reduced motion. These phone preferences take effect
+  in the existing feature paths and persist across launches. Local app lock drops this phone's
+  session. Confirmed `POST /v1/lock` also shuts down the box: `locked: false`, even with HTTP 200,
+  preserves the session and reports failure. Forgetting requires confirmation and awaits cache
+  invalidation before returning to setup. No session token or private key is displayed.
+- **Permissions** (`Features/Permissions`). Camera and foreground location states, including
+  denied, restricted and approximate access, with per-permission actions and app-settings recovery.
+  Merely opening this screen requests nothing. State is re-read when the app becomes active.
+  Local Network links to system settings and reports "Managed by iOS":
+  [Apple exposes no general query for that grant](https://developer.apple.com/documentation/technotes/tn3179-understanding-local-network-privacy).
+  Photos, microphone, Health, contacts, calendar and notification access are not requested until
+  their features exist. No background trail or sync is claimed.
 - **About and the Glossary.** The Android app's words.
 - **Forget this box.** Deletes the device key, its certificate and the session from this iPhone,
   and what the signed-in screens kept outside the Keychain: Home's cache and the chat last
@@ -68,7 +83,7 @@ two differ, Android's behaviour and the box's code (`server/internal/secd`) are 
   install deletes whatever an earlier install left there (`InstallMark`).
 
 Not built yet: the gallery, the map, memories, mail, health, check-in, phrases, sync, the box's
-other screens, settings, notifications, uploads, the chat's web search. None of it has been
+other screens, notifications, uploads, the chat's web search. None of it has been
 tried against a box.
 
 ## Where things are
@@ -88,7 +103,9 @@ LocalGhost/
     ├── Chat/             the chat and the saved conversations
     ├── Enrolment/        the QR link, the scanner, the setup screen
     ├── Glossary/         every word, plain and technical
-    └── Home/             Home, its cache, the position for the weather
+    ├── Home/             Home, its cache, the position for the weather
+    ├── Permissions/      OS access state, rationale and system-settings recovery
+    └── Settings/         phone preferences, enrolment state and confirmed session controls
 LocalGhostTests/          the same folders, a test file beside each feature
 ```
 

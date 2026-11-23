@@ -889,7 +889,9 @@ nonisolated final class TestClock: @unchecked Sendable {
 }
 
 /// A signed-in channel that answers nothing: the model's tests count the channels, not the calls.
-private nonisolated final class QuietChannel: ChatCalling, HomeServing, @unchecked Sendable {
+private nonisolated final class QuietChannel: ChatCalling, HomeServing, SettingsServing, @unchecked Sendable {
+  func lockBox() async throws -> BoxLockAnswer { BoxLockAnswer(locked: true, error: nil) }
+
   func streamChat(_: ChatRequest) -> AsyncThrowingStream<ChatEvent, Error> {
     AsyncThrowingStream { $0.finish() }
   }

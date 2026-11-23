@@ -433,6 +433,23 @@ struct HomeModelRefreshTests {
   }
 
   @Test
+  func turningOffPublicFetchStillReadsTheBoxButNeverStartsAFeedFetch() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("localghost-feed-policy-tests-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let client = StaleNewsHomeClient()
+    let recorder = FeedRefreshRecorder()
+    let model = HomeModel(
+      client: { client }, cache: HomeCache(fileURL: directory.appendingPathComponent("home.json")),
+      feedRefresher: CountingFeedRefresher(recorder: recorder), feedsEnabled: { false }
+    )
+    await model.refreshFromGesture()
+    #expect(model.news != nil)
+    #expect(!model.fetchingFeeds)
+    #expect(await recorder.get() == 0)
+  }
+
+  @Test
   func staleNewsStartsTheForcedFeedLaneWithoutBlockingTheRefreshGesture() async throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("localghost-home-feed-tests-\(UUID().uuidString)", isDirectory: true)
